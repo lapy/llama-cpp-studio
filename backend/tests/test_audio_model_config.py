@@ -1,0 +1,1015 @@
+"""Typed, inspected audio.cpp model configuration validation."""
+
+import pytest
+
+from backend.audio.model_config import (
+    sanitize_audio_engine_section,
+    selectable_package_assets,
+    validate_audio_model_config,
+)
+from backend.models.config import normalize_model_config
+
+
+def _profile(model_root, family="demo_tts"):
+    return {
+        "fingerprint": "profile-1",
+        "inspection": {
+            "family": family,
+            "tasks": [
+                {"task": "tts", "modes": ["offline", "streaming"]},
+                {"task": "asr", "modes": ["offline"]},
+            ],
+            "configs": [{"id": "main", "path": str(model_root / "config.json")}],
+            "weights": [{"id": "default", "path": str(model_root / "model.safetensors")}],
+            "capabilities": {"streaming": True},
+        },
+        "sections": [
+            {
+                "params": [
+                    {
+                        "key": "temperature",
+                        "scope": "session_option",
+                        "type": "float",
+                        "minimum": 0.0,
+                        "maximum": 2.0,
+                    },
+                    {
+                        "key": "language",
+                        "scope": "load_option",
+                        "type": "select",
+                        "options": [
+                            {"value": "en", "label": "English"},
+                            {"value": "fr", "label": "French"},
+                        ],
+                    },
+                ]
+            }
+        ],
+    }
+
+
+class _Store:
+    def __init__(self, active):
+        self.active = active
+
+    def get_active_engine_version(self, engine):
+        assert engine == "audio_cpp"
+        return self.active
+
+
+def _model(model_root):
+    return {
+        "id": "audio-cpp--demo",
+        "family": "demo_tts",
+        "tasks": ["tts", "asr"],
+        "compatible_engines": ["audio_cpp"],
+        "artifact": {
+            "package_kind": "prepared_bundle",
+            "path": str(model_root),
+        },
+    }
+
+
+def _config(**updates):
+    audio = {
+        "family": "demo_tts",
+        "task": "tts",
+        "mode": "streaming",
+        "backend": "cuda",
+        "device": 0,
+        "threads": 4,
+        "config": "main",
+        "weight": "default",
+        "load_options": {"language": "en"},
+        "session_options": {"temperature": 0.8},
+    }
+    audio.update(updates)
+    return normalize_model_config(
+        {"engine": "audio_cpp", "engines": {"audio_cpp": audio}}
+    )
+
+
+def test_sanitize_audio_engine_section_drops_documentation_metavars():
+    cleaned = sanitize_audio_engine_section(
+        {
+            "family": "omnivoice",
+            "task": "tts",
+            "log": True,
+            "key=value": True,
+            "device": 0,
+        }
+    )
+    assert cleaned == {
+        "family": "omnivoice",
+        "task": "tts",
+        "log": True,
+        "device": 0,
+    }
+
+
+def test_validates_audio_identity_assets_backend_and_nested_options(
+    tmp_path, monkeypatch
+):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: _profile(model_root),
+    )
+
+    result = validate_audio_model_config(
+        _Store(active), _model(model_root), _config()
+    )
+
+    assert result["errors"] == []
+    assert result["profile_fingerprint"] == "profile-1"
+    assert result["inspection"]["capabilities"]["streaming"] is True
+
+
+def test_save_forces_ui_off_when_active_build_does_not_enable_it(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {"version": "v1", "server_binary_path": "/server", "cli_binary_path": "/cli", "build_config": {"backend": "cuda"}}
+    monkeypatch.setattr("backend.audio.model_config.scan_audio_cpp_model_profile", lambda *a, **k: _profile(model_root))
+    config = _config(ui=True, ui_management=True)
+    validate_audio_model_config(_Store(active), _model(model_root), config)
+    assert config["engines"]["audio_cpp"]["ui"] is False
+    assert config["engines"]["audio_cpp"]["ui_management"] is False
+
+
+def test_coerces_numeric_string_device_and_threads(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: _profile(model_root),
+    )
+    normalized = _config(device="0", threads="4")
+
+    result = validate_audio_model_config(
+        _Store(active), _model(model_root), normalized
+    )
+
+    assert result["errors"] == []
+    effective = normalized["engines"]["audio_cpp"]
+    assert effective["device"] == 0
+    assert effective["threads"] == 4
+
+
+def test_coerces_string_session_duration_to_float(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    profile = _profile(model_root)
+    profile["sections"][0]["params"].append(
+        {
+            "key": "echo_tts.reference_duration_sec",
+            "scope": "session_option",
+            "type": "float",
+        }
+    )
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: profile,
+    )
+    normalized = _config(
+        session_options={
+            "temperature": 0.8,
+            "echo_tts.reference_duration_sec": "15",
+        }
+    )
+
+    result = validate_audio_model_config(
+        _Store(active), _model(model_root), normalized
+    )
+
+    assert result["errors"] == []
+    stored = normalized["engines"]["audio_cpp"]["session_options"]
+    assert stored["echo_tts.reference_duration_sec"] == 15.0
+    assert isinstance(stored["echo_tts.reference_duration_sec"], float)
+
+
+@pytest.mark.parametrize(
+    ("updates", "message"),
+    [
+        ({"family": "wrong"}, "does not match inspected family"),
+        ({"task": "vad"}, "is not exposed by this package"),
+        ({"task": "asr", "mode": "streaming"}, "is not supported for task"),
+        ({"backend": "vulkan"}, "unavailable in the active cuda"),
+        (
+            {"session_options": {"temperature": 3.0}},
+            "temperature must be at most 2.0",
+        ),
+        (
+            {"load_options": {"language": "xx"}},
+            "language has unsupported value",
+        ),
+        (
+            {"custom_args": "--port 9999"},
+            "--port is Studio-owned",
+        ),
+        (
+            {"custom_args": "--backend cuda"},
+            "--backend is Studio-owned",
+        ),
+        (
+            {"custom_args": ["--log"]},
+            "custom_args must be string",
+        ),
+        (
+            {"device": "gpu"},
+            "device must be int",
+        ),
+        (
+            {"threads": 0},
+            "threads must be at least 1",
+        ),
+        (
+            {"lazy_load": "yes"},
+            "lazy_load must be bool",
+        ),
+        (
+            {"model_lazy": 1},
+            "model_lazy must be bool",
+        ),
+        (
+            {"family": ["demo_tts"]},
+            "family must be string",
+        ),
+        (
+            {"task": ["tts"]},
+            "task must be string",
+        ),
+        (
+            {"mode": ["offline"]},
+            "mode must be string",
+        ),
+        (
+            {"backend": 1},
+            "backend must be string",
+        ),
+        (
+            {"backend": False},
+            "backend must be string",
+        ),
+        (
+            {"request_options": {"seed": 7}},
+            "request_options are request-time capabilities",
+        ),
+        (
+            {"speech_defaults": "not-an-object"},
+            "speech_defaults must be an object",
+        ),
+        (
+            {"task": "asr", "transcription_defaults": []},
+            "transcription_defaults must be an object",
+        ),
+        (
+            {"task": "gen", "family": "ace_step", "task_defaults": "bad"},
+            "task_defaults must be an object",
+        ),
+    ],
+)
+def test_rejects_incompatible_audio_configuration(
+    tmp_path, monkeypatch, updates, message
+):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: _profile(model_root),
+    )
+
+    with pytest.raises(ValueError, match=message):
+        validate_audio_model_config(
+            _Store(active), _model(model_root), _config(**updates)
+        )
+
+
+def test_rejects_invalid_voice_presets(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: _profile(model_root),
+    )
+
+    with pytest.raises(ValueError, match="default_voice_preset 'missing'"):
+        validate_audio_model_config(
+            _Store(active),
+            _model(model_root),
+            _config(
+                voice_presets={"assistant": {"voice_id": "M1"}},
+                default_voice_preset="missing",
+            ),
+        )
+
+
+def _pocket_tts_env(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: _profile(model_root, family="pocket_tts"),
+    )
+    model = _model(model_root)
+    model["family"] = "pocket_tts"
+    return _Store(active), model
+
+
+def test_does_not_require_a_session_voice_without_a_model_spec(tmp_path, monkeypatch):
+    store, model = _pocket_tts_env(tmp_path, monkeypatch)
+    result = validate_audio_model_config(store, model, _config(family="pocket_tts"))
+    assert result["errors"] == []
+
+
+def test_seeds_session_voice_from_spec_default(tmp_path, monkeypatch):
+    store, model = _pocket_tts_env(tmp_path, monkeypatch)
+    source = tmp_path / "src"
+    (source / "model_specs").mkdir(parents=True)
+    (source / "model_specs" / "pocket_tts.json").write_text(
+        '{"family":"pocket_tts","schema_version":1,"ui":{"default_voice":"alba","builtin_voices":["alba"]}}',
+        encoding="utf-8",
+    )
+    store.active["source_path"] = str(source)
+    embeddings = tmp_path / "model" / "embeddings"
+    embeddings.mkdir()
+    (embeddings / "cosette.safetensors").write_bytes(b"x")
+    (embeddings / "alba.safetensors").write_bytes(b"x")
+    normalized = _config(family="pocket_tts")
+    result = validate_audio_model_config(store, model, normalized)
+    assert result["errors"] == []
+    audio = normalized["engines"]["audio_cpp"]
+    assert audio["default_voice_preset"] == "alba"
+    assert audio["voice_presets"]["alba"]["voice_id"] == "alba"
+
+
+def test_accepts_pocket_tts_with_default_voice_id(tmp_path, monkeypatch):
+    store, model = _pocket_tts_env(tmp_path, monkeypatch)
+    result = validate_audio_model_config(
+        store,
+        model,
+        _config(
+            family="pocket_tts",
+            voice_presets={"alba": {"voice_id": "alba"}},
+            default_voice_preset="alba",
+        ),
+    )
+    assert result["errors"] == []
+
+
+def test_accepts_valid_speech_and_transcription_defaults(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    refs = model_root / "refs"
+    refs.mkdir()
+    (refs / "voice.wav").write_bytes(b"RIFF")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: _profile(model_root),
+    )
+
+    result = validate_audio_model_config(
+        _Store(active),
+        _model(model_root),
+        _config(
+            speech_defaults={
+                "voice": "assistant",
+                "voice_ref": "refs/voice.wav",
+                "temperature": 0.7,
+            },
+        ),
+    )
+    assert result["errors"] == []
+
+
+def test_rejects_invalid_speech_default_reference_audio(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    (tmp_path / "outside.wav").write_bytes(b"RIFF")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: _profile(model_root),
+    )
+
+    with pytest.raises(ValueError, match="speech_defaults.voice_ref does not exist"):
+        validate_audio_model_config(
+            _Store(active),
+            _model(model_root),
+            _config(speech_defaults={"voice_ref": "refs/missing.wav"}),
+        )
+
+    with pytest.raises(ValueError, match="speech_defaults.voice_ref escapes"):
+        validate_audio_model_config(
+            _Store(active),
+            _model(model_root),
+            _config(speech_defaults={"voice_ref": "../outside.wav"}),
+        )
+
+
+def test_accepts_transcription_defaults_for_asr_task(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    profile = _profile(model_root)
+    profile["inspection"]["family"] = "nemotron_asr"
+    profile["inspection"]["tasks"] = [{"task": "asr", "modes": ["offline"]}]
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: profile,
+    )
+
+    result = validate_audio_model_config(
+        _Store(active),
+        _model(model_root),
+        _config(
+            family="nemotron_asr",
+            task="asr",
+            mode="offline",
+            transcription_defaults={"language": "en"},
+        ),
+    )
+    assert result["errors"] == []
+
+
+def test_rejects_missing_model_directory(tmp_path, monkeypatch):
+    model_root = tmp_path / "missing"
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: _profile(model_root),
+    )
+
+    with pytest.raises(ValueError, match="model path does not exist"):
+        validate_audio_model_config(
+            _Store(active),
+            _model(model_root),
+            _config(),
+        )
+
+
+def test_rejects_no_runnable_active_engine(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: _profile(model_root),
+    )
+
+    with pytest.raises(ValueError, match="No runnable audio.cpp version"):
+        validate_audio_model_config(
+            _Store(None),
+            _model(model_root),
+            _config(),
+        )
+
+
+def test_rejects_incompatible_engines_list(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: _profile(model_root),
+    )
+    model = _model(model_root)
+    model["compatible_engines"] = ["llama_cpp"]
+
+    with pytest.raises(ValueError, match="not verified compatible with audio.cpp"):
+        validate_audio_model_config(_Store(active), model, _config())
+
+
+def test_allow_scan_false_inspects_when_cache_missing(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    scanned = []
+
+    def fake_scan(*_args, **_kwargs):
+        scanned.append(True)
+        return _profile(model_root)
+
+    monkeypatch.setattr(
+        "backend.audio.model_config.get_model_profile_entry",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        fake_scan,
+    )
+
+    result = validate_audio_model_config(
+        _Store(active),
+        _model(model_root),
+        _config(),
+        allow_scan=False,
+    )
+    assert scanned
+    assert result["errors"] == []
+
+
+def test_allow_scan_false_retries_stale_scan_error(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    calls = []
+
+    def fake_scan(*_args, **kwargs):
+        calls.append(kwargs.get("force"))
+        return _profile(model_root)
+
+    monkeypatch.setattr(
+        "backend.audio.model_config.get_model_profile_entry",
+        lambda *args, **kwargs: {"scan_error": "previous inspect failed"},
+    )
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        fake_scan,
+    )
+
+    result = validate_audio_model_config(
+        _Store(active),
+        _model(model_root),
+        _config(),
+        allow_scan=False,
+    )
+    assert calls == [True]
+    assert result["errors"] == []
+
+
+def test_scan_error_surfaces_in_validation(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: {
+            **_profile(model_root),
+            "scan_error": "model help failed",
+        },
+    )
+
+    with pytest.raises(ValueError, match="Model capability inspection failed"):
+        validate_audio_model_config(_Store(active), _model(model_root), _config())
+
+
+def test_rejects_load_options_not_object(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: _profile(model_root),
+    )
+
+    with pytest.raises(ValueError, match="load_options must be an object"):
+        validate_audio_model_config(
+            _Store(active),
+            _model(model_root),
+            _config(load_options="bad"),
+        )
+
+
+def test_skips_voice_preset_validation_for_asr_task(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    profile = _profile(model_root)
+    profile["inspection"]["family"] = "nemotron_asr"
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: profile,
+    )
+
+    result = validate_audio_model_config(
+        _Store(active),
+        _model(model_root),
+        _config(
+            family="nemotron_asr",
+            task="asr",
+            mode="offline",
+            default_voice_preset="missing",
+            voice_presets={"assistant": {"voice_id": "M1"}},
+        ),
+    )
+    assert result["errors"] == []
+
+
+def test_accepts_instructions_without_a_family_vocabulary(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    profile = _profile(model_root)
+    profile["inspection"]["family"] = "omnivoice"
+    profile["inspection"]["instructions_policy"] = "openai_instruct"
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: profile,
+    )
+
+    result = validate_audio_model_config(
+        _Store(active),
+        _model(model_root),
+        _config(
+            family="omnivoice",
+            speech_defaults={
+                "instructions": "female, calm, kind, motherly tone",
+            },
+        ),
+    )
+    assert result["errors"] == []
+
+
+def test_rejects_speech_defaults_on_vevo2_tts_task(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    profile = _profile(model_root)
+    profile["inspection"]["preferred_api_endpoint"] = "tasks"
+    profile["inspection"]["family"] = "vevo2"
+    profile["inspection"]["tasks"] = [
+        {"task": "tts", "modes": ["offline"]},
+        {"task": "vc", "modes": ["offline"]},
+    ]
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: profile,
+    )
+
+    with pytest.raises(ValueError, match="task_defaults"):
+        validate_audio_model_config(
+            _Store(active),
+            _model(model_root),
+            _config(
+                family="vevo2",
+                task="tts",
+                mode="offline",
+                speech_defaults={"text": "Hello"},
+            ),
+        )
+
+
+def test_rejects_voxcpm2_instructions_in_speech_defaults(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    profile = _profile(model_root)
+    profile["inspection"]["family"] = "voxcpm2"
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: profile,
+    )
+
+    with pytest.raises(ValueError, match="does not accept an instructions"):
+        validate_audio_model_config(
+            _Store(active),
+            _model(model_root),
+            _config(
+                family="voxcpm2",
+                speech_defaults={"instructions": "calm narrator"},
+            ),
+        )
+
+def test_save_path_rejects_speech_defaults_when_inspect_help_forces_tasks_run(
+    tmp_path, monkeypatch
+):
+    """Production validate_audio_model_config must pass inspection/profile into defaults validation."""
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text("{}", encoding="utf-8")
+    (model_root / "model.safetensors").write_bytes(b"weights")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+        "source_path": str(tmp_path / "audio-src"),
+    }
+    profile = _profile(model_root)
+    profile["inspection"]["preferred_api_endpoint"] = "tasks"
+    profile["inspection"]["family"] = "qwen3_tts"
+    profile["inspection"]["tasks"] = [
+        {"task": "tts", "modes": ["offline"]},
+        {"task": "vc", "modes": ["offline"]},
+    ]
+    profile["sections"] = [
+        *profile["sections"],
+        {
+            "params": [
+                {"name": "task-route", "key": "task_route", "scope": "request_option"},
+                {"name": "source-audio", "key": "source_audio", "scope": "request_option"},
+            ]
+        },
+    ]
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: profile,
+    )
+    model = _model(model_root)
+    model["family"] = "qwen3_tts"
+    model["tasks"] = ["tts", "vc"]
+
+    with pytest.raises(ValueError, match="task_defaults"):
+        validate_audio_model_config(
+            _Store(active),
+            model,
+            _config(
+                family="qwen3_tts",
+                task="tts",
+                speech_defaults={"temperature": 0.7},
+            ),
+        )
+
+
+def test_selectable_package_assets_drops_ephemeral_and_shared_gguf(tmp_path):
+    model_root = tmp_path / "pkg"
+    model_root.mkdir()
+    gguf = model_root / "model.gguf"
+    gguf.write_bytes(b"gguf")
+
+    assert (
+        selectable_package_assets(
+            str(model_root),
+            [
+                {
+                    "id": "text_encoder_config",
+                    "path": "/tmp/audiocpp-gguf/abc/config.json",
+                },
+                {"id": "dit", "path": str(gguf)},
+                {"id": "vae", "path": str(gguf)},
+            ],
+        )
+        == []
+    )
+
+    cfg = model_root / "config.json"
+    cfg.write_text("{}", encoding="utf-8")
+    selected = selectable_package_assets(
+        str(model_root),
+        [{"id": "main", "path": str(cfg)}],
+    )
+    assert len(selected) == 1
+    assert selected[0]["id"] == "main"
+
+
+def test_clears_stale_gguf_config_asset_on_apply(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    gguf = model_root / "model.gguf"
+    gguf.write_bytes(b"gguf")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    profile = {
+        "fingerprint": "ace-1",
+        "inspection": {
+            "family": "ace_step",
+            "tasks": [{"task": "gen", "modes": ["offline"]}],
+            "configs": [
+                {
+                    "id": "config",
+                    "path": "/tmp/audiocpp-gguf/dead/config.json",
+                }
+            ],
+            "weights": [
+                {"id": "dit", "path": str(gguf)},
+                {"id": "vae", "path": str(gguf)},
+            ],
+            "capabilities": {},
+        },
+        "sections": [{"params": []}],
+    }
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: profile,
+    )
+    model = {
+        "id": "audio-cpp--ace",
+        "family": "ace_step",
+        "tasks": ["gen"],
+        "compatible_engines": ["audio_cpp"],
+        "artifact": {"package_kind": "gguf", "path": str(gguf)},
+    }
+    normalized = normalize_model_config(
+        {
+            "engine": "audio_cpp",
+            "engines": {
+                "audio_cpp": {
+                    "family": "ace_step",
+                    "task": "gen",
+                    "mode": "offline",
+                    "backend": "cuda",
+                    "device": 0,
+                    "config": "config",
+                    "weight": "dit",
+                }
+            },
+        }
+    )
+
+    result = validate_audio_model_config(_Store(active), model, normalized)
+
+    assert result["errors"] == []
+    section = normalized["engines"]["audio_cpp"]
+    assert "config" not in section
+    assert "weight" not in section
+
+
+def test_accepts_gguf_file_as_model_path(tmp_path, monkeypatch):
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    gguf = model_root / "model.gguf"
+    gguf.write_bytes(b"gguf")
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    profile = {
+        "fingerprint": "gguf-1",
+        "inspection": {
+            "family": "ace_step",
+            "tasks": [{"task": "gen", "modes": ["offline"]}],
+            "configs": [],
+            "weights": [],
+            "capabilities": {},
+        },
+        "sections": [{"params": []}],
+    }
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        lambda *args, **kwargs: profile,
+    )
+    model = {
+        "id": "audio-cpp--ace",
+        "family": "ace_step",
+        "tasks": ["gen"],
+        "compatible_engines": ["audio_cpp"],
+        "artifact": {"path": str(gguf)},
+    }
+
+    result = validate_audio_model_config(
+        _Store(active),
+        model,
+        normalize_model_config(
+            {
+                "engine": "audio_cpp",
+                "engines": {
+                    "audio_cpp": {
+                        "family": "ace_step",
+                        "task": "gen",
+                        "mode": "offline",
+                        "backend": "cuda",
+                        "device": 0,
+                    }
+                },
+            }
+        ),
+    )
+    assert result["errors"] == []

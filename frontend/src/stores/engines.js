@@ -1,0 +1,647 @@
+import { ref } from 'vue'
+import { defineStore } from 'pinia'
+import axios from 'axios'
+
+export const useEnginesStore = defineStore('engines', () => {
+  const engineDescriptors = ref([])
+  const llamaVersions = ref([])
+  const ikLlamaVersions = ref([])
+  const unslothLlamaVersions = ref([])
+  const lmdeployVersions = ref([])
+  const lmdeployStatus = ref({})
+  const onecatVllmVersions = ref([])
+  const onecatVllmStatus = ref({})
+  const sglangVersions = ref([])
+  const sglangStatus = ref({})
+  const sglangV100Versions = ref([])
+  const sglangV100Status = ref({})
+  const vllmVersions = ref([])
+  const vllmStatus = ref({})
+  const audioCppVersions = ref([])
+  const audioCppStatus = ref({})
+  const cudaStatus = ref({})
+  const gpuInfo = ref({})
+  const systemStatus = ref({})
+  const loading = ref(false)
+  /** Full diff from GET /api/runtime/pending (expensive; load on demand in the apply dialog). */
+  const runtimePlan = ref({
+    applicable: false,
+    pending: false,
+    changes: [],
+    reason: null,
+  })
+  /** Cheap badge state from GET /api/runtime/stale */
+  const runtimePlanState = ref({
+    applicable: false,
+    stale: false,
+  })
+  let runtimePlanStateRequest = null
+  let runtimePlanStateEpoch = 0
+  let gpuInfoRequest = null
+
+  // --- llama.cpp versions ---
+
+  async function fetchEngineDescriptors() {
+    const { data } = await axios.get('/api/engines')
+    engineDescriptors.value = Array.isArray(data?.engines) ? data.engines : []
+    return engineDescriptors.value
+  }
+
+  async function verifyLlamaVersion(versionId) {
+    const raw = String(versionId || '')
+    const name = raw.includes(':') ? raw.split(':').slice(1).join(':') : raw
+    const { data } = await axios.get(`/api/llama-versions/verify/${encodeURIComponent(name)}`)
+    return data
+  }
+
+  async function fetchBuildCapabilities() {
+    const { data } = await axios.get('/api/llama-versions/build-capabilities')
+    return data
+  }
+
+  async function fetchLlamaVersions() {
+    const { data } = await axios.get('/api/llama-versions')
+    const all = Array.isArray(data) ? data : []
+    llamaVersions.value = all.filter(v => !v.repository_source || v.repository_source === 'llama.cpp')
+    ikLlamaVersions.value = all.filter(v => v.repository_source === 'ik_llama.cpp')
+    unslothLlamaVersions.value = all.filter(v => v.repository_source === 'Unsloth llama.cpp')
+    lmdeployVersions.value = all.filter(v => v.repository_source === 'LMDeploy')
+    onecatVllmVersions.value = all.filter(v => v.repository_source === '1Cat-vLLM')
+    sglangVersions.value = all.filter(v => v.repository_source === 'SGLang')
+    sglangV100Versions.value = all.filter(v => v.repository_source === 'SGLang-V100')
+    vllmVersions.value = all.filter(v => v.repository_source === 'vLLM')
+    audioCppVersions.value = all.filter(v => v.repository_source === 'audio.cpp')
+  }
+
+  async function checkLlamaCppUpdates() {
+    const { data } = await axios.get('/api/llama-versions/check-updates')
+    return data
+  }
+
+  async function checkIkLlamaUpdates() {
+    const { data } = await axios.get('/api/llama-versions/check-updates', {
+      params: { source: 'ik_llama' },
+    })
+    return data
+  }
+
+  async function checkUnslothLlamaUpdates() {
+    const { data } = await axios.get('/api/unsloth-llama/check-updates')
+    return data
+  }
+
+  async function installUnslothLlama(params = {}) {
+    const { data } = await axios.post('/api/unsloth-llama/install', params)
+    return data
+  }
+
+  async function cancelUnslothLlama(taskId) {
+    const { data } = await axios.post('/api/unsloth-llama/cancel', { task_id: taskId })
+    return data
+  }
+
+  async function checkLmdeployUpdates() {
+    const { data } = await axios.get('/api/lmdeploy/check-updates')
+    return data
+  }
+
+  async function checkOnecatVllmUpdates() {
+    const { data } = await axios.get('/api/1cat-vllm/check-updates')
+    return data
+  }
+
+  async function checkAudioCppUpdates() {
+    const { data } = await axios.get('/api/audio-cpp/check-updates')
+    return data
+  }
+
+  async function fetchAudioCppStatus() {
+    const { data } = await axios.get('/api/audio-cpp/status')
+    audioCppStatus.value = data || {}
+    return audioCppStatus.value
+  }
+
+  async function fetchAudioCppBuildSettings() {
+    const { data } = await axios.get('/api/audio-cpp/build-settings')
+    return data
+  }
+
+  async function fetchAudioCppBuildOptions() {
+    const { data } = await axios.get('/api/audio-cpp/build-options')
+    return data
+  }
+
+  async function saveAudioCppBuildSettings(settings) {
+    const { data } = await axios.put('/api/audio-cpp/build-settings', settings)
+    return data
+  }
+
+  async function buildAudioCppSource(params = {}) {
+    const { data } = await axios.post('/api/audio-cpp/build-source', params)
+    return data
+  }
+
+  async function updateAudioCpp(params = {}) {
+    const { data } = await axios.post('/api/audio-cpp/update', params)
+    return data
+  }
+
+  async function cancelAudioCppBuild(taskId) {
+    const { data } = await axios.post('/api/audio-cpp/cancel', { task_id: taskId })
+    return data
+  }
+
+  async function fetchBuildSettings(engine) {
+    const { data } = await axios.get('/api/llama-versions/build-settings', {
+      params: { engine },
+    })
+    return data
+  }
+
+  async function fetchBuildOptions(engine) {
+    const { data } = await axios.get('/api/llama-versions/build-options', {
+      params: engine ? { engine } : {},
+    })
+    return data
+  }
+
+  async function saveBuildSettings(engine, settings) {
+    const { data } = await axios.put('/api/llama-versions/build-settings', settings, {
+      params: { engine },
+    })
+    return data
+  }
+
+  async function updateEngine(engine, params = {}) {
+    const { data } = await axios.post('/api/llama-versions/update', {
+      engine,
+      ...params,
+    })
+    await fetchLlamaVersions()
+    return data
+  }
+
+  async function buildSource(params) {
+    const { data } = await axios.post('/api/llama-versions/build-source', params)
+    return data
+  }
+
+  async function cancelSourceBuild(taskId) {
+    const { data } = await axios.post('/api/llama-versions/build-cancel', {
+      task_id: taskId,
+    })
+    return data
+  }
+
+  async function syncVersion(versionId) {
+    const { data } = await axios.post('/api/llama-versions/versions/sync', {
+      version_id: versionId,
+    })
+    return data
+  }
+
+  async function retryVersion(versionId) {
+    const { data } = await axios.post('/api/llama-versions/versions/retry', {
+      version_id: versionId,
+    })
+    await fetchLlamaVersions()
+    return data
+  }
+
+  async function saveVersionBuildConfig(versionId, buildConfig) {
+    const { data } = await axios.put('/api/llama-versions/versions/build-config', {
+      version_id: versionId,
+      build_config: buildConfig,
+    })
+    await fetchLlamaVersions()
+    return data
+  }
+
+  async function scanEngineParams(engine, version = null, options = {}) {
+    const body = { engine }
+    if (version) body.version = version
+    if (options?.modelId) body.model_id = options.modelId
+    const { data } = await axios.post('/api/llama-versions/scan-engine-params', body)
+    return data
+  }
+
+  async function activateVersion(versionId, { onStage } = {}) {
+    const { data } = await axios.post('/api/llama-versions/versions/activate', { version_id: versionId })
+    if (data?.background && data?.operation_id) {
+      // audio.cpp activation re-probes binaries in the background; the active
+      // switch is already applied. Wait for the scan/refresh to finish so the
+      // status refresh below sees fresh capability data.
+      const { useProgressStore } = await import('./progress')
+      const progress = useProgressStore()
+      const unsubscribe = onStage
+        ? progress.subscribe('task_updated', (task) => {
+            if (task?.task_id === data.operation_id && task?.message) onStage(task.message)
+          })
+        : null
+      try {
+        await progress.waitForTask(data.operation_id)
+      } finally {
+        if (unsubscribe) unsubscribe()
+      }
+    }
+    await fetchLlamaVersions()
+    if (String(versionId).includes('lmdeploy')) {
+      await fetchLmdeployStatus()
+    }
+    if (String(versionId).includes('1cat_vllm')) {
+      await fetchOnecatVllmStatus()
+    }
+    if (String(versionId).includes('sglang_v100')) {
+      await fetchSglangStatus('sglang_v100')
+    } else if (String(versionId).includes('sglang')) {
+      await fetchSglangStatus('sglang')
+    } else if (String(versionId).includes('vllm')) {
+      await fetchSglangStatus('vllm')
+    }
+    if (String(versionId).includes('audio_cpp')) {
+      await fetchAudioCppStatus()
+    }
+    fetchRuntimePlanState()
+  }
+
+  async function deleteVersion(versionId, params = {}) {
+    const query = Object.fromEntries(
+      Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== ''),
+    )
+    await axios.delete(`/api/llama-versions/${encodeURIComponent(versionId)}`, { params: query })
+    await fetchLlamaVersions()
+    if (String(versionId).includes('lmdeploy')) {
+      await fetchLmdeployStatus()
+    }
+    if (String(versionId).includes('1cat_vllm')) {
+      await fetchOnecatVllmStatus()
+    }
+    if (String(versionId).includes('sglang_v100')) {
+      await fetchSglangStatus('sglang_v100')
+    } else if (String(versionId).includes('sglang')) {
+      await fetchSglangStatus('sglang')
+    } else if (String(versionId).includes('vllm')) {
+      await fetchSglangStatus('vllm')
+    }
+    fetchRuntimePlanState()
+  }
+
+  // --- CUDA ---
+
+  async function fetchCudaStatus() {
+    const { data } = await axios.get('/api/llama-versions/cuda-status')
+    cudaStatus.value = data
+    return data
+  }
+
+  async function installCuda(params) {
+    const { data } = await axios.post('/api/llama-versions/cuda-install', params)
+    return data
+  }
+
+  async function uninstallCuda(params = {}) {
+    const { data } = await axios.post('/api/llama-versions/cuda-uninstall', params)
+    await fetchCudaStatus()
+    return data
+  }
+
+  async function fetchCudaLogs() {
+    const { data } = await axios.get('/api/llama-versions/cuda-logs')
+    return data
+  }
+
+  // --- LMDeploy ---
+
+  async function fetchLmdeployStatus() {
+    const { data } = await axios.get('/api/lmdeploy/status')
+    lmdeployStatus.value = data
+    return data
+  }
+
+  async function fetchLmdeployBuildSettings() {
+    const { data } = await axios.get('/api/lmdeploy/build-settings')
+    return data
+  }
+
+  async function saveLmdeployBuildSettings(settings) {
+    const { data } = await axios.put('/api/lmdeploy/build-settings', settings)
+    return data
+  }
+
+  async function installLmdeploy(params = {}) {
+    const { data } = await axios.post('/api/lmdeploy/install', params)
+    return data
+  }
+
+  async function installLmdeployFromSource(params) {
+    const { data } = await axios.post('/api/lmdeploy/install-source', params)
+    return data
+  }
+
+  async function removeLmdeploy(params = {}) {
+    await axios.post('/api/lmdeploy/remove', params)
+    await fetchLmdeployStatus()
+    await fetchLlamaVersions()
+  }
+
+  // --- 1Cat-vLLM ---
+
+  async function fetchOnecatVllmStatus() {
+    const { data } = await axios.get('/api/1cat-vllm/status')
+    onecatVllmStatus.value = data
+    return data
+  }
+
+  async function fetchOnecatVllmBuildSettings() {
+    const { data } = await axios.get('/api/1cat-vllm/build-settings')
+    return data
+  }
+
+  async function saveOnecatVllmBuildSettings(settings) {
+    const { data } = await axios.put('/api/1cat-vllm/build-settings', settings)
+    return data
+  }
+
+  async function installOnecatVllm(params = {}) {
+    const { data } = await axios.post('/api/1cat-vllm/install', params)
+    return data
+  }
+
+  async function installOnecatVllmFromSource(params) {
+    const { data } = await axios.post('/api/1cat-vllm/install-source', params)
+    return data
+  }
+
+  async function removeOnecatVllm(params = {}) {
+    await axios.post('/api/1cat-vllm/remove', params)
+    await fetchOnecatVllmStatus()
+    await fetchLlamaVersions()
+  }
+
+  // --- SGLang / SGLang V100 ---
+
+  function sglangSlug(engine) {
+    if (engine === 'sglang_v100') return 'sglang-v100'
+    return engine === 'vllm' ? 'vllm' : 'sglang'
+  }
+
+  async function fetchSglangStatus(engine = 'sglang') {
+    const { data } = await axios.get(`/api/${sglangSlug(engine)}/status`)
+    if (engine === 'sglang_v100') sglangV100Status.value = data || {}
+    else if (engine === 'vllm') vllmStatus.value = data || {}
+    else sglangStatus.value = data || {}
+    return data || {}
+  }
+
+  async function checkSglangUpdates(engine = 'sglang') {
+    const { data } = await axios.get(`/api/${sglangSlug(engine)}/check-updates`)
+    return data
+  }
+
+  async function fetchSglangBuildSettings(engine = 'sglang') {
+    const { data } = await axios.get(`/api/${sglangSlug(engine)}/build-settings`)
+    return data
+  }
+
+  async function saveSglangBuildSettings(engine = 'sglang', settings = {}) {
+    const { data } = await axios.put(`/api/${sglangSlug(engine)}/build-settings`, settings)
+    return data
+  }
+
+  async function installSglang(engine = 'sglang', params = {}) {
+    const { data } = await axios.post(`/api/${sglangSlug(engine)}/install`, params)
+    return data
+  }
+
+  async function installSglangFromSource(engine = 'sglang', params = {}) {
+    const { data } = await axios.post(`/api/${sglangSlug(engine)}/install-source`, params)
+    return data
+  }
+
+  async function cancelSglang(engine = 'sglang', taskId) {
+    const { data } = await axios.post(`/api/${sglangSlug(engine)}/cancel`, { task_id: taskId })
+    return data
+  }
+
+  // --- GPU / System ---
+
+  async function fetchGpuInfo() {
+    if (gpuInfoRequest) return gpuInfoRequest
+    gpuInfoRequest = (async () => {
+      const { data } = await axios.get('/api/gpu-info')
+      gpuInfo.value = data
+      return data
+    })()
+    try {
+      return await gpuInfoRequest
+    } finally {
+      gpuInfoRequest = null
+    }
+  }
+
+  /** Lightweight GPU list (cached at server startup) for model-config GPU pinning. */
+  async function fetchGpuList() {
+    const { data } = await axios.get('/api/gpu-list')
+    return data
+  }
+
+  async function fetchSystemStatus({ signal } = {}) {
+    loading.value = true
+    try {
+      const [statusRes, gpuData] = await Promise.all([
+        signal ? axios.get('/api/status', { signal }) : axios.get('/api/status'),
+        fetchGpuInfo(),
+      ])
+      if (signal?.aborted) return
+      systemStatus.value = statusRes.data
+      gpuInfo.value = gpuData
+    } catch (err) {
+      if (!signal?.aborted) console.error('Failed to fetch system status:', err)
+      throw err
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function applyLaunchChanges(payload) {
+    const { data } = await axios.post('/api/runtime/apply-launch', payload)
+    await fetchRuntimePlan()
+    await fetchRuntimePlanState()
+    return data
+  }
+
+  async function fetchRuntimePlan() {
+    try {
+      const { data } = await axios.get('/api/runtime/pending')
+      runtimePlan.value = {
+        applicable: Boolean(data?.applicable),
+        pending: Boolean(data?.pending),
+        changes: Array.isArray(data?.changes) ? data.changes : [],
+        reason: data?.reason ?? null,
+        plan_id: data?.plan_id ?? null,
+        launch_manifests: Boolean(data?.launch_manifests),
+        requires_proxy_reload: Boolean(data?.requires_proxy_reload),
+        migration_required: Boolean(data?.migration_required),
+        models: Array.isArray(data?.models) ? data.models : [],
+      }
+    } catch (err) {
+      console.warn('fetchRuntimePlan failed:', err)
+    }
+    return runtimePlan.value
+  }
+
+  function fetchRuntimePlanState() {
+    if (runtimePlanStateRequest) return runtimePlanStateRequest
+    const requestEpoch = runtimePlanStateEpoch
+    const request = (async () => {
+      try {
+        const { data } = await axios.get('/api/runtime/stale')
+        if (requestEpoch === runtimePlanStateEpoch) {
+          runtimePlanState.value = {
+            applicable: Boolean(data?.applicable),
+            stale: Boolean(data?.stale),
+          }
+        }
+      } catch (err) {
+        console.warn('fetchRuntimePlanState failed:', err)
+      } finally {
+        if (runtimePlanStateRequest === request) {
+          runtimePlanStateRequest = null
+        }
+      }
+      return runtimePlanState.value
+    })()
+    runtimePlanStateRequest = request
+    return request
+  }
+
+  function invalidateRuntimePlan() {
+    runtimePlanStateEpoch += 1
+    runtimePlanStateRequest = null
+    runtimePlanState.value = {
+      applicable: true,
+      stale: true,
+    }
+  }
+
+  function clearRuntimePlanState() {
+    runtimePlanStateEpoch += 1
+    runtimePlanStateRequest = null
+    runtimePlanState.value = {
+      applicable: true,
+      stale: false,
+    }
+  }
+
+
+  async function fetchAll() {
+    await Promise.allSettled([
+      fetchEngineDescriptors(),
+      fetchLlamaVersions(),
+      fetchCudaStatus(),
+      fetchLmdeployStatus(),
+      fetchOnecatVllmStatus(),
+      fetchSglangStatus('sglang'),
+      fetchSglangStatus('sglang_v100'),
+      fetchSglangStatus('vllm'),
+      fetchAudioCppStatus(),
+      fetchSystemStatus(),
+      fetchRuntimePlanState(),
+    ])
+  }
+
+  return {
+    engineDescriptors,
+    fetchEngineDescriptors,
+    llamaVersions,
+    ikLlamaVersions,
+    unslothLlamaVersions,
+    lmdeployVersions,
+    lmdeployStatus,
+    onecatVllmVersions,
+    onecatVllmStatus,
+    sglangVersions,
+    sglangStatus,
+    sglangV100Versions,
+    sglangV100Status,
+    vllmVersions,
+    vllmStatus,
+    audioCppVersions,
+    audioCppStatus,
+    cudaStatus,
+    gpuInfo,
+    systemStatus,
+    runtimePlan,
+    runtimePlanState,
+    loading,
+
+    fetchLlamaVersions,
+    verifyLlamaVersion,
+    fetchBuildCapabilities,
+    checkLlamaCppUpdates,
+    checkIkLlamaUpdates,
+    checkUnslothLlamaUpdates,
+    installUnslothLlama,
+    cancelUnslothLlama,
+    checkLmdeployUpdates,
+    checkOnecatVllmUpdates,
+    checkAudioCppUpdates,
+    fetchBuildSettings,
+    fetchBuildOptions,
+    saveBuildSettings,
+    updateEngine,
+    buildSource,
+    cancelSourceBuild,
+    syncVersion,
+    retryVersion,
+    saveVersionBuildConfig,
+    scanEngineParams,
+    activateVersion,
+    deleteVersion,
+
+    fetchCudaStatus,
+    installCuda,
+    uninstallCuda,
+    fetchCudaLogs,
+
+    fetchLmdeployStatus,
+    fetchLmdeployBuildSettings,
+    saveLmdeployBuildSettings,
+    installLmdeploy,
+    installLmdeployFromSource,
+    removeLmdeploy,
+
+    fetchOnecatVllmStatus,
+    fetchOnecatVllmBuildSettings,
+    saveOnecatVllmBuildSettings,
+    installOnecatVllm,
+    installOnecatVllmFromSource,
+    removeOnecatVllm,
+
+    fetchSglangStatus,
+    checkSglangUpdates,
+    fetchSglangBuildSettings,
+    saveSglangBuildSettings,
+    installSglang,
+    installSglangFromSource,
+    cancelSglang,
+
+    fetchAudioCppStatus,
+    fetchAudioCppBuildSettings,
+    fetchAudioCppBuildOptions,
+    saveAudioCppBuildSettings,
+    buildAudioCppSource,
+    updateAudioCpp,
+    cancelAudioCppBuild,
+
+    fetchGpuInfo,
+    fetchGpuList,
+    fetchSystemStatus,
+    applyLaunchChanges,
+    fetchRuntimePlan,
+    fetchRuntimePlanState,
+    invalidateRuntimePlan,
+    clearRuntimePlanState,
+    fetchAll,
+  }
+})

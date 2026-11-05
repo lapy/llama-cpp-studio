@@ -1,0 +1,276 @@
+################################################################################
+# Studio - Multi-stage Docker build
+################################################################################
+ARG BASE_IMAGE=ubuntu:24.04
+
+################################################################################
+# Stage 1: Frontend Builder
+# Purpose: Compile Vue.js frontend with Vite
+################################################################################
+FROM node:24-slim AS frontend-builder
+
+WORKDIR /build
+
+# PrimeVue 5 license is baked in at build time (Vite inlines VITE_* env vars).
+# Do not `ENV` an empty ARG: Vite treats a blank VITE_* process env as set and
+# that overrides frontend/.env.local copied from the host.
+ARG VITE_PRIMEUI_LICENSE
+
+# Copy package files and install dependencies (including devDependencies for build tools)
+COPY package*.json ./
+RUN if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then \
+        npm ci; \
+    else \
+        npm install; \
+    fi
+
+# Copy frontend source using the same layout as the repo root scripts expect
+COPY frontend/ ./frontend/
+RUN if [ -n "$VITE_PRIMEUI_LICENSE" ]; then \
+        printf 'VITE_PRIMEUI_LICENSE=%s\n' "$VITE_PRIMEUI_LICENSE" > frontend/.env.production.local; \
+    fi
+RUN npm run build
+
+################################################################################
+# Stage 2: Python Builder
+# Purpose: Create isolated venv with all Python dependencies
+################################################################################
+FROM ${BASE_IMAGE} AS python-builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install build dependencies required for python wheels and runtime compilation (llama.cpp)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-venv \
+    python3-pip \
+    python3-dev \
+    build-essential \
+    cmake \
+    gcc \
+    g++ \
+    pkg-config \
+    libssl-dev \
+    libffi-dev \
+    libcurl4-openssl-dev \
+    libopenblas-dev \
+    git \
+    curl \
+    wget \
+    ca-certificates \
+    pciutils \
+    lsb-release \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Install Rust (required for tokenizers when building the app venv)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    sh -s -- -y --profile minimal --default-toolchain stable
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Create venv and install Python packages
+ENV VENV_PATH=/opt/venv
+RUN python3 -m venv ${VENV_PATH}
+ENV PATH="${VENV_PATH}/bin:${PATH}"
+
+COPY requirements.lock /tmp/requirements.lock
+RUN pip install --no-cache-dir -r /tmp/requirements.lock && \
+    rm /tmp/requirements.lock
+
+################################################################################
+# Stage 3: Runtime
+# Purpose: Minimal production image with compiled artifacts
+################################################################################
+FROM ${BASE_IMAGE} AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    HF_HOME=/app/data/hf-cache \
+    HUGGINGFACE_HUB_CACHE=/app/data/hf-cache/hub \
+    VENV_PATH=/opt/venv \
+    PYTHONPATH=/app \
+    PATH="/app/data/cuda/current/bin:${PATH}" \
+    LD_LIBRARY_PATH="/app/data/cuda/current/lib64:${LD_LIBRARY_PATH}" \
+    CCACHE_DIR=/app/data/ccache \
+    CCACHE_MAXSIZE=5G
+
+# Install runtime dependencies (retain build toolchain for llama.cpp builds and GPU detection)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-venv \
+    python3-pip \
+    python3-dev \
+    build-essential \
+    g++-12 \
+    ccache \
+    git \
+    pkg-config \
+    ninja-build \
+    curl \
+    ca-certificates \
+    wget \
+    ffmpeg \
+    # protoc alone does not ship well-known types. 1Cat-vLLM's vllm-server
+    # build imports google/protobuf/struct.proto from libprotobuf-dev.
+    protobuf-compiler \
+    libprotobuf-dev \
+    patchelf \
+    # Core libs for Python packages
+    libssl3 \
+    libssl-dev \
+    libffi8 \
+    libcurl4 \
+    libcurl4-openssl-dev \
+    libopenblas0 \
+    # GPU acceleration support (CUDA only)
+    ocl-icd-libopencl1 \
+    libnuma1 \
+    pciutils \
+    # Optional: ROCm (fails gracefully if unavailable)
+    && (apt-get install -y --no-install-recommends rocminfo rocm-smi || echo "ROCm unavailable") \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Node.js 24 (required by llama.cpp engine builds). npm's own dependency
+# tree is what Trivy scans; pin npm, then replace the two packages its
+# release still ships below the fixed versions.
+ARG NPM_VERSION=11.21.0
+ARG BRACE_EXPANSION_VERSION=5.0.12
+ARG UNDICI_VERSION=6.29.1
+COPY --from=node:24-slim /usr/local/bin/node /usr/local/bin/node
+COPY --from=node:24-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+    && npm install -g --prefix /usr/local "npm@${NPM_VERSION}" \
+    && cd /tmp \
+    && npm pack "brace-expansion@${BRACE_EXPANSION_VERSION}" "undici@${UNDICI_VERSION}" \
+    && rm -rf /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
+              /usr/local/lib/node_modules/npm/node_modules/undici \
+    && mkdir -p /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
+                /usr/local/lib/node_modules/npm/node_modules/undici \
+    && tar -xzf "/tmp/brace-expansion-${BRACE_EXPANSION_VERSION}.tgz" \
+        -C /usr/local/lib/node_modules/npm/node_modules/brace-expansion --strip-components=1 \
+    && tar -xzf "/tmp/undici-${UNDICI_VERSION}.tgz" \
+        -C /usr/local/lib/node_modules/npm/node_modules/undici --strip-components=1 \
+    && rm -f /tmp/brace-expansion-*.tgz /tmp/undici-*.tgz \
+    && test "$(npm --version)" = "${NPM_VERSION}" \
+    && test "$(node -p "require('/usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json').version")" = "${BRACE_EXPANSION_VERSION}" \
+    && test "$(node -p "require('/usr/local/lib/node_modules/npm/node_modules/undici/package.json').version")" = "${UNDICI_VERSION}" \
+    && test "$(node -p "require('/usr/local/lib/node_modules/npm/node_modules/tar/package.json').version")" = "7.5.22" \
+    && test "$(node -p "require('/usr/local/lib/node_modules/npm/node_modules/ip-address/package.json').version")" = "10.5.0" \
+    && node --version \
+    && npm --version
+
+# CUDA installation is handled at runtime via the built-in CUDA installer
+# All CUDA components (toolkit, cuDNN, TensorRT) are installed to /app/data/cuda/
+# which is volume-backed and persists across container restarts
+
+# Install modern CMake (4.x) for CUDA 12+ and current llama.cpp source builds.
+# Placed here to avoid re-downloading when application code changes
+ARG CMAKE_VERSION=4.4.3
+ARG CMAKE_SHA256=6decbd2f268e48ed405c5b40563b0334c903209e61fe4ecad460b00c60b27e79
+RUN curl -fsSL "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.sh" -o /tmp/cmake.sh \
+    && echo "${CMAKE_SHA256}  /tmp/cmake.sh" | sha256sum -c - \
+    && chmod +x /tmp/cmake.sh \
+    && /tmp/cmake.sh --skip-license --prefix=/usr/local \
+    && rm /tmp/cmake.sh \
+    && cmake --version
+
+# Rust for source wheels (setuptools-rust / vllm-rs / tokenizers / flash_qla).
+# Installed here (not copied from python-builder). appuser owns the tree so
+# rustup can create tmp files and sync channels such as 1.95 at runtime.
+# Read-only (a+rX) makes `rustup` fail with EACCES on /usr/local/rustup/tmp.
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo
+ENV PATH="/usr/local/cargo/bin:${PATH}"
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    sh -s -- -y --profile minimal --default-toolchain stable --no-modify-path \
+    && rustc --version \
+    && cargo --version
+
+# tini: a baked-in PID 1 init so plain `docker run` (no --init flag, no
+# compose `init:`) still gets zombie reaping and signal forwarding. Without
+# it, python (backend/main.py) is PID 1 and engine teardown leaks reparented
+# orphans/zombies. Static binary, pinned and checksum verified.
+# Referenced again by the ENTRYPOINT at the bottom of this stage.
+ARG TINI_VERSION=0.19.0
+ARG TINI_SHA256=93dcc18adc78c65a028a84799ecf8ad40c936fdfc5f2a57b1acda5a8117fa82c
+RUN curl -fsSL "https://github.com/krallin/tini/releases/download/v${TINI_VERSION}/tini-amd64" -o /tmp/tini \
+    && echo "${TINI_SHA256}  /tmp/tini" | sha256sum -c - \
+    && mv /tmp/tini /usr/local/bin/tini \
+    && chmod 755 /usr/local/bin/tini \
+    && tini --version
+
+# Copy Python venv from builder
+COPY --from=python-builder ${VENV_PATH} ${VENV_PATH}
+ENV PATH="${VENV_PATH}/bin:${PATH}"
+
+# Set up application directory
+WORKDIR /app
+
+# Copy application code (excluding data via .dockerignore)
+COPY backend/ ./backend/
+COPY VERSION ./VERSION
+COPY --from=frontend-builder /build/frontend/dist ./frontend/dist
+COPY frontend/public ./frontend/public
+
+# Copy and setup entrypoint script and CUDA environment helper
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+COPY setup-cuda-env.sh /app/setup-cuda-env.sh
+# Ensure line endings are Unix format and file is executable
+RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh /app/setup-cuda-env.sh && \
+    chmod 755 /usr/local/bin/docker-entrypoint.sh /app/setup-cuda-env.sh && \
+    [ -f /usr/local/bin/docker-entrypoint.sh ] && \
+    [ -x /usr/local/bin/docker-entrypoint.sh ] && \
+    head -n 1 /usr/local/bin/docker-entrypoint.sh | grep -q "^#!/bin/bash"
+
+# Create python symlink for compatibility
+RUN ln -sf /usr/bin/python3 /usr/bin/python
+
+# Refresh OS packages to current archive versions before freezing the image.
+# The apt install layer above is cached across builds, so it can pin versions
+# from an old apt-get update even when the archive (and Trivy's NVD data) has
+# moved on -- that is how 77 fixed linux-libc-dev CVEs survived into a scan.
+# SECURITY_REFRESH rotates only this small layer (CI passes the run timestamp),
+# so every build re-runs apt-get update and upgrades installed packages
+# (e.g. linux-libc-dev, libssl3) to the newest published versions without
+# re-downloading the toolchain layers.
+ARG SECURITY_REFRESH=0
+RUN echo "apt refresh epoch: ${SECURITY_REFRESH}" \
+    && apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Create non-root user and data directory structure
+RUN useradd -m -s /bin/bash appuser && \
+    mkdir -p /app/data/models/audio-cpp /app/data/config/audio-cpp/servers /app/data/logs /app/data/llama-cpp /app/data/audio-cpp/builds /app/data/audio-cpp/tools /app/data/hf-cache/hub /app/data/ccache && \
+    chown -R appuser:appuser /app /usr/local/rustup /usr/local/cargo && \
+    # Ensure entrypoint script is accessible to appuser
+    chmod 755 /usr/local/bin/docker-entrypoint.sh
+# Note: /app/data is a volume mount, so permissions will be set by the entrypoint or at runtime
+
+# Expose API port
+EXPOSE 8080
+
+# Declare volume for persistent data
+VOLUME ["/app/data"]
+
+# Switch to non-root user
+USER appuser
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8080/api/live || exit 1
+
+# Set entrypoint to configure CUDA environment before starting application.
+# tini (PID 1) reaps zombies and forwards stop signals to the app; graceful
+# `docker stop` exits 0 via the SIGTERM pre-ignore in backend/main.py
+# (uvicorn >=0.31 replays the signal after shutdown, which would otherwise
+# surface as exit 143 now that python is no longer PID 1).
+ENTRYPOINT ["/usr/local/bin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
+
+# Start application
+CMD ["python", "backend/main.py"]

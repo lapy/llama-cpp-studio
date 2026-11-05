@@ -1,0 +1,1399 @@
+import { computed, ref } from 'vue'
+import {
+  audioContract,
+  audioOperationForTask,
+  audioTaskBodyShape,
+  audioTaskDefaultsKey,
+  audioTaskEndpoint,
+} from '@/composables/useAudioContract'
+
+export const AUDIO_NESTED_SCOPE_KEYS = {
+  load_option: 'load_options',
+  session_option: 'session_options',
+  request_option: 'request_options',
+}
+
+export const AUDIO_STUDIO_KNOWN_KEYS = [
+  'lazy_load',
+  'model_spec_override',
+  'voice_presets',
+  'default_voice_preset',
+  'speech_defaults',
+  'transcription_defaults',
+  'task_defaults',
+  'last_reviewed_fingerprint',
+]
+
+/**
+ * All request-defaults buckets the contract registry can route to. Contract
+ * values are read live (see liveRequestDefaultsKeys) — this constant is only
+ * the offline floor for module-level consumers.
+ */
+export const AUDIO_REQUEST_DEFAULTS_KEYS = [
+  'speech_defaults',
+  'transcription_defaults',
+  'task_defaults',
+]
+
+export function normalizeSelectOptions(raw) {
+  if (!Array.isArray(raw) || !raw.length) return []
+  const out = []
+  const seen = new Set()
+  for (const item of raw) {
+    let value
+    let label
+    if (item && typeof item === 'object') {
+      value = item.value ?? item.id ?? item.key
+      label = item.label ?? String(value ?? '')
+    } else {
+      value = item
+      label = String(item)
+    }
+    const text = String(value ?? '').trim()
+    if (!text || seen.has(text)) continue
+    seen.add(text)
+    out.push({ value: text, label: String(label || text) })
+  }
+  return out
+}
+
+function liveRequestDefaultsKeys() {
+  const fromContract = Object.values(audioContract.value.defaults_keys || {})
+  return [...new Set([...fromContract, ...AUDIO_REQUEST_DEFAULTS_KEYS])]
+}
+
+export function requestDefaultsHasContent(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  for (const [key, item] of Object.entries(value)) {
+    if (key === 'options') {
+      if (item && typeof item === 'object' && Object.keys(item).some((k) => {
+        const nested = item[k]
+        return nested != null && nested !== ''
+      })) {
+        return true
+      }
+      continue
+    }
+    if (item != null && item !== '' && !(Array.isArray(item) && item.length === 0)) {
+      return true
+    }
+  }
+  return false
+}
+
+/**
+ * Clear non-active request-defaults objects so save validation does not fail
+ * after family/task switches. ``keepKey`` is the payload's request_defaults_key.
+ */
+export function pruneStaleAudioRequestDefaults(config, keepKey) {
+  if (!config || typeof config !== 'object') return false
+  const keep = String(keepKey || '').trim()
+  let changed = false
+  for (const key of liveRequestDefaultsKeys()) {
+    if (key === keep) continue
+    if (!requestDefaultsHasContent(config[key])) continue
+    config[key] = {}
+    changed = true
+  }
+  if (keep !== 'speech_defaults') {
+    if (config.voice_presets && typeof config.voice_presets === 'object'
+      && Object.keys(config.voice_presets).length) {
+      config.voice_presets = {}
+      changed = true
+    }
+    if (config.default_voice_preset != null && config.default_voice_preset !== '') {
+      config.default_voice_preset = null
+      changed = true
+    }
+  }
+  return changed
+}
+
+export function instructionsPolicyHint(policy, {
+  source = '',
+  vocabulary = null,
+} = {}) {
+  const key = String(policy || '').trim().toLowerCase()
+  const fromEngine = String(source || '').trim().toLowerCase() === 'engine'
+  const origin = fromEngine ? 'from engine' : 'Studio fallback'
+  const vocab = Array.isArray(vocabulary)
+    ? vocabulary.map((item) => String(item || '').trim()).filter(Boolean)
+    : []
+  const vocabHint = vocab.length
+    ? ` Vocabulary examples: ${vocab.slice(0, 8).join(', ')}.`
+    : ''
+  if (key === 'soft_tags') {
+    return (
+      `Use comma-separated voice attributes (for example: female, young adult, british accent). `
+      + `(${origin})${vocabHint}`
+    )
+  }
+  if (key === 'caption_option') {
+    return `This model uses options.caption for voice design, not the instructions field. (${origin})`
+  }
+  if (key === 'text_prefix') {
+    return (
+      'Put style cues at the start of input text (for example: "(calm) Hello world"), '
+      + `not in instructions. (${origin})`
+    )
+  }
+  if (key === 'openai_instruct') {
+    return `Natural-language style instructions are accepted for this speech model. (${origin})`
+  }
+  if (key === 'none') {
+    return `This model does not accept an instructions field in request defaults. (${origin})`
+  }
+  return ''
+}
+
+export const LAZY_LOAD_PARAM = {
+  key: 'lazy_load',
+  label: 'Lazy load weights',
+  type: 'bool',
+  scope: 'process',
+  supported: true,
+  default: false,
+  description:
+    'Defer loading model weights until the first request. Useful to free VRAM until traffic arrives.',
+}
+
+export const MODEL_SPEC_OVERRIDE_PARAM = {
+  key: 'model_spec_override',
+  label: 'Model metadata override',
+  type: 'path',
+  scope: 'model',
+  supported: true,
+  description:
+    'Optional path to a model metadata JSON file or directory. Leave blank unless you are testing a custom package layout.',
+}
+
+export function isOptionalConfigParam(param) {
+  return param?.required !== true
+}
+
+export function coerceAudioParamValue(param, value) {
+  const scalarType = param.scalar_type || param.type
+  if (scalarType === 'int') {
+    if (typeof value === 'number' && !Number.isNaN(value)) return Math.trunc(value)
+    if (typeof value === 'string' && value.trim() !== '') {
+      const parsed = parseInt(value, 10)
+      if (!Number.isNaN(parsed)) return parsed
+    }
+  }
+  if (scalarType === 'float') {
+    if (typeof value === 'number' && !Number.isNaN(value)) return value
+    if (typeof value === 'string' && value.trim() !== '') {
+      const parsed = parseFloat(value)
+      if (!Number.isNaN(parsed)) return parsed
+    }
+  }
+  return value
+}
+
+export function defaultValueForAudioParam(param) {
+  if (param.value_kind === 'repeatable') {
+    return Array.isArray(param.default) ? [...param.default] : []
+  }
+  if (isDelimitedEnumParam(param)) {
+    return normalizeCsvEnumValue(param.default, param)
+  }
+  if (param.value_kind === 'flag') return param.negative_flag ? null : true
+  return param.default ?? null
+}
+
+export function isDelimitedEnumParam(param) {
+  return ['csv_enum', 'semicolon_enum'].includes(param.value_kind) || param.type === 'multiselect'
+}
+
+export function delimitedEnumSeparator(param) {
+  return param.value_kind === 'semicolon_enum' ? ';' : ','
+}
+
+export function normalizeCsvEnumValue(value, param) {
+  if (Array.isArray(value)) {
+    return value.filter((v) => v != null && v !== '')
+  }
+  if (value == null || value === '') return []
+  if (typeof value === 'string') {
+    return value.split(delimitedEnumSeparator(param)).map((s) => s.trim()).filter(Boolean)
+  }
+  return [value]
+}
+
+export function jsonParamDisplay(value) {
+  if (value == null || value === '') return ''
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return ''
+    try {
+      return JSON.stringify(JSON.parse(trimmed), null, 2)
+    } catch {
+      return value
+    }
+  }
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value, null, 2)
+    } catch {
+      return ''
+    }
+  }
+  return String(value)
+}
+
+export function paramDescriptionTooltip(param) {
+  const parts = [param.description].filter(Boolean)
+  if (param.install_hint) parts.push(param.install_hint)
+  const nestedKey = AUDIO_NESTED_SCOPE_KEYS[param.scope]
+  const storageKey = nestedKey ? `${nestedKey}.${param.key}` : param.key
+  if (storageKey) parts.push(`Config key: ${storageKey}`)
+  if (param.scope === 'load_option') parts.push('Applied when the model loads')
+  else if (param.scope === 'session_option') parts.push('Applied while the model is running')
+  const dependency = param.dependency && typeof param.dependency === 'object'
+    ? param.dependency
+    : null
+  if (dependency) {
+    const peer = dependency.family || dependency.kind
+    if (peer) parts.push(`Companion model: ${peer}`)
+    if (dependency.required) parts.push('Required for this model family')
+    else if ((dependency.required_when || []).length) {
+      const keys = dependency.required_when
+        .map((row) => row?.option_key)
+        .filter(Boolean)
+        .join(', ')
+      if (keys) parts.push(`Needed when: ${keys}`)
+      else parts.push('Needed for some request options')
+    } else {
+      parts.push('Optional companion model path')
+    }
+  }
+  if (param.primary_flag) {
+    parts.push(`Primary flag: ${param.primary_flag}`)
+  }
+  if (param.negative_flag) {
+    parts.push(`Negative flag: ${param.negative_flag}`)
+  } else if (param.flags?.length) {
+    parts.push(`CLI: ${param.flags.join(', ')}`)
+  }
+  return parts.join('\n\n') || param.label || param.key
+}
+
+export function dependencyFieldTags(param) {
+  const dependency = param?.dependency && typeof param.dependency === 'object'
+    ? param.dependency
+    : null
+  if (!dependency) return []
+  // One badge only — details (required/when/studio-added/family) live in the field tooltip.
+  if (dependency.required || param.required) {
+    return [{ key: 'peer', label: 'Companion', severity: 'danger' }]
+  }
+  if ((dependency.required_when || []).length) {
+    return [{ key: 'peer', label: 'Companion', severity: 'warn' }]
+  }
+  return [{ key: 'peer', label: 'Companion', severity: 'info' }]
+}
+
+export function paramMatchesSearch(param, queryRaw, hideUnsupported = false) {
+  if (hideUnsupported && param.supported === false) return false
+  const raw = queryRaw.trim().toLowerCase()
+  if (!raw) return false
+  const hay = [
+    param.label || '',
+    param.key || '',
+    param.description || '',
+    ...(param.flags || []),
+  ]
+    .join(' ')
+    .toLowerCase()
+  const tokens = raw.split(/\s+/).filter(Boolean)
+  return tokens.every((t) => hay.includes(t))
+}
+
+export function fieldStorageHint(field, { presetField = false, viaProxy = true } = {}) {
+  if (presetField) {
+    return 'Stored with this model’s voice presets'
+  }
+  if (field.nested || field.options_key) {
+    const key = field.options_key || field.key
+    return viaProxy
+      ? `Filled into each request as options.${key} when you Apply`
+      : `Stored in options.${key}`
+  }
+  if (field.type === 'path') {
+    return 'Path relative to the package folder on the server'
+  }
+  return viaProxy
+    ? 'Filled into each API request when you Apply'
+    : ''
+}
+
+function coercePreviewNumber(value, asInt) {
+  if (typeof value === 'number' && !Number.isNaN(value)) {
+    return asInt ? Math.trunc(value) : value
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = asInt ? parseInt(value, 10) : parseFloat(value)
+    if (!Number.isNaN(parsed)) return parsed
+  }
+  return null
+}
+
+/** Mirror backend audio_request_defaults_to_request_params type normalization (paths resolve on apply). */
+export function buildSwapSetParamsPreview(defaultsKey, defaults) {
+  if (!defaults || typeof defaults !== 'object' || Array.isArray(defaults)) return null
+  const out = {}
+  if (defaultsKey === 'speech_defaults') {
+    const intKeys = new Set(['seed', 'top_k', 'max_tokens', 'num_inference_steps'])
+    const floatKeys = new Set([
+      'temperature', 'top_p', 'guidance_scale', 'repetition_penalty',
+    ])
+    // Mirror backend _speech_normalized_to_request_params: streaming siblings
+    // ride to Studio proxy only when stream is affirmatively on.
+    const streamingOn = Boolean(defaults.stream)
+    for (const [key, value] of Object.entries(defaults)) {
+      if (key === 'options') continue
+      if (value == null || value === '') continue
+      if (!streamingOn && ['stream', 'stream_format', 'return_text'].includes(key)) continue
+      if (key === 'stream' && streamingOn) {
+        out.stream = true
+        continue
+      }
+      if (intKeys.has(key)) {
+        const n = coercePreviewNumber(value, true)
+        if (n != null) out[key] = n
+        continue
+      }
+      if (floatKeys.has(key)) {
+        const n = coercePreviewNumber(value, false)
+        if (n != null) out[key] = n
+        continue
+      }
+      out[key] = typeof value === 'string' ? value.trim() : value
+    }
+    if (defaults.options && typeof defaults.options === 'object') {
+      const options = {}
+      for (const [key, value] of Object.entries(defaults.options)) {
+        if (value == null || value === '') continue
+        options[key] = typeof value === 'string' ? value.trim() : value
+      }
+      if (Object.keys(options).length) out.options = options
+    }
+    return Object.keys(out).length ? out : null
+  }
+  if (defaultsKey === 'transcription_defaults') {
+    if (defaults.language) out.language = String(defaults.language).trim()
+    if (defaults.stream != null) out.stream = Boolean(defaults.stream)
+    const options = {}
+    if (defaults.options && typeof defaults.options === 'object') {
+      for (const [key, value] of Object.entries(defaults.options)) {
+        if (value == null || value === '') continue
+        options[key] = value
+      }
+    }
+    for (const key of ['max_tokens', 'temperature', 'top_p', 'top_k', 'seed']) {
+      if (defaults[key] == null || defaults[key] === '') continue
+      const asInt = key === 'max_tokens' || key === 'top_k' || key === 'seed'
+      const n = coercePreviewNumber(defaults[key], asInt)
+      if (n != null) options[key] = n
+    }
+    if (defaults.prompt) options.text = String(defaults.prompt).trim()
+    if (Object.keys(options).length) out.options = options
+    return Object.keys(out).length ? out : null
+  }
+  for (const [key, value] of Object.entries(defaults)) {
+    if (key === 'options' || key === 'prompt') continue
+    if (value != null && value !== '') out[key] = value
+  }
+  const options = {}
+  if (defaults.options && typeof defaults.options === 'object') {
+    for (const [key, value] of Object.entries(defaults.options)) {
+      if (value == null || value === '') continue
+      options[key] = value
+    }
+  }
+  if (defaults.prompt) options.text = String(defaults.prompt).trim()
+  if (Object.keys(options).length) out.options = options
+  return Object.keys(out).length ? out : null
+}
+
+export function useAudioModelConfig(config, paramRegistry, enginesStore, stableModelId) {
+  const catalogSections = computed(() =>
+    Array.isArray(paramRegistry.value?.sections) ? paramRegistry.value.sections : [],
+  )
+
+  const catalogParamList = computed(() => {
+    const out = []
+    for (const section of catalogSections.value) {
+      for (const param of section.params || []) {
+        if (param?.reserved) continue
+        out.push(param)
+      }
+    }
+    return out
+  })
+
+  const curatedDependencyParams = computed(() => {
+    const fields = paramRegistry.value?.sidecar_session_fields || []
+    return fields
+      .filter((field) => field?.key)
+      .map((field) => ({
+        key: field.key,
+        label: field.label || field.key,
+        type: field.type || 'string',
+        scope: field.scope || 'session_option',
+        supported: true,
+        description: field.description || '',
+        placeholder: field.placeholder || '',
+        install_hint: field.install_hint || '',
+        required: Boolean(field.required || field.dependency?.required),
+        curated: true,
+        dependency: field.dependency || null,
+      }))
+  })
+
+  const audioEditableParams = computed(() => {
+    const seen = new Set()
+    const params = catalogParamList.value.filter((param) => {
+      const scope = param.scope || 'process'
+      const identity = `${scope}:${param.key}`
+      if (seen.has(identity) || param.read_only || scope === 'request_option') return false
+      seen.add(identity)
+      return true
+    })
+    if (!seen.has('process:lazy_load')) {
+      params.push(LAZY_LOAD_PARAM)
+    }
+    if (!seen.has('model:model_spec_override')) {
+      params.push(MODEL_SPEC_OVERRIDE_PARAM)
+    }
+    // Peer dependency path fields from model-spec contracts fill gaps the
+    // model-aware --help scan did not already advertise.
+    for (const curated of curatedDependencyParams.value) {
+      const scope = curated.scope || 'session_option'
+      const identity = `${scope}:${curated.key}`
+      if (!seen.has(identity)) {
+        seen.add(identity)
+        params.push(curated)
+      }
+    }
+    return params
+  })
+
+  const audioConfigGroups = computed(() => {
+    const params = audioEditableParams.value
+    const hasLoad = params.some((param) => (param.scope || 'process') === 'load_option')
+    const hasSession = params.some((param) => (param.scope || 'process') === 'session_option')
+    const peerCount = params.filter((param) => param.dependency).length
+    const definitions = [
+      {
+        id: 'model',
+        label: 'Model identity',
+        description: 'Which prepared package, task, and mode this instance runs.',
+        scopes: ['model'],
+        defaultExpanded: true,
+        extraParams: [MODEL_SPEC_OVERRIDE_PARAM],
+      },
+      {
+        id: 'runtime',
+        label: 'Runtime & startup',
+        description: 'Backend, device, threading, and when weights load.',
+        scopes: ['process'],
+        defaultExpanded: true,
+        extraParams: [LAZY_LOAD_PARAM],
+      },
+      {
+        id: 'load',
+        label: 'When the model loads',
+        description:
+          'Options applied once when weights load, including companion models needed at startup.',
+        scopes: ['load_option'],
+        defaultExpanded: hasLoad,
+      },
+      {
+        id: 'session',
+        label: 'While the model is running',
+        description: peerCount
+          ? `Session options plus ${peerCount} companion model path(s). Install companions from Models search if needed.`
+          : 'Options for the active session, including companion model paths used during inference.',
+        scopes: ['session_option'],
+        defaultExpanded: hasSession,
+      },
+    ]
+    return definitions
+      .map((group) => {
+        const scoped = params.filter((param) => group.scopes.includes(param.scope || 'process'))
+        const extra = group.extraParams || []
+        const merged = [...scoped]
+        for (const extraParam of extra) {
+          if (!merged.some((item) => item.key === extraParam.key)) {
+            merged.push(extraParam)
+          }
+        }
+        return { ...group, params: merged }
+      })
+      .filter((group) => group.params.length)
+  })
+
+  const audioRequestCapabilities = computed(() => {
+    const seen = new Set()
+    return catalogParamList.value.filter((param) => {
+      const requestOnly = param.read_only || param.scope === 'request_option'
+      if (!requestOnly || seen.has(param.key)) return false
+      seen.add(param.key)
+      return true
+    })
+  })
+
+  const taskProfile = computed(() => paramRegistry.value?.task_profile || null)
+
+  const isProfiledAudioModel = computed(() => Boolean(taskProfile.value))
+
+  const requestFieldGroups = computed(() => (
+    Array.isArray(paramRegistry.value?.request_field_groups)
+      ? paramRegistry.value.request_field_groups
+      : []
+  ))
+
+  // Per-model composition rides the param-registry payload; the shared
+  // contract fills the gap while a scan is still pending.
+  const requestPolicy = computed(() => paramRegistry.value?.request_policy || null)
+
+  const requestDefaultsKey = computed(() => (
+    paramRegistry.value?.request_defaults_key
+    || audioTaskDefaultsKey(paramRegistry.value?.policy_task || config.value?.task)
+  ))
+
+  const requestOperationId = computed(() => (
+    requestPolicy.value?.operation_id
+    || null
+  ))
+
+  const apiEndpoint = computed(() => (
+    paramRegistry.value?.api_endpoint
+    || requestPolicy.value?.api_endpoint
+    || audioTaskEndpoint(paramRegistry.value?.policy_task || config.value?.task)
+  ))
+
+  const requestBodyShape = computed(() => {
+    if (requestPolicy.value?.body_shape) return requestPolicy.value.body_shape
+    // Label the payload-provided endpoint via contract operations, then via
+    // the Studio-owned defaults bucket. No task/family string heuristics.
+    const endpoint = apiEndpoint.value
+    const byPath = (audioContract.value.operations || [])
+      .find((op) => op.studio_path === endpoint)
+    if (byPath?.body_shape) return byPath.body_shape
+    if (requestDefaultsKey.value === 'speech_defaults') return 'openai-json'
+    if (requestDefaultsKey.value === 'transcription_defaults') return 'multipart-form'
+    return audioTaskBodyShape(paramRegistry.value?.policy_task || config.value?.task)
+  })
+
+  const apiExampleHint = computed(() => paramRegistry.value?.api_example_hint || '')
+
+  const instructionsPolicy = computed(() => (
+    paramRegistry.value?.instructions_policy || ''
+  ))
+
+  const instructionsPolicyGuidance = computed(() => (
+    instructionsPolicyHint(instructionsPolicy.value, {
+      source: paramRegistry.value?.instructions_policy_source || '',
+      vocabulary: paramRegistry.value?.instructions_vocabulary || null,
+    })
+  ))
+
+  const requestDefaultsSectionTitle = computed(() => {
+    const key = requestDefaultsKey.value
+    if (key === 'speech_defaults') return 'Speech synthesis defaults'
+    if (key === 'transcription_defaults') return 'Transcription defaults'
+    return 'Task request defaults'
+  })
+
+  // Display kind straight from the contract operation id (no endpoint matching).
+  const audioTaskKind = computed(() => {
+    const opId = requestOperationId.value
+    if (opId === 'speech') return 'tts'
+    if (opId === 'transcriptions' || opId === 'transcriptions_details') return 'asr'
+    if (opId) return 'task'
+    const key = requestDefaultsKey.value
+    if (key === 'speech_defaults') return 'tts'
+    if (key === 'transcription_defaults') return 'asr'
+    return 'task'
+  })
+
+  const taskKindMeta = computed(() => {
+    const kind = audioTaskKind.value
+    const byKind = {
+      tts: {
+        label: 'Text-to-Speech',
+        short: 'TTS',
+        icon: 'pi-volume-up',
+        tagSeverity: 'info',
+        tabHint: 'Voice & synthesis',
+      },
+      asr: {
+        label: 'Speech-to-Text',
+        short: 'ASR',
+        icon: 'pi-microphone',
+        tagSeverity: 'success',
+        tabHint: 'Transcription',
+      },
+      task: {
+        label: 'Audio task',
+        short: 'Task',
+        icon: 'pi-sliders-h',
+        tagSeverity: 'secondary',
+        tabHint: 'Generic task',
+      },
+    }
+    return byKind[kind] || byKind.task
+  })
+
+  const swapSetParamsPreview = computed(() => (
+    buildSwapSetParamsPreview(requestDefaultsKey.value, config.value?.[requestDefaultsKey.value])
+  ))
+
+  const configuredDefaultsCount = computed(() => {
+    const preview = swapSetParamsPreview.value
+    if (!preview) return 0
+    let count = Object.keys(preview).filter((key) => key !== 'options').length
+    if (preview.options && typeof preview.options === 'object') {
+      count += Object.keys(preview.options).length
+    }
+    return count
+  })
+
+  const defaultsApplyHint = computed(() => {
+    const endpoint = apiEndpoint.value
+    if (audioTaskKind.value === 'asr') {
+      return (
+        `Saved transcription defaults are filled into ${endpoint} requests when you Apply. `
+        + 'Audio file paths are still sent per request.'
+      )
+    }
+    if (audioTaskKind.value === 'tts') {
+      return (
+        `Saved speech defaults are filled into ${endpoint} requests when you Apply. `
+        + 'Voice presets are stored with the model instead.'
+      )
+    }
+    return (
+      `Saved request defaults are filled into ${endpoint} requests when you Apply. `
+      + 'Some inputs remain per-request only.'
+    )
+  })
+
+  const setupProgress = computed(() => {
+    const items = setupChecklist.value
+    if (!items.length) return 0
+    const done = items.filter((item) => item.done).length
+    return Math.round((done / items.length) * 100)
+  })
+
+  const supportsVoicePresets = computed(() => {
+    if (!isProfiledAudioModel.value) return false
+    if (typeof paramRegistry.value?.supports_voice_presets === 'boolean') {
+      return paramRegistry.value.supports_voice_presets
+    }
+    return requestDefaultsKey.value === 'speech_defaults'
+  })
+
+  const requiresSessionVoice = computed(() => Boolean(taskProfile.value?.requires_session_voice))
+
+  const hasSessionVoice = computed(() => {
+    const cfg = config.value || {}
+    const presets = cfg.voice_presets && typeof cfg.voice_presets === 'object' ? cfg.voice_presets : {}
+    const defaultPreset = cfg.default_voice_preset
+    const presetHasVoice = (preset) => Boolean(
+      preset
+      && typeof preset === 'object'
+      && (String(preset.voice_id || '').trim() || String(preset.voice_ref || '').trim()),
+    )
+    if (typeof defaultPreset === 'string' && defaultPreset.trim()) {
+      if (presetHasVoice(presets[defaultPreset.trim()])) return true
+    } else if (presetHasVoice(defaultPreset)) {
+      return true
+    }
+    const speech = cfg.speech_defaults && typeof cfg.speech_defaults === 'object'
+      ? cfg.speech_defaults
+      : {}
+    return Boolean(
+      String(speech.voice || '').trim()
+      || String(speech.voice_id || '').trim()
+      || String(speech.voice_ref || '').trim(),
+    )
+  })
+
+  const taskWorkflowTags = computed(() => {
+    const workflows = taskProfile.value?.workflows || []
+    return workflows.map((item) => String(item).replace(/_/g, ' '))
+  })
+
+  function fieldSelectOptions(field) {
+    const fromField = normalizeSelectOptions(field?.options)
+    if (fromField.length) return fromField
+    const key = field?.key
+    if (key === 'voice_id' || key === 'speaker') {
+      return normalizeSelectOptions(paramRegistry.value?.packaged_voices)
+    }
+    return []
+  }
+
+  const voicePresetFieldDefs = computed(() => {
+    const fields = new Map()
+    for (const group of requestFieldGroups.value) {
+      for (const field of group.fields || []) {
+        if (field.preset_field) {
+          fields.set(field.key, field)
+        }
+      }
+    }
+    if (!fields.size) {
+      return [
+        { key: 'voice_id', label: 'Built-in voice id', type: 'string', placeholder: 'id' },
+        {
+          key: 'voice_ref',
+          label: 'Reference audio (WAV)',
+          type: 'path',
+          placeholder: 'samples/reference.wav',
+        },
+        {
+          key: 'reference_text',
+          label: 'Reference transcript',
+          type: 'textarea',
+          placeholder: 'Transcript for the reference clip…',
+        },
+      ]
+    }
+    return [...fields.values()]
+  })
+
+  let voicePresetIdSeq = 0
+  const voicePresetIdByName = new Map()
+  const voicePresetNameDrafts = ref({})
+
+  function ensureVoicePresetRowId(name) {
+    if (!voicePresetIdByName.has(name)) {
+      voicePresetIdSeq += 1
+      voicePresetIdByName.set(name, `vp-${voicePresetIdSeq}`)
+    }
+    return voicePresetIdByName.get(name)
+  }
+
+  function forgetVoicePresetRowId(name) {
+    voicePresetIdByName.delete(name)
+  }
+
+  function moveVoicePresetRowId(oldName, newName) {
+    const id = voicePresetIdByName.get(oldName)
+    if (id) {
+      voicePresetIdByName.delete(oldName)
+      voicePresetIdByName.set(newName, id)
+      return
+    }
+    ensureVoicePresetRowId(newName)
+  }
+
+  function clearVoicePresetNameDraft(name) {
+    if (!Object.prototype.hasOwnProperty.call(voicePresetNameDrafts.value, name)) return
+    const drafts = { ...voicePresetNameDrafts.value }
+    delete drafts[name]
+    voicePresetNameDrafts.value = drafts
+  }
+
+  const voicePresetRows = computed(() => {
+    const presets = config.value?.voice_presets
+    if (!presets || typeof presets !== 'object' || Array.isArray(presets)) return []
+    const names = new Set(Object.keys(presets))
+    for (const known of [...voicePresetIdByName.keys()]) {
+      if (!names.has(known)) voicePresetIdByName.delete(known)
+    }
+    return Object.entries(presets).map(([name, preset]) => ({
+      id: ensureVoicePresetRowId(name),
+      name,
+      preset: preset && typeof preset === 'object' ? preset : {},
+    }))
+  })
+
+  function voicePresetNameDraft(name) {
+    if (Object.prototype.hasOwnProperty.call(voicePresetNameDrafts.value, name)) {
+      return voicePresetNameDrafts.value[name]
+    }
+    return name
+  }
+
+  function setVoicePresetNameDraft(name, value) {
+    voicePresetNameDrafts.value = {
+      ...voicePresetNameDrafts.value,
+      [name]: value == null ? '' : String(value),
+    }
+  }
+
+  function commitVoicePresetRename(name) {
+    const hasDraft = Object.prototype.hasOwnProperty.call(voicePresetNameDrafts.value, name)
+    const draft = voicePresetNameDrafts.value[name]
+    clearVoicePresetNameDraft(name)
+    if (!hasDraft) return
+    renameVoicePreset(name, draft)
+  }
+
+  const defaultVoicePresetOptions = computed(() => {
+    const options = voicePresetRows.value.map((row) => ({
+      label: row.name,
+      value: row.name,
+    }))
+    options.unshift({ label: 'No named preset (use Defaults fields)', value: '__inline__' })
+    return options
+  })
+
+  const defaultVoicePresetSelection = computed(() => {
+    const value = config.value?.default_voice_preset
+    if (typeof value === 'string') return value
+    if (value && typeof value === 'object') return '__inline__'
+    return null
+  })
+
+  const audioInspectionSummary = computed(() => {
+    const inspection = paramRegistry.value?.inspection || {}
+    const summary = []
+    if (inspection.family) summary.push(`Family: ${inspection.family}`)
+    for (const task of inspection.tasks || []) {
+      if (!task?.task) continue
+      const modes = Array.isArray(task.modes) && task.modes.length
+        ? ` (${task.modes.join(', ')})`
+        : ''
+      summary.push(`${task.task}${modes}`)
+    }
+    for (const capability of Object.keys(inspection.capabilities || {})) {
+      if (inspection.capabilities[capability]) summary.push(capability)
+    }
+    return [...new Set(summary)]
+  })
+
+  const setupChecklist = computed(() => {
+    const items = []
+    const cfg = config.value || {}
+    items.push({
+      id: 'family',
+      label: 'Model family selected',
+      done: Boolean(cfg.family),
+      detail: cfg.family || 'Required in Runtime',
+    })
+    items.push({
+      id: 'task',
+      label: 'Task selected',
+      done: Boolean(cfg.task),
+      detail: cfg.task || 'Required in Runtime',
+    })
+    items.push({
+      id: 'backend',
+      label: 'Runtime backend set',
+      done: Boolean(cfg.backend),
+      detail: cfg.backend ? `Backend: ${cfg.backend}` : 'Required in Runtime',
+    })
+    if (supportsVoicePresets.value) {
+      if (requiresSessionVoice.value) {
+        items.push({
+          id: 'voice',
+          label: 'Session voice required',
+          done: hasSessionVoice.value,
+          detail: hasSessionVoice.value
+            ? 'Default voice_id or voice_ref is set for session prepare'
+            : 'Set a default preset with voice_id or voice_ref',
+          tab: 'assets',
+        })
+      } else {
+        items.push({
+          id: 'voice',
+          label: 'Voice preset configured (optional)',
+          done: voicePresetRows.value.length > 0,
+          detail: voicePresetRows.value.length
+            ? `${voicePresetRows.value.length} preset(s) saved with this model`
+            : 'Optional asset',
+          tab: 'assets',
+        })
+      }
+    }
+    if (configuredDefaultsCount.value > 0) {
+      items.push({
+        id: 'defaults',
+        label: 'Saved API defaults',
+        done: true,
+        detail: `${configuredDefaultsCount.value} field(s) filled into requests on Apply`,
+        tab: 'api',
+      })
+    } else if (isProfiledAudioModel.value) {
+      const policy = String(instructionsPolicy.value || '').toLowerCase()
+      const needsGuidance = ['soft_tags', 'caption_option', 'text_prefix'].includes(policy)
+      items.push({
+        id: 'defaults',
+        label: needsGuidance ? 'API defaults recommended' : 'API defaults (optional)',
+        done: false,
+        detail: needsGuidance
+          ? (instructionsPolicyGuidance.value || 'Review Defaults for style/caption settings')
+          : 'Optional — leave empty to send everything per request',
+        tab: 'api',
+      })
+    }
+    return items
+  })
+
+  function audioParamHasExplicitValue(param, sourceConfig = config.value) {
+    const nestedKey = AUDIO_NESTED_SCOPE_KEYS[param.scope]
+    if (nestedKey) {
+      const nested = sourceConfig?.[nestedKey]
+      return Boolean(
+        nested
+        && typeof nested === 'object'
+        && !Array.isArray(nested)
+        && Object.prototype.hasOwnProperty.call(nested, param.key),
+      )
+    }
+    return Object.prototype.hasOwnProperty.call(sourceConfig || {}, param.key)
+  }
+
+  function audioParamValue(param, sourceConfig = config.value) {
+    if (Object.prototype.hasOwnProperty.call(param, 'forced_value')) return param.forced_value
+    if (audioParamHasExplicitValue(param, sourceConfig)) {
+      const nestedKey = AUDIO_NESTED_SCOPE_KEYS[param.scope]
+      if (nestedKey) {
+        return sourceConfig[nestedKey][param.key]
+      }
+      return sourceConfig[param.key]
+    }
+    return defaultValueForAudioParam(param)
+  }
+
+  function clearOptionalParamValue(param, target) {
+    if (isOptionalConfigParam(param)) {
+      target[param.key] = null
+    } else {
+      delete target[param.key]
+    }
+  }
+
+  function audioParamOptions(param) {
+    if (param.key === 'mode') {
+      const task = config.value?.task
+      const taskRow = (paramRegistry.value?.inspection?.tasks || [])
+        .find((item) => item?.task === task)
+      if (taskRow?.modes?.length) {
+        return taskRow.modes.map((mode) => ({ value: mode, label: mode }))
+      }
+    }
+    if (param.key === 'backend') {
+      const descriptor = (enginesStore?.engineDescriptors || [])
+        .find((item) => item.id === 'audio_cpp')
+      const available = descriptor?.available_runtime_backends
+      if (Array.isArray(available) && available.length) {
+        return available.map((backend) => ({ value: backend, label: backend }))
+      }
+    }
+    return Array.isArray(param.options) ? param.options : []
+  }
+
+  function setAudioParamValue(param, value) {
+    if (param.supported === false) return
+    if (!config.value) return
+    const nestedKey = AUDIO_NESTED_SCOPE_KEYS[param.scope]
+    const empty = value === undefined || value === null || value === ''
+      || (typeof value === 'number' && Number.isNaN(value))
+      || (Array.isArray(value) && value.length === 0)
+    if (nestedKey) {
+      if (!config.value[nestedKey] || typeof config.value[nestedKey] !== 'object') {
+        config.value[nestedKey] = {}
+      }
+      if (empty) clearOptionalParamValue(param, config.value[nestedKey])
+      else config.value[nestedKey][param.key] = coerceAudioParamValue(param, value)
+      return
+    }
+    if (empty) {
+      if (isOptionalConfigParam(param)) config.value[param.key] = null
+      else delete config.value[param.key]
+    } else {
+      config.value[param.key] = coerceAudioParamValue(param, value)
+    }
+    if (param.key === 'task') {
+      const modeParam = audioEditableParams.value.find((item) => item.key === 'mode')
+      if (!modeParam) return
+      const options = audioParamOptions(modeParam)
+      if (!options.some((option) => option.value === config.value.mode)) {
+        const offline = options.find((option) => option.value === 'offline')
+        config.value.mode = offline?.value || options[0]?.value || null
+      }
+    }
+  }
+
+  function updateAudioJsonParam(param, raw) {
+    if (!raw || !String(raw).trim()) {
+      setAudioParamValue(param, null)
+      return
+    }
+    try {
+      setAudioParamValue(param, JSON.parse(raw))
+    } catch {
+      setAudioParamValue(param, raw)
+    }
+  }
+
+  function ensureRequestDefaultsShape() {
+    const key = requestDefaultsKey.value
+    if (
+      !config.value[key]
+      || typeof config.value[key] !== 'object'
+      || Array.isArray(config.value[key])
+    ) {
+      config.value[key] = {}
+    }
+  }
+
+  function requestFieldKey(field) {
+    return field.request_field || field.speech_field || field.transcription_field || field.key
+  }
+
+  function requestDefaultValue(field) {
+    ensureRequestDefaultsShape()
+    const defaults = config.value[requestDefaultsKey.value]
+    if (field.nested || field.options_key) {
+      const options = defaults.options
+      if (field.key === 'prompt') {
+        if (Object.prototype.hasOwnProperty.call(defaults, 'prompt')) return defaults.prompt
+        if (options && Object.prototype.hasOwnProperty.call(options, 'text')) return options.text
+        return null
+      }
+      const optKey = field.options_key || field.key
+      if (options && typeof options === 'object' && Object.prototype.hasOwnProperty.call(options, optKey)) {
+        return options[optKey]
+      }
+      return field.type === 'bool' ? false : null
+    }
+    const key = requestFieldKey(field)
+    if (Object.prototype.hasOwnProperty.call(defaults, key)) return defaults[key]
+    return field.type === 'bool' ? false : null
+  }
+
+  function setRequestDefaultValue(field, value) {
+    ensureRequestDefaultsShape()
+    const defaults = config.value[requestDefaultsKey.value]
+    const empty = value === undefined || value === null || value === ''
+      || (typeof value === 'number' && Number.isNaN(value))
+    if (field.key === 'prompt') {
+      const text = value == null ? '' : String(value).trim()
+      if (!text) {
+        if (Object.prototype.hasOwnProperty.call(defaults, 'prompt')) defaults.prompt = null
+        if (defaults.options?.text !== undefined) defaults.options.text = null
+      } else {
+        defaults.prompt = text
+      }
+      return
+    }
+    if (field.nested || field.options_key) {
+      if (!defaults.options || typeof defaults.options !== 'object') {
+        defaults.options = {}
+      }
+      const key = field.options_key || field.key
+      if (empty) defaults.options[key] = null
+      else if (field.type === 'bool') {
+        defaults.options[key] = Boolean(value)
+      } else if (field.type === 'int') {
+        defaults.options[key] = parseInt(value, 10)
+      } else if (field.type === 'float') {
+        defaults.options[key] = parseFloat(value)
+      } else {
+        defaults.options[key] = String(value)
+      }
+      return
+    }
+    const key = requestFieldKey(field)
+    if (empty) defaults[key] = null
+    else if (field.type === 'bool') {
+      defaults[key] = Boolean(value)
+    } else {
+      defaults[key] = value
+    }
+  }
+
+  const emptyVoicePresetsHint = computed(() => {
+    if (!requiresSessionVoice.value) return 'No voice presets yet.'
+    const ids = packagedVoiceIds()
+    if (ids.length) {
+      const shown = ids.slice(0, 4).join(', ')
+      const extra = ids.length > 4 ? '…' : ''
+      return (
+        `Add a preset with a packaged voice_id (${shown}${extra}) or voice_ref, `
+        + 'then mark it as the default. This model requires a voice before its session starts.'
+      )
+    }
+    return (
+      'Add a preset with voice_id or voice_ref, then mark it as the default. '
+      + 'This model requires a voice before its session starts.'
+    )
+  })
+
+  function ensureTtsConfigShape() {
+    if (
+      !config.value.voice_presets
+      || typeof config.value.voice_presets !== 'object'
+      || Array.isArray(config.value.voice_presets)
+    ) {
+      config.value.voice_presets = {}
+    }
+    ensureRequestDefaultsShape()
+    seedSessionVoiceFromPackagedIds()
+  }
+
+  function packagedVoiceIds() {
+    return normalizeSelectOptions(paramRegistry.value?.packaged_voices).map((item) => item.value)
+  }
+
+  function seedSessionVoiceFromPackagedIds() {
+    if (!requiresSessionVoice.value || hasSessionVoice.value) return false
+    const cfg = config.value || {}
+    if (
+      !cfg.voice_presets
+      || typeof cfg.voice_presets !== 'object'
+      || Array.isArray(cfg.voice_presets)
+    ) {
+      cfg.voice_presets = {}
+    }
+    const presetHasVoice = (preset) => Boolean(
+      preset
+      && typeof preset === 'object'
+      && (String(preset.voice_id || '').trim() || String(preset.voice_ref || '').trim()),
+    )
+    const namedUsable = Object.entries(cfg.voice_presets).filter(([, preset]) => presetHasVoice(preset))
+    if (namedUsable.length === 1 && !(typeof cfg.default_voice_preset === 'string' && cfg.default_voice_preset.trim())) {
+      cfg.default_voice_preset = namedUsable[0][0]
+      return true
+    }
+    const ids = packagedVoiceIds()
+    if (!ids.length) return false
+    const voiceId = ids[0]
+    const defaultPreset = cfg.default_voice_preset
+    if (defaultPreset && typeof defaultPreset === 'object' && !Array.isArray(defaultPreset)) {
+      if (!presetHasVoice(defaultPreset)) {
+        defaultPreset.voice_id = voiceId
+        return true
+      }
+      return false
+    }
+    const name = typeof defaultPreset === 'string' ? defaultPreset.trim() : ''
+    if (name) {
+      const existing = cfg.voice_presets[name] && typeof cfg.voice_presets[name] === 'object'
+        ? cfg.voice_presets[name]
+        : {}
+      cfg.voice_presets[name] = existing
+      if (!presetHasVoice(existing)) {
+        existing.voice_id = voiceId
+        return true
+      }
+      return false
+    }
+    cfg.voice_presets[voiceId] = { ...(cfg.voice_presets[voiceId] || {}), voice_id: voiceId }
+    cfg.default_voice_preset = voiceId
+    return true
+  }
+
+  function addVoicePreset() {
+    ensureTtsConfigShape()
+    let index = 1
+    let name = 'preset-1'
+    while (config.value.voice_presets[name]) {
+      index += 1
+      name = `preset-${index}`
+    }
+    config.value.voice_presets[name] = {}
+    ensureVoicePresetRowId(name)
+  }
+
+  function removeVoicePreset(name) {
+    ensureTtsConfigShape()
+    if (!config.value.voice_presets[name]) return
+    delete config.value.voice_presets[name]
+    forgetVoicePresetRowId(name)
+    clearVoicePresetNameDraft(name)
+    if (config.value.default_voice_preset === name) {
+      config.value.default_voice_preset = null
+    }
+  }
+
+  function renameVoicePreset(oldName, newName) {
+    ensureTtsConfigShape()
+    const trimmed = String(newName || '').trim()
+    if (!trimmed || trimmed === oldName) return
+    if (config.value.voice_presets[trimmed]) return
+    moveVoicePresetRowId(oldName, trimmed)
+    clearVoicePresetNameDraft(oldName)
+    config.value.voice_presets[trimmed] = config.value.voice_presets[oldName] || {}
+    delete config.value.voice_presets[oldName]
+    if (config.value.default_voice_preset === oldName) {
+      config.value.default_voice_preset = trimmed
+    }
+  }
+
+  function setVoicePresetField(name, key, value) {
+    ensureTtsConfigShape()
+    if (!config.value.voice_presets[name]) {
+      config.value.voice_presets[name] = {}
+    }
+    // Keep raw text while typing; trimming on every keystroke fights the controlled
+    // input and can drop focus. Backend normalize_voice_presets cleans on apply.
+    const text = value == null ? '' : String(value)
+    if (text === '') delete config.value.voice_presets[name][key]
+    else config.value.voice_presets[name][key] = text
+  }
+
+  function setDefaultVoicePresetSelection(value) {
+    if (!value) {
+      config.value.default_voice_preset = null
+      return
+    }
+    if (value === '__inline__') {
+      if (typeof config.value.default_voice_preset !== 'object') {
+        config.value.default_voice_preset = {}
+      }
+      return
+    }
+    config.value.default_voice_preset = value
+  }
+
+  const requestApiExample = computed(() => {
+    const modelId = config.value?.model_alias || stableModelId?.value || 'your-model-id'
+    const endpoint = apiEndpoint.value
+    const shape = requestBodyShape.value
+    const operationId = requestOperationId.value
+      || audioOperationForTask(paramRegistry.value?.policy_task || config.value?.task)?.id
+    const defaultsKey = requestDefaultsKey.value
+    const defaults = config.value?.[defaultsKey]
+    const body = { model: modelId }
+
+    if (shape === 'tasks-run') {
+      // Studio proxy generic route → audio.cpp {"model","request":{...}}
+      const request = {
+        text: 'Example prompt text.',
+        audio: '/path/to/input.wav',
+      }
+      if (defaults && typeof defaults === 'object') {
+        for (const [key, value] of Object.entries(defaults)) {
+          if (key === 'options') continue
+          if (value != null && value !== '') request[key] = value
+        }
+        if (defaults.options && typeof defaults.options === 'object' && Object.keys(defaults.options).length) {
+          request.options = { ...defaults.options }
+        }
+      }
+      body.request = request
+    } else if (shape === 'multipart-form') {
+      body.audio = '/path/to/speech.wav'
+    } else {
+      body.input = 'Hello from audio.cpp.'
+    }
+
+    if (defaults && typeof defaults === 'object' && shape !== 'tasks-run') {
+      for (const [key, value] of Object.entries(defaults)) {
+        if (key === 'options') continue
+        if (key === 'prompt' && shape === 'multipart-form') continue
+        if (value != null && value !== '') body[key] = value
+      }
+      if (defaults.prompt && shape === 'multipart-form') {
+        body.options = { ...(body.options || {}), text: defaults.prompt }
+      }
+      if (defaults.options && typeof defaults.options === 'object' && Object.keys(defaults.options).length) {
+        body.options = { ...(body.options || {}), ...defaults.options }
+      }
+    }
+
+    // Operation id when the payload carries it; the Studio defaults bucket is
+    // the equivalent signal for payload-only renders.
+    const isSpeech = operationId
+      ? operationId === 'speech'
+      : defaultsKey === 'speech_defaults'
+    if (isSpeech) {
+      const defaultPreset = config.value?.default_voice_preset
+      if (typeof defaultPreset === 'string' && defaultPreset && !body.voice) {
+        body.voice = defaultPreset
+      }
+    }
+
+    const lines = [
+      `curl http://localhost:2000${endpoint} \\`,
+      "  -H 'Content-Type: application/json' \\",
+    ]
+    if (isSpeech) {
+      lines.push('  -o speech.wav \\')
+    }
+    lines.push("  -d '" + JSON.stringify(body, null, 2).replace(/'/g, "'\\''") + "'")
+    if (shape === 'multipart-form') {
+      lines.push('')
+      lines.push('# Multipart (OpenAI-compatible upload):')
+      lines.push(`curl http://localhost:2000${endpoint} \\`)
+      lines.push(`  -F "model=${modelId}" \\`)
+      lines.push('  -F "file=@speech.wav"')
+    }
+    return lines.join('\n')
+  })
+
+  function filterGroupParams(params, searchQuery, hideUnsupported) {
+    const q = searchQuery.trim()
+    if (!q && !hideUnsupported) return params
+    return params.filter((param) => {
+      if (hideUnsupported && param.supported === false) return false
+      if (!q) return true
+      return paramMatchesSearch(param, q, hideUnsupported)
+    })
+  }
+
+  return {
+    catalogParamList,
+    audioEditableParams,
+    audioConfigGroups,
+    audioRequestCapabilities,
+    taskProfile,
+    isProfiledAudioModel,
+    requestFieldGroups,
+    requestDefaultsKey,
+    requestOperationId,
+    requestBodyShape,
+    apiEndpoint,
+    apiExampleHint,
+    instructionsPolicy,
+    instructionsPolicyGuidance,
+    requestDefaultsSectionTitle,
+    audioTaskKind,
+    taskKindMeta,
+    swapSetParamsPreview,
+    configuredDefaultsCount,
+    defaultsApplyHint,
+    setupProgress,
+    supportsVoicePresets,
+    requiresSessionVoice,
+    hasSessionVoice,
+    taskWorkflowTags,
+    voicePresetFieldDefs,
+    fieldSelectOptions,
+    voicePresetRows,
+    voicePresetNameDraft,
+    setVoicePresetNameDraft,
+    commitVoicePresetRename,
+    defaultVoicePresetOptions,
+    defaultVoicePresetSelection,
+    audioInspectionSummary,
+    setupChecklist,
+    requestApiExample,
+    audioParamValue,
+    audioParamHasExplicitValue,
+    audioParamOptions,
+    setAudioParamValue,
+    updateAudioJsonParam,
+    ensureRequestDefaultsShape,
+    requestDefaultValue,
+    setRequestDefaultValue,
+    ensureTtsConfigShape,
+    seedSessionVoiceFromPackagedIds,
+    emptyVoicePresetsHint,
+    addVoicePreset,
+    removeVoicePreset,
+    renameVoicePreset,
+    setVoicePresetField,
+    setDefaultVoicePresetSelection,
+    filterGroupParams,
+  }
+}

@@ -1,0 +1,460 @@
+{
+  "reference": "Direct fixture-engine HTTP responses",
+  "performance": {
+    "direct": {
+      "load_generator": "aiohttp; warmed keepalive pool",
+      "warmup_requests": 8,
+      "requests": 32,
+      "concurrency": 8,
+      "elapsed_seconds": 0.5222913860015979,
+      "requests_per_second": 61.26848126861909,
+      "errors": 0,
+      "p50_ms": 129.55317299929447,
+      "p95_ms": 131.99580400032573,
+      "first_byte_p50_ms": 0.6462860001192894,
+      "bytes_per_second": 27877.158977221687,
+      "first_token_p50_ms": 48.30982400017092,
+      "output_tokens_per_second": 122.53696253723818
+    },
+    "studio": {
+      "load_generator": "aiohttp; warmed keepalive pool",
+      "warmup_requests": 8,
+      "requests": 32,
+      "concurrency": 8,
+      "elapsed_seconds": 0.5445895589982683,
+      "requests_per_second": 58.75984853411733,
+      "errors": 0,
+      "p50_ms": 131.42058000084944,
+      "p95_ms": 149.03695699831587,
+      "first_byte_p50_ms": 4.3139910012541804,
+      "bytes_per_second": 26735.731083023384,
+      "first_token_p50_ms": 49.90292100046645,
+      "output_tokens_per_second": 117.51969706823466
+    }
+  },
+  "passed": true,
+  "checks": [
+    {
+      "name": "chat-json",
+      "passed": true,
+      "upstream": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "id": "identity-0",
+          "object": "chat.completion",
+          "choices": [
+            {
+              "message": {
+                "role": "assistant",
+                "content": "h\u00e9llo"
+              }
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 3,
+            "completion_tokens": 2
+          }
+        },
+        "headers": {},
+        "first_byte_ms": 4.558353000902571,
+        "duration_ms": 4.749252002511639,
+        "bytes_received": 155,
+        "chunks": 1,
+        "cancelled": false,
+        "incremental": false
+      },
+      "studio": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "id": "identity-0",
+          "object": "chat.completion",
+          "choices": [
+            {
+              "message": {
+                "role": "assistant",
+                "content": "h\u00e9llo"
+              }
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 3,
+            "completion_tokens": 2
+          }
+        },
+        "headers": {},
+        "first_byte_ms": 5.79646999904071,
+        "duration_ms": 5.993176997435512,
+        "bytes_received": 155,
+        "chunks": 1,
+        "cancelled": false,
+        "incremental": false
+      }
+    },
+    {
+      "name": "sse-fragmented-tools",
+      "passed": true,
+      "upstream": {
+        "status": 200,
+        "content_type": "text/event-stream",
+        "body": [
+          {
+            "id": "identity-0",
+            "choices": [
+              {
+                "delta": {
+                  "role": "assistant"
+                }
+              }
+            ]
+          },
+          {
+            "id": "identity-0",
+            "choices": [
+              {
+                "delta": {
+                  "content": "h\u00e9llo"
+                }
+              }
+            ]
+          },
+          {
+            "id": "identity-0",
+            "choices": [
+              {
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "id": "identity-1",
+                      "function": {
+                        "name": "lookup",
+                        "arguments": "{\"q\":"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "identity-0",
+            "choices": [
+              {
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "function": {
+                        "arguments": "\"test\"}"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "usage": {
+              "prompt_tokens": 3,
+              "completion_tokens": 2
+            }
+          },
+          "[DONE]"
+        ],
+        "headers": {
+          "x-fixture": "stream"
+        },
+        "first_byte_ms": 1.2662420012929942,
+        "duration_ms": 131.75893000152428,
+        "bytes_received": 455,
+        "chunks": 9,
+        "cancelled": false,
+        "incremental": true
+      },
+      "studio": {
+        "status": 200,
+        "content_type": "text/event-stream",
+        "body": [
+          {
+            "id": "identity-0",
+            "choices": [
+              {
+                "delta": {
+                  "role": "assistant"
+                }
+              }
+            ]
+          },
+          {
+            "id": "identity-0",
+            "choices": [
+              {
+                "delta": {
+                  "content": "h\u00e9llo"
+                }
+              }
+            ]
+          },
+          {
+            "id": "identity-0",
+            "choices": [
+              {
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "id": "identity-1",
+                      "function": {
+                        "name": "lookup",
+                        "arguments": "{\"q\":"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "identity-0",
+            "choices": [
+              {
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "function": {
+                        "arguments": "\"test\"}"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "usage": {
+              "prompt_tokens": 3,
+              "completion_tokens": 2
+            }
+          },
+          "[DONE]"
+        ],
+        "headers": {
+          "x-fixture": "stream"
+        },
+        "first_byte_ms": 2.1700619981857017,
+        "duration_ms": 132.19904099969426,
+        "bytes_received": 455,
+        "chunks": 9,
+        "cancelled": false,
+        "incremental": true
+      }
+    },
+    {
+      "name": "upstream-status",
+      "passed": true,
+      "upstream": {
+        "status": 422,
+        "content_type": "application/json",
+        "body": {
+          "error": "fixture upstream rejected request"
+        },
+        "headers": {},
+        "first_byte_ms": 1.4698479972139467,
+        "duration_ms": 1.6713829973014072,
+        "bytes_received": 45,
+        "chunks": 1,
+        "cancelled": false,
+        "incremental": false
+      },
+      "studio": {
+        "status": 422,
+        "content_type": "application/json",
+        "body": {
+          "error": "fixture upstream rejected request"
+        },
+        "headers": {},
+        "first_byte_ms": 2.574177000497002,
+        "duration_ms": 2.752016000158619,
+        "bytes_received": 45,
+        "chunks": 1,
+        "cancelled": false,
+        "incremental": false
+      }
+    },
+    {
+      "name": "compressed-body",
+      "passed": true,
+      "upstream": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "fixture": "compressed",
+          "usage": {
+            "prompt_tokens": 3,
+            "completion_tokens": 2
+          }
+        },
+        "headers": {
+          "content-encoding": "gzip"
+        },
+        "first_byte_ms": 0.9620660021028016,
+        "duration_ms": 1.419227999576833,
+        "bytes_received": 81,
+        "chunks": 1,
+        "cancelled": false,
+        "incremental": false
+      },
+      "studio": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "fixture": "compressed",
+          "usage": {
+            "prompt_tokens": 3,
+            "completion_tokens": 2
+          }
+        },
+        "headers": {
+          "content-encoding": "gzip"
+        },
+        "first_byte_ms": 1.7401119985152036,
+        "duration_ms": 1.90820799980429,
+        "bytes_received": 81,
+        "chunks": 1,
+        "cancelled": false,
+        "incremental": false
+      }
+    },
+    {
+      "name": "binary-slow-consumer",
+      "passed": true,
+      "upstream": {
+        "status": 200,
+        "content_type": "application/octet-stream",
+        "body": {
+          "sha256": "fbbab289f7f94b25736c58be46a994c441fd02552cc6022352e3d86d2fab7c83",
+          "bytes": 1048576,
+          "capture_truncated": false
+        },
+        "headers": {},
+        "first_byte_ms": 0.9721509995870292,
+        "duration_ms": 198.25036499969428,
+        "bytes_received": 1048576,
+        "chunks": 78,
+        "cancelled": false,
+        "incremental": true
+      },
+      "studio": {
+        "status": 200,
+        "content_type": "application/octet-stream",
+        "body": {
+          "sha256": "fbbab289f7f94b25736c58be46a994c441fd02552cc6022352e3d86d2fab7c83",
+          "bytes": 1048576,
+          "capture_truncated": false
+        },
+        "headers": {},
+        "first_byte_ms": 3.169126001012046,
+        "duration_ms": 62.063848999969196,
+        "bytes_received": 1048576,
+        "chunks": 22,
+        "cancelled": false,
+        "incremental": true
+      }
+    },
+    {
+      "name": "hop-headers",
+      "passed": true,
+      "upstream": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "method": "POST",
+          "path": "/fixture/echo",
+          "query": "probe=1",
+          "sha256": "9ab366ad455508d5f47b0128d7d243a2c0e4f5ce399b5f85cd10b343e745a4dc",
+          "content_type": null,
+          "x_probe": "fixture",
+          "hop_header": null
+        },
+        "headers": {},
+        "first_byte_ms": 1.53781699918909,
+        "duration_ms": 1.7080729994631838,
+        "bytes_received": 192,
+        "chunks": 1,
+        "cancelled": false,
+        "incremental": false
+      },
+      "studio": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "method": "POST",
+          "path": "/fixture/echo",
+          "query": "probe=1",
+          "sha256": "9ab366ad455508d5f47b0128d7d243a2c0e4f5ce399b5f85cd10b343e745a4dc",
+          "content_type": null,
+          "x_probe": "fixture",
+          "hop_header": null
+        },
+        "headers": {},
+        "first_byte_ms": 2.379222998570185,
+        "duration_ms": 2.566331000707578,
+        "bytes_received": 192,
+        "chunks": 1,
+        "cancelled": false,
+        "incremental": false
+      }
+    },
+    {
+      "name": "multipart-order",
+      "passed": true,
+      "upstream": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "method": "POST",
+          "path": "/fixture/echo",
+          "query": "",
+          "sha256": "2ddab9b7d2d8878615f500a47cfc3c72a474e1032f4a2e4feb89f33f762c327f",
+          "content_type": "multipart/form-data; boundary=fixture-boundary",
+          "x_probe": "fixture",
+          "hop_header": null
+        },
+        "headers": {},
+        "first_byte_ms": 1.0626129987940658,
+        "duration_ms": 1.2447609988157637,
+        "bytes_received": 229,
+        "chunks": 1,
+        "cancelled": false,
+        "incremental": false
+      },
+      "studio": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "method": "POST",
+          "path": "/fixture/echo",
+          "query": "",
+          "sha256": "2ddab9b7d2d8878615f500a47cfc3c72a474e1032f4a2e4feb89f33f762c327f",
+          "content_type": "multipart/form-data; boundary=fixture-boundary",
+          "x_probe": "fixture",
+          "hop_header": null
+        },
+        "headers": {},
+        "first_byte_ms": 1.8674950006243307,
+        "duration_ms": 2.03731000146945,
+        "bytes_received": 229,
+        "chunks": 1,
+        "cancelled": false,
+        "incremental": false
+      }
+    },
+    {
+      "name": "studio-upstream-cancellation",
+      "passed": true
+    }
+  ]
+}

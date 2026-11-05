@@ -1,0 +1,420 @@
+/**
+ * SSE-based progress and events store. Subscribes to GET /api/events.
+ */
+import { defineStore } from 'pinia'
+import { ref, computed } from 'vue'
+
+export const eventSourceFactory = {
+  open(url) {
+    return new globalThis.EventSource(url)
+  },
+}
+
+const SSE_EVENT_TYPES = [
+  'task_created',
+  'task_updated',
+  'task_dismissed',
+  'task_snapshot',
+  'resync',
+  'task_log',
+  'download_progress',
+  'download_complete',
+  'build_progress',
+  'notification',
+  'broadcast'
+]
+
+const DISMISSED_TASKS_KEY = 'llama-studio.activity.dismissed'
+const ACTIVE_TASK_STATUSES = new Set(['running', 'queued', 'cancelling'])
+
+function readDismissedTaskIds() {
+  if (typeof localStorage === 'undefined') return []
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DISMISSED_TASKS_KEY) || '[]')
+    return Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string' && id) : []
+  } catch (_) {
+    return []
+  }
+}
+
+function writeDismissedTaskIds(ids) {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(DISMISSED_TASKS_KEY, JSON.stringify(ids.slice(-400)))
+  } catch (_) {}
+}
+
+export const useProgressStore = defineStore('progress', () => {
+  const tasks = ref({})
+  const taskLogs = ref({})
+  const eventSource = ref(null)
+  const connected = ref(false)
+  let reconnectTimer = null
+  let closedByUser = false
+  const subscribers = ref(new Map()) // eventType -> Set<callback>
+  const dismissedTaskIds = new Set(readDismissedTaskIds())
+
+  function rememberDismissed(taskId) {
+    if (!taskId || dismissedTaskIds.has(taskId)) return
+    dismissedTaskIds.add(taskId)
+    writeDismissedTaskIds([...dismissedTaskIds])
+  }
+
+  function forgetDismissed(taskId) {
+    if (!taskId || !dismissedTaskIds.has(taskId)) return
+    dismissedTaskIds.delete(taskId)
+    writeDismissedTaskIds([...dismissedTaskIds])
+  }
+
+  function keepIncomingTask(task) {
+    const taskId = task?.task_id
+    if (!taskId) return false
+    if (!dismissedTaskIds.has(taskId)) return true
+    if (ACTIVE_TASK_STATUSES.has(task.status)) {
+      forgetDismissed(taskId)
+      return true
+    }
+    return false
+  }
+
+  const MAX_LOG_LINES = 200
+  const MAX_INSTALL_LOG_LINES = 15000
+  const MAX_BUILD_LOG_LINES = 15000
+
+  const activeTasks = computed(() => {
+    return Object.values(tasks.value).filter(t => t.status === 'running')
+  })
+
+  const connectionStatus = computed(() => (connected.value ? 'connected' : 'disconnected'))
+  const isConnected = computed(() => connected.value && eventSource.value?.readyState === 1)
+
+  function notifySubscribers(eventType, data) {
+    const callbacks = subscribers.value.get(eventType)
+    if (callbacks) {
+      callbacks.forEach(cb => {
+        try {
+          const result = cb(data)
+          if (result && typeof result.then === 'function') result.catch(() => {})
+        } catch (_) {}
+      })
+    }
+    const any = subscribers.value.get('*')
+    if (any) any.forEach(cb => { try { cb(eventType, data) } catch (_) {} })
+  }
+
+  function appendTaskLogs(taskId, lines, options = {}) {
+    if (lines == null || taskId == null) return
+    const isBuild = typeof taskId === 'string' && taskId.startsWith('build_')
+    const isScan =
+      (typeof taskId === 'string' && taskId.startsWith('scan_'))
+      || tasks.value[taskId]?.type === 'param_scan'
+    const isInstall =
+      (typeof taskId === 'string' && taskId.startsWith('install_'))
+      || tasks.value[taskId]?.type === 'install'
+    const cap = isBuild || isScan
+      ? MAX_BUILD_LOG_LINES
+      : isInstall
+        ? MAX_INSTALL_LOG_LINES
+        : MAX_LOG_LINES
+    const entries = Array.isArray(lines) ? lines : [lines]
+    const existing = taskLogs.value[taskId] || []
+    const next = [...existing]
+    const shouldDedupe = options.dedupe !== false
+    const seen = shouldDedupe ? new Set(existing) : null
+
+    entries.forEach((entry) => {
+      if (typeof entry !== 'string') return
+      entry.split(/\r?\n/).forEach((rawLine) => {
+        const line = rawLine.trim()
+        if (!line) return
+        if (shouldDedupe && seen.has(line)) return
+        if (shouldDedupe) seen.add(line)
+        next.push(line)
+      })
+    })
+
+    if (next.length === existing.length) return
+
+    taskLogs.value = {
+      ...taskLogs.value,
+      [taskId]: next.slice(-cap),
+    }
+  }
+
+  function syncTaskLogsFromTask(task) {
+    if (!task?.task_id) return
+
+    const metadataLines = Array.isArray(task.metadata?.log_lines) ? task.metadata.log_lines : []
+    const isBuildLike =
+      task.type === 'build'
+      || task.type === 'param_scan'
+      || (typeof task.task_id === 'string' && task.task_id.startsWith('build_'))
+      || (typeof task.task_id === 'string' && task.task_id.startsWith('scan_'))
+    const isDownloadLike =
+      task.type === 'download'
+      || (typeof task.task_id === 'string' && task.task_id.startsWith('download_'))
+
+    // Build tasks stream live lines via `build_progress`. `metadata.log_lines` is a
+    // reconnect snapshot (and send_build_progress also mirrors the current batch into
+    // metadata). Appending both channels duplicated every line in the UI.
+    if (isBuildLike) {
+      const existing = taskLogs.value[task.task_id] || []
+      if (existing.length === 0 && metadataLines.length > 0) {
+        appendTaskLogs(task.task_id, metadataLines)
+      }
+      return
+    }
+
+    // Download status text changes every tick (MB/s). Keep that on the progress
+    // row via download_progress — do not spam the log buffer.
+    if (isDownloadLike) {
+      return
+    }
+
+    // Merge on every task_updated so installers that only stream via
+    // metadata.log_lines (no task_log / build_progress) still update live.
+    if (metadataLines.length > 0) {
+      appendTaskLogs(task.task_id, metadataLines)
+      return
+    }
+
+    if (task.message) {
+      appendTaskLogs(task.task_id, task.message)
+    }
+  }
+
+  function handleEvent(eventType, rawData) {
+    let data = rawData
+    try {
+      if (typeof rawData === 'string') data = JSON.parse(rawData)
+    } catch (_) { return }
+    const payload = data?.data != null ? data.data : data
+
+    if (eventType === 'task_log') {
+      appendTaskLogs(payload?.task_id, payload?.line)
+    }
+    if (eventType === 'build_progress' && payload?.task_id && !dismissedTaskIds.has(payload.task_id)) {
+      // Dedupe against the existing buffer so mirrored metadata.log_lines from
+      // task_updated (seed / reconnect) are not appended a second time.
+      appendTaskLogs(payload?.task_id, payload?.log_lines)
+      if (payload?.task_id) {
+        const existing = tasks.value[payload.task_id] || {}
+        const nextProgress = payload.progress ?? existing.progress ?? 0
+        const scanLike =
+          existing.type === 'param_scan'
+          || (typeof payload.task_id === 'string' && payload.task_id.startsWith('scan_'))
+        tasks.value = {
+          ...tasks.value,
+          [payload.task_id]: {
+            ...existing,
+            task_id: payload.task_id,
+            type: existing.type || (scanLike ? 'param_scan' : 'build'),
+            status: existing.status || 'running',
+            description: existing.description || payload.stage || (scanLike ? 'Parameter scan' : 'Build'),
+            progress: nextProgress,
+            message: payload.message || existing.message || '',
+            metadata: {
+              ...(existing.metadata || {}),
+              stage: payload.stage || existing.metadata?.stage,
+              log_lines: payload.log_lines || existing.metadata?.log_lines || [],
+            },
+          },
+        }
+      }
+    }
+    if (eventType === 'download_progress' && payload?.task_id && !dismissedTaskIds.has(payload.task_id)) {
+      const existing = tasks.value[payload.task_id] || {}
+      tasks.value = {
+        ...tasks.value,
+        [payload.task_id]: {
+          ...existing,
+          task_id: payload.task_id,
+          type: existing.type || 'download',
+          status: existing.status || 'running',
+          description: existing.description || payload.filename || 'Download',
+          progress: payload.progress ?? existing.progress ?? 0,
+          message: payload.message || existing.message || '',
+          metadata: {
+            ...(existing.metadata || {}),
+            bytes_downloaded: payload.bytes_downloaded,
+            total_bytes: payload.total_bytes,
+            speed_mbps: payload.speed_mbps,
+            eta_seconds: payload.eta_seconds,
+            filename: payload.filename,
+            current_filename: payload.current_filename || payload.filename,
+            files_completed: payload.files_completed,
+            files_total: payload.files_total,
+            huggingface_id: payload.huggingface_id,
+            model_format: payload.model_format,
+          },
+        },
+      }
+    }
+    if (eventType === 'task_dismissed') {
+      const taskId = payload?.task_id
+      if (taskId) {
+        rememberDismissed(taskId)
+        const { [taskId]: _t, ...restTasks } = tasks.value
+        tasks.value = restTasks
+        const { [taskId]: _l, ...restLogs } = taskLogs.value
+        taskLogs.value = restLogs
+      }
+    }
+    if (eventType === 'task_snapshot' || eventType === 'resync') {
+      const incoming = Array.isArray(payload?.tasks) ? payload.tasks : []
+      const next = {}
+      incoming.forEach((task) => {
+        if (!keepIncomingTask(task)) return
+        next[task.task_id] = task
+        syncTaskLogsFromTask(task)
+      })
+      tasks.value = next
+    }
+    if (eventType === 'task_created' || eventType === 'task_updated') {
+      const task = data?.data ?? data
+      if (keepIncomingTask(task)) {
+        tasks.value = { ...tasks.value, [task.task_id]: task }
+        syncTaskLogsFromTask(task)
+      }
+    }
+    notifySubscribers(eventType, payload)
+    if (payload?.type && payload.type !== eventType) notifySubscribers(payload.type, payload)
+  }
+
+  function connect() {
+    closedByUser = false
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+    if (eventSource.value?.readyState === 1) return
+    // Use the same origin in development and production so HTTPS and session
+    // cookies also work through a reverse proxy and the Vite API proxy.
+    const isDev = typeof import.meta !== 'undefined' && import.meta.env?.DEV
+    const url = '/api/events'
+    const es = eventSourceFactory.open(url)
+    es.onopen = () => {
+      if (isDev) console.log('[SSE] onopen, readyState=', es.readyState)
+      connected.value = true
+    }
+    es.onerror = (e) => {
+      if (isDev) console.warn('[SSE] onerror, readyState=', es.readyState, 'event=', e)
+      es.close()
+      eventSource.value = null
+      connected.value = false
+      if (closedByUser) return
+      reconnectTimer = setTimeout(() => connect(), 3000)
+    }
+    es.onmessage = (e) => handleEvent('message', e.data)
+    SSE_EVENT_TYPES.forEach(type => {
+      es.addEventListener(type, (e) => handleEvent(type, e.data))
+    })
+    eventSource.value = es
+  }
+
+  function disconnect() {
+    closedByUser = true
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+    if (eventSource.value) {
+      eventSource.value.close()
+      eventSource.value = null
+    }
+    connected.value = false
+  }
+
+  function getTask(taskId) {
+    return tasks.value[taskId] || null
+  }
+
+  function getTaskLogs(taskId) {
+    return taskLogs.value[taskId] || []
+  }
+
+  /** Remove a task and its logs from the UI (e.g. user dismissed after completion). */
+  function removeTask(taskId) {
+    if (!taskId) return
+    rememberDismissed(taskId)
+    const { [taskId]: _t, ...restTasks } = tasks.value
+    tasks.value = restTasks
+    const { [taskId]: _l, ...restLogs } = taskLogs.value
+    taskLogs.value = restLogs
+  }
+
+  function undismissTask(taskId) {
+    forgetDismissed(taskId)
+  }
+
+  function subscribe(eventType, callback) {
+    if (!subscribers.value.has(eventType)) subscribers.value.set(eventType, new Set())
+    subscribers.value.get(eventType).add(callback)
+    return () => {
+      const set = subscribers.value.get(eventType)
+      if (set) {
+        set.delete(callback)
+        if (set.size === 0) subscribers.value.delete(eventType)
+      }
+    }
+  }
+
+  const subscribeToDownloadComplete = (cb) => subscribe('download_complete', cb)
+
+  /**
+   * Resolve when a background operation reaches a terminal state; reject on
+   * failure so callers can surface the backend message. Resolves immediately
+   * when the task is already finished or unknown (e.g. SSE never connected).
+   */
+  function waitForTask(taskId, { timeoutMs = 10 * 60 * 1000 } = {}) {
+    return new Promise((resolve, reject) => {
+      if (!taskId) {
+        resolve(null)
+        return
+      }
+      let settled = false
+      let unsubscribe = null
+      let timer = null
+      const finish = (fn, value) => {
+        if (settled) return
+        settled = true
+        if (unsubscribe) unsubscribe()
+        if (timer) clearTimeout(timer)
+        fn(value)
+      }
+      const check = (task) => {
+        if (!task) return
+        if (task.status === 'completed') finish(resolve, task)
+        else if (task.status === 'failed' || task.status === 'cancelled' || task.status === 'interrupted') {
+          finish(reject, new Error(task.message || 'Operation failed'))
+        }
+      }
+      unsubscribe = subscribe('task_updated', (task) => {
+        if (task?.task_id === taskId) check(task)
+      })
+      check(getTask(taskId))
+      timer = setTimeout(() => {
+        finish(reject, new Error('Operation timed out'))
+      }, timeoutMs)
+    })
+  }
+
+  return {
+    tasks,
+    taskLogs,
+    activeTasks,
+    connected,
+    connectionStatus,
+    isConnected,
+    connect,
+    disconnect,
+    getTask,
+    getTaskLogs,
+    removeTask,
+    undismissTask,
+    subscribe,
+    subscribeToDownloadComplete,
+    waitForTask,
+    handleEvent,
+  }
+})

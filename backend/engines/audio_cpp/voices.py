@@ -1,0 +1,383 @@
+"""Builtin voice ids from an installed audio.cpp package and its model spec.
+
+Sources, in order:
+
+1. ``<model_root>/embeddings/*.safetensors``
+2. ``model_specs/<family>.json`` voice resources and request-option enums
+3. Sidecar files the spec names, or the generic ``voice_styles`` / ``samples`` dirs
+4. ``config.json`` ``talker_config.spk_id`` when the package publishes it
+5. ``ui.default_voice`` and ``ui.builtin_voices``
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+
+_VOICE_OPTION_KEYS = frozenset({"voice_id", "speaker"})
+_SPEC_VOICE_KEY_RE = re.compile(
+    r"^(?:voice_style_|speaker_text_)(.+)$"
+)
+_GENERIC_VOICE_DIRS = (
+    ("voice_styles", ".json"),
+    ("samples", ".txt"),
+)
+
+
+def merge_voice_ids(*groups: Any) -> List[str]:
+    """Unique voice ids, sorted the same way as audio.cpp handle_voices."""
+    seen = set()
+    out: List[str] = []
+    for group in groups:
+        if group is None:
+            continue
+        if isinstance(group, (str, bytes)):
+            items: Iterable[Any] = [group]
+        elif isinstance(group, dict):
+            items = group.values()
+        else:
+            try:
+                items = list(group)
+            except TypeError:
+                items = [group]
+        for item in items:
+            if isinstance(item, dict):
+                value = str(
+                    item.get("value") or item.get("id") or item.get("name") or ""
+                ).strip()
+            else:
+                value = str(item or "").strip()
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            out.append(value)
+    out.sort()
+    return out
+
+
+def discover_packaged_voices(
+    model_path: Optional[str],
+    family: Optional[str] = None,
+    source_path: Optional[str] = None,
+) -> List[str]:
+    """Return builtin voice/speaker ids shipped with this audio.cpp package."""
+    family_key = str(family or "").strip().lower()
+    spec = _load_family_spec(source_path, family_key)
+    ui_ids = _spec_ui_voice_ids(spec)
+    package_root = _package_root(model_path)
+    if not package_root:
+        return merge_voice_ids(ui_ids)
+    search_roots = _package_search_roots(package_root, spec)
+
+    found: List[str] = []
+    for root in search_roots:
+        found.extend(_embeddings_stems(root))
+
+    spec_ids, spec_files = _spec_voice_resources(spec)
+    spec_ids = list(spec_ids)
+    spec_ids.extend(_spec_request_enum_ids(spec))
+    existing = [
+        voice_id
+        for voice_id, rel in spec_files
+        if os.path.isfile(os.path.join(package_root, rel))
+    ]
+    disk_ids = existing or _generic_voice_dir_stems(package_root)
+    if disk_ids:
+        found.extend(disk_ids)
+    else:
+        found.extend(spec_ids)
+
+    found.extend(_config_speaker_ids(package_root))
+    found.extend(ui_ids)
+
+    return merge_voice_ids(found)
+
+
+def spec_default_voice(source_path: Optional[str], family: Optional[str]) -> str:
+    """``ui.default_voice`` from the installed ``model_specs/<family>.json``."""
+    spec = _load_family_spec(source_path, str(family or "").strip().lower())
+    ui = spec.get("ui") if isinstance(spec, dict) else None
+    if not isinstance(ui, dict):
+        return ""
+    return str(ui.get("default_voice") or "").strip()
+
+
+def attach_packaged_voices(
+    inspection: Optional[Dict[str, Any]],
+    model_path: Optional[str],
+    family: Optional[str] = None,
+    source_path: Optional[str] = None,
+) -> List[str]:
+    """Store discovered builtin ids on ``inspection['packaged_voices']``."""
+    family_name = str(family or "").strip()
+    if not family_name and isinstance(inspection, dict):
+        family_name = str(inspection.get("family") or "").strip()
+    voices = discover_packaged_voices(
+        model_path, family=family_name, source_path=source_path
+    )
+    if isinstance(inspection, dict) and voices:
+        inspection["packaged_voices"] = voices
+    return voices
+
+
+def apply_packaged_voice_field_options(
+    groups: Optional[Sequence[Dict[str, Any]]],
+    voices: Optional[Sequence[str]],
+) -> List[Dict[str, Any]]:
+    """Copy packaged ids onto ``voice_id`` and ``speaker`` request fields."""
+    source = [dict(group) for group in (groups or [])]
+    ids = merge_voice_ids(voices)
+    if not ids:
+        return source
+    out: List[Dict[str, Any]] = []
+    for group in source:
+        fields = []
+        for field in group.get("fields") or []:
+            spec = dict(field)
+            if spec.get("key") in _VOICE_OPTION_KEYS:
+                spec["options"] = [{"value": voice, "label": voice} for voice in ids]
+                if not spec.get("placeholder"):
+                    spec["placeholder"] = ids[0]
+            fields.append(spec)
+        copied = dict(group)
+        copied["fields"] = fields
+        out.append(copied)
+    return out
+
+
+def colocate_packaged_embeddings(model_path: Optional[str]) -> str:
+    """Point ``<model>/embeddings`` at misplaced ``**/embeddings/*.safetensors``.
+
+    GGUF catalog rows omit ``strip_prefix``, so sidecars can land at
+    ``<target_directory>/embeddings/`` nested inside the already-stripped
+    package root. Some engines load ``embeddings/<id>.safetensors`` next to the
+    GGUF / ``--model`` directory, not under the leftover HF prefix.
+    """
+    root = _package_root(model_path)
+    if not root:
+        return ""
+    dest = os.path.join(root, "embeddings")
+    if _embeddings_dir_has_voices(dest):
+        return dest
+    found: List[str] = []
+    dest_real = os.path.realpath(dest)
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        if os.path.basename(dirpath) != "embeddings":
+            continue
+        if os.path.realpath(dirpath) == dest_real:
+            continue
+        if any(str(name).endswith(".safetensors") for name in filenames):
+            found.append(dirpath)
+    if not found:
+        return ""
+    source = min(found, key=lambda path: (path.count(os.sep), len(path)))
+    parent = os.path.dirname(dest)
+    os.makedirs(parent, exist_ok=True)
+    if os.path.isdir(dest) and not os.listdir(dest):
+        try:
+            os.rmdir(dest)
+        except OSError:
+            return ""
+    if os.path.lexists(dest):
+        return dest if _embeddings_dir_has_voices(dest) else ""
+    try:
+        os.symlink(os.path.relpath(source, parent), dest)
+    except OSError:
+        try:
+            shutil.copytree(source, dest)
+        except OSError:
+            return ""
+    return dest if _embeddings_dir_has_voices(dest) else ""
+
+
+def _embeddings_dir_has_voices(directory: str) -> bool:
+    if not os.path.isdir(directory):
+        return False
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return False
+    return any(str(name).endswith(".safetensors") for name in names)
+
+
+def _package_root(model_path: Optional[str]) -> str:
+    path = os.path.abspath(str(model_path or "").strip())
+    if os.path.isdir(path):
+        return path
+    if os.path.isfile(path):
+        return os.path.dirname(path)
+    return ""
+
+
+def _package_search_roots(package_root: str, spec: Optional[dict]) -> List[str]:
+    roots = [package_root]
+    if not isinstance(spec, dict):
+        return roots
+    seen = {os.path.realpath(package_root)}
+    for source in spec.get("sources") or []:
+        if not isinstance(source, dict):
+            continue
+        raw_roots = source.get("roots")
+        if not isinstance(raw_roots, dict):
+            continue
+        for rel in raw_roots.values():
+            if not isinstance(rel, str) or rel in {".", "$gguf"}:
+                continue
+            nested = os.path.join(package_root, rel)
+            real = os.path.realpath(nested) if os.path.isdir(nested) else ""
+            if real and real not in seen:
+                seen.add(real)
+                roots.append(nested)
+    return roots
+
+
+def _embeddings_stems(root: str) -> List[str]:
+    embeddings_dir = os.path.join(root, "embeddings")
+    return _stems_in_dir(embeddings_dir, ".safetensors")
+
+
+def _generic_voice_dir_stems(package_root: str) -> List[str]:
+    found: List[str] = []
+    for relative, ext in _GENERIC_VOICE_DIRS:
+        found.extend(_stems_in_dir(os.path.join(package_root, relative), ext))
+    return found
+
+
+def _stems_in_dir(directory: str, extension: str) -> List[str]:
+    if not os.path.isdir(directory):
+        return []
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return []
+    stems: List[str] = []
+    for name in names:
+        path = os.path.join(directory, name)
+        if not os.path.isfile(path):
+            continue
+        stem, ext = os.path.splitext(name)
+        if ext != extension or not stem:
+            continue
+        stems.append(stem)
+    return stems
+
+
+def _load_family_spec(source_path: Optional[str], family: str) -> Optional[dict]:
+    if not source_path or not family:
+        return None
+    from backend.engines.audio_cpp.contracts import family_spec_path
+
+    path = family_spec_path(source_path, family)
+    if path is None:
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _spec_ui_voice_ids(spec: Optional[dict]) -> List[str]:
+    """Voice ids published on ``ui.builtin_voices`` and ``ui.default_voice``."""
+    if not isinstance(spec, dict):
+        return []
+    ui = spec.get("ui")
+    if not isinstance(ui, dict):
+        return []
+    ids: List[str] = []
+    default = str(ui.get("default_voice") or "").strip()
+    if default:
+        ids.append(default)
+    raw = ui.get("builtin_voices")
+    if isinstance(raw, list):
+        for item in raw:
+            voice_id = str(item or "").strip()
+            if voice_id:
+                ids.append(voice_id)
+    return ids
+
+
+def _spec_voice_resources(spec: Optional[dict]) -> Tuple[List[str], List[Tuple[str, str]]]:
+    """Return (ids, [(id, relative_path)]) from model_specs voice resource files."""
+    if not isinstance(spec, dict):
+        return [], []
+    ids: List[str] = []
+    files: List[Tuple[str, str]] = []
+    seen = set()
+    for source in spec.get("sources") or []:
+        if not isinstance(source, dict):
+            continue
+        mapping = source.get("files")
+        if not isinstance(mapping, dict):
+            continue
+        for raw_key, raw_path in mapping.items():
+            match = _SPEC_VOICE_KEY_RE.match(str(raw_key or ""))
+            if not match:
+                continue
+            voice_id = match.group(1).strip()
+            if not voice_id or voice_id in seen:
+                continue
+            seen.add(voice_id)
+            ids.append(voice_id)
+            rel = _spec_relative_path(raw_path)
+            if rel:
+                files.append((voice_id, rel))
+    return ids, files
+
+
+def _spec_request_enum_ids(spec: Optional[dict]) -> List[str]:
+    """Builtin ids declared on model_specs ``options.request`` voice_id/speaker enums."""
+    if not isinstance(spec, dict):
+        return []
+    options = spec.get("options")
+    if not isinstance(options, dict):
+        return []
+    ids: List[str] = []
+    seen = set()
+    for item in options.get("request") or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip().lower()
+        if name not in _VOICE_OPTION_KEYS:
+            continue
+        for raw in item.get("values") or []:
+            value = str(raw or "").strip()
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            ids.append(value)
+    return ids
+
+
+def _spec_relative_path(raw: Any) -> str:
+    if not isinstance(raw, str):
+        return ""
+    text = raw.strip()
+    if not text or text.startswith("$"):
+        return ""
+    if ":" in text:
+        _, _, rest = text.partition(":")
+        text = rest.strip()
+    return text.lstrip("/\\")
+
+
+def _config_speaker_ids(package_root: str) -> List[str]:
+    path = os.path.join(package_root, "config.json")
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    talker = payload.get("talker_config")
+    if not isinstance(talker, dict):
+        return []
+    spk_id = talker.get("spk_id")
+    if not isinstance(spk_id, dict):
+        return []
+    return [str(name).strip() for name in spk_id if str(name).strip()]

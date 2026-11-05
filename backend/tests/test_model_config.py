@@ -1,0 +1,296 @@
+"""Model config normalization, merge, and helpers."""
+
+from backend.models.config import (
+    collect_engine_model_references,
+    config_api_response,
+    default_engine_for_format,
+    effective_model_config,
+    effective_model_config_from_raw,
+    merge_model_config_put,
+    normalize_model_config,
+    set_embedding_flag,
+)
+
+
+def test_engine_references_split_selected_and_unused_sections():
+    refs = collect_engine_model_references(
+        [
+            {"id": "plain", "display_name": "Plain"},
+            {
+                "id": "live",
+                "display_name": "Live",
+                "config": {
+                    "engine": "ik_llama",
+                    "engines": {
+                        "ik_llama": {"ctx_size": 2048},
+                        "llama_cpp": {"ctx_size": 1024},
+                        "lmdeploy": {},
+                    },
+                },
+            },
+        ]
+    )
+    assert refs["selected"]["llama_cpp"] == ["Plain"]
+    assert refs["selected"]["ik_llama"] == ["Live"]
+    assert refs["dormant"]["llama_cpp"] == [{"name": "Live", "engine": "ik_llama"}]
+    assert refs["dormant"]["lmdeploy"] == []
+
+
+def test_normalize_empty():
+    n = normalize_model_config(None)
+    assert n["engine"] == "llama_cpp"
+    assert n["engines"] == {}
+
+
+def test_normalize_invalid_json_string_yields_default_shape():
+    n = normalize_model_config("{not valid json")
+    assert n["engine"] == "llama_cpp"
+    assert n["engines"] == {}
+
+
+def test_normalize_flat_dict_is_not_supported():
+    n = normalize_model_config({"ctx_size": 4096, "engine": "llama_cpp"})
+    assert n["engine"] == "llama_cpp"
+    assert n["engines"] == {}
+
+
+def test_normalize_multi_engine():
+    raw = {
+        "engine": "lmdeploy",
+        "engines": {
+            "llama_cpp": {"ctx_size": 2048},
+            "lmdeploy": {"session_len": 8192},
+        },
+    }
+    n = normalize_model_config(raw)
+    assert n["engine"] == "lmdeploy"
+    assert n["engines"]["lmdeploy"]["session_len"] == 8192
+
+
+def test_normalize_invalid_engine_id_falls_back():
+    n = normalize_model_config({"engine": "not_valid", "engines": {}})
+    assert n["engine"] == "llama_cpp"
+
+
+def test_effective_model_config():
+    n = normalize_model_config(
+        {"engine": "llama_cpp", "engines": {"llama_cpp": {"temperature": 0.7}}}
+    )
+    eff = effective_model_config(n)
+    assert eff["engine"] == "llama_cpp"
+    assert eff["temperature"] == 0.7
+
+
+def test_effective_from_raw_string_json():
+    eff = effective_model_config_from_raw(
+        '{"engine":"llama_cpp","engines":{"llama_cpp":{"ctx_size":1024}}}'
+    )
+    assert eff["ctx_size"] == 1024
+
+
+def test_config_api_response_includes_engines_map():
+    n = normalize_model_config(
+        {
+            "engine": "llama_cpp",
+            "engines": {"llama_cpp": {"n_gpu_layers": 10}},
+        }
+    )
+    api = config_api_response(n)
+    assert api["n_gpu_layers"] == 10
+    assert "engines" in api
+    assert api["engines"]["llama_cpp"]["n_gpu_layers"] == 10
+
+
+def test_merge_put_updates_flat_params():
+    existing = normalize_model_config(
+        {"engine": "llama_cpp", "engines": {"llama_cpp": {"threads": 4}}}
+    )
+    merged = merge_model_config_put(existing, {"threads": 8})
+    assert merged["engine"] == "llama_cpp"
+    assert merged["engines"]["llama_cpp"]["threads"] == 8
+
+
+def test_merge_put_replaces_engines_sections():
+    existing = normalize_model_config(
+        {
+            "engine": "llama_cpp",
+            "engines": {
+                "llama_cpp": {"ctx_size": 2048},
+                "lmdeploy": {"session_len": 4096},
+            },
+        }
+    )
+    merged = merge_model_config_put(
+        existing,
+        {
+            "engine": "lmdeploy",
+            "engines": {"lmdeploy": {"session_len": 8192}},
+        },
+    )
+    assert merged["engine"] == "lmdeploy"
+    assert merged["engines"]["lmdeploy"]["session_len"] == 8192
+    assert merged["engines"]["llama_cpp"]["ctx_size"] == 2048
+
+
+def test_default_engine_for_format():
+    assert default_engine_for_format("safetensors") == "lmdeploy"
+    assert default_engine_for_format("gguf") == "llama_cpp"
+    assert default_engine_for_format(None) == "llama_cpp"
+
+
+def test_set_embedding_flag_uses_plural_embeddings_cli_name(monkeypatch):
+    class FakeStore:
+        def get_active_engine_version(self, engine):
+            return {"version": "v1"}
+
+    monkeypatch.setattr(
+        "backend.models.config.get_version_entry",
+        lambda store, eng, ver: {
+            "sections": [
+                {
+                    "params": [
+                        {
+                            "key": "embeddings",
+                            "flags": ["--embeddings"],
+                            "type": "bool",
+                        }
+                    ]
+                }
+            ]
+        },
+    )
+    n = set_embedding_flag(None, model_format="gguf", store=FakeStore())
+    assert n["engines"]["llama_cpp"]["embeddings"] is True
+    assert n["engines"]["llama_cpp"]["embedding"] is True
+
+
+def test_set_embedding_flag_uses_catalog_embedding_key(monkeypatch):
+    class FakeStore:
+        def get_active_engine_version(self, engine):
+            return {"version": "v1"}
+
+    monkeypatch.setattr(
+        "backend.models.config.get_version_entry",
+        lambda store, eng, ver: {
+            "sections": [
+                {
+                    "params": [
+                        {
+                            "key": "embedding",
+                            "flags": ["--embedding"],
+                            "type": "bool",
+                        }
+                    ]
+                }
+            ]
+        },
+    )
+    n = set_embedding_flag(None, model_format="gguf", store=FakeStore())
+    assert n["engine"] == "llama_cpp"
+    assert n["engines"]["llama_cpp"]["embedding"] is True
+
+
+def test_set_embedding_flag_fallback_when_no_catalog_param(monkeypatch):
+    class FakeStore:
+        def get_active_engine_version(self, engine):
+            return {"version": "v1"}
+
+    monkeypatch.setattr(
+        "backend.models.config.get_version_entry",
+        lambda store, eng, ver: {
+            "sections": [{"params": [{"key": "ctx_size", "flags": ["--ctx-size"]}]}]
+        },
+    )
+    n = set_embedding_flag(None, model_format="gguf", store=FakeStore())
+    assert n["engines"]["llama_cpp"]["embedding"] is True
+
+
+def test_set_embedding_flag_non_embedding_key_sets_alias_and_embedding(monkeypatch):
+    class FakeStore:
+        def get_active_engine_version(self, engine):
+            return {"version": "v1"}
+
+    monkeypatch.setattr(
+        "backend.models.config.get_version_entry",
+        lambda store, eng, ver: {
+            "sections": [
+                {
+                    "params": [
+                        {
+                            "key": "embeddings_only",
+                            "flags": ["--embeddings-only"],
+                            "type": "bool",
+                        }
+                    ]
+                }
+            ]
+        },
+    )
+    n = set_embedding_flag(None, model_format="gguf", store=FakeStore())
+    assert n["engines"]["llama_cpp"]["embeddings_only"] is True
+    assert n["engines"]["llama_cpp"]["embedding"] is True
+
+
+def test_merge_strips_empty_strings():
+    existing = normalize_model_config({"engine": "llama_cpp", "engines": {"llama_cpp": {}}})
+    merged = merge_model_config_put(existing, {"model_alias": ""})
+    assert "model_alias" not in merged["engines"]["llama_cpp"]
+
+
+def test_merge_preserves_explicit_null_for_optional_params():
+    existing = normalize_model_config({"engine": "llama_cpp", "engines": {"llama_cpp": {}}})
+    merged = merge_model_config_put(
+        existing,
+        {"engines": {"llama_cpp": {"temperature": None, "threads": 8}}},
+    )
+    assert merged["engines"]["llama_cpp"]["temperature"] is None
+    assert merged["engines"]["llama_cpp"]["threads"] == 8
+
+
+def test_merge_preserves_null_in_nested_options():
+    existing = normalize_model_config({"engine": "audio_cpp", "engines": {"audio_cpp": {}}})
+    merged = merge_model_config_put(
+        existing,
+        {
+            "engine": "audio_cpp",
+            "engines": {
+                "audio_cpp": {
+                    "session_options": {"temperature": None},
+                }
+            },
+        },
+    )
+    assert merged["engines"]["audio_cpp"]["session_options"]["temperature"] is None
+
+
+def test_merge_ignores_nan_float():
+    existing = normalize_model_config({"engine": "llama_cpp", "engines": {"llama_cpp": {}}})
+    merged = merge_model_config_put(existing, {"temperature": float("nan")})
+    assert "temperature" not in merged["engines"]["llama_cpp"]
+
+
+def test_normalize_preserves_legacy_environment_and_native_aliases():
+    result = normalize_model_config(
+        {
+            "engine": "llama_cpp",
+            "engines": {
+                "llama_cpp": {
+                    "swap_env": {"OLD": "preserved"},
+                    "swap_env_unset": ["REMOVE"],
+                    "runtime_env": {"NEW": "wins"},
+                    "set_params_by_id": [{"sub_id": "fast", "params": {"enable_thinking": False}}],
+                    "swap_aliases": ["fast"],
+                    "ctx_size": 8192,
+                }
+            },
+        }
+    )
+    assert result["engines"]["llama_cpp"] == {
+        "runtime_env": {"NEW": "wins"},
+        "runtime_env_unset": ["REMOVE"],
+        "ctx_size": 8192,
+        "set_params_by_id": [{"sub_id": "fast", "params": {"enable_thinking": False}}],
+        "swap_aliases": ["fast"],
+    }
+    legacy = normalize_model_config({"engines": {"llama_cpp": {"swap_env": {"OLD": "preserved"}}}})
+    assert legacy["engines"]["llama_cpp"]["runtime_env"] == {"OLD": "preserved"}

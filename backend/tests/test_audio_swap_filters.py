@@ -1,0 +1,194 @@
+"""Studio proxy filter merge semantics for audio.cpp request defaults."""
+
+import backend.proxy.commands as swap_config
+from backend import reference_audio
+
+
+def test_yaml_filters_injects_speech_defaults_as_set_params():
+    config = {
+        "engine": "audio_cpp",
+        "family": "omnivoice",
+        "task": "tts",
+        "speech_defaults": {"instructions": "warm narrator", "temperature": 0.7},
+    }
+    filters, aliases = swap_config.request_filters_and_aliases(
+        stable_id="audio-omnivoice",
+        config=config,
+    )
+    assert filters["setParams"] == {
+        "instructions?": "warm narrator",
+        "temperature?": 0.7,
+    }
+    assert aliases == []
+
+
+def test_yaml_filters_resolves_speech_default_voice_ref_from_data_root(tmp_path, monkeypatch):
+    data_root = tmp_path / "data"
+    model_root = tmp_path / "bundle"
+    model_root.mkdir()
+    model = {
+        "id": "audio-cpp--demo",
+        "artifact": {"path": str(model_root)},
+    }
+    refs = (
+        data_root
+        / "models"
+        / "audio-cpp"
+        / "reference-audio"
+        / reference_audio._safe_storage_key(model["id"])
+        / "refs"
+    )
+    refs.mkdir(parents=True)
+    wav = refs / "voice.wav"
+    wav.write_bytes(b"RIFF")
+    monkeypatch.setattr(reference_audio, "_data_root", lambda: str(data_root))
+    config = {
+        "engine": "audio_cpp",
+        "family": "omnivoice",
+        "task": "tts",
+        "speech_defaults": {"voice_ref": "refs/voice.wav"},
+    }
+
+    filters, aliases = swap_config.request_filters_and_aliases(
+        stable_id="audio-omnivoice",
+        config=config,
+        model=model,
+    )
+
+    assert filters["setParams"]["voice_ref?"] == str(wav.resolve())
+    assert aliases == []
+
+
+def test_yaml_filters_injects_transcription_defaults_with_prompt_text():
+    config = {
+        "engine": "audio_cpp",
+        "family": "qwen3_asr",
+        "task": "asr",
+        "transcription_defaults": {
+            "language": "en",
+            "prompt": "Transcribe clearly.",
+            "options": {"num_beams": 4},
+        },
+    }
+    filters, _aliases = swap_config.request_filters_and_aliases(
+        stable_id="audio-asr",
+        config=config,
+    )
+    assert filters["setParams"] == {
+        "language?": "en",
+        "options.num_beams?": 4,
+        "options.text?": "Transcribe clearly.",
+    }
+
+
+def test_yaml_filters_injects_task_defaults_for_generic_families():
+    config = {
+        "engine": "audio_cpp",
+        "family": "ace_step",
+        "task": "gen",
+        "task_defaults": {
+            "text": "upbeat pop",
+            "duration_seconds": 30.0,
+            "options": {"task_route": "text2music"},
+        },
+    }
+    filters, _aliases = swap_config.request_filters_and_aliases(
+        stable_id="audio-gen",
+        config=config,
+    )
+    assert filters["setParams"]["text?"] == "upbeat pop"
+    assert filters["setParams"]["duration_seconds?"] == 30.0
+    assert filters["setParams"]["options.task_route?"] == "text2music"
+
+
+def test_yaml_filters_request_defaults_coexist_with_set_params_by_id():
+    config = {
+        "engine": "audio_cpp",
+        "family": "omnivoice",
+        "task": "tts",
+        "speech_defaults": {"temperature": 0.8},
+        "set_params_by_id": [
+            {"sub_id": "high", "params": {"temperature": 0.2}},
+        ],
+        "model_alias": "assistant-voice",
+    }
+    filters, aliases = swap_config.request_filters_and_aliases(
+        stable_id="audio-omnivoice",
+        config=config,
+    )
+    assert filters["setParams"]["temperature?"] == 0.8
+    assert filters["requestAliases"] == {"assistant-voice:high": {"temperature": 0.2}}
+    assert aliases == ["assistant-voice", "assistant-voice:high"]
+
+
+def test_yaml_filters_collects_model_alias_as_swap_alias():
+    config = {
+        "engine": "audio_cpp",
+        "family": "omnivoice",
+        "task": "tts",
+        "model_alias": "my-voice",
+        "swap_aliases": ["alt-voice"],
+    }
+    _filters, aliases = swap_config.request_filters_and_aliases(
+        stable_id="audio-omnivoice",
+        config=config,
+    )
+    assert "my-voice" in aliases
+    assert "alt-voice" in aliases
+
+
+def test_yaml_filters_ignores_non_audio_engine_defaults():
+    config = {
+        "engine": "llama_cpp",
+        "speech_defaults": {"instructions": "ignored"},
+    }
+    filters, aliases = swap_config.request_filters_and_aliases(
+        stable_id="llama-model",
+        config=config,
+    )
+    assert filters is None
+    assert aliases == []
+
+
+def test_yaml_filters_injects_speech_stream_defaults_when_enabled():
+    config = {
+        "engine": "audio_cpp",
+        "family": "pocket_tts",
+        "task": "tts",
+        "speech_defaults": {
+            "stream": True,
+            "stream_format": "sse",
+            "return_text": False,
+        },
+    }
+    filters, _aliases = swap_config.request_filters_and_aliases(
+        stable_id="audio-pocket-stream",
+        config=config,
+    )
+    assert filters["setParams"]["stream?"] is True
+    assert filters["setParams"]["stream_format?"] == "sse"
+    # A saved false is an explicit soft default (only fills omitted requests).
+    assert filters["setParams"]["return_text?"] is False
+
+
+def test_yaml_filters_drops_streaming_siblings_without_stream_enabled():
+    config = {
+        "engine": "audio_cpp",
+        "family": "pocket_tts",
+        "task": "tts",
+        "speech_defaults": {
+            "stream": False,
+            "stream_format": "sse",
+            "temperature": 0.8,
+        },
+    }
+    filters, _aliases = swap_config.request_filters_and_aliases(
+        stable_id="audio-pocket-offline",
+        config=config,
+    )
+    # stream_format alone switches audio.cpp into streaming; a disabled
+    # default must not leak it onto the wire.
+    assert "stream" not in filters["setParams"]
+    assert "stream?" not in filters["setParams"]
+    assert "stream_format?" not in filters["setParams"]
+    assert filters["setParams"]["temperature?"] == 0.8

@@ -1,0 +1,4764 @@
+<template>
+  <div class="model-search page-shell page-shell--wide">
+    <PageHeader
+      title="Search models"
+      description="Find compatible models and choose a download for your setup."
+    />
+
+    <section class="search-controls" aria-label="Catalog search">
+      <!-- Search bar -->
+      <div class="search-bar">
+        <div class="search-input-wrap">
+          <i class="pi pi-search search-icon" />
+          <label class="sr-only" for="catalog-search-query">Search models</label>
+          <InputText
+            id="catalog-search-query"
+            v-model="query"
+            placeholder="Search models and audio packages…"
+            class="search-input"
+            @keyup.enter="runSearch"
+          />
+          <Button
+            v-if="query"
+            icon="pi pi-times"
+            text
+            severity="secondary"
+            class="clear-btn"
+            aria-label="Clear search"
+            @click="clearSearchResults"
+          />
+        </div>
+
+        <Select
+          v-model="taskFilter"
+          :options="taskFilterOptions"
+          optionLabel="label"
+          optionValue="value"
+          placeholder="Any task"
+          showClear
+          class="catalog-filter catalog-filter--task"
+          aria-label="Task"
+          @change="runSearch"
+        />
+        <Button label="Search" icon="pi pi-search" size="small" :loading="searching" @click="runSearch" />
+        <Button
+          :label="
+            filtersOpen
+              ? 'Hide filters'
+              : `Filters${secondaryFilterCount ? ` (${secondaryFilterCount})` : ''}`
+          "
+          icon="pi pi-filter"
+          size="small"
+          severity="secondary"
+          outlined
+          :aria-expanded="filtersOpen ? 'true' : 'false'"
+          aria-controls="catalog-secondary-filters"
+          @click="filtersOpen = !filtersOpen"
+        />
+        <Button
+          v-if="secondaryFilterCount"
+          label="Reset"
+          size="small"
+          severity="secondary"
+          text
+          @click="resetSecondaryFilters"
+        />
+        <Button
+          label="Import audio bundle"
+          icon="pi pi-folder-open"
+          size="small"
+          severity="secondary"
+          text
+          class="catalog-filters__import"
+          @click="showAudioImportDialog = true"
+        />
+      </div>
+
+      <div v-if="activeFilterChips.length" class="search-chips" aria-label="Active filters">
+        <button
+          v-for="chip in activeFilterChips"
+          :key="chip.key"
+          type="button"
+          class="search-chip"
+          @click="chip.clear()"
+        >
+          {{ chip.label }}
+          <span aria-hidden="true">×</span>
+        </button>
+      </div>
+
+      <div
+        v-show="filtersOpen"
+        id="catalog-secondary-filters"
+        class="catalog-filters catalog-filters--secondary"
+      >
+        <Select
+          v-if="showFormatSelect"
+          v-model="searchFormat"
+          :options="formatOptions"
+          optionLabel="label"
+          optionValue="value"
+          class="format-select"
+          aria-label="Format"
+          @change="onFormatChange"
+        />
+        <Select
+          v-model="engineFilter"
+          :options="engineFilterOptions"
+          optionLabel="label"
+          optionValue="value"
+          placeholder="Any engine"
+          showClear
+          class="catalog-filter"
+          aria-label="Engine"
+          @change="onEngineFilterChange"
+        />
+        <Select
+          v-model="inputModalityFilter"
+          :options="inputModalityOptions"
+          placeholder="Any input"
+          showClear
+          class="catalog-filter"
+          aria-label="Input modality"
+          @change="runSearch"
+        />
+        <Select
+          v-model="outputModalityFilter"
+          :options="outputModalityOptions"
+          placeholder="Any output"
+          showClear
+          class="catalog-filter"
+          aria-label="Output modality"
+          @change="runSearch"
+        />
+        <Select
+          v-model="providerFilter"
+          :options="providerOptions"
+          optionLabel="label"
+          optionValue="value"
+          placeholder="Any source"
+          showClear
+          class="catalog-filter"
+          aria-label="Source"
+          @change="runSearch"
+        />
+        <Select
+          v-if="installMethodOptions.length"
+          v-model="installMethodFilter"
+          :options="installMethodOptions"
+          optionLabel="label"
+          optionValue="value"
+          placeholder="Any install method"
+          showClear
+          class="catalog-filter"
+          aria-label="Install method"
+          @change="runSearch"
+        />
+      </div>
+    </section>
+
+    <div v-if="!modelStore.hasHuggingfaceToken && !tokenNoticeDismissed" class="token-warning">
+      <i class="pi pi-key" aria-hidden="true" />
+      <span class="token-warning__text"
+        >A Hugging Face token is required for gated models.</span
+      >
+      <Button
+        label="Set token"
+        icon="pi pi-arrow-right"
+        size="small"
+        text
+        class="token-warning__action"
+        @click="goToTokenSettings"
+      />
+      <Button label="Dismiss" size="small" text severity="secondary" @click="dismissTokenNotice" />
+    </div>
+
+    <div
+      v-if="unavailableProviders.length && !searchResults.length"
+      class="state-banner"
+      role="status"
+    >
+      <span v-for="item in unavailableProviders" :key="item.provider">
+        {{ item.provider }} unavailable{{ item.status.reason ? `: ${item.status.reason}` : '' }}
+      </span>
+    </div>
+
+    <div v-if="searchError && searchResults.length" class="state-banner" role="status">
+      <span>Could not refresh search. Showing the previous results.</span>
+      <Button label="Retry" size="small" @click="runSearch" />
+    </div>
+
+    <EmptyState
+      v-if="searchError && !searchResults.length && !searching"
+      icon="pi pi-exclamation-circle"
+      title="Could not search"
+      :description="String(searchError)"
+    >
+      <Button label="Retry" icon="pi pi-refresh" @click="runSearch" />
+    </EmptyState>
+
+    <EmptyState
+      v-else-if="!searchResults.length && hasSearched && !searching"
+      icon="pi pi-search"
+      :title="`No results for “${lastQuery}”`"
+      description="Try different keywords or broaden the engine, task, or modality filters."
+    />
+
+    <p v-else-if="!searchResults.length && !hasSearched && !searching" class="search-hint">
+      Search by model name or Hugging Face repository. Use Task to find audio models.
+    </p>
+
+    <LoadingState v-else-if="searching && !searchResults.length" message="Searching…" inline />
+
+    <div
+      v-else-if="catalogMode && (searchResults.length || searching)"
+      class="catalog-results"
+      :class="{ 'catalog-results--loading': searching }"
+      :aria-busy="searching ? 'true' : 'false'"
+    >
+      <div v-if="searching" class="catalog-results__status" aria-live="polite">
+        Updating results…
+      </div>
+
+      <div class="results-header">
+        <span class="results-count">{{ catalogPageRangeLabel }}</span>
+        <div class="results-header__actions">
+          <div class="results-sort">
+            <label class="results-sort__label" for="catalog-search-sort">Sort</label>
+            <Select
+              id="catalog-search-sort"
+              v-model="sortBy"
+              :options="sortOptions"
+              optionLabel="label"
+              optionValue="value"
+              class="results-sort__dropdown"
+              @change="onSortChange"
+            />
+          </div>
+          <div v-if="unavailableProviders.length" class="provider-statuses">
+            <Tag
+              v-for="item in unavailableProviders"
+              :key="item.provider"
+              :value="`${item.provider} unavailable`"
+              severity="warning"
+              v-tooltip.bottom="item.status.reason || item.status.manager_warning || ''"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div class="catalog-card-grid page-card-grid">
+        <article v-for="result in sortedSearchResults" :key="result.id" class="catalog-card">
+          <div class="catalog-card__head">
+            <div>
+              <a
+                v-if="catalogSourceUrl(result)"
+                :href="catalogSourceUrl(result)"
+                target="_blank"
+                class="model-link"
+              >
+                {{ result.display_name }}
+              </a>
+              <span v-else class="model-link">{{ result.display_name }}</span>
+              <div class="catalog-card__id">{{ catalogCardSubtitle(result) }}</div>
+              <div v-if="catalogCardMeta(result).length" class="catalog-card__meta">
+                <span v-for="item in catalogCardMeta(result)" :key="item.key" class="meta-item">
+                  <i :class="item.icon" /> {{ item.label }}
+                </span>
+              </div>
+            </div>
+            <div class="result-name__tags">
+              <Tag
+                :value="result.provider === 'audio_cpp' ? 'audio.cpp' : 'Hugging Face'"
+                severity="info"
+              />
+              <Tag
+                v-if="catalogFormatLabel(result)"
+                :value="catalogFormatLabel(result)"
+                severity="secondary"
+              />
+              <Tag v-if="result.gated" value="Gated" severity="warn" />
+                <Tag
+                  v-if="result.metadata?.access_status === 'unknown'"
+                  value="Access requirements unknown"
+                  severity="secondary"
+                />
+              <Tag
+                v-if="(result.features || []).includes('multimodal')"
+                value="Vision"
+                severity="success"
+              />
+              <Tag
+                v-if="
+                  (result.features || []).includes('mtp') ||
+                  (result.metadata?.raw?.mtp_files || []).length
+                "
+                value="MTP"
+                severity="info"
+              />
+              <Tag
+                v-if="
+                  (result.features || []).includes('dflash') ||
+                  (result.metadata?.raw?.dflash_files || []).length
+                "
+                value="DFlash"
+                severity="info"
+              />
+            </div>
+          </div>
+
+          <p v-if="result.description" class="catalog-card__description">
+            {{ result.description }}
+          </p>
+
+          <div v-if="catalogPrimaryBadges(result).length" class="catalog-badges">
+            <Tag
+              v-for="badge in catalogPrimaryBadges(result)"
+              :key="badge.key"
+              :value="badge.label"
+              :severity="badge.severity"
+              v-tooltip.bottom="badge.tooltip || ''"
+            />
+          </div>
+
+          <div v-if="result.unavailable_reason" class="catalog-unavailable">
+            <i class="pi pi-exclamation-triangle" />
+            {{ result.unavailable_reason }}
+          </div>
+          <div v-else-if="(result.compatible_engines || []).length" class="compatibility-evidence">
+            <i class="pi pi-verified" />
+            Compatible with {{ (result.compatible_engines || []).map(catalogEngineLabel).join(' · ') }}
+          </div>
+
+          <div v-if="result.gated && !modelStore.hasHuggingfaceToken" class="catalog-gated-cta">
+            <span>This model is gated and needs a Hugging Face token.</span>
+            <div class="catalog-gated-cta__actions">
+              <Button
+                label="Set token"
+                icon="pi pi-key"
+                size="small"
+                severity="warning"
+                outlined
+                @click="goToTokenSettings"
+              />
+              <Button
+                v-if="catalogSourceUrl(result)"
+                label="Open on HF"
+                icon="pi pi-external-link"
+                size="small"
+                severity="secondary"
+                text
+                @click="openExternal(catalogSourceUrl(result))"
+              />
+            </div>
+          </div>
+
+          <p v-if="(result.compatible_engines || []).length && !hasReadyCatalogEngine(result)" class="catalog-fit-note">No compatible engine is ready yet. <RouterLink to="/engines">Set up an engine</RouterLink> before starting this model.</p>
+          <p class="catalog-fit-note">Memory fit unknown. Download size does not include runtime memory; context length and engine settings affect RAM and GPU usage. Installation may also need extra temporary disk space.</p>
+          <p v-if="(result.install_variants || []).some((variant) => variant.format === 'gguf')" class="catalog-fit-note">Choosing a quantization: higher precision usually preserves more quality and uses more memory. Smaller quantizations use less memory.</p>
+          <div class="install-variants">
+            <template v-if="(result.install_variants || []).length <= 1">
+              <div
+                v-for="variant in result.install_variants || []"
+                :key="variant.id"
+                class="install-variant"
+                :class="{
+                  'install-variant--recommended': isRecommendedCatalogVariant(variant),
+                  'install-variant--downloaded': !!findCatalogDownloadedModel(result, variant),
+                }"
+              >
+                <div>
+                  <div class="install-variant__title">
+                    <strong>{{ variant.label || variant.id }}</strong>
+                    <Tag
+                      v-if="isRecommendedCatalogVariant(variant)"
+                      value="Recommended"
+                      severity="success"
+                    />
+                    <Tag
+                      v-if="findCatalogDownloadedModel(result, variant)"
+                      value="Downloaded"
+                      severity="success"
+                    />
+                    <Tag
+                      v-if="catalogInstallMethodLabel(result, variant)"
+                      :value="catalogInstallMethodLabel(result, variant)"
+                      :severity="catalogInstallMethodSeverity(variant)"
+                    />
+                    <Tag
+                      v-if="catalogManagerBackendLabel(variant)"
+                      :value="catalogManagerBackendLabel(variant)"
+                      severity="secondary"
+                    />
+                    <Tag v-if="result.gated || variant.gated" value="Gated HF" severity="warn" />
+                  </div>
+                  <span class="install-variant__meta">
+                    <template v-if="variant.format || variant.precision">
+                      {{ [variant.format, variant.precision].filter(Boolean).join(' · ') }}
+                    </template>
+                    <template v-if="variant.size_bytes">
+                      <template v-if="variant.format || variant.precision"> · </template>
+                      <span title="Download size. Runtime memory is not estimated."
+                        >{{ formatBytes(variant.size_bytes) }} download size</span
+                      >
+                    </template>
+                    <template v-if="variant.files?.length">
+                      <template v-if="variant.size_bytes || variant.format || variant.precision">
+                        ·
+                      </template>
+                      {{ variant.files.length }} file{{ variant.files.length === 1 ? '' : 's' }}
+                    </template>
+                  </span>
+                  <small v-if="catalogInstallMethodHint(result, variant)">{{
+                    catalogInstallMethodHint(result, variant)
+                  }}</small>
+                  <small v-else-if="variant.external_inputs_required"
+                    >Additional local source input may be required.</small
+                  >
+                  <div
+                    v-if="
+                      catalogHasProjector(result) ||
+                      catalogHasMtp(result) ||
+                      catalogHasDflash(result)
+                    "
+                    class="install-variant__companions"
+                  >
+                    <div v-if="catalogHasProjector(result)" class="install-variant__projector">
+                      <label :for="`catalog-projector-${result.id}-${variant.id}`">Projector</label>
+                      <Select
+                        :id="`catalog-projector-${result.id}-${variant.id}`"
+                        :model-value="getCatalogProjector(result, variant)"
+                        :options="catalogProjectorOptions(result)"
+                        optionLabel="label"
+                        optionValue="value"
+                        class="projector-select"
+                        :disabled="isCatalogVariantBusy(result, variant)"
+                        @update:model-value="setCatalogProjector(result, variant, $event)"
+                      />
+                    </div>
+                    <div v-if="catalogHasMtp(result)" class="install-variant__projector">
+                      <label :for="`catalog-mtp-${result.id}-${variant.id}`">MTP draft</label>
+                      <Select
+                        :id="`catalog-mtp-${result.id}-${variant.id}`"
+                        :model-value="getCatalogMtp(result, variant)"
+                        :options="catalogMtpOptions(result)"
+                        optionLabel="label"
+                        optionValue="value"
+                        class="projector-select"
+                        :disabled="isCatalogVariantBusy(result, variant)"
+                        @update:model-value="setCatalogMtp(result, variant, $event)"
+                      />
+                    </div>
+                    <div v-if="catalogHasDflash(result)" class="install-variant__projector">
+                      <label :for="`catalog-dflash-${result.id}-${variant.id}`">DFlash draft</label>
+                      <Select
+                        :id="`catalog-dflash-${result.id}-${variant.id}`"
+                        :model-value="getCatalogDflash(result, variant)"
+                        :options="catalogDflashOptions(result)"
+                        optionLabel="label"
+                        optionValue="value"
+                        class="projector-select"
+                        :disabled="isCatalogVariantBusy(result, variant)"
+                        @update:model-value="setCatalogDflash(result, variant, $event)"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div class="install-variant__actions">
+                  <template v-if="findCatalogDownloadedModel(result, variant)">
+                    <Button
+                      label="Configure"
+                      icon="pi pi-cog"
+                      size="small"
+                      severity="secondary"
+                      outlined
+                      @click="configureCatalogVariant(result, variant)"
+                    />
+                    <Button
+                      label="Refresh"
+                      icon="pi pi-refresh"
+                      size="small"
+                      severity="secondary"
+                      outlined
+                      :loading="isCatalogVariantBusy(result, variant)"
+                      :disabled="isCatalogVariantBusy(result, variant)"
+                      @click="refreshCatalogVariant(result, variant)"
+                    />
+                    <Button
+                      v-if="hasCatalogProjectorSelectionChanged(result, variant)"
+                      label="Apply projector"
+                      icon="pi pi-save"
+                      size="small"
+                      severity="success"
+                      outlined
+                      :loading="isCatalogVariantBusy(result, variant)"
+                      :disabled="isCatalogVariantBusy(result, variant)"
+                      @click="updateCatalogProjector(result, variant)"
+                    />
+                    <Button
+                      v-if="hasCatalogMtpSelectionChanged(result, variant)"
+                      label="Apply MTP"
+                      icon="pi pi-save"
+                      size="small"
+                      severity="success"
+                      outlined
+                      :loading="isCatalogVariantBusy(result, variant)"
+                      :disabled="isCatalogVariantBusy(result, variant)"
+                      @click="updateCatalogMtp(result, variant)"
+                    />
+                    <Button
+                      v-if="hasCatalogDflashSelectionChanged(result, variant)"
+                      label="Apply DFlash"
+                      icon="pi pi-save"
+                      size="small"
+                      severity="success"
+                      outlined
+                      :loading="isCatalogVariantBusy(result, variant)"
+                      :disabled="isCatalogVariantBusy(result, variant)"
+                      @click="updateCatalogDflash(result, variant)"
+                    />
+                  </template>
+                  <Button
+                    v-else
+                    :label="catalogVariantActionLabel(result)"
+                    icon="pi pi-download"
+                    size="small"
+                    severity="success"
+                    outlined
+                    :disabled="!variant.installable || isCatalogVariantBusy(result, variant)"
+                    :loading="isCatalogVariantBusy(result, variant)"
+                    @click="handleCatalogVariantAction(result, variant)"
+                  />
+                </div>
+              </div>
+            </template>
+            <div v-else class="install-variant install-variant--summary">
+              <div>
+                <strong>{{ catalogVariantsSummaryTitle(result) }}</strong>
+                <span class="install-variant__meta">{{ catalogVariantsSummaryMeta(result) }}</span>
+                <span v-if="catalogDownloadedVariantCount(result)" class="install-variant__owned">
+                  {{ catalogDownloadedVariantCount(result) }} already in library
+                </span>
+              </div>
+              <Button
+                :label="catalogVariantsBrowseLabel(result)"
+                icon="pi pi-list"
+                size="small"
+                severity="success"
+                @click="openCatalogVariantPicker(result)"
+              />
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <div v-if="catalogHasMore || catalogPage > 1" class="catalog-pagination">
+        <Button
+          label="Previous"
+          icon="pi pi-chevron-left"
+          severity="secondary"
+          outlined
+          :disabled="catalogPage <= 1 || searching"
+          @click="changeCatalogPage(catalogPage - 1)"
+        />
+        <span>Page {{ catalogPage }} of {{ catalogTotalPages }}</span>
+        <Button
+          label="Next"
+          icon="pi pi-chevron-right"
+          iconPos="right"
+          severity="secondary"
+          outlined
+          :disabled="!catalogHasMore || searching"
+          @click="changeCatalogPage(catalogPage + 1)"
+        />
+      </div>
+    </div>
+
+    <!-- Legacy result renderer remains as a compatibility adapter. -->
+    <div v-else class="results-table">
+      <div class="results-header">
+        <span class="results-count"
+          >{{ searchResults.length }} result{{ searchResults.length !== 1 ? 's' : '' }}</span
+        >
+        <div class="results-sort">
+          <label class="results-sort__label" for="model-search-sort">Sort</label>
+          <Select
+            id="model-search-sort"
+            v-model="sortBy"
+            :options="sortOptions"
+            optionLabel="label"
+            optionValue="value"
+            class="results-sort__dropdown"
+          />
+        </div>
+      </div>
+
+      <div
+        v-for="result in sortedSearchResults"
+        :key="result.modelId || result.id"
+        class="result-row"
+      >
+        <!-- Main row -->
+        <div
+          class="result-main interactive-row"
+          tabindex="0"
+          role="button"
+          :aria-expanded="expanded.has(result.modelId || result.id)"
+          :aria-label="`Expand ${result.modelId || result.id}`"
+          @click="toggleExpand(result.modelId || result.id)"
+          @keydown.enter.prevent="toggleExpand(result.modelId || result.id)"
+          @keydown.space.prevent="toggleExpand(result.modelId || result.id)"
+        >
+          <div class="result-expand-icon">
+            <i
+              :class="[
+                'pi',
+                expanded.has(result.modelId || result.id) ? 'pi-chevron-down' : 'pi-chevron-right',
+              ]"
+            />
+          </div>
+
+          <div class="result-info">
+            <div class="result-name">
+              <a
+                :href="`https://huggingface.co/${result.modelId || result.id}`"
+                target="_blank"
+                :class="[
+                  'model-link',
+                  expanded.has(result.modelId || result.id)
+                    ? 'model-link--expanded'
+                    : 'model-link--collapsed',
+                ]"
+                :title="result.modelId || result.id"
+                @click.stop
+              >
+                {{ result.modelId || result.id }}
+              </a>
+              <div class="result-name__tags">
+                <Tag
+                  v-if="result.pipeline_tag"
+                  :value="result.pipeline_tag"
+                  :severity="pipelineTagSeverity(result.pipeline_tag)"
+                  class="pipeline-tag"
+                />
+                <Tag
+                  v-if="result.gated"
+                  value="Gated"
+                  severity="warning"
+                  class="pipeline-tag"
+                  v-tooltip.bottom="'Accept the model license on Hugging Face before download'"
+                />
+              </div>
+            </div>
+            <div class="result-meta">
+              <span v-if="result.author" class="meta-item">
+                <i class="pi pi-user" /> {{ result.author }}
+              </span>
+              <span class="meta-item">
+                <i class="pi pi-download" /> {{ formatNumber(result.downloads ?? 0) }}
+              </span>
+              <span class="meta-item">
+                <i class="pi pi-heart" /> {{ formatNumber(result.likes ?? 0) }}
+              </span>
+              <span v-if="getResultArtifactCount(result)" class="meta-item">
+                <i class="pi pi-database" /> {{ getResultArtifactCount(result) }}
+              </span>
+              <span v-if="getResultSizeSummary(result)" class="meta-item">
+                <i class="pi pi-box" /> {{ getResultSizeSummary(result) }}
+              </span>
+              <span v-if="result.library_name" class="meta-item" :title="result.library_name">
+                <i class="pi pi-book" /> {{ result.library_name }}
+              </span>
+              <span v-if="result.parameters" class="meta-item" :title="result.architecture || ''">
+                <i class="pi pi-sliders-h" /> {{ result.parameters }}
+              </span>
+              <span v-else-if="result.architecture" class="meta-item">
+                <i class="pi pi-sitemap" /> {{ result.architecture }}
+              </span>
+              <span v-if="formatContextLength(result.context_length)" class="meta-item">
+                <i class="pi pi-window-maximize" /> {{ formatContextLength(result.context_length) }}
+              </span>
+              <span v-if="formatLanguageHint(result.language)" class="meta-item">
+                <i class="pi pi-globe" /> {{ formatLanguageHint(result.language) }}
+              </span>
+              <span v-if="formatSearchUpdatedAt(result.updated_at)" class="meta-item">
+                <i class="pi pi-calendar" /> {{ formatSearchUpdatedAt(result.updated_at) }}
+              </span>
+            </div>
+          </div>
+
+          <div class="result-tags">
+            <Tag
+              v-for="tag in (result.tags || []).filter((t) => interestingTag(t)).slice(0, 3)"
+              :key="tag"
+              :value="tag"
+              severity="info"
+              class="model-tag"
+            />
+          </div>
+        </div>
+
+        <!-- Expanded: quantization files -->
+        <Transition name="row-expand">
+          <div v-if="expanded.has(result.modelId || result.id)" class="result-files">
+            <LoadingState
+              v-if="loadingFiles.has(result.modelId || result.id)"
+              message="Loading files…"
+              inline
+              small
+            />
+
+            <div v-else-if="getFiles(result.modelId || result.id).length === 0" class="files-empty">
+              <span>No downloadable files found for the selected format.</span>
+            </div>
+
+            <table v-else class="files-table">
+              <thead>
+                <tr>
+                  <th>{{ searchFormat === 'gguf' ? 'Item' : 'Model' }}</th>
+                  <th>Size</th>
+                  <th v-if="searchFormat === 'gguf'">Shards</th>
+                  <th v-if="searchFormat === 'gguf'">Projector</th>
+                  <th v-if="searchFormat === 'gguf'">MTP</th>
+                  <th v-if="searchFormat === 'gguf'">DFlash</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="file in getFiles(result.modelId || result.id)"
+                  :key="file.key || file.filename"
+                >
+                  <td class="file-name">
+                    <code>{{ formatResultItemLabel(file, result) }}</code>
+                    <span
+                      v-if="searchFormat === 'gguf' && file.kind === 'quant' && file.variantPrefix"
+                      class="file-subtext"
+                    >
+                      {{ file.variantPrefix }} variant
+                    </span>
+                    <span v-else-if="file.subtext" class="file-subtext">
+                      {{ file.subtext }}
+                    </span>
+                  </td>
+                  <td class="file-size">{{ formatBytes(file.size) }}</td>
+                  <td v-if="searchFormat === 'gguf'" class="file-count">
+                    {{ file.kind === 'quant' ? file.files?.length || 0 : 1 }}
+                  </td>
+                  <td v-if="searchFormat === 'gguf'" class="projector-cell">
+                    <Select
+                      v-if="file.kind === 'quant'"
+                      :model-value="getSelectedProjector(result.modelId || result.id, file)"
+                      :options="file.projectorOptions || [{ label: 'None', value: '' }]"
+                      optionLabel="label"
+                      optionValue="value"
+                      class="projector-select"
+                      :disabled="isFileDownloading(result.modelId || result.id, file)"
+                      @update:model-value="
+                        setSelectedProjector(result.modelId || result.id, file, $event)
+                      "
+                    />
+                  </td>
+                  <td v-if="searchFormat === 'gguf'" class="projector-cell">
+                    <Select
+                      v-if="
+                        file.kind === 'quant' && (file.mtpOptions || []).some((opt) => opt.value)
+                      "
+                      :model-value="getSelectedMtp(result.modelId || result.id, file)"
+                      :options="file.mtpOptions || [{ label: 'None', value: '' }]"
+                      optionLabel="label"
+                      optionValue="value"
+                      class="projector-select"
+                      :disabled="isFileDownloading(result.modelId || result.id, file)"
+                      @update:model-value="
+                        setSelectedMtp(result.modelId || result.id, file, $event)
+                      "
+                    />
+                  </td>
+                  <td v-if="searchFormat === 'gguf'" class="projector-cell">
+                    <Select
+                      v-if="
+                        file.kind === 'quant' && (file.dflashOptions || []).some((opt) => opt.value)
+                      "
+                      :model-value="getSelectedDflash(result.modelId || result.id, file)"
+                      :options="file.dflashOptions || [{ label: 'None', value: '' }]"
+                      optionLabel="label"
+                      optionValue="value"
+                      class="projector-select"
+                      :disabled="isFileDownloading(result.modelId || result.id, file)"
+                      @update:model-value="
+                        setSelectedDflash(result.modelId || result.id, file, $event)
+                      "
+                    />
+                  </td>
+                  <td class="file-status">
+                    <Tag
+                      v-if="isFileDownloading(result.modelId || result.id, file)"
+                      value="Downloading"
+                      severity="warning"
+                    />
+                    <Tag v-else-if="file.downloaded" value="Downloaded" severity="success" />
+                    <Tag v-else value="Available" severity="warn" />
+                  </td>
+                  <td class="file-action">
+                    <div class="file-actions">
+                      <Button
+                        v-if="file.downloaded"
+                        label="Configure"
+                        icon="pi pi-cog"
+                        size="small"
+                        severity="secondary"
+                        text
+                        @click="configureDownloaded(result.modelId || result.id, file)"
+                      />
+                      <Button
+                        v-if="file.downloaded"
+                        label="Refresh"
+                        icon="pi pi-refresh"
+                        size="small"
+                        severity="secondary"
+                        text
+                        :loading="isFileDownloading(result.modelId || result.id, file)"
+                        :disabled="isFileDownloading(result.modelId || result.id, file)"
+                        @click="refreshDownloaded(result, file)"
+                      />
+                      <Button
+                        v-if="
+                          file.downloaded &&
+                          searchFormat === 'gguf' &&
+                          file.kind === 'quant' &&
+                          hasProjectorSelectionChanged(result.modelId || result.id, file)
+                        "
+                        label="Apply projector"
+                        icon="pi pi-save"
+                        size="small"
+                        severity="success"
+                        outlined
+                        :loading="isFileDownloading(result.modelId || result.id, file)"
+                        @click="updateProjector(result, file)"
+                      />
+                      <Button
+                        v-if="
+                          file.downloaded &&
+                          searchFormat === 'gguf' &&
+                          file.kind === 'quant' &&
+                          hasMtpSelectionChanged(result.modelId || result.id, file)
+                        "
+                        label="Apply MTP"
+                        icon="pi pi-save"
+                        size="small"
+                        severity="success"
+                        outlined
+                        :loading="isFileDownloading(result.modelId || result.id, file)"
+                        @click="updateMtp(result, file)"
+                      />
+                      <Button
+                        v-if="
+                          file.downloaded &&
+                          searchFormat === 'gguf' &&
+                          file.kind === 'quant' &&
+                          hasDflashSelectionChanged(result.modelId || result.id, file)
+                        "
+                        label="Apply DFlash"
+                        icon="pi pi-save"
+                        size="small"
+                        severity="success"
+                        outlined
+                        :loading="isFileDownloading(result.modelId || result.id, file)"
+                        @click="updateDflash(result, file)"
+                      />
+                      <Button
+                        v-if="!file.downloaded"
+                        label="Download"
+                        icon="pi pi-download"
+                        size="small"
+                        severity="success"
+                        outlined
+                        :loading="isFileDownloading(result.modelId || result.id, file)"
+                        @click="downloadFile(result, file)"
+                      />
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </Transition>
+      </div>
+    </div>
+
+    <Dialog
+      v-model:visible="showCatalogVariantPicker"
+      modal
+      :header="catalogVariantPickerHeader"
+      class="dialog-width-md catalog-variant-picker"
+      :style="{ width: 'min(40rem, 94vw)' }"
+    >
+      <div class="variant-picker-toolbar">
+        <div
+          v-if="(variantPickerResult?.install_variants || []).length > 8"
+          class="variant-picker-filter"
+        >
+          <i class="pi pi-filter search-icon" />
+          <InputText
+            v-model="variantPickerFilter"
+            placeholder="Filter quantizations…"
+            class="variant-picker-filter__input"
+          />
+        </div>
+        <label
+          v-if="
+            variantPickerResult?.artifact_format === 'gguf' &&
+            (variantPickerResult?.install_variants || []).length > 8
+          "
+          class="variant-picker-popular"
+        >
+          <input v-model="variantPickerPopularOnly" type="checkbox" />
+          Popular only
+        </label>
+      </div>
+
+      <div class="install-variants install-variants--picker">
+        <div
+          v-for="variant in filteredPickerVariants"
+          :key="variant.id"
+          class="install-variant"
+          :class="{
+            'install-variant--recommended': isRecommendedCatalogVariant(variant),
+            'install-variant--downloaded': !!findCatalogDownloadedModel(
+              variantPickerResult,
+              variant,
+            ),
+          }"
+        >
+          <div>
+            <div class="install-variant__title">
+              <strong>{{ variant.label || variant.id }}</strong>
+              <Tag
+                v-if="isRecommendedCatalogVariant(variant)"
+                value="Recommended"
+                severity="success"
+              />
+              <Tag
+                v-if="findCatalogDownloadedModel(variantPickerResult, variant)"
+                value="Downloaded"
+                severity="success"
+              />
+              <Tag
+                v-if="catalogInstallMethodLabel(variantPickerResult, variant)"
+                :value="catalogInstallMethodLabel(variantPickerResult, variant)"
+                :severity="catalogInstallMethodSeverity(variant)"
+              />
+              <Tag
+                v-if="catalogManagerBackendLabel(variant)"
+                :value="catalogManagerBackendLabel(variant)"
+                severity="secondary"
+              />
+              <Tag
+                v-if="variantPickerResult.gated || variant.gated"
+                value="Gated HF"
+                severity="warn"
+              />
+            </div>
+            <span class="install-variant__meta">
+              <template v-if="variant.format || variant.precision">
+                {{ [variant.format, variant.precision].filter(Boolean).join(' · ') }}
+              </template>
+              <template v-if="variant.size_bytes">
+                <template v-if="variant.format || variant.precision"> · </template>
+                <span title="Download size. Runtime memory is not estimated."
+                  >{{ formatBytes(variant.size_bytes) }} download size</span
+                >
+              </template>
+              <template v-if="variant.files?.length">
+                <template v-if="variant.size_bytes || variant.format || variant.precision">
+                  ·
+                </template>
+                {{ variant.files.length }} file{{ variant.files.length === 1 ? '' : 's' }}
+              </template>
+            </span>
+            <small v-if="catalogInstallMethodHint(variantPickerResult, variant)">{{
+              catalogInstallMethodHint(variantPickerResult, variant)
+            }}</small>
+            <small v-else-if="variant.external_inputs_required"
+              >Additional local source input may be required.</small
+            >
+            <div
+              v-if="
+                catalogHasProjector(variantPickerResult) ||
+                catalogHasMtp(variantPickerResult) ||
+                catalogHasDflash(variantPickerResult)
+              "
+              class="install-variant__companions"
+            >
+              <div
+                v-if="catalogHasProjector(variantPickerResult)"
+                class="install-variant__projector"
+              >
+                <label :for="`catalog-projector-modal-${variantPickerResult.id}-${variant.id}`"
+                  >Projector</label
+                >
+                <Select
+                  :id="`catalog-projector-modal-${variantPickerResult.id}-${variant.id}`"
+                  :model-value="getCatalogProjector(variantPickerResult, variant)"
+                  :options="catalogProjectorOptions(variantPickerResult)"
+                  optionLabel="label"
+                  optionValue="value"
+                  class="projector-select"
+                  :disabled="isCatalogVariantBusy(variantPickerResult, variant)"
+                  @update:model-value="setCatalogProjector(variantPickerResult, variant, $event)"
+                />
+              </div>
+              <div v-if="catalogHasMtp(variantPickerResult)" class="install-variant__projector">
+                <label :for="`catalog-mtp-modal-${variantPickerResult.id}-${variant.id}`"
+                  >MTP draft</label
+                >
+                <Select
+                  :id="`catalog-mtp-modal-${variantPickerResult.id}-${variant.id}`"
+                  :model-value="getCatalogMtp(variantPickerResult, variant)"
+                  :options="catalogMtpOptions(variantPickerResult)"
+                  optionLabel="label"
+                  optionValue="value"
+                  class="projector-select"
+                  :disabled="isCatalogVariantBusy(variantPickerResult, variant)"
+                  @update:model-value="setCatalogMtp(variantPickerResult, variant, $event)"
+                />
+              </div>
+              <div v-if="catalogHasDflash(variantPickerResult)" class="install-variant__projector">
+                <label :for="`catalog-dflash-modal-${variantPickerResult.id}-${variant.id}`"
+                  >DFlash draft</label
+                >
+                <Select
+                  :id="`catalog-dflash-modal-${variantPickerResult.id}-${variant.id}`"
+                  :model-value="getCatalogDflash(variantPickerResult, variant)"
+                  :options="catalogDflashOptions(variantPickerResult)"
+                  optionLabel="label"
+                  optionValue="value"
+                  class="projector-select"
+                  :disabled="isCatalogVariantBusy(variantPickerResult, variant)"
+                  @update:model-value="setCatalogDflash(variantPickerResult, variant, $event)"
+                />
+              </div>
+            </div>
+          </div>
+          <div class="install-variant__actions">
+            <template v-if="findCatalogDownloadedModel(variantPickerResult, variant)">
+              <Button
+                label="Configure"
+                icon="pi pi-cog"
+                size="small"
+                severity="secondary"
+                outlined
+                @click="configureCatalogVariant(variantPickerResult, variant)"
+              />
+              <Button
+                label="Refresh"
+                icon="pi pi-refresh"
+                size="small"
+                severity="secondary"
+                outlined
+                :loading="isCatalogVariantBusy(variantPickerResult, variant)"
+                :disabled="isCatalogVariantBusy(variantPickerResult, variant)"
+                @click="refreshCatalogVariant(variantPickerResult, variant)"
+              />
+              <Button
+                v-if="hasCatalogProjectorSelectionChanged(variantPickerResult, variant)"
+                label="Apply projector"
+                icon="pi pi-save"
+                size="small"
+                severity="success"
+                outlined
+                :loading="isCatalogVariantBusy(variantPickerResult, variant)"
+                :disabled="isCatalogVariantBusy(variantPickerResult, variant)"
+                @click="updateCatalogProjector(variantPickerResult, variant)"
+              />
+              <Button
+                v-if="hasCatalogMtpSelectionChanged(variantPickerResult, variant)"
+                label="Apply MTP"
+                icon="pi pi-save"
+                size="small"
+                severity="success"
+                outlined
+                :loading="isCatalogVariantBusy(variantPickerResult, variant)"
+                :disabled="isCatalogVariantBusy(variantPickerResult, variant)"
+                @click="updateCatalogMtp(variantPickerResult, variant)"
+              />
+              <Button
+                v-if="hasCatalogDflashSelectionChanged(variantPickerResult, variant)"
+                label="Apply DFlash"
+                icon="pi pi-save"
+                size="small"
+                severity="success"
+                outlined
+                :loading="isCatalogVariantBusy(variantPickerResult, variant)"
+                :disabled="isCatalogVariantBusy(variantPickerResult, variant)"
+                @click="updateCatalogDflash(variantPickerResult, variant)"
+              />
+            </template>
+            <Button
+              v-else
+              :label="catalogVariantActionLabel(variantPickerResult)"
+              icon="pi pi-download"
+              size="small"
+              severity="success"
+              outlined
+              :disabled="!variant.installable || isCatalogVariantBusy(variantPickerResult, variant)"
+              :loading="isCatalogVariantBusy(variantPickerResult, variant)"
+              @click="handleCatalogVariantAction(variantPickerResult, variant)"
+            />
+          </div>
+        </div>
+        <p v-if="!filteredPickerVariants.length" class="variant-picker-empty">
+          No quantizations match this filter.
+        </p>
+      </div>
+      <template #footer>
+        <Button label="Close" severity="secondary" text @click="closeCatalogVariantPicker" />
+      </template>
+    </Dialog>
+
+    <Dialog
+      v-model:visible="showInstallOptionsDialog"
+      modal
+      :header="installOptionsDialogHeader"
+      :style="{ width: 'min(34rem, 94vw)' }"
+    >
+      <p class="dialog-help">
+        {{ installOptionsDialogHelp }}
+      </p>
+      <div class="audio-install-form">
+        <template v-if="catalogNeedsExternalInputs">
+          <label>
+            <span>Source file {{ installOptionsInputsRequired ? '' : '(optional)' }}</span>
+            <InputText
+              v-model="installOptions.source_file"
+              placeholder="/data/input/model.pt"
+              fluid
+            />
+          </label>
+          <div class="field-divider">or</div>
+          <label>
+            <span>Source directory {{ installOptionsInputsRequired ? '' : '(optional)' }}</span>
+            <InputText
+              v-model="installOptions.source_dir"
+              placeholder="/data/input/prepared-source"
+              fluid
+            />
+          </label>
+          <label>
+            <span>Output file (optional)</span>
+            <InputText
+              v-model="installOptions.output_file"
+              placeholder="/data/output/model.safetensors"
+              fluid
+            />
+          </label>
+          <label>
+            <span>Variant (optional)</span>
+            <InputText
+              v-model="installOptions.variant"
+              placeholder="Package-specific variant"
+              fluid
+            />
+          </label>
+        </template>
+        <label>
+          <span>Family override (optional)</span>
+          <InputText
+            v-model="installOptions.family"
+            placeholder="Detected automatically from package / config.json"
+            fluid
+          />
+        </label>
+      </div>
+      <template #footer>
+        <Button label="Cancel" severity="secondary" text @click="closeInstallOptions" />
+        <Button
+          label="Start install"
+          icon="pi pi-download"
+          severity="success"
+          :disabled="
+            installOptionsInputsRequired &&
+            !installOptions.source_file &&
+            !installOptions.source_dir
+          "
+          @click="confirmCatalogInstall"
+        />
+      </template>
+    </Dialog>
+
+    <Dialog
+      v-model:visible="showTokenDialog"
+      header="HuggingFace Token"
+      modal
+      class="dialog-width-sm"
+    >
+      <PersistenceAlert
+        :notice="tokenNotice"
+        @retry="saveSearchToken"
+        @refresh="refreshSearchToken"
+      />
+      <p class="token-desc">
+        Required to access gated models. This token is saved for Search and the library.
+      </p>
+      <label class="sr-only" for="search-hf-token">HuggingFace token</label>
+      <InputText
+        id="search-hf-token"
+        v-model="tokenInput"
+        type="password"
+        placeholder="hf_…"
+        class="w-full"
+        autocomplete="off"
+      />
+      <template #footer>
+        <Button label="Cancel" severity="secondary" outlined @click="showTokenDialog = false" />
+        <Button
+          label="Save Token"
+          icon="pi pi-save"
+          severity="success"
+          :disabled="!tokenInput || tokenSaveHeld"
+          :loading="savingToken"
+          @click="saveSearchToken"
+        />
+      </template>
+    </Dialog>
+
+    <Dialog
+      v-model:visible="showAudioImportDialog"
+      modal
+      header="Import prepared audio.cpp bundle"
+      :style="{ width: 'min(34rem, 94vw)' }"
+    >
+      <p class="dialog-help">
+        The directory is copied into managed storage and accepted only when the active
+        <code>audiocpp_cli</code> identifies a valid family and task.
+      </p>
+      <div class="audio-install-form">
+        <label>
+          <span>Local directory</span>
+          <InputText
+            v-model="audioImport.source_path"
+            placeholder="/data/models/my-audio-model"
+            fluid
+          />
+        </label>
+        <label>
+          <span>Package ID (optional)</span>
+          <InputText
+            v-model="audioImport.package_id"
+            placeholder="Defaults to the directory name"
+            fluid
+          />
+        </label>
+        <label>
+          <span>Family override (optional)</span>
+          <InputText v-model="audioImport.family" placeholder="Detected automatically" fluid />
+        </label>
+      </div>
+      <template #footer>
+        <Button label="Cancel" severity="secondary" text @click="showAudioImportDialog = false" />
+        <Button
+          label="Validate and import"
+          icon="pi pi-folder-open"
+          severity="success"
+          :loading="audioImportSubmitting"
+          :disabled="!audioImport.source_path"
+          @click="submitAudioImport"
+        />
+      </template>
+    </Dialog>
+  </div>
+</template>
+
+<script setup>
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { storeToRefs } from 'pinia'
+import { useRoute, useRouter } from 'vue-router'
+import { useToast } from 'primevue/usetoast'
+import PersistenceAlert from '@/components/common/PersistenceAlert.vue'
+import {
+  classifyPersistenceError,
+  noteDocumentSaveFailure,
+  saveHeldForRefresh,
+} from '@/composables/persistenceOutcome'
+import Button from 'primevue/button'
+import Tag from 'primevue/tag'
+import InputText from 'primevue/inputtext'
+import Select from 'primevue/select'
+import Dialog from 'primevue/dialog'
+import LoadingState from '@/components/common/LoadingState.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import { useModelStore } from '@/stores/models'
+import { useEnginesStore } from '@/stores/engines'
+import { useProgressStore } from '@/stores/progress'
+import axios from 'axios'
+
+const route = useRoute()
+const router = useRouter()
+const toast = useToast()
+const modelStore = useModelStore()
+const enginesStore = useEnginesStore()
+const progressStore = useProgressStore()
+const { tasks: progressTasks } = storeToRefs(progressStore)
+const {
+  searchQuery: query,
+  searchLastQuery: lastQuery,
+  searchHasSearched: hasSearched,
+  searchResults,
+  searchLoading: searching,
+  searchFormat,
+  catalogFacets,
+  catalogProviderStatus,
+  catalogTotal,
+  catalogPage,
+  catalogHasMore,
+} = storeToRefs(modelStore)
+
+// ── State ──────────────────────────────────────────────────
+const expanded = ref(new Set())
+const loadingFiles = ref(new Set())
+const downloadingFiles = ref(new Set())
+const filesCache = ref({}) // modelId -> files[]
+const projectorSelections = ref({})
+const mtpSelections = ref({})
+const dflashSelections = ref({})
+const catalogMode = ref(import.meta.env.MODE !== 'test')
+const catalogActionKey = ref(null)
+const catalogDownloadingKeys = ref(new Set())
+const catalogInstallingKeys = ref(new Set())
+const catalogInstallTaskIds = ref(new Map())
+const showInstallOptionsDialog = ref(false)
+const pendingCatalogInstall = ref(null)
+const installOptions = ref({
+  source_file: '',
+  source_dir: '',
+  output_file: '',
+  variant: '',
+  family: '',
+})
+const installOptionsInputsRequired = computed(() =>
+  Boolean(pendingCatalogInstall.value?.variant?.external_inputs_required),
+)
+const catalogNeedsExternalInputs = computed(() => {
+  const variant = pendingCatalogInstall.value?.variant
+  return Boolean(variant?.external_inputs_required || variant?.external_inputs_optional)
+})
+const installOptionsDialogHeader = computed(() =>
+  catalogNeedsExternalInputs.value ? 'Prepare audio.cpp package' : 'Install audio.cpp package',
+)
+const installOptionsDialogHelp = computed(() => {
+  const variant = pendingCatalogInstall.value?.variant
+  if (!variant) {
+    return 'This package installs through the active audio.cpp model manager. Repository code is never executed.'
+  }
+  if (variant.external_inputs_required) {
+    return (
+      variant.operation_description ||
+      'This converter requires a local source file or directory. Repository code is never executed.'
+    )
+  }
+  if (variant.external_inputs_optional) {
+    return (
+      variant.operation_description ||
+      'Optional local source override for this converter. Leave blank to download the default upstream assets via the legacy model manager.'
+    )
+  }
+  return (
+    variant.method_hint ||
+    'Confirm install options. Family is usually auto-detected; override only if inspect fails.'
+  )
+})
+const showAudioImportDialog = ref(false)
+const variantPickerResult = ref(null)
+const variantPickerFilter = ref('')
+const variantPickerPopularOnly = ref(false)
+const syncingToRoute = ref(false)
+const showCatalogVariantPicker = computed({
+  get: () => variantPickerResult.value != null,
+  set: (visible) => {
+    if (!visible) {
+      variantPickerResult.value = null
+      variantPickerFilter.value = ''
+      variantPickerPopularOnly.value = false
+    }
+  },
+})
+const catalogVariantPickerHeader = computed(() => {
+  const result = variantPickerResult.value
+  if (!result) return 'Select variant'
+  const name = result.display_name || result.provider_item_id || 'model'
+  return result.artifact_format === 'gguf' ? `Quantizations — ${name}` : `Install options — ${name}`
+})
+const audioImportSubmitting = ref(false)
+const audioImport = ref({
+  source_path: '',
+  package_id: '',
+  family: '',
+})
+const catalogPageSize = 20
+const filtersOpen = ref(false)
+const showTokenDialog = ref(false)
+const tokenInput = ref('')
+const tokenNotice = ref(null)
+const tokenSaveHeld = computed(() => saveHeldForRefresh(tokenNotice.value))
+const savingToken = ref(false)
+const tokenNoticeDismissed = ref(
+  typeof sessionStorage !== 'undefined' &&
+    sessionStorage.getItem('llama-studio.token-notice') === '1',
+)
+const searchError = ref('')
+const engineFilter = ref(null)
+const taskFilter = ref(null)
+const inputModalityFilter = ref(null)
+const outputModalityFilter = ref(null)
+const providerFilter = ref(null)
+const installMethodFilter = ref(null)
+
+const formatOptions = [
+  { label: 'All packages', value: 'all' },
+  { label: 'GGUF', value: 'gguf' },
+  { label: 'Safetensors', value: 'safetensors' },
+  { label: 'Prepared audio', value: 'mixed' },
+]
+
+function catalogEngineLabel(id) {
+  return engineFilterOptions.value.find((engine) => engine.value === id)?.label || id
+}
+function hasReadyCatalogEngine(result) {
+  return (enginesStore.engineDescriptors || []).some((engine) => engine.runnable && engine.enabled !== false && (result.compatible_engines || []).includes(engine.id))
+}
+const engineFilterOptions = computed(() => {
+  const descriptors = enginesStore.engineDescriptors || []
+  if (descriptors.length) {
+    return descriptors.map((engine) => ({ value: engine.id, label: engine.label }))
+  }
+  return [
+    { value: 'llama_cpp', label: 'llama.cpp' },
+    { value: 'ik_llama', label: 'ik_llama.cpp' },
+    { value: 'unsloth_llama', label: 'Unsloth llama.cpp' },
+    { value: 'lmdeploy', label: 'LMDeploy' },
+    { value: '1cat_vllm', label: '1Cat-vLLM' },
+    { value: 'vllm', label: 'vLLM' },
+    { value: 'sglang', label: 'SGLang' },
+    { value: 'sglang_v100', label: 'SGLang V100' },
+    { value: 'audio_cpp', label: 'audio.cpp' },
+  ]
+})
+const TASK_LABELS = {
+  tts: 'Speech',
+  asr: 'Transcribe',
+  vad: 'Voice activity',
+  diar: 'Diarization',
+  sep: 'Separation',
+  gen: 'Music',
+  vc: 'Voice conversion',
+  s2s: 'Speech to speech',
+  align: 'Alignment',
+  clon: 'Voice clone',
+  vdes: 'Voice design',
+  spk: 'Speaker',
+  svc: 'Singing voice',
+  'text-generation': 'Text',
+  'text2text-generation': 'Text to text',
+  embeddings: 'Embeddings',
+}
+const taskFilterOptions = computed(() => {
+  const values = catalogFacets.value?.tasks?.length
+    ? catalogFacets.value.tasks
+    : Object.keys(TASK_LABELS)
+  return values.map((value) => ({ value, label: TASK_LABELS[value] || value }))
+})
+const inputModalityOptions = computed(
+  () => catalogFacets.value?.input_modalities || ['text', 'audio', 'image'],
+)
+const outputModalityOptions = computed(
+  () =>
+    catalogFacets.value?.output_modalities || ['text', 'audio', 'segments', 'events', 'embedding'],
+)
+const providerOptions = [
+  { label: 'Hugging Face', value: 'huggingface' },
+  { label: 'audio.cpp packages', value: 'audio_cpp' },
+]
+const INSTALL_METHOD_LABELS = {
+  direct: 'Direct HF',
+  composite: 'Assemble',
+  converter: 'Convert',
+  bundled: 'Bundled',
+  unavailable: 'Unavailable',
+}
+const installMethodOptions = computed(() => {
+  const values = catalogFacets.value?.install_methods || []
+  return values.map((value) => ({
+    value,
+    label: INSTALL_METHOD_LABELS[value] || value,
+  }))
+})
+
+const showFormatSelect = computed(() => !engineFilter.value)
+
+const unavailableProviders = computed(() =>
+  Object.entries(catalogProviderStatus.value || {})
+    .filter(([, status]) => status?.available === false)
+    .map(([provider, status]) => ({ provider, status })),
+)
+
+const catalogTotalPages = computed(() =>
+  Math.max(1, Math.ceil((catalogTotal.value || 0) / catalogPageSize)),
+)
+
+const catalogPageRangeLabel = computed(() => {
+  const shown = searchResults.value.length
+  if (!shown) return ''
+  const total = catalogTotal.value || shown
+  if (!catalogHasMore.value && catalogPage.value <= 1) {
+    return `${total} result${total === 1 ? '' : 's'}`
+  }
+  const start = (catalogPage.value - 1) * catalogPageSize + 1
+  const end = start + shown - 1
+  if (catalogHasMore.value) return `${start}–${end}, more available`
+  return `${start}–${end} of ${total}`
+})
+
+const RECOMMENDED_QUANT_IDS = Object.freeze([
+  'Q4_K_M',
+  'Q5_K_M',
+  'Q4_K_S',
+  'Q6_K',
+  'Q8_0',
+  'Q3_K_M',
+])
+
+/** Default: downloads high → low */
+const sortBy = ref('relevance')
+
+const sortOptions = [
+  { label: 'Best match', value: 'relevance' },
+  { label: 'Downloads (high → low)', value: 'downloads_desc' },
+  { label: 'Downloads (low → high)', value: 'downloads_asc' },
+  { label: 'Likes (high → low)', value: 'likes_desc' },
+  { label: 'Likes (low → high)', value: 'likes_asc' },
+  { label: 'Name A–Z', value: 'name_asc' },
+  { label: 'Name Z–A', value: 'name_desc' },
+]
+
+/** Stable color per pipeline_tag (PrimeVue Tag severities). Unknown tags get a deterministic hash color. */
+const PIPELINE_TAG_SEVERITY = Object.freeze({
+  'text-generation': 'success',
+  'text2text-generation': 'success',
+  'fill-mask': 'info',
+  'question-answering': 'info',
+  summarization: 'warning',
+  translation: 'warning',
+  /* Multimodal / vision — avoid `contrast` (often near-white on light tags in dark UI) */
+  'image-text-to-text': 'info',
+  'image-to-text': 'info',
+  'visual-question-answering': 'warning',
+  'automatic-speech-recognition': 'info',
+  'feature-extraction': 'secondary',
+  'text-classification': 'info',
+  'token-classification': 'info',
+  'sentence-similarity': 'info',
+  'reinforcement-learning': 'secondary',
+  robotics: 'secondary',
+  'depth-estimation': 'warning',
+  'tabular-classification': 'info',
+  'tabular-regression': 'info',
+  'table-question-answering': 'info',
+  'object-detection': 'warning',
+  'image-classification': 'warning',
+  'audio-classification': 'info',
+  'audio-to-audio': 'info',
+  'text-to-speech': 'info',
+  'text-to-audio': 'info',
+  'voice-activity-detection': 'secondary',
+  other: 'secondary',
+})
+
+const PIPELINE_SEVERITY_POOL = ['success', 'info', 'warning', 'secondary']
+
+function pipelineTagSeverity(pipelineTag) {
+  if (pipelineTag == null || pipelineTag === '') return 'secondary'
+  const k = String(pipelineTag).toLowerCase().trim()
+  if (PIPELINE_TAG_SEVERITY[k]) return PIPELINE_TAG_SEVERITY[k]
+  let h = 0
+  for (let i = 0; i < k.length; i++) h = (h * 31 + k.charCodeAt(i)) >>> 0
+  return PIPELINE_SEVERITY_POOL[h % PIPELINE_SEVERITY_POOL.length]
+}
+
+function modelIdKey(r) {
+  return String(r.display_name || r.modelId || r.id || '').toLowerCase()
+}
+
+function numOrMissing(v, missingSentinel) {
+  const n = typeof v === 'number' ? v : Number(v)
+  return Number.isFinite(n) ? n : missingSentinel
+}
+
+const sortedSearchResults = computed(() => {
+  if (catalogMode.value) return searchResults.value
+  const list = [...searchResults.value]
+  const key = sortBy.value
+
+  list.sort((a, b) => {
+    const idA = modelIdKey(a)
+    const idB = modelIdKey(b)
+
+    switch (key) {
+      case 'downloads_desc': {
+        const da = numOrMissing(a.downloads ?? a.metadata?.downloads, -1)
+        const db = numOrMissing(b.downloads ?? b.metadata?.downloads, -1)
+        if (db !== da) return db - da
+        break
+      }
+      case 'downloads_asc': {
+        const da = numOrMissing(a.downloads ?? a.metadata?.downloads, Number.MAX_SAFE_INTEGER)
+        const db = numOrMissing(b.downloads ?? b.metadata?.downloads, Number.MAX_SAFE_INTEGER)
+        if (da !== db) return da - db
+        break
+      }
+      case 'likes_desc': {
+        const la = numOrMissing(a.likes ?? a.metadata?.likes, -1)
+        const lb = numOrMissing(b.likes ?? b.metadata?.likes, -1)
+        if (lb !== la) return lb - la
+        break
+      }
+      case 'likes_asc': {
+        const la = numOrMissing(a.likes ?? a.metadata?.likes, Number.MAX_SAFE_INTEGER)
+        const lb = numOrMissing(b.likes ?? b.metadata?.likes, Number.MAX_SAFE_INTEGER)
+        if (la !== lb) return la - lb
+        break
+      }
+      case 'name_asc':
+        return idA.localeCompare(idB)
+      case 'name_desc':
+        return idB.localeCompare(idA)
+      default:
+        return 0
+    }
+    return idA.localeCompare(idB)
+  })
+
+  return list
+})
+
+// ── Search ─────────────────────────────────────────────────
+function catalogFiltersPayload() {
+  return {
+    ...(engineFilter.value ? { engine: engineFilter.value } : {}),
+    ...(taskFilter.value ? { task: taskFilter.value } : {}),
+    ...(inputModalityFilter.value ? { input_modality: inputModalityFilter.value } : {}),
+    ...(outputModalityFilter.value ? { output_modality: outputModalityFilter.value } : {}),
+    ...(providerFilter.value ? { provider: providerFilter.value } : {}),
+    ...(installMethodFilter.value ? { install_method: installMethodFilter.value } : {}),
+    ...(!engineFilter.value && searchFormat.value && searchFormat.value !== 'all'
+      ? { artifact_format: searchFormat.value }
+      : {}),
+  }
+}
+
+function buildSearchRouteQuery() {
+  const next = {}
+  const trimmed = query.value.trim()
+  if (trimmed) next.q = trimmed
+  if (!engineFilter.value && searchFormat.value && searchFormat.value !== 'all') {
+    next.format = searchFormat.value
+  }
+  if (engineFilter.value) next.engine = engineFilter.value
+  if (taskFilter.value) next.task = taskFilter.value
+  if (inputModalityFilter.value) next.input = inputModalityFilter.value
+  if (outputModalityFilter.value) next.output = outputModalityFilter.value
+  if (providerFilter.value) next.provider = providerFilter.value
+  if (installMethodFilter.value) next.install_method = installMethodFilter.value
+  if (sortBy.value && sortBy.value !== 'relevance') next.sort = sortBy.value
+  if (catalogPage.value > 1) next.page = String(catalogPage.value)
+  return next
+}
+
+function routeQueryEqual(a, b) {
+  const keys = new Set([...Object.keys(a || {}), ...Object.keys(b || {})])
+  for (const key of keys) {
+    if (String(a?.[key] ?? '') !== String(b?.[key] ?? '')) return false
+  }
+  return true
+}
+
+async function syncSearchToRoute() {
+  const next = buildSearchRouteQuery()
+  if (routeQueryEqual(next, route.query)) return
+  syncingToRoute.value = true
+  try {
+    await router.replace({ name: 'search', query: next })
+  } finally {
+    await nextTick()
+    syncingToRoute.value = false
+  }
+}
+
+function applySearchFromRoute(queryObj = route.query) {
+  const nextQuery = typeof queryObj.q === 'string' ? queryObj.q : ''
+  query.value = nextQuery
+  searchFormat.value =
+    typeof queryObj.format === 'string' && queryObj.format ? queryObj.format : 'all'
+  engineFilter.value = typeof queryObj.engine === 'string' ? queryObj.engine : null
+  taskFilter.value = typeof queryObj.task === 'string' ? queryObj.task : null
+  inputModalityFilter.value = typeof queryObj.input === 'string' ? queryObj.input : null
+  outputModalityFilter.value = typeof queryObj.output === 'string' ? queryObj.output : null
+  providerFilter.value = typeof queryObj.provider === 'string' ? queryObj.provider : null
+  installMethodFilter.value =
+    typeof queryObj.install_method === 'string' ? queryObj.install_method : null
+  sortBy.value = typeof queryObj.sort === 'string' && queryObj.sort ? queryObj.sort : 'relevance'
+}
+
+function onFormatChange() {
+  if (hasSearched.value) runSearch()
+}
+
+function onEngineFilterChange() {
+  if (hasSearched.value) runSearch()
+}
+
+function onSortChange() {
+  runSearch()
+}
+
+const secondaryFilterCount = computed(() => {
+  let count = 0
+  if (engineFilter.value) count += 1
+  if (inputModalityFilter.value) count += 1
+  if (outputModalityFilter.value) count += 1
+  if (providerFilter.value) count += 1
+  if (installMethodFilter.value) count += 1
+  if (searchFormat.value && searchFormat.value !== 'all') count += 1
+  return count
+})
+
+async function search(page = 1, { syncRoute = true } = {}) {
+  searchError.value = ''
+  const pageNum = Number(page)
+  const safePage = Number.isFinite(pageNum) && pageNum >= 1 ? Math.floor(pageNum) : 1
+  expanded.value = new Set()
+  filesCache.value = {}
+  projectorSelections.value = {}
+  mtpSelections.value = {}
+  dflashSelections.value = {}
+  variantPickerResult.value = null
+  variantPickerFilter.value = ''
+  variantPickerPopularOnly.value = false
+  try {
+    catalogMode.value = true
+    const data = await modelStore.searchCatalog(query.value.trim(), {
+      page: safePage,
+      page_size: catalogPageSize,
+      filters: catalogFiltersPayload(),
+      sort: sortBy.value,
+    })
+    if (data == null) return
+    notifyUnavailableProviders(data?.provider_status)
+    enrichVisibleCatalogSizes()
+    if (syncRoute) await syncSearchToRoute()
+  } catch (e) {
+    searchError.value = e?.response?.data?.detail || e.message || 'Search failed'
+    toast.add({
+      severity: 'error',
+      summary: 'Search failed',
+      detail: searchError.value,
+      life: 4000,
+    })
+  }
+}
+
+function notifyUnavailableProviders(statuses = {}) {
+  if (!searchResults.value.length) {
+    for (const [provider, status] of Object.entries(statuses)) {
+      if (status?.available === false && status?.reason) {
+        toast.add({
+          severity: 'warn',
+          summary: `${provider} search unavailable`,
+          detail: status.reason,
+          life: 5000,
+        })
+      }
+    }
+  }
+}
+
+function runSearch() {
+  return search(1)
+}
+
+async function changeCatalogPage(page) {
+  await search(page)
+}
+
+function goToTokenSettings() {
+  showTokenDialog.value = true
+}
+
+function dismissTokenNotice() {
+  tokenNoticeDismissed.value = true
+  try {
+    sessionStorage.setItem('llama-studio.token-notice', '1')
+  } catch {
+    /* ignore */
+  }
+}
+
+function resetSecondaryFilters() {
+  engineFilter.value = null
+  inputModalityFilter.value = null
+  outputModalityFilter.value = null
+  providerFilter.value = null
+  installMethodFilter.value = null
+  searchFormat.value = 'all'
+  runSearch()
+}
+
+async function refreshSearchToken() {
+  const draft = tokenInput.value
+  try {
+    await modelStore.fetchHuggingfaceTokenStatus()
+    tokenNotice.value = null
+    return true
+  } catch {
+    tokenInput.value = draft
+    tokenNotice.value = classifyPersistenceError(new Error('reload failed'))
+    return false
+  }
+}
+
+async function saveSearchToken() {
+  savingToken.value = true
+  const draft = tokenInput.value
+  try {
+    await modelStore.setHuggingfaceToken(tokenInput.value)
+    tokenInput.value = ''
+    showTokenDialog.value = false
+    tokenNotice.value = null
+    toast.add({ severity: 'success', summary: 'Token saved', life: 3000 })
+  } catch (e) {
+    tokenInput.value = draft
+    const outcome = noteDocumentSaveFailure(toast, e)
+    if (outcome) {
+      tokenNotice.value = outcome
+      if (outcome.committed === true) {
+        const reloaded = await refreshSearchToken()
+        tokenNotice.value = reloaded
+          ? { ...outcome, refresh: false, retry: false }
+          : {
+              ...outcome,
+              detail:
+                'The document was replaced, but it could not be reloaded. Your edits are still here. Refresh before trying again.',
+              refresh: true,
+              retry: false,
+            }
+        tokenInput.value = reloaded ? '' : draft
+      }
+    } else {
+      toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+    }
+  } finally {
+    savingToken.value = false
+  }
+}
+
+function openExternal(url) {
+  if (!url) return
+  window.open(url, '_blank', 'noopener,noreferrer')
+}
+
+function catalogSourceUrl(result) {
+  if (result?.provider === 'huggingface' && result?.source?.id) {
+    return `https://huggingface.co/${result.source.id}`
+  }
+  if (result?.provider === 'audio_cpp') {
+    return 'https://github.com/0xShug0/audio.cpp'
+  }
+  return null
+}
+
+function catalogFormatLabel(result) {
+  const format = result?.artifact_format
+  if (format === 'gguf') return 'GGUF'
+  if (format === 'safetensors') return 'Safetensors'
+  if (format === 'mixed') return 'Prepared audio'
+  if (format === 'builtin') return 'Built-in'
+  return ''
+}
+
+function catalogCardSubtitle(result) {
+  if (result?.provider === 'huggingface') {
+    return result.source?.id || String(result.provider_item_id || '').split(':')[0] || ''
+  }
+  return result?.provider_item_id || result?.id || ''
+}
+
+function catalogCardMeta(result) {
+  const items = []
+  const author = result?.metadata?.raw?.author || result?.author
+  const downloads = result?.downloads ?? result?.metadata?.downloads
+  const likes = result?.likes ?? result?.metadata?.likes
+  if (author) items.push({ key: 'author', icon: 'pi pi-user', label: author })
+  if (downloads != null && downloads !== '') {
+    items.push({ key: 'downloads', icon: 'pi pi-download', label: formatNumber(downloads) })
+  }
+  if (likes != null && likes !== '') {
+    items.push({ key: 'likes', icon: 'pi pi-heart', label: formatNumber(likes) })
+  }
+  const raw = result?.metadata?.raw || {}
+  const parameters = result?.metadata?.parameters || raw.parameters
+  const contextLabel = formatContextLength(result?.metadata?.context_length ?? raw.context_length)
+  const languageLabel = formatLanguageHint(
+    (result?.languages || []).length ? result.languages : raw.language,
+  )
+  const license = result?.metadata?.license || raw.license
+  const updated = formatSearchUpdatedAt(
+    result?.metadata?.last_modified || raw.updated_at || raw.last_modified,
+  )
+  if (parameters) {
+    items.push({ key: 'parameters', icon: 'pi pi-sliders-h', label: parameters })
+  }
+  if (contextLabel) {
+    items.push({ key: 'context', icon: 'pi pi-window-maximize', label: contextLabel })
+  }
+  if (languageLabel) {
+    items.push({ key: 'language', icon: 'pi pi-globe', label: languageLabel })
+  }
+  if (license) {
+    items.push({ key: 'license', icon: 'pi pi-file', label: license })
+  }
+  if (updated) {
+    items.push({ key: 'updated', icon: 'pi pi-calendar', label: updated })
+  }
+  if (result?.provider === 'audio_cpp') {
+    const format = result?.metadata?.format || result?.install_variants?.[0]?.format
+    const precision = result?.metadata?.precision || result?.install_variants?.[0]?.precision
+    if (format || precision) {
+      items.push({
+        key: 'format',
+        icon: 'pi pi-box',
+        label: [format, precision].filter(Boolean).join(' · '),
+      })
+    }
+    const backend =
+      result?.metadata?.manager_backend || result?.install_variants?.[0]?.manager_backend
+    if (backend === 'v2') {
+      items.push({ key: 'manager', icon: 'pi pi-cog', label: 'spec v2' })
+    }
+  }
+  const sizeSummary = catalogResultSizeSummary(result)
+  if (sizeSummary) {
+    items.push({ key: 'size', icon: 'pi pi-box', label: sizeSummary })
+  }
+  return items
+}
+
+function catalogResultSizeSummary(result) {
+  const sizes = (result?.install_variants || [])
+    .map((variant) => Number(variant?.size_bytes) || 0)
+    .filter((size) => size > 0)
+  if (!sizes.length) return ''
+  if (sizes.length === 1) return formatBytes(sizes[0])
+  return `from ${formatBytes(Math.min(...sizes))}`
+}
+
+function catalogPrimaryBadges(result) {
+  const badges = []
+  const tasks = result?.tasks || []
+  if (result?.family) {
+    badges.push({ key: 'family', label: result.family, severity: 'secondary' })
+  }
+  for (const task of tasks.slice(0, 2)) {
+    badges.push({
+      key: `task-${task}`,
+      label: task,
+      severity: pipelineTagSeverity(task),
+    })
+  }
+  const modalities = [
+    ...(result?.input_modalities || []).map((m) => `${m} in`),
+    ...(result?.output_modalities || []).map((m) => `${m} out`),
+  ]
+  if (modalities.length) {
+    badges.push({
+      key: 'modalities',
+      label: modalities.slice(0, 2).join(' · '),
+      severity: 'secondary',
+      tooltip: modalities.join(' · '),
+    })
+  }
+  return badges
+}
+
+function catalogHfId(result) {
+  if (result?.provider === 'huggingface') {
+    return result.source?.id || String(result.provider_item_id || '').split(':')[0] || ''
+  }
+  return result?.modelId || result?.id || ''
+}
+
+function resultMatchesHfId(result, hfId) {
+  if (!hfId) return false
+  if ((result.modelId || result.id) === hfId) return true
+  if (result.provider === 'huggingface') {
+    return (
+      result.source?.id === hfId || String(result.provider_item_id || '').startsWith(`${hfId}:`)
+    )
+  }
+  return false
+}
+
+function findCatalogDownloadedModel(result, variant) {
+  if (!result || !variant) return null
+  if (result.provider === 'huggingface') {
+    const hfId = catalogHfId(result)
+    if (!hfId) return null
+    if (result.artifact_format === 'safetensors') {
+      return findDownloadedSafetensorsBundle(hfId) || null
+    }
+    return (
+      modelStore.allQuantizations.find(
+        (model) =>
+          model.huggingface_id === hfId &&
+          (model.quantization === variant.id ||
+            model.quantization === variant.label ||
+            (Array.isArray(variant.files) &&
+              variant.files.some((file) => {
+                const name = typeof file === 'string' ? file : file?.filename
+                return name && model.filename === name
+              }))),
+      ) || null
+    )
+  }
+  if (result.provider === 'audio_cpp') {
+    const packageId = catalogAudioPackageId(result, variant)
+    const safePackageId = packageId
+      .replace(/[^a-zA-Z0-9._-]+/g, '-')
+      .replace(/-{2,}/g, '-')
+      .replace(/^[-._]+|[-._]+$/g, '')
+      .slice(0, 96) || 'audio-model'
+    const recordIds = new Set([
+      packageId,
+      `audio-cpp--${packageId}`,
+      `audio-cpp--${safePackageId}`,
+    ])
+    return (
+      modelStore.allQuantizations.find(
+        (model) =>
+          recordIds.has(model.id) ||
+          recordIds.has(model.model_id) ||
+          model.huggingface_id === packageId ||
+          model.package_id === packageId ||
+          model?.source?.id === packageId ||
+          model?.source?.package_id === packageId ||
+          model?.artifact?.package_id === packageId ||
+          model?.manifest?.package_id === packageId,
+      ) || null
+    )
+  }
+  return null
+}
+
+function catalogInstallMethodLabel(result, variant) {
+  if (result?.provider !== 'audio_cpp') return ''
+  return (
+    variant?.method_label ||
+    {
+      direct: 'Direct HF',
+      composite: 'Assemble',
+      converter: 'Convert',
+      bundled: 'Bundled asset',
+    }[variant?.method] ||
+    ''
+  )
+}
+
+function catalogInstallMethodSeverity(variant) {
+  if (variant?.method === 'direct') return 'secondary'
+  if (variant?.method === 'bundled') return 'success'
+  if (variant?.method === 'composite') return 'info'
+  if (variant?.method === 'converter') return 'warn'
+  return 'secondary'
+}
+
+function catalogManagerBackendLabel(variant) {
+  const backend = String(variant?.manager_backend || '')
+    .trim()
+    .toLowerCase()
+  if (backend === 'v2') return 'Spec v2'
+  if (backend === 'legacy') return 'Legacy'
+  return ''
+}
+
+function catalogInstallMethodHint(result, variant) {
+  if (result?.provider !== 'audio_cpp') return ''
+  if (variant?.method_hint) return variant.method_hint
+  if (variant?.uses_model_manager || ['composite', 'converter'].includes(variant?.method)) {
+    return 'Installed via the legacy audio.cpp model manager (assemble/convert), not a plain HF snapshot.'
+  }
+  if (variant?.manager_backend === 'v2') {
+    return 'Installed via model_manager_v2 from model_specs package metadata.'
+  }
+  if (result?.gated || variant?.gated) {
+    return 'Gated Hugging Face repo — a Hugging Face token with access is required.'
+  }
+  return ''
+}
+
+function catalogNeedsInstallOptions(variant, result) {
+  // Always confirm audio.cpp installs so family override is available.
+  // Converter packages also collect optional/required local inputs here.
+  if (result?.provider === 'audio_cpp') return true
+  return Boolean(variant?.external_inputs_required || variant?.external_inputs_optional)
+}
+
+function catalogDownloadedVariantCount(result) {
+  return (result?.install_variants || []).filter(
+    (variant) => !!findCatalogDownloadedModel(result, variant),
+  ).length
+}
+
+function configureCatalogVariant(result, variant) {
+  const model = findCatalogDownloadedModel(result, variant)
+  if (!model) return
+  router.push(`/models/${encodeURIComponent(model.id || model.model_id)}/config`)
+}
+
+async function runModelRefresh(modelId, downloadKey, { catalog = false } = {}) {
+  if (!modelId) return
+  const busySet = catalog ? catalogDownloadingKeys : downloadingFiles
+  busySet.value.add(downloadKey)
+  busySet.value = new Set(busySet.value)
+  try {
+    const response = await modelStore.refreshModel(modelId)
+    if (!response?.updated) {
+      busySet.value.delete(downloadKey)
+      busySet.value = new Set(busySet.value)
+      toast.add({
+        severity: 'info',
+        summary: 'Up to date',
+        detail: response?.message || 'Already up to date',
+        life: 3000,
+      })
+      return
+    }
+    toast.add({
+      severity: 'success',
+      summary: 'Update started',
+      detail: response?.message || 'Track progress in notifications',
+      life: 3000,
+    })
+  } catch (e) {
+    busySet.value.delete(downloadKey)
+    busySet.value = new Set(busySet.value)
+    toast.add({
+      severity: 'error',
+      summary: 'Refresh failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 4000,
+    })
+  }
+}
+
+async function refreshCatalogVariant(result, variant) {
+  const model = findCatalogDownloadedModel(result, variant)
+  if (!model?.id && !model?.model_id) return
+  const hfId = catalogHfId(result)
+  const downloadKey = `${hfId}:${variant.id}`
+  await runModelRefresh(model.id || model.model_id, downloadKey, { catalog: true })
+}
+
+async function refreshDownloaded(result, file) {
+  const repoId = result.modelId || result.id
+  const downloaded =
+    searchFormat.value === 'safetensors'
+      ? findDownloadedSafetensorsBundle(repoId)
+      : findDownloadedQuantization(repoId, file, file.files || [])
+  const modelId =
+    downloaded?.id ||
+    downloaded?.model_id ||
+    (searchFormat.value === 'safetensors' && repoId ? String(repoId).replaceAll('/', '--') : null)
+  if (!modelId) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Refresh unavailable',
+      detail: 'Could not resolve the library model for this file',
+      life: 3000,
+    })
+    return
+  }
+  await runModelRefresh(modelId, getDownloadKey(repoId, file), { catalog: false })
+}
+
+function isCatalogVariantBusy(result, variant) {
+  if (result?.provider === 'huggingface') {
+    return isCatalogVariantDownloading(result, variant)
+  }
+  const key = `${result.id}:${variant.id}`
+  return catalogInstallingKeys.value.has(key) || catalogAudioVariantHasActiveInstallTask(result, variant)
+}
+
+function catalogAudioPackageId(result, variant) {
+  return String(
+    result?.source?.package_id ||
+      result?.source?.id ||
+      result?.provider_item_id ||
+      variant?.id ||
+      result?.id ||
+      '',
+  ).trim()
+}
+
+function catalogAudioVariantHasActiveInstallTask(result, variant) {
+  const packageId = catalogAudioPackageId(result, variant)
+  if (!packageId) return false
+  return Object.values(progressTasks.value).some((task) => {
+    if (task?.type !== 'audio_model_install') return false
+    if (!['queued', 'running', 'cancelling'].includes(task.status)) return false
+    return String(task.metadata?.package_id || '') === packageId
+  })
+}
+
+function rememberCatalogInstall(key, taskId) {
+  const pending = new Set(catalogInstallingKeys.value)
+  pending.add(key)
+  catalogInstallingKeys.value = pending
+  if (!taskId) return
+  const taskIds = new Map(catalogInstallTaskIds.value)
+  taskIds.set(key, String(taskId))
+  catalogInstallTaskIds.value = taskIds
+}
+
+function forgetCatalogInstall(key) {
+  const pending = new Set(catalogInstallingKeys.value)
+  pending.delete(key)
+  catalogInstallingKeys.value = pending
+  const taskIds = new Map(catalogInstallTaskIds.value)
+  taskIds.delete(key)
+  catalogInstallTaskIds.value = taskIds
+}
+
+function catalogVariantActionLabel(result) {
+  return result?.provider === 'huggingface' ? 'Download' : 'Install'
+}
+
+function catalogVariantKey(variant) {
+  return String(variant?.id || variant?.label || '').toUpperCase()
+}
+
+function isRecommendedCatalogVariant(variant) {
+  if (variant?.default) return true
+  const key = catalogVariantKey(variant)
+  return RECOMMENDED_QUANT_IDS.some(
+    (id) =>
+      key === id || key.endsWith(`-${id}`) || key.includes(`_${id}`) || key.includes(`-${id}`),
+  )
+}
+
+function recommendedCatalogVariantScore(variant) {
+  const key = catalogVariantKey(variant)
+  const idx = RECOMMENDED_QUANT_IDS.findIndex((id) => key === id || key.endsWith(`-${id}`))
+  return idx === -1 ? 1000 : idx
+}
+
+function catalogVariantsSummaryTitle(result) {
+  const count = (result?.install_variants || []).length
+  if (result?.artifact_format === 'gguf') {
+    return `${count} quantization${count === 1 ? '' : 's'}`
+  }
+  return `${count} install option${count === 1 ? '' : 's'}`
+}
+
+function catalogVariantsSummaryMeta(result) {
+  const sizeSummary = catalogResultSizeSummary(result)
+  const labels = (result?.install_variants || [])
+    .map((variant) => variant.label || variant.id)
+    .filter(Boolean)
+  if (!labels.length) return sizeSummary || 'Open to choose a variant'
+  const preview = labels.slice(0, 4).join(' · ')
+  const remaining = labels.length - 4
+  const labelSummary = remaining > 0 ? `${preview} · +${remaining} more` : preview
+  return sizeSummary ? `${sizeSummary} · ${labelSummary}` : labelSummary
+}
+
+function catalogVariantsBrowseLabel(result) {
+  return result?.artifact_format === 'gguf' ? 'Browse quants' : 'Browse options'
+}
+
+function catalogVariantFilenames(variant) {
+  return normalizeVariantFiles(variant?.files || [])
+    .map((file) => file.filename)
+    .filter(Boolean)
+}
+
+function catalogVariantsNeedSizes(result) {
+  const variants = result?.install_variants || []
+  if (!variants.length) return false
+  return variants.some(
+    (variant) => !variant.size_bytes && catalogVariantFilenames(variant).length > 0,
+  )
+}
+
+async function enrichCatalogVariantSizes(result) {
+  if (!result || result.provider !== 'huggingface') return
+  if (!catalogVariantsNeedSizes(result)) return
+  const hfId = catalogHfId(result)
+  if (!hfId) return
+
+  const variants = result.install_variants || []
+  const filenames = [...new Set(variants.flatMap(catalogVariantFilenames))]
+  if (!filenames.length) return
+
+  try {
+    const { data } = await axios.get(`/api/models/search/${encodeURIComponent(hfId)}/file-sizes`, {
+      params: { filenames: filenames.join(',') },
+    })
+    const sizes = data.sizes || {}
+    result.install_variants = variants.map((variant) => {
+      const names = catalogVariantFilenames(variant)
+      const sizeBytes = names.reduce((sum, name) => sum + (Number(sizes[name]) || 0), 0)
+      return {
+        ...variant,
+        size_bytes: sizeBytes || variant.size_bytes || null,
+      }
+    })
+    const total = (result.install_variants || []).reduce(
+      (sum, variant) => sum + (Number(variant.size_bytes) || 0),
+      0,
+    )
+    if (total > 0) result.size_bytes = total
+    // Keep Pinia searchResults / catalogResults in sync when this object is shared.
+    searchResults.value = [...searchResults.value]
+  } catch {
+    // Keep the empty size hints returned by the search API.
+  }
+}
+
+function enrichVisibleCatalogSizes() {
+  for (const result of searchResults.value) {
+    const variants = result?.install_variants || []
+    // Inline single-variant cards need sizes without opening the picker.
+    if (variants.length <= 1) {
+      void enrichCatalogVariantSizes(result)
+    }
+  }
+}
+
+async function openCatalogVariantPicker(result) {
+  variantPickerFilter.value = ''
+  variantPickerPopularOnly.value = false
+  variantPickerResult.value = result
+  await enrichCatalogVariantSizes(result)
+}
+
+function closeCatalogVariantPicker() {
+  variantPickerResult.value = null
+  variantPickerFilter.value = ''
+  variantPickerPopularOnly.value = false
+}
+
+const filteredPickerVariants = computed(() => {
+  const result = variantPickerResult.value
+  if (!result) return []
+  let list = [...(result.install_variants || [])]
+  if (variantPickerPopularOnly.value) {
+    const popular = list.filter(isRecommendedCatalogVariant)
+    if (popular.length) list = popular
+  }
+  const needle = variantPickerFilter.value.trim().toLowerCase()
+  if (needle) {
+    list = list.filter((variant) =>
+      String(variant.label || variant.id || '')
+        .toLowerCase()
+        .includes(needle),
+    )
+  }
+  list.sort((a, b) => {
+    const scoreDelta = recommendedCatalogVariantScore(a) - recommendedCatalogVariantScore(b)
+    if (scoreDelta !== 0) return scoreDelta
+    return (a.size_bytes || 0) - (b.size_bytes || 0)
+  })
+  return list
+})
+
+function handleCatalogVariantAction(result, variant) {
+  if (result?.provider === 'huggingface') {
+    return downloadHfCatalogVariant(result, variant)
+  }
+  return installCatalogVariant(result, variant)
+}
+
+function normalizeVariantFiles(files = []) {
+  return files.map((file) => (typeof file === 'string' ? { filename: file, size: 0 } : file))
+}
+
+function catalogHasProjector(result) {
+  return result?.artifact_format === 'gguf' && (result.metadata?.raw?.mmproj_files || []).length > 0
+}
+
+function catalogHasMtp(result) {
+  return result?.artifact_format === 'gguf' && (result.metadata?.raw?.mtp_files || []).length > 0
+}
+
+function catalogHasDflash(result) {
+  return result?.artifact_format === 'gguf' && (result.metadata?.raw?.dflash_files || []).length > 0
+}
+
+function catalogProjectorOptions(result) {
+  return getProjectorOptions(result?.metadata?.raw?.mmproj_files || [])
+}
+
+function catalogMtpOptions(result) {
+  return getMtpOptions(result?.metadata?.raw?.mtp_files || [])
+}
+
+function catalogDflashOptions(result) {
+  return getDflashOptions(result?.metadata?.raw?.dflash_files || [])
+}
+
+function catalogProjectorFile(result, variant) {
+  return {
+    quantizationKey: variant.id,
+    projectorOptions: catalogProjectorOptions(result),
+  }
+}
+
+function catalogMtpFile(result, variant) {
+  return {
+    quantizationKey: variant.id,
+    mtpOptions: catalogMtpOptions(result),
+  }
+}
+
+function catalogDflashFile(result, variant) {
+  return {
+    quantizationKey: variant.id,
+    dflashOptions: catalogDflashOptions(result),
+  }
+}
+
+function getCatalogProjector(result, variant) {
+  const hfId = catalogHfId(result)
+  const file = catalogProjectorFile(result, variant)
+  const key = getProjectorSelectionKey(hfId, file)
+  if (Object.prototype.hasOwnProperty.call(projectorSelections.value, key)) {
+    return projectorSelections.value[key]
+  }
+  const downloaded = findCatalogDownloadedModel(result, variant)
+  if (downloaded) {
+    return downloaded.mmproj_filename || ''
+  }
+  return getDefaultProjectorValue(file)
+}
+
+function setCatalogProjector(result, variant, value) {
+  setSelectedProjector(catalogHfId(result), catalogProjectorFile(result, variant), value)
+}
+
+function getCatalogMtp(result, variant) {
+  const hfId = catalogHfId(result)
+  const file = catalogMtpFile(result, variant)
+  const key = getMtpSelectionKey(hfId, file)
+  if (Object.prototype.hasOwnProperty.call(mtpSelections.value, key)) {
+    return mtpSelections.value[key]
+  }
+  const downloaded = findCatalogDownloadedModel(result, variant)
+  if (downloaded) {
+    return downloaded.mtp_filename || ''
+  }
+  return getDefaultMtpValue(file)
+}
+
+function setCatalogMtp(result, variant, value) {
+  setSelectedMtp(catalogHfId(result), catalogMtpFile(result, variant), value)
+  if (value) {
+    setSelectedDflash(catalogHfId(result), catalogDflashFile(result, variant), '')
+  }
+}
+
+function getCatalogDflash(result, variant) {
+  const hfId = catalogHfId(result)
+  const file = catalogDflashFile(result, variant)
+  const key = getDflashSelectionKey(hfId, file)
+  if (Object.prototype.hasOwnProperty.call(dflashSelections.value, key)) {
+    return dflashSelections.value[key]
+  }
+  const downloaded = findCatalogDownloadedModel(result, variant)
+  if (downloaded) {
+    return downloaded.dflash_filename || ''
+  }
+  return getDefaultDflashValue(file)
+}
+
+function setCatalogDflash(result, variant, value) {
+  setSelectedDflash(catalogHfId(result), catalogDflashFile(result, variant), value)
+  if (value) {
+    setSelectedMtp(catalogHfId(result), catalogMtpFile(result, variant), '')
+  }
+}
+
+function hasCatalogProjectorSelectionChanged(result, variant) {
+  const downloaded = findCatalogDownloadedModel(result, variant)
+  if (!downloaded || !catalogHasProjector(result)) return false
+  return (getCatalogProjector(result, variant) || '') !== (downloaded.mmproj_filename || '')
+}
+
+function hasCatalogMtpSelectionChanged(result, variant) {
+  const downloaded = findCatalogDownloadedModel(result, variant)
+  if (!downloaded || !catalogHasMtp(result)) return false
+  return (getCatalogMtp(result, variant) || '') !== (downloaded.mtp_filename || '')
+}
+
+function hasCatalogDflashSelectionChanged(result, variant) {
+  const downloaded = findCatalogDownloadedModel(result, variant)
+  if (!downloaded || !catalogHasDflash(result)) return false
+  return (getCatalogDflash(result, variant) || '') !== (downloaded.dflash_filename || '')
+}
+
+function catalogVariantHasActiveDownloadTask(result, variant) {
+  const hfId = catalogHfId(result)
+  if (!hfId || result.provider !== 'huggingface') return false
+  const downloaded = findCatalogDownloadedModel(result, variant)
+  return Object.values(progressTasks.value).some((task) => {
+    if (task?.type !== 'download' || task.status !== 'running') return false
+    const meta = task.metadata || {}
+    if (meta.huggingface_id !== hfId) return false
+    if (result.artifact_format === 'safetensors') {
+      return !meta.quantization && !meta.filename
+    }
+    if (downloaded && meta.model_id && meta.model_id === (downloaded.id || downloaded.model_id)) {
+      return true
+    }
+    const quantKey = variant.id
+    return (
+      meta.quantization === quantKey ||
+      meta.quantization === result.metadata?.raw?.quantizations?.[quantKey]?.quantization
+    )
+  })
+}
+
+function isCatalogVariantDownloading(result, variant) {
+  const hfId = catalogHfId(result)
+  if (!hfId || result.provider !== 'huggingface') return false
+  const key = `${hfId}:${variant.id}`
+  if (catalogDownloadingKeys.value.has(key)) return true
+  return catalogVariantHasActiveDownloadTask(result, variant)
+}
+
+async function downloadHfCatalogVariant(result, variant) {
+  const hfId = catalogHfId(result)
+  if (!hfId) return
+  const actionKey = `${result.id}:${variant.id}`
+  const downloadKey = `${hfId}:${variant.id}`
+  catalogActionKey.value = actionKey
+  catalogDownloadingKeys.value.add(downloadKey)
+  catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
+  try {
+    const raw = result.metadata?.raw || {}
+    const pipelineTag = result.metadata?.pipeline_tag || result.tasks?.[0] || null
+    const artifactFormat = result.artifact_format || searchFormat.value
+
+    if (artifactFormat === 'safetensors') {
+      const files = normalizeVariantFiles(variant.files || raw.safetensors_files || [])
+      const response = await modelStore.downloadSafetensorsBundle(hfId, files)
+      rememberDownloadTask(response?.task_id)
+    } else {
+      const quantMeta = raw.quantizations?.[variant.id] || {}
+      const files = quantMeta.files?.length
+        ? quantMeta.files
+        : normalizeVariantFiles(variant.files || [])
+      const projectorFile = catalogProjectorFile(result, variant)
+      const selectedProjector = getCatalogProjector(result, variant) || ''
+      const projectorOption = getSelectedProjectorOption(projectorFile, selectedProjector)
+      const mtpFile = catalogMtpFile(result, variant)
+      const selectedMtp = getCatalogMtp(result, variant) || ''
+      const mtpOption = getSelectedMtpOption(mtpFile, selectedMtp)
+      const dflashFile = catalogDflashFile(result, variant)
+      const selectedDflash = getCatalogDflash(result, variant) || ''
+      const dflashOption = getSelectedDflashOption(dflashFile, selectedDflash)
+      await modelStore.downloadGgufBundle(
+        hfId,
+        variant.id,
+        files,
+        pipelineTag,
+        selectedProjector || null,
+        projectorOption?.size || 0,
+        selectedMtp || null,
+        mtpOption?.size || 0,
+        selectedDflash || null,
+        dflashOption?.size || 0,
+      )
+    }
+    toast.add({
+      severity: 'success',
+      summary: 'Download started',
+      detail: 'Track progress in notifications',
+      life: 3000,
+    })
+    await modelStore.fetchModels()
+    if (artifactFormat === 'safetensors') {
+      await modelStore.fetchSafetensorsModels()
+    }
+  } catch (e) {
+    catalogDownloadingKeys.value.delete(downloadKey)
+    catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
+    toast.add({
+      severity: 'error',
+      summary: 'Download failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 4000,
+    })
+  } finally {
+    catalogActionKey.value = null
+  }
+}
+
+async function installCatalogVariant(result, variant) {
+  if (catalogNeedsInstallOptions(variant, result)) {
+    pendingCatalogInstall.value = { result, variant }
+    installOptions.value = {
+      source_file: '',
+      source_dir: '',
+      output_file: '',
+      variant: '',
+      family: result?.family || '',
+    }
+    showInstallOptionsDialog.value = true
+    return
+  }
+  await startCatalogInstall(result, variant)
+}
+
+async function startCatalogInstall(result, variant, options = {}) {
+  const key = `${result.id}:${variant.id}`
+  rememberCatalogInstall(key)
+  try {
+    const response = await modelStore.installCatalogModel(result, variant, options)
+    if (response?.task_id) {
+      const task = progressTasks.value[String(response.task_id)]
+      const status = String(task?.status || '')
+      if (['completed', 'failed', 'cancelled', 'canceled'].includes(status)) {
+        forgetCatalogInstall(key)
+        if (status === 'completed') await refreshModelSearchState()
+      } else {
+        rememberCatalogInstall(key, response.task_id)
+      }
+    } else {
+      // The backend normally supplies a task ID. Do not leave an unavailable task
+      // showing as active if an older backend response omits it.
+      forgetCatalogInstall(key)
+    }
+    toast.add({
+      severity: 'success',
+      summary: 'Installation started',
+      detail: response?.message || 'Track progress in notifications.',
+      life: 3500,
+    })
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'Install failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 5000,
+    })
+    forgetCatalogInstall(key)
+  }
+}
+
+function closeInstallOptions() {
+  showInstallOptionsDialog.value = false
+  pendingCatalogInstall.value = null
+}
+
+async function confirmCatalogInstall() {
+  const pending = pendingCatalogInstall.value
+  if (!pending) return
+  const options = Object.fromEntries(
+    Object.entries(installOptions.value).filter(([, value]) => String(value || '').trim()),
+  )
+  showInstallOptionsDialog.value = false
+  pendingCatalogInstall.value = null
+  await startCatalogInstall(pending.result, pending.variant, options)
+}
+
+async function submitAudioImport() {
+  if (!audioImport.value.source_path) return
+  audioImportSubmitting.value = true
+  try {
+    const response = await modelStore.importAudioBundle(audioImport.value.source_path, {
+      ...(audioImport.value.package_id ? { package_id: audioImport.value.package_id } : {}),
+      ...(audioImport.value.family ? { family: audioImport.value.family } : {}),
+    })
+    toast.add({
+      severity: 'success',
+      summary: 'Import started',
+      detail: response?.message || 'The bundle will be inspected before it is added.',
+      life: 3500,
+    })
+    showAudioImportDialog.value = false
+    audioImport.value = { source_path: '', package_id: '', family: '' }
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'Import failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 5000,
+    })
+  } finally {
+    audioImportSubmitting.value = false
+  }
+}
+
+const activeFilterChips = computed(() => {
+  const chips = []
+  if (engineFilter.value) {
+    const match = engineFilterOptions.value.find((option) => option.value === engineFilter.value)
+    chips.push({
+      key: 'engine',
+      label: match?.label || engineFilter.value,
+      clear: () => {
+        engineFilter.value = null
+        runSearch()
+      },
+    })
+  }
+  if (taskFilter.value) {
+    const match = taskFilterOptions.value.find((option) => option.value === taskFilter.value)
+    chips.push({
+      key: 'task',
+      label: match?.label || taskFilter.value,
+      clear: () => {
+        taskFilter.value = null
+        runSearch()
+      },
+    })
+  }
+  if (searchFormat.value && searchFormat.value !== 'all') {
+    const match = formatOptions.find((option) => option.value === searchFormat.value)
+    chips.push({
+      key: 'format',
+      label: match?.label || searchFormat.value,
+      clear: () => {
+        searchFormat.value = 'all'
+        runSearch()
+      },
+    })
+  }
+  if (inputModalityFilter.value) {
+    chips.push({
+      key: 'input',
+      label: `${inputModalityFilter.value} in`,
+      clear: () => {
+        inputModalityFilter.value = null
+        runSearch()
+      },
+    })
+  }
+  if (outputModalityFilter.value) {
+    chips.push({
+      key: 'output',
+      label: `${outputModalityFilter.value} out`,
+      clear: () => {
+        outputModalityFilter.value = null
+        runSearch()
+      },
+    })
+  }
+  if (providerFilter.value) {
+    const match = providerOptions.find((option) => option.value === providerFilter.value)
+    chips.push({
+      key: 'provider',
+      label: match?.label || providerFilter.value,
+      clear: () => {
+        providerFilter.value = null
+        runSearch()
+      },
+    })
+  }
+  return chips
+})
+
+function clearSearchResults() {
+  modelStore.clearSearchState()
+  expanded.value = new Set()
+  filesCache.value = {}
+  projectorSelections.value = {}
+  mtpSelections.value = {}
+  dflashSelections.value = {}
+  variantPickerResult.value = null
+  variantPickerFilter.value = ''
+  variantPickerPopularOnly.value = false
+  syncingToRoute.value = true
+  router.replace({ name: 'search', query: {} }).finally(async () => {
+    await nextTick()
+    syncingToRoute.value = false
+  })
+}
+
+// ── Expand row & load files ────────────────────────────────
+async function toggleExpand(modelId) {
+  if (expanded.value.has(modelId)) {
+    expanded.value.delete(modelId)
+    expanded.value = new Set(expanded.value)
+    return
+  }
+  expanded.value.add(modelId)
+  expanded.value = new Set(expanded.value)
+  if (!filesCache.value[modelId]) {
+    await loadFiles(modelId)
+  }
+}
+
+async function loadFiles(modelId) {
+  loadingFiles.value.add(modelId)
+  loadingFiles.value = new Set(loadingFiles.value)
+  try {
+    const result = searchResults.value.find((r) => (r.modelId || r.id) === modelId)
+    if (!result) return
+
+    let files = []
+    if (searchFormat.value === 'gguf') {
+      const projectorOptions = getProjectorOptions(result.mmproj_files || [])
+      const mtpOptions = getMtpOptions(result.mtp_files || [])
+      const dflashOptions = getDflashOptions(result.dflash_files || [])
+      const quantEntries = Object.entries(result.quantizations || {}).map(([key, entry]) => ({
+        key,
+        kind: 'quant',
+        quantizationKey: key,
+        quantization: entry.quantization || '',
+        variantPrefix: entry.variant_prefix || '',
+        size: entry.total_size || 0,
+        projectorOptions,
+        mtpOptions,
+        dflashOptions,
+        files: (entry.files || []).map((f) => ({
+          filename: f.filename,
+          size: f.size || 0,
+        })),
+      }))
+
+      const allFiles = quantEntries.flatMap((entry) => entry.files)
+      if (allFiles.length) {
+        try {
+          const filenames = allFiles.map((f) => f.filename).join(',')
+          const { data } = await axios.get(
+            `/api/models/search/${encodeURIComponent(modelId)}/file-sizes`,
+            {
+              params: { filenames },
+            },
+          )
+          const sizes = data.sizes || {}
+          files = quantEntries
+            .map((entry) => {
+              const resolvedFiles = entry.files.map((f) => ({
+                ...f,
+                size: sizes[f.filename] ?? f.size,
+              }))
+              const downloaded = findDownloadedQuantization(modelId, entry, resolvedFiles)
+              return {
+                ...entry,
+                files: resolvedFiles,
+                size: resolvedFiles.reduce((sum, f) => sum + (f.size || 0), 0),
+                downloaded,
+                modelId: downloaded?.id,
+              }
+            })
+            .sort((a, b) => (a.size || 0) - (b.size || 0))
+        } catch {
+          files = quantEntries
+            .map((entry) => {
+              const downloaded = findDownloadedQuantization(modelId, entry, entry.files)
+              return { ...entry, downloaded, modelId: downloaded?.id }
+            })
+            .sort((a, b) => (a.size || 0) - (b.size || 0))
+        }
+      }
+      files.forEach((entry) => {
+        if (entry.kind !== 'quant') return
+        ensureProjectorSelection(modelId, entry, entry.downloaded?.mmproj_filename || '')
+        ensureMtpSelection(modelId, entry, entry.downloaded?.mtp_filename || '')
+        ensureDflashSelection(modelId, entry, entry.downloaded?.dflash_filename || '')
+      })
+    } else {
+      const stFiles = result.safetensors_files || []
+      let resolvedFiles = stFiles.map((file) => ({ filename: file.filename, size: file.size || 0 }))
+      if (resolvedFiles.length) {
+        try {
+          const filenames = resolvedFiles.map((file) => file.filename).join(',')
+          const { data } = await axios.get(
+            `/api/models/search/${encodeURIComponent(modelId)}/file-sizes`,
+            {
+              params: { filenames },
+            },
+          )
+          const sizes = data.sizes || {}
+          resolvedFiles = resolvedFiles.map((file) => ({
+            ...file,
+            size: sizes[file.filename] ?? file.size,
+          }))
+        } catch {
+          // Keep the size hints returned by the search API.
+        }
+      }
+
+      const downloadedBundle = findDownloadedSafetensorsBundle(result.modelId || result.id)
+      const totalSize = resolvedFiles.reduce((sum, file) => sum + (file.size || 0), 0)
+      files = resolvedFiles.length
+        ? [
+            {
+              key: 'safetensors-bundle',
+              kind: 'safetensors-bundle',
+              filename: result.modelId || result.id,
+              size: totalSize,
+              files: resolvedFiles,
+              downloaded: downloadedBundle,
+              modelId: downloadedBundle?.model_id,
+              subtext: `${resolvedFiles.length} file${resolvedFiles.length === 1 ? '' : 's'}`,
+            },
+          ]
+        : []
+    }
+
+    filesCache.value[modelId] = files
+  } catch (e) {
+    filesCache.value[modelId] = []
+    console.error('Failed to load files:', e)
+  } finally {
+    loadingFiles.value.delete(modelId)
+    loadingFiles.value = new Set(loadingFiles.value)
+  }
+}
+
+function getFiles(modelId) {
+  return filesCache.value[modelId] || []
+}
+
+// ── Download ───────────────────────────────────────────────
+async function downloadFile(result, file) {
+  const modelId = result.modelId || result.id
+  const key = getDownloadKey(modelId, file)
+  downloadingFiles.value.add(key)
+  downloadingFiles.value = new Set(downloadingFiles.value)
+  try {
+    if (searchFormat.value === 'gguf' && file.kind === 'quant') {
+      const selectedProjector = getSelectedProjector(modelId, file)
+      const selectedProjectorOption = getSelectedProjectorOption(file, selectedProjector)
+      const selectedMtp = getSelectedMtp(modelId, file)
+      const selectedMtpOption = getSelectedMtpOption(file, selectedMtp)
+      const selectedDflash = getSelectedDflash(modelId, file)
+      const selectedDflashOption = getSelectedDflashOption(file, selectedDflash)
+      await modelStore.downloadGgufBundle(
+        modelId,
+        file.quantizationKey || file.quantization,
+        file.files || [],
+        result.pipeline_tag || null,
+        selectedProjector || null,
+        selectedProjectorOption?.size || 0,
+        selectedMtp || null,
+        selectedMtpOption?.size || 0,
+        selectedDflash || null,
+        selectedDflashOption?.size || 0,
+      )
+    } else if (searchFormat.value === 'safetensors') {
+      await modelStore.downloadSafetensorsBundle(modelId, file.files || [])
+    } else {
+      await modelStore.downloadModel(
+        modelId,
+        file.filename,
+        file.size || 0,
+        searchFormat.value,
+        result.pipeline_tag || null,
+      )
+    }
+    toast.add({
+      severity: 'success',
+      summary: 'Download started',
+      detail: 'Track progress in notifications',
+      life: 3000,
+    })
+    // Refresh files to update downloaded status
+    delete filesCache.value[modelId]
+    await loadFiles(modelId)
+    await modelStore.fetchModels()
+    if (searchFormat.value === 'safetensors') {
+      await modelStore.fetchSafetensorsModels()
+    }
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Download failed', detail: e.message, life: 4000 })
+    downloadingFiles.value.delete(key)
+    downloadingFiles.value = new Set(downloadingFiles.value)
+  }
+}
+
+async function updateProjector(result, file) {
+  const repoId = result.modelId || result.id
+  const downloadKey = getDownloadKey(repoId, file)
+  const model = file.modelId
+    ? modelStore.allQuantizations.find((m) => m.id === file.modelId)
+    : findDownloadedQuantization(repoId, file, file.files || [])
+  if (!model?.id) return
+
+  const selectedProjector = getSelectedProjector(repoId, file) || null
+  const selectedProjectorOption = getSelectedProjectorOption(file, selectedProjector)
+
+  downloadingFiles.value.add(downloadKey)
+  downloadingFiles.value = new Set(downloadingFiles.value)
+  try {
+    const response = await modelStore.updateModelProjector(
+      model.id,
+      selectedProjector,
+      selectedProjectorOption?.size || 0,
+    )
+    if (response?.applied) {
+      downloadingFiles.value.delete(downloadKey)
+      downloadingFiles.value = new Set(downloadingFiles.value)
+      await refreshModelSearchState()
+      toast.add({
+        severity: 'success',
+        summary: 'Projector updated',
+        detail: response.message,
+        life: 3000,
+      })
+    } else {
+      toast.add({
+        severity: 'success',
+        summary: 'Projector update started',
+        detail: response?.message || 'Track progress in notifications',
+        life: 3000,
+      })
+    }
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'Projector update failed',
+      detail: e.message,
+      life: 4000,
+    })
+    downloadingFiles.value.delete(downloadKey)
+    downloadingFiles.value = new Set(downloadingFiles.value)
+  }
+}
+
+async function updateMtp(result, file) {
+  const repoId = result.modelId || result.id
+  const downloadKey = getDownloadKey(repoId, file)
+  const model = file.modelId
+    ? modelStore.allQuantizations.find((m) => m.id === file.modelId)
+    : findDownloadedQuantization(repoId, file, file.files || [])
+  if (!model?.id) return
+
+  const selectedMtp = getSelectedMtp(repoId, file) || null
+  const selectedMtpOption = getSelectedMtpOption(file, selectedMtp)
+
+  downloadingFiles.value.add(downloadKey)
+  downloadingFiles.value = new Set(downloadingFiles.value)
+  try {
+    const response = await modelStore.updateModelMtp(
+      model.id,
+      selectedMtp,
+      selectedMtpOption?.size || 0,
+    )
+    if (response?.applied) {
+      downloadingFiles.value.delete(downloadKey)
+      downloadingFiles.value = new Set(downloadingFiles.value)
+      await refreshModelSearchState()
+      toast.add({
+        severity: 'success',
+        summary: 'MTP draft updated',
+        detail: response.message,
+        life: 3000,
+      })
+    } else {
+      toast.add({
+        severity: 'success',
+        summary: 'MTP draft update started',
+        detail: response?.message || 'Track progress in notifications',
+        life: 3000,
+      })
+    }
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'MTP draft update failed',
+      detail: e.message,
+      life: 4000,
+    })
+    downloadingFiles.value.delete(downloadKey)
+    downloadingFiles.value = new Set(downloadingFiles.value)
+  }
+}
+
+async function updateDflash(result, file) {
+  const repoId = result.modelId || result.id
+  const downloadKey = getDownloadKey(repoId, file)
+  const model = file.modelId
+    ? modelStore.allQuantizations.find((m) => m.id === file.modelId)
+    : findDownloadedQuantization(repoId, file, file.files || [])
+  if (!model?.id) return
+
+  const selectedDflash = getSelectedDflash(repoId, file) || null
+  const selectedDflashOption = getSelectedDflashOption(file, selectedDflash)
+
+  downloadingFiles.value.add(downloadKey)
+  downloadingFiles.value = new Set(downloadingFiles.value)
+  try {
+    const response = await modelStore.updateModelDflash(
+      model.id,
+      selectedDflash,
+      selectedDflashOption?.size || 0,
+    )
+    if (response?.applied) {
+      downloadingFiles.value.delete(downloadKey)
+      downloadingFiles.value = new Set(downloadingFiles.value)
+      await refreshModelSearchState()
+      toast.add({
+        severity: 'success',
+        summary: 'DFlash draft updated',
+        detail: response.message,
+        life: 3000,
+      })
+    } else {
+      toast.add({
+        severity: 'success',
+        summary: 'DFlash draft update started',
+        detail: response?.message || 'Track progress in notifications',
+        life: 3000,
+      })
+    }
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'DFlash draft update failed',
+      detail: e.message,
+      life: 4000,
+    })
+    downloadingFiles.value.delete(downloadKey)
+    downloadingFiles.value = new Set(downloadingFiles.value)
+  }
+}
+
+async function updateCatalogProjector(result, variant) {
+  const model = findCatalogDownloadedModel(result, variant)
+  if (!model?.id) return
+  const hfId = catalogHfId(result)
+  const downloadKey = `${hfId}:${variant.id}`
+  const projectorFile = catalogProjectorFile(result, variant)
+  const selectedProjector = getCatalogProjector(result, variant) || ''
+  const projectorOption = getSelectedProjectorOption(projectorFile, selectedProjector)
+
+  catalogDownloadingKeys.value.add(downloadKey)
+  catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
+  try {
+    const response = await modelStore.updateModelProjector(
+      model.id,
+      selectedProjector || null,
+      projectorOption?.size || 0,
+    )
+    if (response?.applied) {
+      catalogDownloadingKeys.value.delete(downloadKey)
+      catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
+      await refreshModelSearchState()
+      toast.add({
+        severity: 'success',
+        summary: 'Projector updated',
+        detail: response.message,
+        life: 3000,
+      })
+    } else {
+      toast.add({
+        severity: 'success',
+        summary: 'Projector update started',
+        detail: response?.message || 'Track progress in notifications',
+        life: 3000,
+      })
+    }
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'Projector update failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 4000,
+    })
+    catalogDownloadingKeys.value.delete(downloadKey)
+    catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
+  }
+}
+
+async function updateCatalogMtp(result, variant) {
+  const model = findCatalogDownloadedModel(result, variant)
+  if (!model?.id) return
+  const hfId = catalogHfId(result)
+  const downloadKey = `${hfId}:${variant.id}`
+  const mtpFile = catalogMtpFile(result, variant)
+  const selectedMtp = getCatalogMtp(result, variant) || ''
+  const mtpOption = getSelectedMtpOption(mtpFile, selectedMtp)
+
+  catalogDownloadingKeys.value.add(downloadKey)
+  catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
+  try {
+    const response = await modelStore.updateModelMtp(
+      model.id,
+      selectedMtp || null,
+      mtpOption?.size || 0,
+    )
+    if (response?.applied) {
+      catalogDownloadingKeys.value.delete(downloadKey)
+      catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
+      await refreshModelSearchState()
+      toast.add({
+        severity: 'success',
+        summary: 'MTP draft updated',
+        detail: response.message,
+        life: 3000,
+      })
+    } else {
+      toast.add({
+        severity: 'success',
+        summary: 'MTP draft update started',
+        detail: response?.message || 'Track progress in notifications',
+        life: 3000,
+      })
+    }
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'MTP draft update failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 4000,
+    })
+    catalogDownloadingKeys.value.delete(downloadKey)
+    catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
+  }
+}
+
+async function updateCatalogDflash(result, variant) {
+  const model = findCatalogDownloadedModel(result, variant)
+  if (!model?.id) return
+  const hfId = catalogHfId(result)
+  const downloadKey = `${hfId}:${variant.id}`
+  const dflashFile = catalogDflashFile(result, variant)
+  const selectedDflash = getCatalogDflash(result, variant) || ''
+  const dflashOption = getSelectedDflashOption(dflashFile, selectedDflash)
+
+  catalogDownloadingKeys.value.add(downloadKey)
+  catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
+  try {
+    const response = await modelStore.updateModelDflash(
+      model.id,
+      selectedDflash || null,
+      dflashOption?.size || 0,
+    )
+    if (response?.applied) {
+      catalogDownloadingKeys.value.delete(downloadKey)
+      catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
+      await refreshModelSearchState()
+      toast.add({
+        severity: 'success',
+        summary: 'DFlash draft updated',
+        detail: response.message,
+        life: 3000,
+      })
+    } else {
+      toast.add({
+        severity: 'success',
+        summary: 'DFlash draft update started',
+        detail: response?.message || 'Track progress in notifications',
+        life: 3000,
+      })
+    }
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'DFlash draft update failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 4000,
+    })
+    catalogDownloadingKeys.value.delete(downloadKey)
+    catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
+  }
+}
+
+function configureDownloaded(modelId, file) {
+  const model =
+    searchFormat.value === 'safetensors'
+      ? findDownloadedSafetensorsBundle(modelId)
+      : file.modelId
+        ? modelStore.allQuantizations.find((m) => m.id === file.modelId)
+        : file.kind === 'quant'
+          ? findDownloadedQuantization(modelId, file, file.files || [])
+          : findDownloadedModel(modelId, file.filename)
+  if (model) {
+    router.push(`/models/${encodeURIComponent(model.id || model.model_id)}/config`)
+  }
+}
+
+// ── Helpers ────────────────────────────────────────────────
+function getDownloadKey(modelId, file) {
+  return `${modelId}:${file.quantizationKey || file.filename}`
+}
+
+function downloadTaskIdentityMatches(task, modelId, file) {
+  if (task?.type !== 'download') return false
+
+  const meta = task.metadata || {}
+  if (meta.huggingface_id && meta.huggingface_id !== modelId) return false
+
+  if (searchFormat.value === 'gguf' && file.kind === 'quant') {
+    if (meta.model_id && file.modelId && meta.model_id === file.modelId) {
+      return true
+    }
+    if (!meta.quantization) return false
+    const quantKey = file.quantizationKey || file.quantization
+    return meta.quantization === quantKey || meta.quantization === file.quantization
+  }
+
+  if (searchFormat.value === 'safetensors') {
+    return meta.huggingface_id === modelId && !meta.quantization && !meta.filename
+  }
+
+  if (meta.filename) {
+    return meta.filename === file.filename
+  }
+
+  return false
+}
+
+function isActiveDownloadTask(task, modelId, file) {
+  return task?.status === 'running' && downloadTaskIdentityMatches(task, modelId, file)
+}
+
+function isFileDownloading(modelId, file) {
+  const key = getDownloadKey(modelId, file)
+  if (downloadingFiles.value.has(key)) return true
+  return Object.values(progressTasks.value).some((task) =>
+    isActiveDownloadTask(task, modelId, file),
+  )
+}
+
+function clearPendingDownload(modelId, file) {
+  const key = getDownloadKey(modelId, file)
+  if (!downloadingFiles.value.has(key)) return
+  downloadingFiles.value.delete(key)
+  downloadingFiles.value = new Set(downloadingFiles.value)
+}
+
+function reconcilePendingDownload(modelId, file) {
+  const key = getDownloadKey(modelId, file)
+  if (!downloadingFiles.value.has(key)) return
+
+  const tasks = Object.values(progressTasks.value)
+  if (tasks.some((task) => isActiveDownloadTask(task, modelId, file))) {
+    clearPendingDownload(modelId, file)
+    return
+  }
+  if (
+    tasks.some(
+      (task) => downloadTaskIdentityMatches(task, modelId, file) && task.status !== 'running',
+    )
+  ) {
+    clearPendingDownload(modelId, file)
+  }
+}
+
+function reconcilePendingDownloadsForHfId(hfId) {
+  for (const file of filesCache.value[hfId] || []) {
+    reconcilePendingDownload(hfId, file)
+  }
+}
+
+function getProjectorSelectionKey(modelId, file) {
+  return `${modelId}:${file.quantizationKey || file.filename}:projector`
+}
+
+function getMtpSelectionKey(modelId, file) {
+  return `${modelId}:${file.quantizationKey || file.filename}:mtp`
+}
+
+function getDflashSelectionKey(modelId, file) {
+  return `${modelId}:${file.quantizationKey || file.filename}:dflash`
+}
+
+function parseProjectorPrecision(filename) {
+  const upper = (filename || '').toUpperCase()
+  if (upper.includes('BF16')) return 'BF16'
+  if (upper.includes('F16')) return 'F16'
+  if (upper.includes('F32')) return 'F32'
+  return null
+}
+
+function parseMtpLabel(filename) {
+  const upper = (filename || '').toUpperCase()
+  const match = upper.match(
+    /\b(Q[0-9]+(?:_[A-Z0-9]+)?|IQ[0-9]_[A-Z0-9]+|UD-[A-Z0-9_]+|BF16|F16|F32)\b/,
+  )
+  if (match) return match[1]
+  const base =
+    String(filename || '')
+      .split('/')
+      .pop() || ''
+  if (/^mtp[-_]/i.test(base) && !/\bQ\d/i.test(base)) return 'Default'
+  return 'Default'
+}
+
+function parseDflashLabel(filename) {
+  const upper = (filename || '').toUpperCase()
+  const match = upper.match(
+    /\b(Q[0-9]+(?:_[A-Z0-9]+)?|IQ[0-9]_[A-Z0-9]+|UD-[A-Z0-9_]+|BF16|F16|F32)\b/,
+  )
+  if (match) return match[1]
+  return 'Default'
+}
+
+function getProjectorOptions(mmprojFiles = []) {
+  const byPrecision = new Map()
+  mmprojFiles.forEach((file) => {
+    const precision = parseProjectorPrecision(file.filename)
+    if (!precision || byPrecision.has(precision)) return
+    byPrecision.set(precision, {
+      label: precision,
+      value: file.filename,
+      size: file.size || 0,
+    })
+  })
+
+  return [
+    { label: 'None', value: '', size: 0 },
+    ...Array.from(byPrecision.values()).sort((a, b) => a.label.localeCompare(b.label)),
+  ]
+}
+
+function getMtpOptions(mtpFiles = []) {
+  const byLabel = new Map()
+  mtpFiles.forEach((file) => {
+    const label = file.label || parseMtpLabel(file.filename)
+    if (byLabel.has(label)) return
+    byLabel.set(label, {
+      label,
+      value: file.filename,
+      size: file.size || 0,
+    })
+  })
+  const preferred = ['Q8_0', 'Q4_0', 'Default', 'BF16', 'F16']
+  return [
+    { label: 'None', value: '', size: 0 },
+    ...Array.from(byLabel.values()).sort((a, b) => {
+      const ia = preferred.indexOf(a.label)
+      const ib = preferred.indexOf(b.label)
+      if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
+      return a.label.localeCompare(b.label)
+    }),
+  ]
+}
+
+function getDflashOptions(dflashFiles = []) {
+  const byLabel = new Map()
+  dflashFiles.forEach((file) => {
+    const label = file.label || parseDflashLabel(file.filename)
+    if (byLabel.has(label)) return
+    byLabel.set(label, {
+      label,
+      value: file.filename,
+      size: file.size || 0,
+    })
+  })
+  const preferred = ['BF16', 'F16', 'Default', 'Q8_0', 'Q4_0']
+  return [
+    { label: 'None', value: '', size: 0 },
+    ...Array.from(byLabel.values()).sort((a, b) => {
+      const ia = preferred.indexOf(a.label)
+      const ib = preferred.indexOf(b.label)
+      if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
+      return a.label.localeCompare(b.label)
+    }),
+  ]
+}
+
+function ensureProjectorSelection(modelId, file, value = '') {
+  const key = getProjectorSelectionKey(modelId, file)
+  if (Object.prototype.hasOwnProperty.call(projectorSelections.value, key)) return
+  const defaultValue = value || getDefaultProjectorValue(file)
+  projectorSelections.value = {
+    ...projectorSelections.value,
+    [key]: defaultValue,
+  }
+}
+
+function ensureMtpSelection(modelId, file, value = '') {
+  const key = getMtpSelectionKey(modelId, file)
+  if (Object.prototype.hasOwnProperty.call(mtpSelections.value, key)) return
+  const defaultValue = value || getDefaultMtpValue(file)
+  mtpSelections.value = {
+    ...mtpSelections.value,
+    [key]: defaultValue,
+  }
+}
+
+function ensureDflashSelection(modelId, file, value = '') {
+  const key = getDflashSelectionKey(modelId, file)
+  if (Object.prototype.hasOwnProperty.call(dflashSelections.value, key)) return
+  const defaultValue = value || getDefaultDflashValue(file)
+  dflashSelections.value = {
+    ...dflashSelections.value,
+    [key]: defaultValue,
+  }
+}
+
+function setSelectedProjector(modelId, file, value) {
+  projectorSelections.value = {
+    ...projectorSelections.value,
+    [getProjectorSelectionKey(modelId, file)]: value || '',
+  }
+}
+
+function getSelectedProjector(modelId, file) {
+  const key = getProjectorSelectionKey(modelId, file)
+  if (Object.prototype.hasOwnProperty.call(projectorSelections.value, key)) {
+    return projectorSelections.value[key]
+  }
+  return file.downloaded?.mmproj_filename || ''
+}
+
+function getSelectedProjectorOption(file, value) {
+  return (file.projectorOptions || []).find((option) => option.value === (value || '')) || null
+}
+
+function getDefaultProjectorValue(file) {
+  const f16 = (file.projectorOptions || []).find((option) => option.label === 'F16')
+  return f16?.value || ''
+}
+
+function setSelectedMtp(modelId, file, value) {
+  mtpSelections.value = {
+    ...mtpSelections.value,
+    [getMtpSelectionKey(modelId, file)]: value || '',
+  }
+  if (value) {
+    dflashSelections.value = {
+      ...dflashSelections.value,
+      [getDflashSelectionKey(modelId, file)]: '',
+    }
+  }
+}
+
+function getSelectedMtp(modelId, file) {
+  const key = getMtpSelectionKey(modelId, file)
+  if (Object.prototype.hasOwnProperty.call(mtpSelections.value, key)) {
+    return mtpSelections.value[key]
+  }
+  return file.downloaded?.mtp_filename || ''
+}
+
+function getSelectedMtpOption(file, value) {
+  return (file.mtpOptions || []).find((option) => option.value === (value || '')) || null
+}
+
+function getDefaultMtpValue(file) {
+  const options = file.mtpOptions || []
+  const preferred = ['Q8_0', 'Default', 'Q4_0']
+  for (const label of preferred) {
+    const match = options.find((option) => option.label === label && option.value)
+    if (match) return match.value
+  }
+  const first = options.find((option) => option.value)
+  return first?.value || ''
+}
+
+function setSelectedDflash(modelId, file, value) {
+  dflashSelections.value = {
+    ...dflashSelections.value,
+    [getDflashSelectionKey(modelId, file)]: value || '',
+  }
+  if (value) {
+    mtpSelections.value = {
+      ...mtpSelections.value,
+      [getMtpSelectionKey(modelId, file)]: '',
+    }
+  }
+}
+
+function getSelectedDflash(modelId, file) {
+  const key = getDflashSelectionKey(modelId, file)
+  if (Object.prototype.hasOwnProperty.call(dflashSelections.value, key)) {
+    return dflashSelections.value[key]
+  }
+  return file.downloaded?.dflash_filename || ''
+}
+
+function getSelectedDflashOption(file, value) {
+  return (file.dflashOptions || []).find((option) => option.value === (value || '')) || null
+}
+
+function getDefaultDflashValue(file) {
+  const options = file.dflashOptions || []
+  const preferred = ['BF16', 'F16', 'Default']
+  for (const label of preferred) {
+    const match = options.find((option) => option.label === label && option.value)
+    if (match) return match.value
+  }
+  const first = options.find((option) => option.value)
+  return first?.value || ''
+}
+
+function hasProjectorSelectionChanged(modelId, file) {
+  return (getSelectedProjector(modelId, file) || '') !== (file.downloaded?.mmproj_filename || '')
+}
+
+function hasMtpSelectionChanged(modelId, file) {
+  return (getSelectedMtp(modelId, file) || '') !== (file.downloaded?.mtp_filename || '')
+}
+
+function hasDflashSelectionChanged(modelId, file) {
+  return (getSelectedDflash(modelId, file) || '') !== (file.downloaded?.dflash_filename || '')
+}
+
+function findDownloadedQuantization(hfId, entry, files = []) {
+  return modelStore.allQuantizations.find(
+    (m) =>
+      m.huggingface_id === hfId &&
+      ((entry.quantization && m.quantization === entry.quantization) ||
+        files.some((file) => m.filename === file.filename)),
+  )
+}
+
+function findDownloadedSafetensorsBundle(hfId) {
+  return modelStore.safetensorsModels.find((model) => model.huggingface_id === hfId)
+}
+
+function findDownloadedModel(hfId, filename) {
+  return modelStore.allQuantizations.find(
+    (m) =>
+      m.huggingface_id === hfId &&
+      (m.filename === filename || (m.quantization && filename.includes(m.quantization))),
+  )
+}
+
+function formatResultItemLabel(entry, result) {
+  if (!entry) return ''
+  if (entry.kind === 'quant') {
+    return entry.quantizationKey || entry.quantization || 'Unknown'
+  }
+  return result.modelId || result.id
+}
+
+const INTERESTING_TAGS = new Set([
+  'text-generation',
+  'chat',
+  'instruct',
+  'code',
+  'embedding',
+  'vision',
+  'multimodal',
+  'image-text-to-text',
+  'fill-mask',
+  'question-answering',
+])
+
+function interestingTag(tag) {
+  return INTERESTING_TAGS.has(tag) || tag.startsWith('language:') || /^\d+[bBmM]$/.test(tag)
+}
+
+// Use decimal (1000) so MB/GB match Hugging Face's display
+function formatBytes(bytes) {
+  if (!bytes) return '—'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let i = 0
+  let val = bytes
+  while (val >= 1000 && i < units.length - 1) {
+    val /= 1000
+    i++
+  }
+  return `${val.toFixed(1)} ${units[i]}`
+}
+
+function formatNumber(n) {
+  if (n == null) return ''
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
+  return String(n)
+}
+
+/** Card model-index context length → short label for the result row */
+function formatContextLength(ctx) {
+  if (ctx == null || ctx === '') return ''
+  const n = Number(ctx)
+  if (!Number.isFinite(n)) return String(ctx)
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M ctx`
+  if (n >= 10_000) return `${Math.round(n / 1000)}k ctx`
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k ctx`
+  return `${n} ctx`
+}
+
+function formatLanguageHint(langs) {
+  if (langs == null) return ''
+  const arr = Array.isArray(langs) ? langs : [langs]
+  const flat = arr.map((l) => String(l).trim()).filter(Boolean)
+  if (!flat.length) return ''
+  return flat.slice(0, 4).join(', ')
+}
+
+function formatSearchUpdatedAt(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const diff = Date.now() - d.getTime()
+  const day = 86400000
+  if (diff < 0) return 'updated'
+  if (diff < day) return 'updated today'
+  if (diff < 7 * day) return `updated ${Math.floor(diff / day)}d ago`
+  if (diff < 60 * day) return `updated ${Math.floor(diff / (7 * day))}w ago`
+  return `updated ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
+}
+
+function getResultArtifactCount(result) {
+  if ((result.format || searchFormat.value) === 'gguf') {
+    const quantCount = Object.keys(result.quantizations || {}).length
+    return quantCount ? `${quantCount} quant${quantCount === 1 ? '' : 's'}` : ''
+  }
+  const fileCount = (result.safetensors_files || []).length
+  return fileCount ? `${fileCount} file${fileCount === 1 ? '' : 's'}` : ''
+}
+
+function getResultSizeSummary(result) {
+  if ((result.format || searchFormat.value) === 'gguf') {
+    const sizes = Object.values(result.quantizations || {})
+      .map((entry) => entry?.total_size || 0)
+      .filter((size) => size > 0)
+    if (!sizes.length) return ''
+    return `from ${formatBytes(Math.min(...sizes))}`
+  }
+
+  const totalSize = (result.safetensors_files || []).reduce(
+    (sum, file) => sum + (file.size || 0),
+    0,
+  )
+  return totalSize > 0 ? formatBytes(totalSize) : ''
+}
+
+// ── Lifecycle ──────────────────────────────────────────────
+function markDownloadedFromEvent(payload) {
+  const hfId = payload?.huggingface_id
+  const quantization = payload?.quantization
+  if (!hfId || !quantization) return
+
+  const cachedRows = filesCache.value[hfId]
+  if (!Array.isArray(cachedRows) || cachedRows.length === 0) return
+
+  const nextRows = cachedRows.map((row) => {
+    if (row.kind !== 'quant') return row
+
+    const matchesQuantization =
+      row.quantizationKey === quantization || row.quantization === quantization
+    const matchesFilename =
+      Array.isArray(payload?.filenames) &&
+      payload.filenames.some((filename) =>
+        (row.files || []).some((file) => file.filename === filename),
+      )
+
+    if (!matchesQuantization && !matchesFilename) return row
+
+    const downloaded = {
+      ...(row.downloaded || {}),
+      id: payload?.model_id || row.modelId || row.downloaded?.id,
+      mmproj_filename: payload?.mmproj_filename || row.downloaded?.mmproj_filename || '',
+      mtp_filename: payload?.mtp_filename || row.downloaded?.mtp_filename || '',
+      dflash_filename: payload?.dflash_filename || row.downloaded?.dflash_filename || '',
+    }
+
+    const updatedRow = {
+      ...row,
+      downloaded,
+      modelId: downloaded.id,
+    }
+    // Keep companion selectors in sync with backend state for this quant.
+    const projectorKey = getProjectorSelectionKey(hfId, updatedRow)
+    projectorSelections.value = {
+      ...projectorSelections.value,
+      [projectorKey]: downloaded.mmproj_filename || '',
+    }
+    const mtpKey = getMtpSelectionKey(hfId, updatedRow)
+    mtpSelections.value = {
+      ...mtpSelections.value,
+      [mtpKey]: downloaded.mtp_filename || '',
+    }
+    const dflashKey = getDflashSelectionKey(hfId, updatedRow)
+    dflashSelections.value = {
+      ...dflashSelections.value,
+      [dflashKey]: downloaded.dflash_filename || '',
+    }
+    return updatedRow
+  })
+
+  filesCache.value = {
+    ...filesCache.value,
+    [hfId]: nextRows,
+  }
+}
+
+async function refreshModelSearchState() {
+  await modelStore.fetchModels()
+  await modelStore.fetchSafetensorsModels()
+  const expandedIds = Array.from(expanded.value)
+  filesCache.value = {}
+  await Promise.all(expandedIds.map((id) => loadFiles(id)))
+}
+
+let unsubscribeDownloadComplete = null
+let unsubscribeDownloadTaskCreated = null
+let unsubscribeDownloadTaskUpdated = null
+
+function reconcileCatalogDownloadsForHfId(hfId) {
+  if (!hfId) return
+  const next = new Set(catalogDownloadingKeys.value)
+  let changed = false
+  for (const key of [...next]) {
+    if (!key.startsWith(`${hfId}:`)) continue
+    const variantId = key.slice(hfId.length + 1)
+    const result = searchResults.value.find((item) => resultMatchesHfId(item, hfId))
+    const variant = result?.install_variants?.find((entry) => entry.id === variantId)
+    if (!result || !variant || !catalogVariantHasActiveDownloadTask(result, variant)) {
+      next.delete(key)
+      changed = true
+    }
+  }
+  if (changed) catalogDownloadingKeys.value = next
+}
+
+const trackedDownloadTasks = ref(new Set())
+
+function rememberDownloadTask(taskId) {
+  if (!taskId) return
+  trackedDownloadTasks.value.add(String(taskId))
+}
+
+function handleDownloadTaskEvent(task) {
+  if (task?.type !== 'download') return
+  const taskId = task.task_id ? String(task.task_id) : ''
+  if (trackedDownloadTasks.value.size && !trackedDownloadTasks.value.has(taskId)) return
+  const hfId = task.metadata?.huggingface_id
+  if (hfId) {
+    reconcilePendingDownloadsForHfId(hfId)
+    reconcileCatalogDownloadsForHfId(hfId)
+  }
+  if (!taskId || !trackedDownloadTasks.value.has(taskId)) return
+  const status = String(task.status || '')
+  if (status !== 'failed' && status !== 'cancelled' && status !== 'canceled') return
+  trackedDownloadTasks.value.delete(taskId)
+  if (status === 'failed') {
+    toast.add({
+      severity: 'error',
+      summary: 'Download failed',
+      detail: task.message || 'The download failed.',
+      life: 4000,
+    })
+    return
+  }
+  toast.add({
+    severity: 'warn',
+    summary: 'Download cancelled',
+    detail: task.message || 'The download was cancelled.',
+    life: 4000,
+  })
+}
+
+function catalogInstallKeysForTask(task) {
+  if (task?.type !== 'audio_model_install') return []
+  const taskId = task.task_id ? String(task.task_id) : ''
+  const keys = new Set()
+  for (const [key, rememberedTaskId] of catalogInstallTaskIds.value) {
+    if (rememberedTaskId === taskId) keys.add(key)
+  }
+  const packageId = String(task.metadata?.package_id || '')
+  if (!packageId) return [...keys]
+  for (const result of searchResults.value) {
+    if (result?.provider !== 'audio_cpp') continue
+    for (const variant of result.install_variants || []) {
+      if (catalogAudioPackageId(result, variant) === packageId) {
+        keys.add(`${result.id}:${variant.id}`)
+      }
+    }
+  }
+  return [...keys]
+}
+
+async function handleCatalogInstallTaskEvent(task) {
+  if (task?.type !== 'audio_model_install') return
+  const keys = catalogInstallKeysForTask(task)
+  if (!keys.length) return
+  const status = String(task.status || '')
+  if (['queued', 'running', 'cancelling'].includes(status)) {
+    for (const key of keys) rememberCatalogInstall(key, task.task_id)
+    return
+  }
+  if (!['completed', 'failed', 'cancelled', 'canceled'].includes(status)) return
+  for (const key of keys) forgetCatalogInstall(key)
+  if (status === 'completed') await refreshModelSearchState()
+}
+
+function handleTaskEvent(task) {
+  handleDownloadTaskEvent(task)
+  return handleCatalogInstallTaskEvent(task)
+}
+
+onMounted(async () => {
+  try {
+    await modelStore.fetchHuggingfaceTokenStatus?.()
+  } catch {
+    // Token status is optional for search.
+  }
+  try {
+    if (!enginesStore.engineDescriptors.length) {
+      await enginesStore.fetchEngineDescriptors?.()
+    }
+  } catch {
+    // Engine descriptors are optional for search.
+  }
+  if (!modelStore.models.length) await modelStore.fetchModels()
+  if (!modelStore.safetensorsModels.length) await modelStore.fetchSafetensorsModels()
+
+  applySearchFromRoute()
+  const hasRouteSearch = Boolean(
+    route.query.q ||
+    route.query.engine ||
+    route.query.task ||
+    route.query.input ||
+    route.query.output ||
+    route.query.provider ||
+    route.query.format,
+  )
+  if (hasRouteSearch) {
+    const page = Number(route.query.page)
+    await search(Number.isFinite(page) && page >= 1 ? page : 1, { syncRoute: false })
+    await syncSearchToRoute()
+  }
+
+  unsubscribeDownloadTaskCreated = progressStore.subscribe('task_created', handleTaskEvent)
+  unsubscribeDownloadTaskUpdated = progressStore.subscribe('task_updated', handleTaskEvent)
+  unsubscribeDownloadComplete = progressStore.subscribeToDownloadComplete(async (payload) => {
+    const hfId = payload?.huggingface_id
+    if (!hfId) return
+    if (!searchResults.value.some((result) => resultMatchesHfId(result, hfId))) return
+    reconcilePendingDownloadsForHfId(hfId)
+    reconcileCatalogDownloadsForHfId(hfId)
+    if (payload?.model_format === 'gguf-bundle') {
+      markDownloadedFromEvent(payload)
+    }
+    await refreshModelSearchState()
+  })
+})
+
+watch(
+  () => route.query,
+  async () => {
+    if (syncingToRoute.value) return
+    applySearchFromRoute()
+    const page = Number(route.query.page)
+    const safePage = Number.isFinite(page) && page >= 1 ? page : 1
+    const hasRouteSearch = Boolean(
+      route.query.q ||
+      route.query.engine ||
+      route.query.task ||
+      route.query.input ||
+      route.query.output ||
+      route.query.provider ||
+      route.query.format,
+    )
+    if (hasRouteSearch) {
+      await search(safePage, { syncRoute: false })
+    }
+  },
+)
+
+onUnmounted(() => {
+  if (typeof unsubscribeDownloadTaskCreated === 'function') unsubscribeDownloadTaskCreated()
+  if (typeof unsubscribeDownloadTaskUpdated === 'function') unsubscribeDownloadTaskUpdated()
+  if (typeof unsubscribeDownloadComplete === 'function') unsubscribeDownloadComplete()
+})
+</script>
+
+<style scoped>
+/* layout: .page-shell */
+
+/* ── Search bar ───────────────────────────────────────── */
+.search-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.search-controls :deep(.p-button) {
+  min-height: 2.25rem;
+}
+
+.search-controls :deep(.p-select),
+.search-controls :deep(.p-inputtext) {
+  min-height: 2.25rem;
+}
+
+.search-hint {
+  margin: 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-primary);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.search-bar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.search-input-wrap {
+  flex: 1;
+  min-width: 200px;
+  position: relative;
+}
+
+.search-icon {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-secondary, #9ca3af);
+  pointer-events: none;
+}
+
+.search-input {
+  width: 100%;
+  min-height: 2.25rem;
+  padding-left: 2.25rem !important;
+}
+
+.clear-btn {
+  position: absolute;
+  right: 0.25rem;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.format-select {
+  width: 140px;
+}
+
+.token-warning {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+}
+
+.token-warning__action {
+  margin-left: auto;
+}
+
+.token-warning__text {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.results-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.catalog-filters {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.catalog-filters--secondary {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: 0.35rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--border-primary);
+}
+
+.catalog-filters__import {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.search-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.search-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 1.75rem;
+  padding: 0.1rem 0.55rem;
+  border: 1px solid var(--border-primary);
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.catalog-filter {
+  min-width: 0;
+  width: 100%;
+}
+
+.catalog-filter--task {
+  flex: 0 1 9.5rem;
+  width: 9.5rem;
+}
+
+.catalog-results {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  position: relative;
+}
+
+.catalog-results--loading {
+  opacity: 0.92;
+}
+
+.catalog-results__status {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.provider-statuses,
+.catalog-badges {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.catalog-card {
+  padding: 1rem;
+  background: var(--bg-card, #161b2e);
+  border: 1px solid var(--border-primary, #2a2f45);
+  border-radius: var(--radius-lg, 0.75rem);
+  container-type: inline-size;
+  min-width: 0;
+}
+
+.catalog-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.catalog-card__id {
+  margin-top: 0.2rem;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.catalog-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.4rem;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.catalog-card__meta .meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.catalog-card__description {
+  margin: 0.75rem 0;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.catalog-gated-cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  background: rgba(245, 158, 11, 0.06);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.catalog-gated-cta__actions {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.catalog-unavailable,
+.compatibility-evidence {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+  margin-top: 0.75rem;
+  font-size: 0.8rem;
+}
+
+.catalog-unavailable {
+  color: var(--accent-yellow, #f59e0b);
+}
+
+.compatibility-evidence {
+  color: var(--accent-green, #10b981);
+}
+
+.install-variants {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+}
+
+.install-variant {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.install-variant > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.install-variant--summary {
+  background: var(--bg-elevated, var(--bg-surface));
+}
+
+.install-variant--recommended {
+  border-color: rgba(16, 185, 129, 0.45);
+}
+
+.install-variant--downloaded {
+  border-color: rgba(59, 130, 246, 0.35);
+}
+
+.install-variant__title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.install-variant__owned {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--accent-green, #10b981);
+  font-size: var(--text-xs);
+}
+
+.install-variants--picker {
+  max-height: min(60vh, 28rem);
+  overflow-y: auto;
+  margin-top: 0.65rem;
+  padding-right: 0.15rem;
+}
+
+.variant-picker-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.variant-picker-filter {
+  position: relative;
+  flex: 1 1 14rem;
+  min-width: 12rem;
+}
+
+.variant-picker-filter .search-icon {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.variant-picker-filter__input {
+  width: 100%;
+  padding-left: 2.25rem !important;
+}
+
+.variant-picker-popular {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.variant-picker-empty {
+  margin: 0.5rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.install-variant__meta,
+.install-variant small {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.install-variant__companions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+
+.install-variant__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.install-variant__projector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0;
+}
+
+.install-variant__projector label {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.catalog-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+/* ── Results table ────────────────────────────────────── */
+.results-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.results-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.25rem 0;
+}
+
+.results-count {
+  font-size: 0.8rem;
+  color: var(--text-secondary, #9ca3af);
+}
+
+.results-sort {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.results-sort__label {
+  font-size: var(--text-xs);
+  color: var(--text-secondary, #9ca3af);
+  white-space: nowrap;
+}
+
+.results-sort__dropdown {
+  min-width: 12.5rem;
+}
+
+.result-row {
+  background: var(--bg-card, #161b2e);
+  border: 1px solid var(--border-primary, #2a2f45);
+  border-radius: var(--radius-lg, 0.75rem);
+  overflow: hidden;
+}
+
+.result-main {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  gap: 0.75rem;
+  transition: background 0.15s;
+}
+
+.result-main:hover {
+  background: var(--bg-card-hover, #1e2235);
+}
+
+.result-expand-icon {
+  color: var(--text-secondary, #9ca3af);
+  width: 16px;
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+}
+
+.result-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.result-name {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  width: 100%;
+  margin-bottom: 0.3rem;
+}
+
+.result-name__tags {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.model-link {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-primary, #f1f5f9);
+  text-decoration: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  min-width: 0;
+  align-self: flex-start;
+}
+
+/* Collapsed row: keep the bar compact; full id in title tooltip */
+.model-link--collapsed {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(100%, 40ch);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Expanded: show full repo id (may wrap) */
+.model-link--expanded {
+  white-space: normal;
+  word-break: break-word;
+  overflow: visible;
+  max-width: none;
+}
+
+.model-link:hover {
+  color: var(--accent-cyan, #22d3ee);
+  text-decoration: underline;
+}
+
+.pipeline-tag {
+  flex-shrink: 0;
+}
+
+.result-meta {
+  display: flex;
+  gap: 0.875rem;
+  flex-wrap: wrap;
+}
+
+.meta-item {
+  font-size: var(--text-xs);
+  color: var(--text-secondary, #9ca3af);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.meta-item .pi {
+  font-size: var(--text-xs);
+}
+
+.result-tags {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.model-tag {
+  font-size: var(--text-xs);
+}
+
+/* ── Expanded files ───────────────────────────────────── */
+.row-expand-enter-active,
+.row-expand-leave-active {
+  transition: all 0.2s ease;
+  overflow: hidden;
+}
+.row-expand-enter-from,
+.row-expand-leave-to {
+  max-height: 0;
+  opacity: 0;
+}
+.row-expand-enter-to,
+.row-expand-leave-from {
+  max-height: 600px;
+  opacity: 1;
+}
+
+.result-files {
+  border-top: 1px solid var(--border-primary, #2a2f45);
+  padding: 0.75rem 1rem;
+  background: var(--bg-surface, #1e2235);
+}
+
+.result-files :deep(.page-loading--inline) {
+  padding: 0.5rem 0;
+}
+
+.files-empty {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary, #9ca3af);
+  padding: 0.5rem 0;
+}
+
+.files-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.files-table th {
+  text-align: left;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary, #9ca3af);
+  padding: 0.375rem 0.5rem;
+  border-bottom: 1px solid var(--border-primary, #2a2f45);
+}
+
+.files-table td {
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  vertical-align: middle;
+}
+
+.files-table tr:last-child td {
+  border-bottom: none;
+}
+
+.file-subtext {
+  color: var(--text-secondary, #9ca3af);
+  font-size: var(--text-xs);
+}
+.file-size {
+  color: var(--text-secondary, #9ca3af);
+  white-space: nowrap;
+}
+.file-count {
+  color: var(--text-secondary, #9ca3af);
+  white-space: nowrap;
+}
+.projector-cell {
+  min-width: 9rem;
+}
+.projector-select {
+  min-width: 8rem;
+}
+.file-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.not-downloaded {
+  color: var(--text-secondary, #9ca3af);
+}
+
+.safetensors-download {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-primary, #2a2f45);
+}
+
+.safetensors-download small {
+  font-size: var(--text-xs);
+  color: var(--text-secondary, #9ca3af);
+}
+
+.dialog-help {
+  margin: 0 0 1rem;
+  color: var(--text-secondary, #9ca3af);
+  line-height: 1.45;
+}
+
+.audio-install-form {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.audio-install-form label {
+  display: grid;
+  gap: 0.4rem;
+  color: var(--text-primary, #f1f5f9);
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.field-divider {
+  margin: -0.5rem 0;
+  color: var(--text-secondary, #9ca3af);
+  font-size: var(--text-xs);
+  text-align: center;
+  text-transform: uppercase;
+}
+
+@media (max-width: 768px) {
+  .token-warning__action {
+    margin-left: 0;
+  }
+
+  .format-select {
+    width: 100%;
+  }
+
+  .catalog-filters {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .catalog-filters .catalog-filter {
+    min-width: 0;
+    max-width: none;
+    flex: none;
+    width: 100%;
+  }
+
+  .catalog-filters__import {
+    margin-left: 0;
+    grid-column: 1 / -1;
+    white-space: normal;
+  }
+
+  .catalog-card__head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.65rem;
+  }
+
+  .result-name {
+    flex-wrap: wrap;
+  }
+
+  .result-name__tags {
+    flex-wrap: wrap;
+    margin-left: 0;
+    justify-content: flex-start;
+  }
+
+  .model-link--collapsed {
+    max-width: 100%;
+  }
+
+  .install-variant {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.65rem;
+  }
+
+  .results-sort {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .results-sort__dropdown {
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+}
+
+@container (max-width: 28rem) {
+  .catalog-card__head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.65rem;
+  }
+
+  .install-variant {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.65rem;
+  }
+
+  .model-link {
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 480px) {
+  .search-bar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .search-input-wrap {
+    flex: 1 1 100%;
+    min-width: 0;
+    width: 100%;
+  }
+  .catalog-filter--task {
+    flex: 1 1 8rem;
+    width: auto;
+  }
+}
+.catalog-fit-note {
+  margin: 0;
+  padding: 0.75rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}
+</style>

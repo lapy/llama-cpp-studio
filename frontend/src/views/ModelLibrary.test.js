@@ -1,0 +1,299 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { mount, flushPromises } from '@vue/test-utils'
+import { reactive } from 'vue'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
+import ModelLibrary from './ModelLibrary.vue'
+
+const fetchModels = vi.fn().mockResolvedValue(undefined)
+const fetchSafetensorsModels = vi.fn().mockResolvedValue(undefined)
+const fetchHuggingfaceTokenStatus = vi.fn().mockResolvedValue(undefined)
+
+vi.mock('vue-router', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}))
+
+const confirmRequire = vi.fn()
+vi.mock('primevue/useconfirm', () => ({
+  useConfirm: () => ({ require: (...args) => confirmRequire(...args) }),
+}))
+
+vi.mock('primevue/usetoast', () => ({
+  useToast: () => ({ add: vi.fn() }),
+}))
+
+vi.mock('@/stores/engines', () => ({
+  useEnginesStore: () => ({
+    llamaVersions: [],
+    ikLlamaVersions: [],
+    unslothLlamaVersions: [],
+    lmdeployVersions: [],
+    onecatVllmVersions: [],
+    sglangVersions: [],
+    sglangV100Versions: [],
+    vllmVersions: [],
+    audioCppVersions: [],
+    systemStatus: {},
+  }),
+}))
+
+vi.mock('@/stores/progress', () => ({
+  useProgressStore: () => ({
+    subscribe: () => () => {},
+    subscribeToDownloadComplete: () => () => {},
+  }),
+}))
+
+const modelStore = reactive({
+  models: [],
+  loading: false,
+  safetensorsLoading: false,
+  hasHuggingfaceToken: true,
+  modelsError: null,
+  modelsStale: false,
+  allQuantizations: [],
+  fetchModels,
+  fetchSafetensorsModels,
+  fetchHuggingfaceTokenStatus,
+  startModel: vi.fn(),
+  stopModel: vi.fn(),
+})
+
+vi.mock('@/stores/models', () => ({
+  useModelStore: () => modelStore,
+}))
+
+async function flushWithFakeTimers() {
+  const pending = flushPromises()
+  await vi.advanceTimersByTimeAsync(0)
+  await pending
+}
+
+function mountLibrary() {
+  return mount(ModelLibrary, {
+    global: {
+      directives: { tooltip: () => {} },
+      stubs: {
+        Button: true,
+        Tag: { props: ['value'], template: '<span>{{ value }}</span>' },
+        Dialog: true,
+        Password: true,
+        ConfirmDialog: true,
+        PageHeader: { template: '<div><slot name="meta" /><slot name="actions" /></div>' },
+        LoadingState: true,
+        EmptyState: { props: ['title'], template: '<div class="empty-stub">{{ title }}<slot /></div>' },
+        ModelRow: {
+          props: ['quant'],
+          template: '<div class="quant-row" :class="{ \'is-active\': quant.is_active }">{{ quant.quantization }}</div>',
+        },
+        ModelStartStopButton: {
+          props: ['name'],
+          template: '<button class="sss" @click="$emit(`start`)">start {{ name }}</button>',
+        },
+      },
+    },
+  })
+}
+
+describe('ModelLibrary running glow', () => {
+  beforeEach(() => {
+    vi.useRealTimers()
+    fetchModels.mockReset()
+    fetchModels.mockResolvedValue(undefined)
+    fetchSafetensorsModels.mockReset()
+    fetchSafetensorsModels.mockResolvedValue(undefined)
+    modelStore.loading = false
+    modelStore.safetensorsLoading = false
+    modelStore.hasHuggingfaceToken = true
+    modelStore.modelsError = null
+    modelStore.modelsStale = false
+    modelStore.models = []
+  })
+
+  it('marks a group running when a quantization is active', async () => {
+    modelStore.models = [
+      {
+        huggingface_id: 'org/idle',
+        quantizations: [{ id: 'idle', quantization: 'Q4', is_active: false, status: 'stopped' }],
+      },
+      {
+        huggingface_id: 'org/live',
+        quantizations: [
+          { id: 'q4', quantization: 'Q4_K_M', is_active: false, status: 'stopped' },
+          { id: 'q8', quantization: 'Q8_0', is_active: true, status: 'ready' },
+        ],
+      },
+    ]
+    const wrapper = mountLibrary()
+    await flushPromises()
+    const groups = wrapper.findAll('.model-group')
+    expect(groups).toHaveLength(2)
+    expect(groups[0].classes()).not.toContain('is-running')
+    expect(groups[1].classes()).toContain('is-running')
+    wrapper.unmount()
+  })
+
+  it('marks a group running while a model is loading even if not yet active', async () => {
+    modelStore.models = [
+      {
+        huggingface_id: 'org/loading',
+        quantizations: [{ id: 'm1', quantization: 'Q4', is_active: false, status: 'loading' }],
+      },
+    ]
+    const wrapper = mountLibrary()
+    await flushPromises()
+    expect(wrapper.get('.model-group').classes()).toContain('is-running')
+    wrapper.unmount()
+  })
+
+  it('does not glow idle groups', async () => {
+    modelStore.models = [
+      {
+        huggingface_id: 'org/idle',
+        quantizations: [{ id: 'm1', quantization: 'Q4', is_active: false, status: 'stopped' }],
+      },
+    ]
+    const wrapper = mountLibrary()
+    await flushPromises()
+    expect(wrapper.get('.model-group').classes()).not.toContain('is-running')
+    wrapper.unmount()
+  })
+
+  it('does not reschedule the catalog poll after unmount during a delayed refresh', async () => {
+    vi.useFakeTimers()
+    fetchModels.mockResolvedValue(undefined)
+    const wrapper = mountLibrary()
+    await flushWithFakeTimers()
+    expect(fetchSafetensorsModels).not.toHaveBeenCalled()
+
+    let release
+    fetchModels.mockImplementation(() => new Promise((resolve) => {
+      release = resolve
+    }))
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(fetchModels).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+    release()
+    await flushWithFakeTimers()
+    await vi.advanceTimersByTimeAsync(15000)
+    expect(fetchModels).toHaveBeenCalledTimes(2)
+    vi.useRealTimers()
+  })
+
+  it('pauses routine polls while hidden and refreshes once when shown again', async () => {
+    vi.useFakeTimers()
+    let visibility = 'visible'
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => visibility,
+    })
+    fetchModels.mockResolvedValue(undefined)
+    const wrapper = mountLibrary()
+    await flushWithFakeTimers()
+    const afterMount = fetchModels.mock.calls.length
+
+    visibility = 'hidden'
+    document.dispatchEvent(new Event('visibilitychange'))
+    await vi.advanceTimersByTimeAsync(15000)
+    expect(fetchModels.mock.calls.length).toBe(afterMount)
+
+    visibility = 'visible'
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushWithFakeTimers()
+    expect(fetchModels.mock.calls.length).toBe(afterMount + 1)
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
+  it('shows an unreachable proxy instead of a verified stopped library', async () => {
+    modelStore.models = [
+      {
+        huggingface_id: 'org/live',
+        quantizations: [{
+          id: 'q4',
+          quantization: 'Q4_K_M',
+          is_active: false,
+          status: null,
+          runtime_quality: 'unreachable',
+        }],
+      },
+    ]
+    const wrapper = mountLibrary()
+    await flushPromises()
+    expect(wrapper.text()).toContain('not shown as stopped')
+    expect(wrapper.get('.model-group').classes()).not.toContain('is-running')
+    wrapper.unmount()
+  })
+
+  it('shows a failed library request instead of an empty library', async () => {
+    modelStore.models = []
+    modelStore.loading = false
+    modelStore.modelsError = 'Service unavailable'
+    const wrapper = mountLibrary()
+    await flushPromises()
+    expect(wrapper.text()).toContain('Could not load models')
+    expect(wrapper.text()).not.toContain('No models downloaded yet')
+    wrapper.unmount()
+  })
+
+  it('confirms and retries a start withheld by unresolved prior work', async () => {
+    vi.useFakeTimers()
+    modelStore.models = [
+      {
+        huggingface_id: 'org/live',
+        quantizations: [{
+          id: 'q4',
+          quantization: 'Q4_K_M',
+          format: 'safetensors',
+          is_active: false,
+          status: 'stopped',
+        }],
+      },
+    ]
+    modelStore.startModel.mockReset()
+      .mockRejectedValueOnce({
+        response: {
+          data: {
+            detail: {
+              code: 'ACTION_RETRY_WITHHELD',
+              operation_id: 'start-unknown',
+              state_token: 'tok-1',
+              message:
+                'Prior work may already have happened. Confirm this operation and its current state before trying again.',
+            },
+          },
+        },
+      })
+      .mockResolvedValue({ model: 'q4', state: 'loading' })
+    confirmRequire.mockReset().mockImplementation((options) => options.accept())
+
+    const wrapper = mountLibrary()
+    await flushWithFakeTimers()
+
+    await wrapper.get('button.sss').trigger('click')
+    await flushWithFakeTimers()
+
+    expect(modelStore.startModel).toHaveBeenCalledTimes(2)
+    expect(modelStore.startModel).toHaveBeenNthCalledWith(1, 'q4', null)
+    expect(modelStore.startModel).toHaveBeenNthCalledWith(2, 'q4', {
+      confirm_operation_id: 'start-unknown',
+      confirm_state: 'tok-1',
+    })
+    expect(confirmRequire).toHaveBeenCalledWith(
+      expect.objectContaining({ header: 'Confirm model start' })
+    )
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
+  it('applies a success glow to running groups and active quants', () => {
+    const src = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), './ModelLibrary.vue'),
+      'utf8',
+    )
+    expect(src).toContain('.model-group.is-running')
+    expect(src).toContain('var(--glow-success)')
+    expect(src).toContain(':deep(.quant-row.is-active)')
+  })
+})

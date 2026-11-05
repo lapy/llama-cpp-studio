@@ -1,0 +1,466 @@
+=== Parameter scan: audio_cpp ===
+version: source-main-1785760325
+started_at: 2026-09-18T21:29:32.026533Z
+----- command -----
+argv: /app/data/audio-cpp/builds/source-main-1785760325/build/bin/audiocpp_server --help
+cwd: /app/data/audio-cpp/builds/source-main-1785760325/source
+scan_engine: audio_cpp
+extra_env_keys: CUDA_HOME, CUDA_PATH, LD_LIBRARY_PATH, PATH
+===== HELP OUTPUT: /app/data/audio-cpp/builds/source-main-1785760325/build/bin/audiocpp_server --help (61 lines, 4134 chars) =====
+H0001|audiocpp_server [--config <server.json>] [--ui] [--host <ip>] [--port <port>] [--backend <backend>]
+H0002|                [--device <id>] [--list-devices] [--threads <n>] [--busy-timeout-ms <ms>]
+H0003|                [--max-loaded-models <n>] [--idle-unload-ms <ms>] [--min-free-memory-mb <mb>]
+H0004|                [--model-spec-override <json-or-directory>] [--voice-dir <directory>]
+H0005|                [--frontend-listener <name>] [--frontend-option key=value]
+H0006|                [--log] [--log-file <path>]
+H0007|                [--cors-origins <origins>]
+H0008|  --version                        print build version, commit, compiler, platform, and enabled backends
+H0009|  --ui                             serve the embedded WebUI
+H0010|  --no-ui                          disable the embedded WebUI
+H0011|  --ui-management                  allow WebUI model management and downloads; requires
+H0012|                                   AUDIOCPP_BUILD_NATIVE_MODEL_MANAGER=ON at build time
+H0013|  --host <ip>                      server bind address; default 127.0.0.1
+H0014|  --port <port>                    server listening port; default 8080
+H0015|  --backend cpu|cuda|hip|rocm|vulkan|metal  default cuda (rocm is an alias for hip)
+H0016|  --list-devices                   list available backend devices and exit
+H0017|  --busy-timeout-ms <ms>           fail a request with 503 when the model has been
+H0018|                                   busy this long; default 300000, 0 disables
+H0019|  --max-loaded-models <n>          keep at most n models resident in memory, unloading
+H0020|                                   the least recently used idle model first; 1 enforces
+H0021|                                   a single loaded model, default 0 (no limit)
+H0022|  --idle-unload-ms <ms>            unload all resident models after this many ms without
+H0023|                                   any model load/run; default 0 (disabled), next request
+H0024|                                   reloads lazily
+H0025|  --min-free-memory-mb <mb>        refuse a model load unless host and GPU each keep at
+H0026|                                   least this many MiB free after the load; default 0
+H0027|                                   (guard disabled)
+H0028|  --voice-dir <directory>          override the shared reference voice library directory
+H0029|  --frontend-listener <name>       opt-in frontend transport listener, e.g. https or websocket
+H0030|  --frontend-option key=value      listener-specific option; may be repeated
+H0031|  --cors-origins "*"              experimental; disabled by default. Allows browser
+H0032|                                   requests from any origin for trusted local demos only
+H0033|
+H0034|Endpoints:
+H0035|  GET  /                           embedded WebUI (enabled by default with a config)
+H0036|  GET  /health
+H0037|  GET  /v1/models
+H0038|  POST /v1/models/load             available with --ui-management
+H0039|  POST /v1/models/unload           available with --ui-management
+H0040|  POST /v1/ui/upload               temporary browser upload for WebUI requests
+H0041|  POST /v1/ui/models/install       background package download/preparation
+H0042|  POST /v1/ui/models/install/stop  stop one active package download
+H0043|  POST /v1/ui/models/clean-partial remove abandoned package staging files
+H0044|  POST /v1/ui/models/delete        remove one installed package precision
+H0045|  GET  /v1/ui/models-root          current and binary-local default models folders
+H0046|  POST /v1/ui/models-root          select a models folder (empty path restores default)
+H0047|  POST /v1/ui/browse-directories   list local folders for the native folder picker
+H0048|  GET  /v1/ui/models/install-status[?id=<package>]
+H0049|  GET  /v1/ui/models/package-sizes package sizes from metadata-only checks
+H0050|  GET  /v1/audio/voices?model=<id>
+H0051|  POST /v1/audio/speech
+H0052|  POST /v1/audio/speech/live?model=<id>
+H0053|       raw PCM in a chunked body, speech audio deltas as SSE on the same connection
+H0054|  POST /v1/audio/transcriptions
+H0055|       fields: file, model, language, prompt, stream
+H0056|  POST /v1/audio/alignments
+H0057|       fields: file, model, text, language
+H0058|       OpenAI-style streaming: speech stream_format=sse|audio, transcription stream=true
+H0059|  POST /v1/audio/transcriptions/live?model=<id>
+H0060|       raw PCM in a chunked body, transcript deltas as SSE on the same connection
+H0061|  POST /v1/tasks/run
+===== END HELP OUTPUT =====
+argv: /app/data/audio-cpp/builds/source-main-1785760325/build/bin/audiocpp_cli --help
+===== HELP OUTPUT: /app/data/audio-cpp/builds/source-main-1785760325/build/bin/audiocpp_cli --help (124 lines, 5137 chars) =====
+H0001|audiocpp_cli --task <task> --family <family> --model <path> --backend <backend> [options]
+H0002|  Global:
+H0003|    --version  Print build version, commit, compiler, platform, and enabled backends
+H0004|    --task vad|asr|diar|sep|gen|tts|clon|vc|s2s|align|vdes|spk|svc|midi
+H0005|    --family <name>
+H0006|    --model <path>
+H0007|    --backend cpu|cuda|hip|rocm|vulkan|metal|best  (rocm is an alias for hip)
+H0008|    --mode offline|streaming  default offline
+H0009|    --device <n>
+H0010|    --list-devices  List available backend devices and exit
+H0011|    --threads <n>  Backend and OpenMP worker threads, default 4
+H0012|    --registry-config <path>
+H0013|    --model-spec-override <json-or-directory>  Override package-spec resolution
+H0014|    --config <id>
+H0015|    --weight <id>
+H0016|    --log  Stream framework progress and timing logs to stdout
+H0017|    --log-file <path>  Stream framework progress and timing logs to a file
+H0018|    --metrics  Print compact wall time, audio duration, and RTF summary after offline generation
+H0019|    --load-option key=value
+H0020|    --session-option key=value
+H0021|    --request-option key=value
+H0022|  Batch:
+H0023|    --request-sequence <json>  Run JSON requests in one offline session
+H0024|    --batch-text-file <txt>  Run one offline request per non-empty line
+H0025|    --batch-text-dir <dir>  Run one offline request per .txt, .md, or .json file
+H0026|    --batch-audio-dir <dir>  Run one offline request per .wav file
+H0027|    --batch-audio-role audio|voice_ref|source_audio|target_voice|prosody_ref|style_ref
+H0028|    --batch-merge-audio none|concat
+H0029|    --batch-manifest-out <json>
+H0030|    Shared CLI inputs and options are defaults for --batch-text-file, --batch-text-dir, and --batch-audio-dir
+H0031|  Pipelines:
+H0032|    --pipeline <json>  Run a JSON app workflow instead of a raw task
+H0033|    --list-pipelines
+H0034|    --workflow-input key=value  Override a top-level workflow input
+H0035|    --audio-converter <cmd>  Converter executable for workflow media import, default ffmpeg
+H0036|  Task routing and media roles:
+H0037|    --task-route <name>  User-facing route, e.g. text2music, zero_shot_tts, style_preserved_vc
+H0038|    --source-audio <wav>  Source audio path for models that take path-based source refs
+H0039|    --target-voice <wav>  Target/timbre voice path for path-based voice conversion
+H0040|    --prosody-ref <wav>
+H0041|    --style-ref <wav>
+H0042|    --target-text <text>
+H0043|    --style-ref-text <text>
+H0044|    --use-prosody-code true|false
+H0045|    --predict-target-prosody true|false
+H0046|    --use-pitch-shift true|false
+H0047|    --source-shift-steps <n>
+H0048|    --prosody-shift-steps <n>
+H0049|    --style-shift-steps <n>
+H0050|    --target-duration-seconds <float>
+H0051|    --reference-duration-seconds <float>
+H0052|    --lyrics <text>
+H0053|    --track-name <name>
+H0054|    --speaker <name>
+H0055|    --duration-seconds <float>
+H0056|    --repaint-start <float>
+H0057|    --repaint-end <float>
+H0058|    --repaint-mode <name>
+H0059|    --repaint-strength <float>
+H0060|  Common generation:
+H0061|    --seed <n>
+H0062|    --max-tokens <n>
+H0063|    --max-steps <n>
+H0064|    --temperature <float>
+H0065|    --top-k <n>
+H0066|    --top-p <float>
+H0067|    --repetition-penalty <float>
+H0068|    --do-sample true|false
+H0069|    --num-beams <n>
+H0070|    --guidance-scale <float>
+H0071|    --num-inference-steps <n>
+H0072|    --text-chunk-size <chars>
+H0073|    --text-chunk-mode default|tag_aware|japanese|endline
+H0074|  Inputs:
+H0075|    --audio <wav>  Use - to stream raw PCM from stdin (requires --mode streaming)
+H0076|    --input-format s16le|f32le  Raw PCM sample format for --audio -, default s16le
+H0077|    --input-rate <hz>  Raw PCM sample rate for --audio -, default 16000
+H0078|    --input-channels <n>  Raw PCM channel count for --audio -, default 1
+H0079|    --text <text>
+H0080|    --max-text-length <chars>  Maximum input text length for models that enforce it
+H0081|    --language <code>
+H0082|    --voice-id <id>
+H0083|    --voice-ref <wav>
+H0084|    --reference-text <text>  Reference transcript for voice-clone models such as Qwen3 TTS
+H0085|    --instruct <text>  Voice-design instruction for models such as Qwen3 TTS
+H0086|    --style-language <code>
+H0087|    --emotion <name>
+H0088|    --speaking-rate <float>
+H0089|    --pitch-shift <float>
+H0090|    --energy-scale <float>
+H0091|    --style-tag key=value
+H0092|  Outputs:
+H0093|    --out <file>
+H0094|    --out-dir <dir>  Write named multi-audio outputs or batch request outputs
+H0095|    --text-out <txt>
+H0096|    --segments-out <json>
+H0097|    --vad-chunks-out <json>  Write offline VAD-based chunk windows
+H0098|    --vad-chunk-max-seconds <float>  Maximum VAD chunk length, default 45
+H0099|    --vad-chunk-merge-gap-seconds <float>  Merge nearby VAD spans, default 0.5
+H0100|    --vad-chunk-padding-seconds <float>  Pad each VAD span before chunking, default 0.25
+H0101|    --turns-out <json>
+H0102|    --words-out <json>
+H0103|    --voice-state-out <safetensors>  Export PocketTTS voice state from --voice-ref
+H0104|  Streaming:
+H0105|    --mode streaming uses the selected model's default streaming policy
+H0106|  Utility:
+H0107|    --inspect
+H0108|    --list-loaders [--json]
+H0109|
+H0110|  Tasks:
+H0111|    vad    voice activity detection
+H0112|    asr    automatic speech recognition
+H0113|    diar   speaker diarization
+H0114|    sep    source separation
+H0115|    gen    text/audio conditioned music or sound generation
+H0116|    tts    text to speech
+H0117|    clon   voice cloning
+H0118|    vc     voice conversion
+H0119|    s2s    speech to speech
+H0120|    align  forced alignment
+H0121|    vdes   voice design
+H0122|    spk    speaker embedding/recognition
+H0123|    svc    singing voice conversion
+H0124|    midi   audio-to-symbolic MIDI/event transcription
+argv: /app/data/audio-cpp/builds/source-main-1785760325/build/bin/audiocpp_cli --list-loaders --json
+EXTRACT accept section=process_options flags=--version key=version kind=flag ui=bool reserved=true
+EXTRACT accept section=process_options flags=--ui key=ui kind=flag ui=bool reserved=false
+EXTRACT accept section=process_options flags=--no-ui key=no_ui kind=flag ui=bool reserved=false
+EXTRACT accept section=process_options flags=--ui-management key=ui_management kind=flag ui=bool reserved=false
+EXTRACT accept section=process_options flags=--host key=host kind=scalar ui=string reserved=false
+EXTRACT accept section=process_options flags=--port key=port kind=scalar ui=int reserved=true
+EXTRACT accept section=process_options flags=--backend key=backend kind=scalar ui=string reserved=false
+EXTRACT accept section=process_options flags=--list-devices key=list_devices kind=flag ui=bool reserved=false
+EXTRACT accept section=process_options flags=--busy-timeout-ms key=busy_timeout_ms kind=scalar ui=int reserved=false
+EXTRACT accept section=process_options flags=--max-loaded-models key=max_loaded_models kind=scalar ui=int reserved=false
+EXTRACT accept section=process_options flags=--idle-unload-ms key=idle_unload_ms kind=scalar ui=int reserved=false
+EXTRACT accept section=process_options flags=--min-free-memory-mb key=min_free_memory_mb kind=scalar ui=int reserved=false
+===== HELP OUTPUT: /app/data/audio-cpp/builds/source-main-1785760325/build/bin/audiocpp_cli --list-loaders --json (1 lines, 10249 chars) =====
+H0001|{"loaders":{"voxtral_realtime":{"api_endpoints":["/v1/audio/transcriptions"],"instructions_policy":"none","tasks":{"asr":["offline","streaming"]}},"voxcpm2":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"text_prefix","tasks":{"tts":["offline","streaming"]}},"vibevoice_asr_streaming":{"api_endpoints":["/v1/audio/transcriptions"],"instructions_policy":"none","tasks":{"asr":["offline","streaming"]}},"vibevoice_asr":{"api_endpoints":["/v1/audio/transcriptions"],"instructions_policy":"none","tasks":{"asr":["offline"]}},"vibevoice":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"tts":["offline"]}},"vibeasr":{"api_endpoints":["/v1/audio/transcriptions"],"instructions_policy":"none","tasks":{"asr":["offline"]}},"supertonic":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"tts":["offline","streaming"]}},"stable_audio":{"api_endpoints":["/v1/tasks/run"],"instructions_policy":"none","tasks":{"gen":["offline"]}},"sortformer_diar":{"api_endpoints":["/v1/tasks/run"],"instructions_policy":"none","tasks":{"diar":["offline"]}},"silero_vad":{"api_endpoints":["/v1/tasks/run"],"instructions_policy":"none","tasks":{"vad":["offline","streaming"]}},"sense_asr":{"api_endpoints":["/v1/audio/transcriptions"],"instructions_policy":"none","tasks":{"asr":["offline","streaming"]}},"seed_vc":{"api_endpoints":["/v1/tasks/run"],"instructions_policy":"none","tasks":{"svc":["offline"],"vc":["offline"]}},"sanotts":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"tts":["offline"]}},"rvc":{"api_endpoints":["/v1/tasks/run"],"instructions_policy":"none","tasks":{"vc":["offline"]}},"hviske_asr":{"api_endpoints":["/v1/audio/transcriptions"],"instructions_policy":"none","tasks":{"asr":["offline"]}},"dots_tts":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"clon":["offline","streaming"],"tts":["offline","streaming"]}},"higgs_audio_tts":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"tts":["offline"]}},"higgs_audio_stt":{"api_endpoints":["/v1/audio/transcriptions"],"instructions_policy":"none","tasks":{"asr":["offline","streaming"]}},"citrinet_asr":{"api_endpoints":["/v1/audio/transcriptions"],"instructions_policy":"none","tasks":{"asr":["offline"]}},"sortformer_diar_v2":{"api_endpoints":["/v1/tasks/run"],"instructions_policy":"none","tasks":{"diar":["offline","streaming"]}},"midashenglm_gen":{"api_endpoints":["/v1/tasks/run"],"instructions_policy":"none","tasks":{"gen":["offline"]}},"glm_tts":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"clon":["offline"],"tts":["offline"]}},"vevo2":{"api_endpoints":["/v1/tasks/run","/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"svc":["offline"],"s2s":["offline"],"vc":["offline"],"tts":["offline"]}},"fun_asr_nano":{"api_endpoints":["/v1/audio/transcriptions"],"instructions_policy":"none","tasks":{"asr":["offline"]}},"soprano_tts":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"tts":["offline","streaming"]}},"confucius4_tts":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"clon":["offline","streaming"]}},"fish_audio":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"tts":["offline"]}},"mms_forced_aligner":{"api_endpoints":["/v1/tasks/run"],"instructions_policy":"none","tasks":{"align":["offline"]}},"sopro_tts":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"clon":["offline","streaming"],"tts":["offline","streaming"]}},"fireredtts3":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"vdes":["offline"],"clon":["offline"],"tts":["offline"]}},"firered_audio":{"api_endpoints":["/v1/tasks/run","/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"gen":["offline"],"vdes":["offline"],"clon":["offline"],"tts":["offline"],"asr":["offline"]}},"echo_tts":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"clon":["offline"]}},"index_tts2":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"clon":["offline"],"tts":["offline"]}},"voxcpm1":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"text_prefix","tasks":{"tts":["offline","streaming"]}},"heartmula":{"api_endpoints":["/v1/tasks/run"],"instructions_policy":"none","tasks":{"gen":["offline"]}},"dramabox":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"clon":["offline"],"tts":["offline"]}},"audio8_asr":{"api_endpoints":["/v1/audio/transcriptions"],"instructions_policy":"none","tasks":{"asr":["offline"]}},"htdemucs":{"api_endpoints":["/v1/tasks/run"],"instructions_policy":"none","tasks":{"sep":["offline"]}},"cosyvoice3":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"clon":["offline"],"tts":["offline"]}},"kroko_asr":{"api_endpoints":["/v1/audio/transcriptions"],"instructions_policy":"none","tasks":{"asr":["offline","streaming"]}},"f5_tts":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"clon":["offline"],"tts":["offline"]}},"audiosr":{"api_endpoints":["/v1/tasks/run"],"instructions_policy":"none","tasks":{"s2s":["offline"]}},"chatterbox_turbo":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"tts":["offline"]}},"audio8_tts":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"clon":["offline","streaming"],"tts":["offline","streaming"]}},"personaplex":{"api_endpoints":["/v1/tasks/run"],"instructions_policy":"none","tasks":{"s2s":["offline","streaming"]}},"qwen3_asr":{"api_endpoints":["/v1/audio/transcriptions"],"instructions_policy":"none","tasks":{"asr":["offline","streaming"]}},"nemotron_asr":{"api_endpoints":["/v1/audio/transcriptions"],"instructions_policy":"none","tasks":{"asr":["offline","streaming"]}},"chatterbox":{"api_endpoints":["/v1/tasks/run","/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"vc":["offline"],"clon":["offline"]}},"irodori_tts":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"vdes":["offline"],"clon":["offline"],"tts":["offline"]}},"granite5asr":{"api_endpoints":["/v1/audio/transcriptions"],"instructions_policy":"none","tasks":{"asr":["offline","streaming"]}},"bs_roformer":{"api_endpoints":["/v1/tasks/run"],"instructions_policy":"none","tasks":{"sep":["offline"]}},"magpie_tts":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"tts":["offline"]}},"mira_tts":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"clon":["offline","streaming"],"tts":["offline","streaming"]}},"controlfoley":{"api_endpoints":["/v1/tasks/run"],"instructions_policy":"none","tasks":{"gen":["offline"]}},"breeze_tts":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"vdes":["offline","streaming"],"clon":["offline","streaming"],"tts":["offline","streaming"]}},"parakeet_tdt":{"api_endpoints":["/v1/audio/transcriptions"],"instructions_policy":"none","tasks":{"asr":["offline","streaming"]}},"inflect_v2":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"tts":["offline"]}},"kokoro_tts":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"tts":["offline"]}},"meanvc2":{"api_endpoints":["/v1/tasks/run"],"instructions_policy":"none","tasks":{"vc":["offline","streaming"]}},"ace_step":{"api_endpoints":["/v1/tasks/run"],"instructions_policy":"none","tasks":{"gen":["offline"]}},"minimax_music3":{"api_endpoints":["/v1/tasks/run"],"instructions_policy":"none","tasks":{"gen":["offline"]}},"muscriptor":{"api_endpoints":["/v1/tasks/run"],"instructions_policy":"none","tasks":{"midi":["offline","streaming"]}},"minimax_h3":{"api_endpoints":["/v1/tasks/run","/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"gen":["offline"],"tts":["offline"]}},"moss_tts_local":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"clon":["offline"],"tts":["offline"]}},"moss_voicegen":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"vdes":["offline"]}},"marblenet_vad":{"api_endpoints":["/v1/tasks/run"],"instructions_policy":"none","tasks":{"vad":["offline"]}},"miocodec":{"api_endpoints":["/v1/tasks/run"],"instructions_policy":"none","tasks":{"s2s":["offline"],"vc":["offline"]}},"miotts":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"tts":["offline"]}},"mel_band_roformer":{"api_endpoints":["/v1/tasks/run"],"instructions_policy":"none","tasks":{"sep":["offline"]}},"moonshine_asr":{"api_endpoints":["/v1/audio/transcriptions"],"instructions_policy":"none","tasks":{"asr":["offline","streaming"]}},"builtin_audio_utils":{"api_endpoints":["/v1/tasks/run"],"instructions_policy":"none","tasks":{"s2s":["offline"]}},"moss_tts_nano":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"clon":["offline"],"tts":["offline"]}},"neutts":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"tts":["offline","streaming"]}},"vietneu_tts":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"vdes":["offline"],"tts":["offline"]}},"omnivoice":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"soft_tags","tasks":{"tts":["offline","streaming"]}},"outetts":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"clon":["offline"],"tts":["offline"]}},"pocket_tts":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"tts":["offline","streaming"]}},"qwen3_forced_aligner":{"api_endpoints":["/v1/tasks/run"],"instructions_policy":"none","tasks":{"align":["offline"]}},"qwen3_tts":{"api_endpoints":["/v1/audio/speech"],"instructions_policy":"openai_instruct","tasks":{"vdes":["offline"],"tts":["offline"]}}},"schema_version":1}
+EXTRACT accept section=process_options flags=--voice-dir key=voice_dir kind=scalar ui=string reserved=false
+EXTRACT accept section=process_options flags=--frontend-listener key=frontend_listener kind=scalar ui=string reserved=false
+EXTRACT accept section=process_options flags=--frontend-option key=frontend_option kind=repeatable ui=list reserved=false
+EXTRACT accept section=process_options flags=--cors-origins key=cors_origins kind=scalar ui=string reserved=false
+EXTRACT merge key=ui existing_flags=--ui incoming_flags=--ui,--no-ui incoming_kind=flag
+EXTRACT accept section=process_options flags=--config key=config kind=scalar ui=string reserved=false
+EXTRACT accept section=process_options flags=--device key=device kind=scalar ui=int reserved=false
+EXTRACT accept section=process_options flags=--threads key=threads kind=scalar ui=int reserved=false
+EXTRACT accept section=process_options flags=--log key=log kind=flag ui=bool reserved=false
+EXTRACT accept section=process_options flags=--log-file key=log_file kind=scalar ui=string reserved=false
+EXTRACT accept section=process_options flags=--model-spec-override key=model_spec_override kind=scalar ui=string reserved=false
+EXTRACT section id=global label=Global style=audio
+EXTRACT accept section=global flags=--version key=version kind=flag ui=bool reserved=true
+EXTRACT accept section=global flags=--task key=task kind=scalar ui=string reserved=false
+EXTRACT accept section=global flags=--family key=family kind=scalar ui=string reserved=false
+EXTRACT accept section=global flags=--model key=model kind=scalar ui=string reserved=true
+EXTRACT accept section=global flags=--backend key=backend kind=scalar ui=string reserved=false
+EXTRACT accept section=global flags=--mode key=mode kind=scalar ui=string reserved=false
+EXTRACT accept section=global flags=--device key=device kind=scalar ui=int reserved=false
+EXTRACT accept section=global flags=--list-devices key=list_devices kind=flag ui=bool reserved=false
+EXTRACT accept section=global flags=--threads key=threads kind=scalar ui=int reserved=false
+EXTRACT accept section=global flags=--registry-config key=registry_config kind=scalar ui=string reserved=false
+EXTRACT accept section=global flags=--model-spec-override key=model_spec_override kind=scalar ui=string reserved=false
+EXTRACT accept section=global flags=--config key=config kind=scalar ui=int reserved=false
+EXTRACT accept section=global flags=--weight key=weight kind=scalar ui=int reserved=false
+EXTRACT accept section=global flags=--log key=log kind=flag ui=bool reserved=false
+EXTRACT accept section=global flags=--log-file key=log_file kind=scalar ui=string reserved=false
+EXTRACT accept section=global flags=--metrics key=metrics kind=flag ui=bool reserved=false
+EXTRACT accept section=global flags=--load-option key=load_option kind=scalar ui=string reserved=false
+EXTRACT accept section=global flags=--session-option key=session_option kind=scalar ui=string reserved=false
+EXTRACT accept section=global flags=--request-option key=request_option kind=scalar ui=string reserved=false
+EXTRACT section id=batch label=Batch style=audio
+EXTRACT accept section=batch flags=--request-sequence key=request_sequence kind=scalar ui=string reserved=false
+EXTRACT accept section=batch flags=--batch-text-file key=batch_text_file kind=scalar ui=string reserved=false
+EXTRACT accept section=batch flags=--batch-text-dir key=batch_text_dir kind=scalar ui=string reserved=false
+EXTRACT accept section=batch flags=--batch-audio-dir key=batch_audio_dir kind=scalar ui=string reserved=false
+EXTRACT accept section=batch flags=--batch-audio-role key=batch_audio_role kind=scalar ui=string reserved=false
+EXTRACT accept section=batch flags=--batch-merge-audio key=batch_merge_audio kind=scalar ui=string reserved=false
+EXTRACT accept section=batch flags=--batch-manifest-out key=batch_manifest_out kind=scalar ui=string reserved=false
+EXTRACT section id=pipelines label=Pipelines style=audio
+EXTRACT accept section=pipelines flags=--pipeline key=pipeline kind=scalar ui=string reserved=false
+EXTRACT accept section=pipelines flags=--list-pipelines key=list_pipelines kind=flag ui=bool reserved=false
+EXTRACT accept section=pipelines flags=--workflow-input key=workflow_input kind=scalar ui=string reserved=false
+EXTRACT accept section=pipelines flags=--audio-converter key=audio_converter kind=scalar ui=string reserved=false
+EXTRACT section id=task_routing_and_media_roles label="Task routing and media roles" style=audio
+EXTRACT accept section=task_routing_and_media_roles flags=--task-route key=task_route kind=scalar ui=string reserved=false
+EXTRACT accept section=task_routing_and_media_roles flags=--source-audio key=source_audio kind=scalar ui=string reserved=false
+EXTRACT accept section=task_routing_and_media_roles flags=--target-voice key=target_voice kind=scalar ui=string reserved=false
+EXTRACT accept section=task_routing_and_media_roles flags=--prosody-ref key=prosody_ref kind=scalar ui=string reserved=false
+EXTRACT accept section=task_routing_and_media_roles flags=--style-ref key=style_ref kind=scalar ui=string reserved=false
+EXTRACT accept section=task_routing_and_media_roles flags=--target-text key=target_text kind=scalar ui=string reserved=false
+EXTRACT accept section=task_routing_and_media_roles flags=--style-ref-text key=style_ref_text kind=scalar ui=string reserved=false
+EXTRACT accept section=task_routing_and_media_roles flags=--use-prosody-code key=use_prosody_code kind=scalar ui=string reserved=false
+EXTRACT accept section=task_routing_and_media_roles flags=--predict-target-prosody key=predict_target_prosody kind=scalar ui=string reserved=false
+EXTRACT accept section=task_routing_and_media_roles flags=--use-pitch-shift key=use_pitch_shift kind=scalar ui=string reserved=false
+EXTRACT accept section=task_routing_and_media_roles flags=--source-shift-steps key=source_shift_steps kind=scalar ui=int reserved=false
+EXTRACT accept section=task_routing_and_media_roles flags=--prosody-shift-steps key=prosody_shift_steps kind=scalar ui=int reserved=false
+EXTRACT accept section=task_routing_and_media_roles flags=--style-shift-steps key=style_shift_steps kind=scalar ui=int reserved=false
+EXTRACT accept section=task_routing_and_media_roles flags=--target-duration-seconds key=target_duration_seconds kind=scalar ui=float reserved=false
+EXTRACT accept section=task_routing_and_media_roles flags=--reference-duration-seconds key=reference_duration_seconds kind=scalar ui=float reserved=false
+EXTRACT accept section=task_routing_and_media_roles flags=--lyrics key=lyrics kind=scalar ui=string reserved=false
+EXTRACT accept section=task_routing_and_media_roles flags=--track-name key=track_name kind=scalar ui=string reserved=false
+EXTRACT accept section=task_routing_and_media_roles flags=--speaker key=speaker kind=scalar ui=string reserved=false
+EXTRACT accept section=task_routing_and_media_roles flags=--duration-seconds key=duration_seconds kind=scalar ui=float reserved=false
+EXTRACT accept section=task_routing_and_media_roles flags=--repaint-start key=repaint_start kind=scalar ui=float reserved=false
+EXTRACT accept section=task_routing_and_media_roles flags=--repaint-end key=repaint_end kind=scalar ui=float reserved=false
+EXTRACT accept section=task_routing_and_media_roles flags=--repaint-mode key=repaint_mode kind=scalar ui=string reserved=false
+EXTRACT accept section=task_routing_and_media_roles flags=--repaint-strength key=repaint_strength kind=scalar ui=float reserved=false
+EXTRACT section id=common_generation label="Common generation" style=audio
+EXTRACT accept section=common_generation flags=--seed key=seed kind=scalar ui=int reserved=false
+EXTRACT accept section=common_generation flags=--max-tokens key=max_tokens kind=scalar ui=int reserved=false
+EXTRACT accept section=common_generation flags=--max-steps key=max_steps kind=scalar ui=int reserved=false
+EXTRACT accept section=common_generation flags=--temperature key=temperature kind=scalar ui=float reserved=false
+EXTRACT accept section=common_generation flags=--top-k key=top_k kind=scalar ui=int reserved=false
+EXTRACT accept section=common_generation flags=--top-p key=top_p kind=scalar ui=float reserved=false
+EXTRACT accept section=common_generation flags=--repetition-penalty key=repetition_penalty kind=scalar ui=float reserved=false
+EXTRACT accept section=common_generation flags=--do-sample key=do_sample kind=scalar ui=string reserved=false
+EXTRACT accept section=common_generation flags=--num-beams key=num_beams kind=scalar ui=int reserved=false
+EXTRACT accept section=common_generation flags=--guidance-scale key=guidance_scale kind=scalar ui=float reserved=false
+EXTRACT accept section=common_generation flags=--num-inference-steps key=num_inference_steps kind=scalar ui=int reserved=false
+EXTRACT accept section=common_generation flags=--text-chunk-size key=text_chunk_size kind=scalar ui=int reserved=false
+EXTRACT accept section=common_generation flags=--text-chunk-mode key=text_chunk_mode kind=scalar ui=string reserved=false
+EXTRACT section id=inputs label=Inputs style=audio
+EXTRACT accept section=inputs flags=--audio key=audio kind=scalar ui=string reserved=false
+EXTRACT accept section=inputs flags=--input-format key=input_format kind=scalar ui=string reserved=false
+EXTRACT accept section=inputs flags=--input-rate key=input_rate kind=scalar ui=int reserved=false
+EXTRACT accept section=inputs flags=--input-channels key=input_channels kind=scalar ui=int reserved=false
+EXTRACT accept section=inputs flags=--text key=text kind=scalar ui=string reserved=false
+EXTRACT accept section=inputs flags=--max-text-length key=max_text_length kind=scalar ui=int reserved=false
+EXTRACT accept section=inputs flags=--language key=language kind=scalar ui=string reserved=false
+EXTRACT accept section=inputs flags=--voice-id key=voice_id kind=scalar ui=int reserved=false
+EXTRACT accept section=inputs flags=--voice-ref key=voice_ref kind=scalar ui=string reserved=false
+EXTRACT accept section=inputs flags=--reference-text key=reference_text kind=scalar ui=string reserved=false
+EXTRACT accept section=inputs flags=--instruct key=instruct kind=scalar ui=string reserved=false
+EXTRACT accept section=inputs flags=--style-language key=style_language kind=scalar ui=string reserved=false
+EXTRACT accept section=inputs flags=--emotion key=emotion kind=scalar ui=string reserved=false
+EXTRACT accept section=inputs flags=--speaking-rate key=speaking_rate kind=scalar ui=float reserved=false
+EXTRACT accept section=inputs flags=--pitch-shift key=pitch_shift kind=scalar ui=float reserved=false
+EXTRACT accept section=inputs flags=--energy-scale key=energy_scale kind=scalar ui=float reserved=false
+EXTRACT accept section=inputs flags=--style-tag key=style_tag kind=scalar ui=string reserved=false
+EXTRACT section id=outputs label=Outputs style=audio
+EXTRACT accept section=outputs flags=--out key=out kind=scalar ui=string reserved=false
+EXTRACT accept section=outputs flags=--out-dir key=out_dir kind=scalar ui=string reserved=false
+EXTRACT accept section=outputs flags=--text-out key=text_out kind=scalar ui=string reserved=false
+EXTRACT accept section=outputs flags=--segments-out key=segments_out kind=scalar ui=string reserved=false
+EXTRACT accept section=outputs flags=--vad-chunks-out key=vad_chunks_out kind=scalar ui=string reserved=false
+EXTRACT accept section=outputs flags=--vad-chunk-max-seconds key=vad_chunk_max_seconds kind=scalar ui=float reserved=false
+EXTRACT accept section=outputs flags=--vad-chunk-merge-gap-seconds key=vad_chunk_merge_gap_seconds kind=scalar ui=float reserved=false
+EXTRACT accept section=outputs flags=--vad-chunk-padding-seconds key=vad_chunk_padding_seconds kind=scalar ui=float reserved=false
+EXTRACT accept section=outputs flags=--turns-out key=turns_out kind=scalar ui=string reserved=false
+EXTRACT accept section=outputs flags=--words-out key=words_out kind=scalar ui=string reserved=false
+EXTRACT accept section=outputs flags=--voice-state-out key=voice_state_out kind=scalar ui=string reserved=false
+EXTRACT section id=streaming label=Streaming style=audio
+EXTRACT accept section=streaming flags=--mode key=mode kind=scalar ui=string reserved=false
+EXTRACT section id=utility label=Utility style=audio
+EXTRACT accept section=utility flags=--inspect key=inspect kind=flag ui=bool reserved=false
+EXTRACT accept section=utility flags=--list-loaders key=list_loaders kind=scalar ui=string reserved=false
+parser: parse_audio_cpp_help_to_sections
+===== FLAG COVERAGE help=110 parsed=109 missing=1 extra=0 =====
+coverage_missing_from_catalog (present in help, not parsed):
+MISSING --json
+coverage_extra_parsed: none
+===== END FLAG COVERAGE =====
+===== CATALOG RESULT: engine catalog (117 params, 9 sections) =====
+binary_path: /app/data/audio-cpp/builds/source-main-1785760325/build/bin/audiocpp_server
+scanned_at: 2026-09-18T21:29:33.012782Z
+--- section server_process_options (Process options) · 21 params ---
+EXTRACT accept section=server_process_options flags=--backend key=backend kind=enum ui=select default=cuda reserved=false options=cpu,cuda,hip,rocm,vulkan,metal
+EXTRACT accept section=server_process_options flags=--busy-timeout-ms key=busy_timeout_ms kind=scalar ui=int default=300000 reserved=false
+EXTRACT accept section=server_process_options flags=--config key=config kind=scalar ui=string reserved=true
+EXTRACT accept section=server_process_options flags=--cors-origins key=cors_origins kind=scalar ui=string reserved=false
+EXTRACT accept section=server_process_options flags=--device key=device kind=scalar ui=int reserved=false
+EXTRACT accept section=server_process_options flags=--frontend-listener key=frontend_listener kind=scalar ui=string reserved=false
+EXTRACT accept section=server_process_options flags=--frontend-option key=frontend_option kind=repeatable ui=list reserved=false
+EXTRACT accept section=server_process_options flags=--host key=host kind=scalar ui=string default=127.0.0.1 reserved=true
+EXTRACT accept section=server_process_options flags=--idle-unload-ms key=idle_unload_ms kind=scalar ui=int default=0 reserved=false
+EXTRACT accept section=server_process_options flags=--list-devices key=list_devices kind=flag ui=bool reserved=false
+EXTRACT accept section=server_process_options flags=--log key=log kind=flag ui=bool reserved=false
+EXTRACT accept section=server_process_options flags=--log-file key=log_file kind=scalar ui=string reserved=false
+EXTRACT accept section=server_process_options flags=--max-loaded-models key=max_loaded_models kind=scalar ui=int default=0 reserved=false
+EXTRACT accept section=server_process_options flags=--min-free-memory-mb key=min_free_memory_mb kind=scalar ui=int default=0 reserved=false
+EXTRACT accept section=server_process_options flags=--model-spec-override key=model_spec_override kind=scalar ui=string reserved=true
+EXTRACT accept section=server_process_options flags=--port key=port kind=scalar ui=int default=8080 reserved=true
+EXTRACT accept section=server_process_options flags=--threads key=threads kind=scalar ui=int reserved=false
+EXTRACT accept section=server_process_options flags=--ui,--no-ui key=ui kind=flag ui=bool reserved=false
+EXTRACT accept section=server_process_options flags=--ui-management key=ui_management kind=flag ui=bool reserved=false
+EXTRACT accept section=server_process_options flags=--version key=version kind=flag ui=bool reserved=true
+EXTRACT accept section=server_process_options flags=--voice-dir key=voice_dir kind=scalar ui=string reserved=false
+--- section cli_global (Global) · 19 params ---
+EXTRACT accept section=cli_global flags=--backend key=backend kind=enum ui=select reserved=false options=cpu,cuda,hip,rocm,vulkan,metal,best
+EXTRACT accept section=cli_global flags=--config key=config kind=scalar ui=int reserved=true
+EXTRACT accept section=cli_global flags=--device key=device kind=scalar ui=int reserved=false
+EXTRACT accept section=cli_global flags=--family key=family kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_global flags=--list-devices key=list_devices kind=flag ui=bool reserved=false
+EXTRACT accept section=cli_global flags=--load-option key=load_option kind=scalar ui=string reserved=true
+EXTRACT accept section=cli_global flags=--log key=log kind=flag ui=bool reserved=false
+EXTRACT accept section=cli_global flags=--log-file key=log_file kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_global flags=--metrics key=metrics kind=flag ui=bool reserved=false
+EXTRACT accept section=cli_global flags=--mode key=mode kind=enum ui=select default=offline reserved=false options=offline,streaming
+EXTRACT accept section=cli_global flags=--model key=model kind=scalar ui=string reserved=true
+EXTRACT accept section=cli_global flags=--model-spec-override key=model_spec_override kind=scalar ui=string reserved=true
+EXTRACT accept section=cli_global flags=--registry-config key=registry_config kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_global flags=--request-option key=request_option kind=scalar ui=string reserved=true
+EXTRACT accept section=cli_global flags=--session-option key=session_option kind=scalar ui=string reserved=true
+EXTRACT accept section=cli_global flags=--task key=task kind=enum ui=select reserved=false options=vad,asr,diar,sep,gen,tts,clon,vc,s2s,align,vdes,spk,svc,midi
+EXTRACT accept section=cli_global flags=--threads key=threads kind=scalar ui=int default=4 reserved=false
+EXTRACT accept section=cli_global flags=--version key=version kind=flag ui=bool reserved=true
+EXTRACT accept section=cli_global flags=--weight key=weight kind=scalar ui=int reserved=false
+--- section cli_batch (Batch) · 7 params ---
+EXTRACT accept section=cli_batch flags=--batch-audio-dir key=batch_audio_dir kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_batch flags=--batch-audio-role key=batch_audio_role kind=enum ui=select reserved=false options=audio,voice_ref,source_audio,target_voice,prosody_ref,style_ref
+EXTRACT accept section=cli_batch flags=--batch-manifest-out key=batch_manifest_out kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_batch flags=--batch-merge-audio key=batch_merge_audio kind=enum ui=select reserved=false options=none,concat
+EXTRACT accept section=cli_batch flags=--batch-text-dir key=batch_text_dir kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_batch flags=--batch-text-file key=batch_text_file kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_batch flags=--request-sequence key=request_sequence kind=scalar ui=string reserved=false
+--- section cli_pipelines (Pipelines) · 4 params ---
+EXTRACT accept section=cli_pipelines flags=--audio-converter key=audio_converter kind=scalar ui=string default=ffmpeg reserved=false
+EXTRACT accept section=cli_pipelines flags=--list-pipelines key=list_pipelines kind=flag ui=bool reserved=false
+EXTRACT accept section=cli_pipelines flags=--pipeline key=pipeline kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_pipelines flags=--workflow-input key=workflow_input kind=scalar ui=string reserved=false
+--- section cli_task_routing_and_media_roles (Task routing and media roles) · 23 params ---
+EXTRACT accept section=cli_task_routing_and_media_roles flags=--duration-seconds key=duration_seconds kind=scalar ui=float reserved=false
+EXTRACT accept section=cli_task_routing_and_media_roles flags=--lyrics key=lyrics kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_task_routing_and_media_roles flags=--predict-target-prosody key=predict_target_prosody kind=flag ui=bool reserved=false
+EXTRACT accept section=cli_task_routing_and_media_roles flags=--prosody-ref key=prosody_ref kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_task_routing_and_media_roles flags=--prosody-shift-steps key=prosody_shift_steps kind=scalar ui=int reserved=false
+EXTRACT accept section=cli_task_routing_and_media_roles flags=--reference-duration-seconds key=reference_duration_seconds kind=scalar ui=float reserved=false
+EXTRACT accept section=cli_task_routing_and_media_roles flags=--repaint-end key=repaint_end kind=scalar ui=float reserved=false
+EXTRACT accept section=cli_task_routing_and_media_roles flags=--repaint-mode key=repaint_mode kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_task_routing_and_media_roles flags=--repaint-start key=repaint_start kind=scalar ui=float reserved=false
+EXTRACT accept section=cli_task_routing_and_media_roles flags=--repaint-strength key=repaint_strength kind=scalar ui=float reserved=false
+EXTRACT accept section=cli_task_routing_and_media_roles flags=--source-audio key=source_audio kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_task_routing_and_media_roles flags=--source-shift-steps key=source_shift_steps kind=scalar ui=int reserved=false
+EXTRACT accept section=cli_task_routing_and_media_roles flags=--speaker key=speaker kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_task_routing_and_media_roles flags=--style-ref key=style_ref kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_task_routing_and_media_roles flags=--style-ref-text key=style_ref_text kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_task_routing_and_media_roles flags=--style-shift-steps key=style_shift_steps kind=scalar ui=int reserved=false
+EXTRACT accept section=cli_task_routing_and_media_roles flags=--target-duration-seconds key=target_duration_seconds kind=scalar ui=float reserved=false
+EXTRACT accept section=cli_task_routing_and_media_roles flags=--target-text key=target_text kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_task_routing_and_media_roles flags=--target-voice key=target_voice kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_task_routing_and_media_roles flags=--task-route key=task_route kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_task_routing_and_media_roles flags=--track-name key=track_name kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_task_routing_and_media_roles flags=--use-pitch-shift key=use_pitch_shift kind=flag ui=bool reserved=false
+EXTRACT accept section=cli_task_routing_and_media_roles flags=--use-prosody-code key=use_prosody_code kind=flag ui=bool reserved=false
+--- section cli_common_generation (Common generation) · 13 params ---
+EXTRACT accept section=cli_common_generation flags=--do-sample key=do_sample kind=flag ui=bool reserved=false
+EXTRACT accept section=cli_common_generation flags=--guidance-scale key=guidance_scale kind=scalar ui=float reserved=false
+EXTRACT accept section=cli_common_generation flags=--max-steps key=max_steps kind=scalar ui=int reserved=false
+EXTRACT accept section=cli_common_generation flags=--max-tokens key=max_tokens kind=scalar ui=int reserved=false
+EXTRACT accept section=cli_common_generation flags=--num-beams key=num_beams kind=scalar ui=int reserved=false
+EXTRACT accept section=cli_common_generation flags=--num-inference-steps key=num_inference_steps kind=scalar ui=int reserved=false
+EXTRACT accept section=cli_common_generation flags=--repetition-penalty key=repetition_penalty kind=scalar ui=float reserved=false
+EXTRACT accept section=cli_common_generation flags=--seed key=seed kind=scalar ui=int reserved=false
+EXTRACT accept section=cli_common_generation flags=--temperature key=temperature kind=scalar ui=float reserved=false
+EXTRACT accept section=cli_common_generation flags=--text-chunk-mode key=text_chunk_mode kind=enum ui=select reserved=false options=default,tag_aware,japanese,endline
+EXTRACT accept section=cli_common_generation flags=--text-chunk-size key=text_chunk_size kind=scalar ui=int reserved=false
+EXTRACT accept section=cli_common_generation flags=--top-k key=top_k kind=scalar ui=int reserved=false
+EXTRACT accept section=cli_common_generation flags=--top-p key=top_p kind=scalar ui=float reserved=false
+--- section cli_inputs (Inputs) · 17 params ---
+EXTRACT accept section=cli_inputs flags=--audio key=audio kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_inputs flags=--emotion key=emotion kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_inputs flags=--energy-scale key=energy_scale kind=scalar ui=float reserved=false
+EXTRACT accept section=cli_inputs flags=--input-channels key=input_channels kind=scalar ui=int default=1 reserved=false
+EXTRACT accept section=cli_inputs flags=--input-format key=input_format kind=enum ui=select default=s16le reserved=false options=s16le,f32le
+EXTRACT accept section=cli_inputs flags=--input-rate key=input_rate kind=scalar ui=int default=16000 reserved=false
+EXTRACT accept section=cli_inputs flags=--instruct key=instruct kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_inputs flags=--language key=language kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_inputs flags=--max-text-length key=max_text_length kind=scalar ui=int reserved=false
+EXTRACT accept section=cli_inputs flags=--pitch-shift key=pitch_shift kind=scalar ui=float reserved=false
+EXTRACT accept section=cli_inputs flags=--reference-text key=reference_text kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_inputs flags=--speaking-rate key=speaking_rate kind=scalar ui=float reserved=false
+EXTRACT accept section=cli_inputs flags=--style-language key=style_language kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_inputs flags=--style-tag key=style_tag kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_inputs flags=--text key=text kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_inputs flags=--voice-id key=voice_id kind=scalar ui=int reserved=false
+EXTRACT accept section=cli_inputs flags=--voice-ref key=voice_ref kind=scalar ui=string reserved=false
+--- section cli_outputs (Outputs) · 11 params ---
+EXTRACT accept section=cli_outputs flags=--out key=out kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_outputs flags=--out-dir key=out_dir kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_outputs flags=--segments-out key=segments_out kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_outputs flags=--text-out key=text_out kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_outputs flags=--turns-out key=turns_out kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_outputs flags=--vad-chunk-max-seconds key=vad_chunk_max_seconds kind=scalar ui=float default=45.0 reserved=false
+EXTRACT accept section=cli_outputs flags=--vad-chunk-merge-gap-seconds key=vad_chunk_merge_gap_seconds kind=scalar ui=float default=0.5 reserved=false
+EXTRACT accept section=cli_outputs flags=--vad-chunk-padding-seconds key=vad_chunk_padding_seconds kind=scalar ui=float default=0.25 reserved=false
+EXTRACT accept section=cli_outputs flags=--vad-chunks-out key=vad_chunks_out kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_outputs flags=--voice-state-out key=voice_state_out kind=scalar ui=string reserved=false
+EXTRACT accept section=cli_outputs flags=--words-out key=words_out kind=scalar ui=string reserved=false
+--- section cli_utility (Utility) · 2 params ---
+EXTRACT accept section=cli_utility flags=--inspect key=inspect kind=flag ui=bool reserved=false
+EXTRACT accept section=cli_utility flags=--list-loaders key=list_loaders kind=scalar ui=string reserved=false
+===== END CATALOG RESULT =====
+status: completed (Indexed 117 CLI options)

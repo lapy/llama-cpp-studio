@@ -1,0 +1,16 @@
+family=vevo2
+variant=default
+model_root=/models/vevo2
+supported_tasks=3
+task=tts modes=offline
+task=vc modes=offline
+task=svc modes=offline
+supports_speaker_reference=true
+supports_style_condition=true
+supports_timestamps=false
+languages=en,zh
+configs=1
+config=main:/models/vevo2/config.json
+weights=2
+weight=ar:/models/vevo2/ar.safetensors
+weight=vocoder:/models/vevo2/vocoder.safetensors

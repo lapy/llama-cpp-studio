@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# Checks for the files in this commit. Browser, Docker, and dependency audits stay in CI.
+set -euo pipefail
+
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+
+if [[ ! -x "$root/.venv/bin/python" || ! -x "$root/.venv/bin/ruff" ]]; then
+  echo "pre-commit: .venv is missing python or ruff. Install requirements-dev.lock first." >&2
+  exit 1
+fi
+
+python="$root/.venv/bin/python"
+ruff="$root/.venv/bin/ruff"
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+if [[ -z "$staged" ]]; then
+  exit 0
+fi
+
+matches() {
+  printf '%s\n' "$staged" | grep -qE "$1"
+}
+
+echo "pre-commit: version"
+"$python" scripts/check-version.py >/dev/null
+
+if matches '^scripts/.*\.sh$'; then
+  echo "pre-commit: shell syntax"
+  while IFS= read -r file; do
+    bash -n "$file"
+  done < <(printf '%s\n' "$staged" | grep -E '^scripts/.*\.sh$')
+  if matches '^scripts/container-fixture'; then
+    bash scripts/container-fixture-test.sh
+  fi
+fi
+
+if matches '^(backend|scripts)/.*\.py$' || matches '^frontend/src/api/openapi\.json$'; then
+  if ! "$python" scripts/export-openapi.py --check >/dev/null; then
+    if [[ -n "$(git diff --name-only -- backend scripts)" ]]; then
+      echo "pre-commit: OpenAPI schema is stale, and backend files are still unstaged." >&2
+      echo "Stage or stash those files, then run npm run openapi:export." >&2
+      exit 1
+    fi
+    echo "pre-commit: updating frontend/src/api/openapi.json"
+    "$python" scripts/export-openapi.py >/dev/null
+    git add -- frontend/src/api/openapi.json
+  fi
+fi
+
+if matches '^(backend|scripts)/.*\.py$'; then
+  echo "pre-commit: ruff"
+  "$ruff" check backend scripts
+  format_files=(
+    backend/config_history.py
+    backend/routes/benchmarks.py
+    backend/routes/config_history.py
+    backend/services/model_benchmark.py
+    backend/tests/test_config_history.py
+    backend/tests/test_model_benchmark.py
+    backend/tests/test_operation_state_machine.py
+    backend/version.py
+    scripts/check-version.py
+    scripts/export-openapi.py
+  )
+  changed_format=()
+  for file in "${format_files[@]}"; do
+    if printf '%s\n' "$staged" | grep -qx "$file"; then
+      changed_format+=("$file")
+    fi
+  done
+  if [[ ${#changed_format[@]} -gt 0 ]]; then
+    "$ruff" format --check "${changed_format[@]}"
+  fi
+  echo "pre-commit: pytest"
+  "$python" -m pytest backend/tests -q --tb=line
+fi
+
+if printf '%s\n' "$staged" | grep -E '^frontend/' | grep -qv '^frontend/src/api/openapi\.json$'; then
+  echo "pre-commit: frontend"
+  npm run lint:frontend
+  npm run typecheck:api
+  npm run style:check
+  npm run format:check
+  npm run test:frontend
+fi

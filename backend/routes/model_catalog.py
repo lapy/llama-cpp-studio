@@ -1,0 +1,322 @@
+"""Normalized multi-provider model discovery API."""
+
+from __future__ import annotations
+
+import asyncio
+from typing import Any, Dict, Optional
+
+from fastapi import APIRouter, Body, HTTPException
+
+from backend.engines.registry import VALID_ENGINE_IDS
+from backend.logging_config import get_logger, log_failure
+from backend.model_catalog import ModelCatalogService
+from backend.operations.action_recovery import ActionAdmissionError, huggingface_resource_key
+from backend.operations.supervisor import ResourceBusyError, get_supervisor
+from backend.store_io import StoreDurabilityError
+from backend.operations.progress import get_progress_manager
+from backend.services.audio_model_installer import get_audio_model_installer
+from backend.task_cancel_registry import TaskCancelledError
+
+logger = get_logger(__name__)
+
+
+router = APIRouter()
+
+
+def _coerce_positive_int(value: Any, default: int, *, maximum: Optional[int] = None) -> int:
+    """Accept only scalar integers; ignore dicts/events from malformed clients."""
+    if isinstance(value, bool) or value is None:
+        parsed = default
+    elif isinstance(value, int):
+        parsed = value
+    elif isinstance(value, float) and value.is_integer():
+        parsed = int(value)
+    elif isinstance(value, str):
+        stripped = value.strip()
+        parsed = int(stripped) if stripped.isdigit() else default
+    else:
+        parsed = default
+    parsed = max(1, parsed)
+    if maximum is not None:
+        parsed = min(maximum, parsed)
+    return parsed
+
+
+def _filters(payload: Dict[str, Any]) -> dict:
+    keys = (
+        "engine",
+        "task",
+        "input_modality",
+        "output_modality",
+        "feature",
+        "provider",
+        "source",
+        "package_kind",
+        "install_method",
+        "release_status",
+        "language",
+        "artifact_format",
+        "format",
+    )
+    filters = {
+        key: payload.get(key)
+        for key in keys
+        if payload.get(key) not in (None, "")
+    }
+    if isinstance(payload.get("gated"), bool):
+        filters["gated"] = payload["gated"]
+    engine = filters.get("engine")
+    if engine and engine not in VALID_ENGINE_IDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown engine '{engine}'. Expected one of {sorted(VALID_ENGINE_IDS)}",
+        )
+    return filters
+
+
+@router.post("/search")
+async def search_catalog(payload: dict = Body(default_factory=dict)):
+    payload = payload or {}
+    return await ModelCatalogService().search(
+        query=str(payload.get("query") or ""),
+        filters=_filters(payload),
+        page=_coerce_positive_int(payload.get("page"), 1),
+        page_size=_coerce_positive_int(
+            payload.get("page_size") or payload.get("limit"),
+            20,
+            maximum=100,
+        ),
+        sort=str(payload.get("sort") or ""),
+        force_refresh=bool(payload.get("force_refresh")),
+    )
+
+
+async def _run_audio_install(task_id: str, package_id: str, options: dict) -> None:
+    installer = get_audio_model_installer()
+    pm = get_progress_manager()
+    try:
+        model = await installer.install_package(
+            task_id,
+            package_id,
+            options=options,
+        )
+        pm.update_task(
+            task_id,
+            metadata_update={"model_id": model.get("id"), "stage": "complete"},
+        )
+        pm.complete_task(task_id, f"Installed {model.get('display_name') or package_id}")
+        pm.emit("models_changed", {"action": "installed", "model_id": model.get("id")})
+    except TaskCancelledError:
+        logger.info("Audio package installation cancelled: %s", package_id)
+        pm.fail_task(task_id, "Audio package installation cancelled")
+    except Exception as exc:
+        log_failure(logger, f"Audio package installation failed for {package_id}", exc)
+        pm.fail_task(task_id, str(exc))
+
+
+@router.post("/install")
+async def install_catalog_item(payload: dict = Body(default_factory=dict)):
+    payload = payload or {}
+    provider = str(payload.get("provider") or "")
+    if provider != "audio_cpp":
+        raise HTTPException(
+            status_code=400,
+            detail="Catalog installs are currently available for audio.cpp packages; use the existing model download flow for Hugging Face results.",
+        )
+    package_id = str(
+        payload.get("provider_item_id")
+        or payload.get("variant_id")
+        or payload.get("package_id")
+        or ""
+    ).strip()
+    if not package_id:
+        raise HTTPException(status_code=400, detail="provider_item_id is required")
+    installer = get_audio_model_installer()
+    try:
+        # Package metadata re-runs the engine catalog probe (subprocess); keep it
+        # off the event loop so a slow probe cannot block every other request.
+        package = await asyncio.to_thread(installer.package_metadata, package_id)
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    source = package.get("source") or {}
+    options = {
+        key: payload.get(key)
+        for key in ("source_file", "source_dir", "output_file", "variant", "family")
+        if payload.get(key) not in (None, "")
+    }
+    source_kind = str(source.get("kind") or "")
+    if source_kind == "utility" and not (
+        options.get("source_file") or options.get("source_dir")
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="This converter package requires source_file or source_dir.",
+        )
+
+    source = package.get("source") if isinstance(package.get("source"), dict) else source
+    repo_id = str(source.get("repo_id") or source.get("repo") or "").strip()
+    resource_key = (
+        huggingface_resource_key(repo_id)
+        if repo_id
+        else f"audio-package:{package_id}"
+    )
+    pm = get_progress_manager()
+    try:
+        task_id = pm.create_task(
+            "audio_model_install",
+            f"Install audio.cpp package {package_id}",
+            metadata={
+                "package_id": package_id,
+                "provider": "audio_cpp",
+                "stage": "queued",
+                "resource_key": resource_key,
+            },
+        )
+        await get_supervisor().fence_effect_started(task_id)
+    except ActionAdmissionError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    except ResourceBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except StoreDurabilityError as exc:
+        raise HTTPException(
+            status_code=503 if exc.committed is False else 500,
+            detail={
+                "code": "ACTION_NOT_SENT",
+                "committed": exc.committed,
+                "message": (
+                    "The install had not started. It was not launched."
+                    if exc.committed is False
+                    else "Whether this install started could not be established. It was not launched."
+                ),
+            },
+        ) from exc
+    get_supervisor().spawn(
+        task_id, _run_audio_install(task_id, package_id, options)
+    )
+    return {
+        "success": True,
+        "task_id": task_id,
+        "message": f"Installation of {package_id} started",
+    }
+
+
+async def _run_audio_import(
+    task_id: str,
+    source_path: str,
+    package_id: Optional[str],
+    family: Optional[str],
+) -> None:
+    installer = get_audio_model_installer()
+    pm = get_progress_manager()
+    try:
+        model = await installer.import_local_bundle(
+            task_id,
+            source_path,
+            package_id=package_id,
+            family=family,
+        )
+        pm.update_task(
+            task_id,
+            metadata_update={"model_id": model.get("id"), "stage": "complete"},
+        )
+        pm.complete_task(task_id, f"Imported {model.get('display_name')}")
+        pm.emit("models_changed", {"action": "imported", "model_id": model.get("id")})
+    except TaskCancelledError:
+        logger.info("Audio bundle import cancelled: %s", source_path)
+        pm.fail_task(task_id, "Audio bundle import cancelled")
+    except Exception as exc:
+        log_failure(logger, f"Audio bundle import failed for {source_path}", exc)
+        pm.fail_task(task_id, str(exc))
+
+
+@router.post("/import")
+async def import_audio_bundle(payload: dict = Body(default_factory=dict)):
+    payload = payload or {}
+    source_path = str(payload.get("source_path") or "").strip()
+    if not source_path:
+        raise HTTPException(status_code=400, detail="source_path is required")
+    installer = get_audio_model_installer()
+    try:
+        installer._active_version()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    pm = get_progress_manager()
+    try:
+        task_id = pm.create_task(
+            "audio_model_import",
+            f"Import local audio.cpp bundle {source_path}",
+            metadata={
+                "source_path": source_path,
+                "stage": "queued",
+                "resource_key": f"audio-import:{source_path}",
+            },
+        )
+        await get_supervisor().fence_effect_started(task_id)
+    except ActionAdmissionError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    except ResourceBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except StoreDurabilityError as exc:
+        raise HTTPException(
+            status_code=503 if exc.committed is False else 500,
+            detail={
+                "code": "ACTION_NOT_SENT",
+                "committed": exc.committed,
+                "message": "The import had not started. It was not launched."
+                if exc.committed is False
+                else "Whether this import started could not be established. It was not launched.",
+            },
+        ) from exc
+    get_supervisor().spawn(
+        task_id,
+        _run_audio_import(
+            task_id,
+            source_path,
+            str(payload.get("package_id") or "").strip() or None,
+            str(payload.get("family") or "").strip() or None,
+        )
+    )
+    return {
+        "success": True,
+        "task_id": task_id,
+        "message": "Local audio.cpp bundle import started",
+    }
+
+
+@router.post("/tasks/{task_id}/cancel")
+async def cancel_audio_install(task_id: str):
+    task = get_progress_manager().get_task(task_id)
+    if not task or task.get("type") not in {
+        "audio_model_install",
+        "audio_model_import",
+    }:
+        raise HTTPException(status_code=404, detail="Audio install task not found")
+    if task.get("status") == "cancelling":
+        return {
+            "success": True,
+            "terminated": False,
+            "task_id": task_id,
+            "message": (
+                "Cancellation was already requested. "
+                "The install has not been verified as stopped."
+            ),
+        }
+    if task.get("status") != "running":
+        return {"success": False, "terminated": False, "message": "Task is no longer running"}
+    get_progress_manager().update_task(
+        task_id,
+        status="cancelling",
+        message="Cancellation was requested. The install has not been verified as stopped.",
+    )
+    from backend.operations.supervisor import get_supervisor
+
+    get_supervisor().note_cancellation(task_id)
+    cancelled = await get_audio_model_installer().cancel(task_id)
+    return {
+        "success": bool(cancelled),
+        "terminated": False,
+        "task_id": task_id,
+        "message": "Cancellation was requested. The install has not been verified as stopped.",
+    }
+

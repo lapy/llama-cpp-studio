@@ -1,0 +1,69 @@
+{
+  "name": "llama-cpp-studio",
+  "version": "1.0.0",
+  "description": "Studio - Professional AI Model Management Platform",
+  "scripts": {
+    "dev": "cd frontend && vite",
+    "dev:frontend": "cd frontend && vite",
+    "dev:backend": "cross-env WATCHFILES_FORCE_POLLING=true watchfiles --filter python --grace-period 0.25 --sigint-timeout 10 \"python -m uvicorn backend.main:app --host 127.0.0.1 --port 8081\" backend",
+    "dev:all": "concurrently -n backend,frontend -c blue,green \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "kill-ports": "powershell.exe -Command \"Get-NetTCPConnection -LocalPort 5173,8081 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }\"",
+    "build": "cd frontend && vite build",
+    "preview": "cd frontend && vite preview",
+    "test": "npm run test:frontend && npm run test:backend",
+    "test:frontend": "vitest run --config frontend/vite.config.mjs",
+    "test:browser": "playwright test --config frontend/e2e/playwright.config.mjs",
+    "test:frontend:watch": "vitest --config frontend/vite.config.mjs",
+    "test:backend": "python -m pytest backend/tests -q",
+    "lint": "npm run lint:frontend && npm run lint:python && npm run format:python:check && npm run check:version",
+    "lint:frontend": "eslint --max-warnings=0 frontend/src frontend/e2e frontend/vitest.setup.js",
+    "lint:python": "ruff check backend scripts",
+    "format:python:check": "ruff format --check backend/config_history.py backend/routes/benchmarks.py backend/routes/config_history.py backend/services/model_benchmark.py backend/tests/test_config_history.py backend/tests/test_model_benchmark.py backend/tests/test_operation_state_machine.py backend/version.py scripts/check-version.py scripts/export-openapi.py",
+    "typecheck:api": "tsc -p frontend/tsconfig.api.json",
+    "format": "prettier --write frontend/src frontend/e2e frontend/vitest.setup.js eslint.config.mjs",
+    "format:check": "prettier --check frontend/tsconfig.api.json frontend/src/api/configuration.ts frontend/src/components/system/ConfigHistoryPanel.vue frontend/src/components/system/ConfigHistoryPanel.test.js eslint.config.mjs",
+    "style:check": "stylelint \"frontend/src/**/*.{css,vue}\"",
+    "check:version": "python scripts/check-version.py",
+    "openapi:export": "python scripts/export-openapi.py",
+    "openapi:check": "python scripts/export-openapi.py --check",
+    "prepare": "node -e \"if (require('fs').existsSync('scripts/install-git-hooks.mjs')) require('child_process').execFileSync(process.execPath, ['scripts/install-git-hooks.mjs'], {stdio:'inherit'})\"",
+    "test:a11y": "playwright test --config frontend/e2e/playwright.config.mjs frontend/e2e/standards.spec.mjs"
+  },
+  "dependencies": {
+    "@primeuix/themes": "^3.0.1",
+    "@vueuse/core": "^15.0.0",
+    "axios": "^1.20.0",
+    "pinia": "^4.0.3",
+    "primeicons": "^8.0.2",
+    "primevue": "^5.0.2",
+    "vue": "^3.5.43",
+    "vue-router": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "overrides": {
+    "shell-quote": "1.12.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.64.0",
+    "@types/node": "^26.6.5",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "@vitest/coverage-v8": "^5.0.3",
+    "@vue/test-utils": "^2.5.1",
+    "concurrently": "^10.0.6",
+    "cross-env": "^10.1.0",
+    "eslint": "^10.12.0",
+    "eslint-plugin-vue": "^10.11.1",
+    "happy-dom": "^20.14.6",
+    "postcss-html": "^2.0.0",
+    "prettier": "^3.9.10",
+    "stylelint": "^17.14.1",
+    "stylelint-config-standard": "^40.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.3"
+  }
+}

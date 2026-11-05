@@ -1,0 +1,278 @@
+import httpx
+import asyncio
+from typing import Dict, List, Any, Optional, Set
+from backend.logging_config import get_logger
+
+logger = get_logger(__name__)
+
+DEFAULT_PROXY_PORT = 2000
+
+# Cold-start budget shared with Studio proxy's healthCheckTimeout. Some engines
+# (notably sglang: weight loading plus CUDA-graph capture across GPUs) can
+# take 20-30 minutes before serving the first request. Studio proxy answers the
+# first upstream request only after the model fully loads, so every
+# client-side budget must exceed that window while the load keeps running
+# server-side. A premature timeout would journal the start as "unknown" and
+# withhold every later retry behind a confirmation.
+MODEL_START_BUDGET_SECONDS = 2700  # 45 min; covers 20-30 min sglang cold starts
+START_MODEL_DISPATCH_TIMEOUT_SECONDS = float(MODEL_START_BUDGET_SECONDS)
+LOAD_MODEL_ATTEMPT_TIMEOUT_SECONDS = 60.0
+
+_proxy_clients: Dict[str, httpx.AsyncClient] = {}
+
+
+def shared_proxy_client(base_url: str) -> httpx.AsyncClient:
+    """Reuse one HTTP client per proxy origin so routine calls keep connections."""
+    client = _proxy_clients.get(base_url)
+    if client is not None and not getattr(client, "is_closed", False):
+        return client
+    client = httpx.AsyncClient()
+    _proxy_clients[base_url] = client
+    return client
+
+
+def reset_proxy_clients() -> None:
+    """Drop cached clients. Tests use this so a patched transport cannot leak."""
+    _proxy_clients.clear()
+
+
+async def aclose_proxy_clients() -> None:
+    """Close pooled proxy clients during shutdown."""
+    clients = list(_proxy_clients.values())
+    _proxy_clients.clear()
+    for client in clients:
+        aclose = getattr(client, "aclose", None)
+        if aclose is None:
+            continue
+        result = aclose()
+        if asyncio.iscoroutine(result):
+            await result
+
+
+def get_proxy_port() -> int:
+    """Return the configured Studio proxy listen port from settings."""
+    try:
+        from backend.data_store import get_store
+
+        settings = get_store().get_settings() or {}
+    except Exception:
+        return DEFAULT_PROXY_PORT
+
+    raw_port = settings.get("proxy_port", DEFAULT_PROXY_PORT)
+    try:
+        port = int(raw_port)
+    except (TypeError, ValueError):
+        return DEFAULT_PROXY_PORT
+    return port if port > 0 else DEFAULT_PROXY_PORT
+
+
+def proxy_base_url(*, host: str = "localhost") -> str:
+    """HTTP base URL for the Studio-managed Studio proxy proxy."""
+    return f"http://{host}:{get_proxy_port()}"
+
+
+def get_proxy_client(*, host: str = "localhost") -> "ProxyClient":
+    """Build a client pointed at the configured proxy port."""
+    return ProxyClient(base_url=proxy_base_url(host=host))
+
+
+def _service_headers() -> Dict[str, str]:
+    from backend.inference_auth import service_headers
+
+    return service_headers()
+
+
+class ProxyClient:
+    def __init__(self, base_url: Optional[str] = None):
+        self.base_url = base_url or proxy_base_url()
+        # Track models that are currently loading to avoid spamming 503 errors
+        self._loading_models: Set[str] = set()
+        self._last_health_status: bool = True
+        self._consecutive_failures: int = 0
+
+    def mark_model_loading(self, model_name: str):
+        """Mark a model as currently loading"""
+        self._loading_models.add(model_name)
+        logger.debug(f"Model '{model_name}' marked as loading")
+
+    def mark_model_ready(self, model_name: str):
+        """Mark a model as ready (no longer loading)"""
+        self._loading_models.discard(model_name)
+        logger.debug(f"Model '{model_name}' marked as ready")
+
+    def is_model_loading(self, model_name: str) -> bool:
+        """Check if a model is currently loading"""
+        return model_name in self._loading_models
+
+    def get_loading_models(self) -> Set[str]:
+        """Get set of currently loading models"""
+        return self._loading_models.copy()
+
+    def clear_loading_state(self, model_name: str):
+        """Clear loading state for a model (e.g., on stop or error)"""
+        self._loading_models.discard(model_name)
+
+    async def request(
+        self, method: str, path: str, *, timeout: float = 10.0, json: object = None
+    ) -> httpx.Response:
+        """Issue a raw request to Studio proxy for route passthroughs."""
+        normalized_path = path if path.startswith("/") else f"/{path}"
+        client = shared_proxy_client(self.base_url)
+        return await client.request(
+            method,
+            f"{self.base_url}{normalized_path}",
+            timeout=timeout,
+            json=json,
+            headers=_service_headers(),
+        )
+
+    async def get_running_models(self) -> Dict[str, Any]:
+        """Get currently running models from /running endpoint.
+
+        The /running endpoint returns model states including 'loading' state.
+        We use this to track loading models and avoid polling during load.
+        A lookup failure is raised. Callers must not treat that as an empty
+        process list.
+        """
+        try:
+            client = shared_proxy_client(self.base_url)
+            response = await client.get(
+                f"{self.base_url}/running", timeout=5, headers=_service_headers()
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            # Update loading states from response
+            # Format: {"running": [{"model": "name", "state": "running|loading|..."}]}
+            if isinstance(data, dict) and "running" in data:
+                running_list = data["running"] or []
+                if not isinstance(running_list, list):
+                    raise ValueError("Invalid running-model observation")
+                # This is a complete verified snapshot, not an incremental
+                # event. Failed/stopped/removed models must leave loading state.
+                self._loading_models = {
+                    str(model_info["model"])
+                    for model_info in running_list
+                    if isinstance(model_info, dict)
+                    and model_info.get("model")
+                    and model_info.get("state") == "loading"
+                }
+
+            self._consecutive_failures = 0
+            return data
+        except Exception as e:
+            self._consecutive_failures += 1
+            # Only log at debug level to avoid spam
+            if self._consecutive_failures <= 3:
+                logger.debug(
+                    f"Failed to get running models (attempt {self._consecutive_failures}): {e}"
+                )
+            raise
+
+    async def unload_model(self, model_name: str):
+        """Unload a specific model via /api/models/unload/{model_name} endpoint"""
+        try:
+            response = await self.request("POST", f"/api/models/unload/{model_name}", timeout=10)
+            response.raise_for_status()
+            return response.text
+        except Exception as e:
+            logger.error(f"Failed to unload model {model_name}: {e}")
+            raise
+
+    async def unload_all_models(self):
+        response = await self.request("POST", "/api/models/unload", timeout=10)
+        response.raise_for_status()
+        return response.text
+
+    async def check_health(self) -> Dict[str, Any]:
+        """Check if Studio proxy proxy is responsive.
+
+        Returns a dict with health status and loading info:
+        {
+            "healthy": bool,
+            "loading_models": list of model names currently loading,
+            "status_code": int or None
+        }
+        """
+        try:
+            client = shared_proxy_client(self.base_url)
+            response = await client.get(f"{self.base_url}/health", timeout=2)
+            is_healthy = response.status_code == 200
+            self._last_health_status = is_healthy
+            if is_healthy:
+                self._consecutive_failures = 0
+            return {
+                "healthy": is_healthy,
+                "loading_models": list(self._loading_models),
+                "status_code": response.status_code,
+            }
+        except Exception as e:
+            self._consecutive_failures += 1
+            return {
+                "healthy": False,
+                "loading_models": list(self._loading_models),
+                "status_code": None,
+                "error": str(e) if self._consecutive_failures <= 3 else None,
+            }
+
+    async def check_health_simple(self) -> bool:
+        """Simple health check returning just a boolean"""
+        result = await self.check_health()
+        return result.get("healthy", False)
+
+    async def get_model_info(self, model_id: str, upstream_path: str = "v1/models"):
+        """Get model info via /upstream/:model_id/* endpoint"""
+        try:
+            client = shared_proxy_client(self.base_url)
+            response = await client.get(
+                f"{self.base_url}/upstream/{model_id}/{upstream_path}", timeout=5
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Failed to get model info for {model_id}: {e}")
+            raise
+
+    async def load_model(self, model_name: str, retries: Optional[int] = None, delay: float = 0.5):
+        """Trigger on-demand model loading via Studio proxy's upstream route.
+
+        The retry loop itself bounds the wait, so one attempt uses a moderate
+        timeout instead of the single-dispatch budget. The default retry count
+        scales the loop so the whole window covers the cold-start budget; an
+        engine such as sglang may still be loading long after one attempt
+        times out client-side.
+        """
+        if retries is None:
+            retries = int(
+                MODEL_START_BUDGET_SECONDS // (LOAD_MODEL_ATTEMPT_TIMEOUT_SECONDS + delay)
+            )
+        last_error = None
+        for _ in range(max(1, retries)):
+            try:
+                response = await self.request(
+                    "GET",
+                    f"/upstream/{model_name}/v1/models",
+                    timeout=LOAD_MODEL_ATTEMPT_TIMEOUT_SECONDS,
+                )
+                response.raise_for_status()
+                self._loading_models.discard(model_name)
+                return response.json()
+            except Exception as e:
+                last_error = e
+                self._loading_models.add(model_name)
+                await asyncio.sleep(delay)
+        self._loading_models.discard(model_name)
+        logger.error(f"Failed to load model {model_name}: {last_error}")
+        raise last_error
+
+    async def start_model_passthrough(self, model_name: str) -> httpx.Response:
+        """Return the raw Studio proxy response used to trigger model loading."""
+        return await self.request(
+            "GET",
+            f"/upstream/{model_name}/v1/models",
+            timeout=START_MODEL_DISPATCH_TIMEOUT_SECONDS,
+        )
+
+    async def stop_model_passthrough(self, model_name: str) -> httpx.Response:
+        """Return the raw Studio proxy response used to unload a model."""
+        return await self.request("POST", f"/api/models/unload/{model_name}", timeout=10)

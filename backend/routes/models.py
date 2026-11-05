@@ -1,0 +1,2624 @@
+from fastapi import APIRouter, Body, HTTPException, BackgroundTasks, Query, UploadFile, File
+from fastapi.responses import JSONResponse, Response
+from typing import List, Optional, Dict, Any
+from pydantic import BaseModel
+import json
+import os
+import time
+import asyncio
+import hashlib
+
+from backend.data_store import (
+    find_model_name_conflicts,
+    get_store,
+    resolve_model_id,
+    resolve_proxy_name,
+    resolve_routing_name,
+)
+from backend.engines.registry import VALID_ENGINE_IDS, active_engine_row_is_runnable
+from backend.models.config import (
+    config_api_response,
+    config_was_reviewed,
+    effective_model_config,
+    merge_model_config_put,
+    normalize_model_config,
+)
+from backend.models.schema import compatible_engines_for_record
+from backend.model_config_templates import (
+    apply_template_to_config,
+    new_template_record,
+)
+from backend.models.metadata_workers import run_metadata_lookup
+from backend.operations.progress import get_progress_manager
+from backend.operations.supervisor import get_supervisor
+from backend.utils.fs_ops import FilesystemRefusal
+from backend.models.hub import (
+    search_models,
+    set_huggingface_token,
+    get_huggingface_token,
+    extract_quantization,
+    get_accurate_file_sizes,
+    get_remote_file_info,
+    resolve_cached_model_path,
+    purge_hf_repo_cache,
+    delete_cached_model_file,
+    collect_model_refresh_plan,
+    list_repo_companion_files,
+    is_dflash_filename as _hf_is_dflash_filename,
+    is_mmproj_filename as _hf_is_mmproj_filename,
+    is_mtp_filename as _hf_is_mtp_filename,
+)
+from backend.logging_config import describe_error, get_logger
+from backend.models.files import iter_model_files, remove_model_files, upsert_model_file
+import backend.proxy.commands as runtime_commands
+from backend.download_task_manager import DownloadTaskManager
+from backend.services.model_downloads import (
+    ActiveDownloadConflict,
+    download_gguf_bundle_task,
+    download_model_dflash_task,
+    download_model_mtp_task,
+    download_model_projector_task,
+    download_model_task,
+    download_safetensors_bundle_task,
+    refresh_model_task,
+    register_gguf_bundle_download,
+    register_gguf_dflash_download,
+    register_gguf_mtp_download,
+    register_gguf_projector_download,
+    register_model_refresh_download,
+    register_safetensors_bundle_download,
+    register_single_model_download,
+)
+from backend.services.model_metadata import (
+    model_is_embedding,
+)
+
+logger = get_logger(__name__)
+
+
+async def _spawn_background_operation(task_id: str, operation, *args) -> None:
+    """Transfer FastAPI response work to application-lifetime ownership."""
+    get_supervisor().spawn(task_id, operation(*args))
+
+
+def _passthrough_native_proxy_response(response) -> Response:
+    headers = {}
+    content_type = response.headers.get("content-type")
+    if content_type:
+        headers["content-type"] = content_type
+    return Response(
+        content=response.content,
+        status_code=response.status_code,
+        headers=headers,
+    )
+
+
+def _mark_runtime_changed() -> None:
+    try:
+        from backend.proxy.control import mark_runtime_changed
+
+        mark_runtime_changed()
+    except Exception as exc:
+        logger.debug("mark_runtime_changed: %s", exc)
+
+
+router = APIRouter()
+
+
+def _is_mmproj_filename(filename: Optional[str]) -> bool:
+    return _hf_is_mmproj_filename(filename)
+
+
+def _is_mtp_filename(filename: Optional[str]) -> bool:
+    return _hf_is_mtp_filename(filename)
+
+
+def _is_dflash_filename(filename: Optional[str]) -> bool:
+    return _hf_is_dflash_filename(filename)
+
+
+def _get_model_or_404(store, model_id: str) -> dict:
+    """Return model dict from store or raise 404. Accepts str model_id (YAML id)."""
+    if model_id is None:
+        raise HTTPException(status_code=404, detail="Model not found")
+    model_id = str(model_id)
+    model = store.get_model(model_id)
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    return model
+
+
+def _other_models_share_companion(
+    store,
+    huggingface_id: str,
+    field: str,
+    filename: str,
+    exclude_model_id: str,
+) -> bool:
+    for m in store.list_models():
+        if m.get("id") == exclude_model_id:
+            continue
+        if m.get("huggingface_id") != huggingface_id:
+            continue
+        if m.get(field) == filename:
+            return True
+    return False
+
+
+def _other_models_share_mmproj(
+    store,
+    huggingface_id: str,
+    mmproj_filename: str,
+    exclude_model_id: str,
+) -> bool:
+    return _other_models_share_companion(
+        store, huggingface_id, "mmproj_filename", mmproj_filename, exclude_model_id
+    )
+
+
+def _other_models_share_mtp(
+    store,
+    huggingface_id: str,
+    mtp_filename: str,
+    exclude_model_id: str,
+) -> bool:
+    return _other_models_share_companion(
+        store, huggingface_id, "mtp_filename", mtp_filename, exclude_model_id
+    )
+
+
+def _other_models_share_dflash(
+    store,
+    huggingface_id: str,
+    dflash_filename: str,
+    exclude_model_id: str,
+) -> bool:
+    return _other_models_share_companion(
+        store, huggingface_id, "dflash_filename", dflash_filename, exclude_model_id
+    )
+
+
+def _record_cached_companion(
+    store,
+    model_id: str,
+    huggingface_id: str,
+    filename: str,
+    role: str,
+    cached_path: str,
+) -> None:
+    try:
+        size = os.path.getsize(cached_path)
+    except OSError:
+        size = 0
+    remote = get_remote_file_info(huggingface_id, [filename]).get(filename, {})
+    upsert_model_file(
+        store,
+        model_id,
+        {
+            "filename": filename,
+            "role": role,
+            "size": size,
+            "etag": remote.get("etag"),
+            "sha256": remote.get("sha256"),
+        },
+    )
+
+
+async def _remove_model_from_disk(store, model: dict, *, retire_references: bool = False) -> None:
+    """Delete managed model files before dropping the store row."""
+    fmt = (model.get("format") or "gguf").lower()
+    hf_id = model.get("huggingface_id")
+    mid = model.get("id")
+    artifact = model.get("artifact") if isinstance(model.get("artifact"), dict) else {}
+    source = model.get("source") if isinstance(model.get("source"), dict) else {}
+    package_kind = str(artifact.get("package_kind") or model.get("package_kind") or "")
+    compatible = set(model.get("compatible_engines") or [])
+    if package_kind == "prepared_bundle" and (
+        "audio_cpp" in compatible or str(source.get("provider") or "") == "audio_cpp"
+    ):
+        from backend.engines.audio_cpp.manager import get_audio_cpp_manager
+        from backend.utils.fs_ops import robust_rmtree
+
+        managed_root = os.path.realpath(get_audio_cpp_manager().models_dir)
+        bundle_path = os.path.realpath(
+            str(
+                artifact.get("bundle_path")
+                or model.get("bundle_path")
+                or artifact.get("path")
+                or model.get("local_path")
+                or ""
+            )
+        )
+        if (
+            not bundle_path
+            or bundle_path == managed_root
+            or os.path.commonpath([managed_root, bundle_path]) != managed_root
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Refusing to delete an audio bundle outside managed storage",
+            )
+        if os.path.isdir(bundle_path):
+            robust_rmtree(bundle_path, retire_references=retire_references)
+    elif fmt == "safetensors" and hf_id:
+        purge_hf_repo_cache(hf_id, retire_references=retire_references)
+    elif fmt == "gguf" and hf_id:
+        for entry in iter_model_files(model, roles={"weight", "shard"}):
+            filename = entry.get("filename")
+            if filename:
+                delete_cached_model_file(hf_id, filename, retire_references=retire_references)
+        mmproj = model.get("mmproj_filename")
+        if mmproj and not _other_models_share_mmproj(store, hf_id, mmproj, mid):
+            delete_cached_model_file(hf_id, mmproj, retire_references=retire_references)
+        mtp = model.get("mtp_filename")
+        if mtp and not _other_models_share_mtp(store, hf_id, mtp, mid):
+            delete_cached_model_file(hf_id, mtp, retire_references=retire_references)
+        dflash = model.get("dflash_filename")
+        if dflash and not _other_models_share_dflash(store, hf_id, dflash, mid):
+            delete_cached_model_file(hf_id, dflash, retire_references=retire_references)
+        # Last library model for this HF repo: clear leftover companions + hub cache.
+        if not any(
+            m.get("id") != mid and m.get("huggingface_id") == hf_id for m in store.list_models()
+        ):
+            purge_hf_repo_cache(hf_id, retire_references=retire_references)
+
+
+def _config_was_reviewed(model: dict) -> bool:
+    return config_was_reviewed(model)
+
+
+def _reviewed_config_update(config: dict) -> dict:
+    """A user save is the only new provenance that marks configuration reviewed."""
+    from datetime import datetime, timezone
+
+    return {
+        "config": config,
+        "config_reviewed_at": datetime.now(timezone.utc).isoformat(),
+        "config_review_source": "user",
+    }
+
+
+def _compact_param_variants(value: Any) -> List[dict]:
+    if not isinstance(value, list):
+        return []
+    variants = []
+    for item in value:
+        if isinstance(item, dict) and item.get("sub_id"):
+            variants.append({"sub_id": item.get("sub_id")})
+    return variants
+
+
+def catalog_config_summary(raw: Optional[Any]) -> Dict[str, Any]:
+    """Fields the library and routing picker need. Engine parameters stay on GET /config."""
+    if not isinstance(raw, dict):
+        return {}
+    summary: Dict[str, Any] = {}
+    engine = raw.get("engine")
+    if isinstance(engine, str) and engine:
+        summary["engine"] = engine
+    for key in ("task", "family", "model_alias"):
+        value = raw.get(key)
+        if isinstance(value, str) and value:
+            summary[key] = value
+    if raw.get("embedding") is True:
+        summary["embedding"] = True
+    tasks = raw.get("tasks")
+    if isinstance(tasks, list) and tasks:
+        summary["tasks"] = [item for item in tasks if isinstance(item, str)]
+    variants = _compact_param_variants(raw.get("set_params_by_id"))
+    if variants:
+        summary["set_params_by_id"] = variants
+    engines = raw.get("engines")
+    compact_engines: Dict[str, Any] = {}
+    if isinstance(engines, dict):
+        for name, section in engines.items():
+            if not isinstance(section, dict):
+                continue
+            kept: Dict[str, Any] = {}
+            alias = section.get("model_alias")
+            if isinstance(alias, str) and alias:
+                kept["model_alias"] = alias
+            section_variants = _compact_param_variants(section.get("set_params_by_id"))
+            if section_variants:
+                kept["set_params_by_id"] = section_variants
+            if kept:
+                compact_engines[str(name)] = kept
+    if compact_engines:
+        summary["engines"] = compact_engines
+    return summary
+
+
+def _get_safetensors_model(store, model_id: str) -> dict:
+    model = _get_model_or_404(store, model_id)
+    model_format = (model.get("format") or "gguf").lower()
+    if model_format != "safetensors":
+        raise HTTPException(status_code=400, detail="Model is not a safetensors download")
+    # Safetensors models are repo-level entities; concrete files live in files[].
+    return dict(model)
+
+
+PROMPT_RESERVED_TOKENS = 8192
+
+
+def _apply_prompt_reservation(value: Optional[int]) -> Optional[int]:
+    if value and value > PROMPT_RESERVED_TOKENS:
+        adjusted = value - PROMPT_RESERVED_TOKENS
+        return adjusted if adjusted >= 1024 else max(adjusted, 1024)
+    return value
+
+
+def _normalize_hf_overrides(value: Any) -> Dict[str, Any]:
+    if value is None:
+        return {}
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return {}
+        try:
+            value = json.loads(stripped)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail="hf_overrides must be valid JSON") from exc
+    if isinstance(value, dict):
+
+        def _sanitize(obj: Any) -> Any:
+            if isinstance(obj, dict):
+                result = {}
+                for key, nested in obj.items():
+                    if not isinstance(key, str) or not key.strip():
+                        raise HTTPException(
+                            status_code=400,
+                            detail="hf_overrides keys must be non-empty strings",
+                        )
+                    result[key.strip()] = _sanitize(nested)
+                return result
+            if isinstance(obj, (str, int, float, bool)) or obj is None:
+                return obj
+            raise HTTPException(
+                status_code=400,
+                detail="hf_overrides values must be scalars or nested objects",
+            )
+
+        sanitized = _sanitize(value)
+        return sanitized
+    raise HTTPException(status_code=400, detail="hf_overrides must be an object or JSON string")
+
+
+class SafetensorsBundleRequest(BaseModel):
+    huggingface_id: str
+    model_id: Optional[int] = None
+    files: List[Dict[str, Any]]
+
+
+_param_registry_cache: Dict[str, tuple] = {}
+_param_registry_locks: Dict[str, asyncio.Lock] = {}
+_PARAM_REGISTRY_CACHE_TTL = 30.0
+
+
+def _param_registry_cache_key(
+    store,
+    engine: str,
+    model_id: Optional[str] = None,
+    *,
+    draft_family: Optional[str] = None,
+    draft_task: Optional[str] = None,
+) -> str:
+    active = store.get_active_engine_version(engine) if engine in VALID_ENGINE_IDS else None
+    version = (active or {}).get("version") or ""
+    catalog_mtime = 0.0
+    config_dir = getattr(store, "_config_dir", None)
+    if config_dir:
+        try:
+            catalog_mtime = os.path.getmtime(os.path.join(config_dir, "engine_params_catalog.yaml"))
+        except OSError:
+            pass
+    model_fingerprint = ""
+    if engine == "audio_cpp" and model_id and active:
+        model = store.get_model(str(model_id))
+        if model:
+            try:
+                from backend.engines.scan.scanner import (
+                    audio_cpp_model_profile_fingerprint,
+                )
+
+                model_fingerprint = audio_cpp_model_profile_fingerprint(active, model)
+            except Exception:
+                model_fingerprint = str(model_id)
+    draft = f"{draft_family or ''}:{draft_task or ''}"
+    return f"{engine}:{version}:{model_fingerprint}:{catalog_mtime}:{draft}"
+
+
+def _build_param_registry_payload(
+    store,
+    engine: str,
+    model_id: Optional[str] = None,
+    force_rescan: bool = False,
+    *,
+    draft_family: Optional[str] = None,
+    draft_task: Optional[str] = None,
+) -> dict:
+    from backend.engines.params import (
+        get_version_entry,
+        registry_payload_from_entry,
+    )
+
+    if engine not in VALID_ENGINE_IDS:
+        return registry_payload_from_entry(engine, None, has_active_engine=False)
+
+    active = store.get_active_engine_version(engine)
+    has_active = active_engine_row_is_runnable(engine, active)
+    entry = None
+    profile = None
+    warnings: List[str] = []
+    if active and active.get("version"):
+        entry = get_version_entry(store, engine, active["version"])
+        if engine == "audio_cpp" and model_id:
+            model = store.get_model(str(model_id))
+            if not model:
+                warnings.append("Model context was not found.")
+            else:
+                from backend.engines.scan.scanner import scan_audio_cpp_model_profile
+
+                profile = scan_audio_cpp_model_profile(store, active, model, force=force_rescan)
+                if profile.get("scan_error"):
+                    warnings.append(str(profile["scan_error"]))
+
+                config = normalize_model_config(model.get("config"))
+                audio_config = (config.get("engines") or {}).get("audio_cpp") or {}
+                known: Dict[str, set] = {}
+                for section in (profile or {}).get("sections") or []:
+                    for param in section.get("params") or []:
+                        known.setdefault(str(param.get("scope") or "process"), set()).add(
+                            str(param.get("key") or "")
+                        )
+                for scope, config_key in (
+                    ("load_option", "load_options"),
+                    ("session_option", "session_options"),
+                    ("request_option", "request_options"),
+                ):
+                    saved = audio_config.get(config_key)
+                    if not isinstance(saved, dict):
+                        continue
+                    unknown = sorted(set(saved) - known.get(scope, set()))
+                    if unknown:
+                        warnings.append(f"Preserved unknown {config_key}: {', '.join(unknown)}")
+
+    payload = registry_payload_from_entry(
+        engine,
+        entry,
+        has_active_engine=has_active,
+        profile=profile,
+        compatibility_warnings=warnings,
+    )
+    if engine == "audio_cpp":
+        from backend.engines.audio_cpp.build_capabilities import constrain_ui_params
+
+        payload["sections"] = constrain_ui_params(payload["sections"], active)
+    if engine == "audio_cpp" and model_id:
+        model = store.get_model(str(model_id))
+        if model:
+            config = normalize_model_config(model.get("config"))
+            audio_config = (config.get("engines") or {}).get("audio_cpp") or {}
+            family = str(
+                draft_family or audio_config.get("family") or model.get("family") or ""
+            ).strip()
+            task = str(draft_task or audio_config.get("task") or "").strip()
+            from backend.audio.request_policy import build_request_policy
+            from backend.audio.task_profiles import (
+                api_example_hint_for,
+                apply_dependency_field_overlays,
+                family_dependency_fields_for,
+                is_profiled_task,
+                overlay_task_profile_from_spec,
+                request_field_groups_for,
+                supports_voice_presets_for,
+                task_profile_for,
+            )
+
+            inspection = (
+                (profile or {}).get("inspection")
+                if isinstance((profile or {}).get("inspection"), dict)
+                else {}
+            )
+            source_path = (
+                str(
+                    audio_config.get("model_spec_override")
+                    or (profile or {}).get("model_spec_source")
+                    or (active or {}).get("source_path")
+                    or ""
+                )
+                or None
+            )
+            from backend.engines.audio_cpp.artifact import resolve_audio_model_path
+            from backend.engines.audio_cpp.voices import discover_packaged_voices
+
+            packaged_voices = discover_packaged_voices(
+                resolve_audio_model_path(model),
+                family=family,
+                source_path=source_path,
+            )
+            payload["packaged_voices"] = packaged_voices
+            if packaged_voices:
+                payload["inspection"] = {
+                    **(payload.get("inspection") or inspection),
+                    "packaged_voices": packaged_voices,
+                }
+            policy = build_request_policy(
+                task=task,
+                family=family,
+                inspection=inspection,
+                model_profile=profile if isinstance(profile, dict) else None,
+                source_path=source_path,
+                active_version=active if isinstance(active, dict) else None,
+            )
+            from backend.engines.audio_cpp.contracts import load_family_contract
+            from backend.engines.audio_cpp.spec_fields import workspace_request_fields
+
+            payload["workspace_request_fields"] = workspace_request_fields(
+                load_family_contract(source_path, family) if source_path and family else None,
+                (profile or {}).get("sections") or [],
+            )
+            if is_profiled_task(task, family):
+                payload["task_profile"] = overlay_task_profile_from_spec(
+                    task_profile_for(task, family),
+                    source_path,
+                    family,
+                    task=task,
+                )
+                payload["request_field_groups"] = request_field_groups_for(
+                    task,
+                    family,
+                    profile_sections=(profile or {}).get("sections") or [],
+                    packaged_voices=packaged_voices,
+                    source_path=source_path,
+                )
+                payload["request_defaults_key"] = policy["request_defaults_key"]
+                payload["api_endpoint"] = policy["api_endpoint"]
+                payload["instructions_policy"] = policy["instructions_policy"]
+                payload["instructions_policy_source"] = policy.get("instructions_policy_source")
+                payload["instructions_vocabulary"] = policy.get("instructions_vocabulary")
+                payload["supports_voice_presets"] = supports_voice_presets_for(
+                    request_defaults_key=policy["request_defaults_key"]
+                )
+                payload["api_example_hint"] = api_example_hint_for(
+                    task,
+                    family,
+                    inspection=inspection,
+                    model_profile=profile if isinstance(profile, dict) else None,
+                )
+                payload["policy_family"] = family
+                payload["policy_task"] = task
+            caps = (entry or {}).get("capabilities") or {}
+            family_deps = (
+                caps.get("family_dependencies")
+                if isinstance(caps.get("family_dependencies"), dict)
+                else None
+            )
+            profile_sections = list((profile or {}).get("sections") or [])
+            dependency_fields = family_dependency_fields_for(
+                task,
+                family,
+                profile_sections=profile_sections or payload.get("sections") or [],
+                source_path=source_path,
+                family_dependencies=family_deps,
+            )
+            overlaid_sections, gap_fields = apply_dependency_field_overlays(
+                payload.get("sections") or [],
+                dependency_fields,
+            )
+            payload["sections"] = overlaid_sections
+            payload["sidecar_session_fields"] = gap_fields
+            payload["contract_fingerprint"] = (entry or {}).get("contract_fingerprint")
+            payload["contract_changed"] = bool((entry or {}).get("contract_changed"))
+            payload["discovery_source"] = (inspection or {}).get("discovery_source") or caps.get(
+                "discovery_source"
+            )
+            payload["catalog_source"] = caps.get("catalog_source")
+            entry_contract = (entry or {}).get("contract")
+            if isinstance(entry_contract, dict):
+                payload["contract_drift_warnings"] = list(
+                    entry_contract.get("drift_warnings") or []
+                )
+            payload["request_policy"] = {
+                key: policy.get(key)
+                for key in (
+                    "operation_id",
+                    "api_endpoint",
+                    "native_path",
+                    "studio_path",
+                    "upstream_only",
+                    "body_shape",
+                    "encodings",
+                    "responses",
+                    "errors",
+                    "endpoint_provenance",
+                    "request_defaults_key",
+                    "instructions_policy",
+                    "instructions_policy_source",
+                    "instructions_vocabulary",
+                )
+            }
+            if isinstance(family_deps, dict):
+                payload["family_dependencies"] = family_deps
+            payload["last_reviewed_fingerprint"] = audio_config.get("last_reviewed_fingerprint")
+            reviewed = str(audio_config.get("last_reviewed_fingerprint") or "").strip()
+            current_fp = str((entry or {}).get("contract_fingerprint") or "").strip()
+            payload["contract_review_required"] = bool(current_fp and reviewed != current_fp)
+    return payload
+
+
+@router.get("/param-registry")
+async def get_param_registry_endpoint(
+    engine: str = "llama_cpp",
+    model_id: Optional[str] = None,
+    rescan: bool = False,
+    family: Optional[str] = None,
+    task: Optional[str] = None,
+):
+    """Return param definitions from ``engine_params_catalog.yaml`` (read-only)."""
+    store = get_store()
+    draft_family = str(family or "").strip() or None
+    draft_task = str(task or "").strip() or None
+    cache_key = _param_registry_cache_key(
+        store,
+        engine,
+        model_id,
+        draft_family=draft_family,
+        draft_task=draft_task,
+    )
+    now = time.monotonic()
+    cached = _param_registry_cache.get(cache_key)
+    if not rescan and cached and now - cached[1] < _PARAM_REGISTRY_CACHE_TTL:
+        return cached[0]
+
+    lock = _param_registry_locks.setdefault(cache_key, asyncio.Lock())
+    async with lock:
+        now = time.monotonic()
+        cached = _param_registry_cache.get(cache_key)
+        if not rescan and cached and now - cached[1] < _PARAM_REGISTRY_CACHE_TTL:
+            return cached[0]
+        payload = await asyncio.to_thread(
+            _build_param_registry_payload,
+            store,
+            engine,
+            model_id,
+            rescan,
+            draft_family=draft_family,
+            draft_task=draft_task,
+        )
+    _param_registry_cache[cache_key] = (payload, now)
+    return payload
+
+
+@router.get("")
+async def list_models():
+    """List all managed models grouped by base model"""
+    from backend.proxy.client import get_proxy_client
+
+    store = get_store()
+    # Include all stored models (GGUF and safetensors). GGUF entries appear as
+    # individual quantizations; safetensors entries appear as a single logical
+    # quantization per repo with format "safetensors".
+    # Parsing the catalog can be large; keep it off the event loop.
+    models = list(await asyncio.to_thread(store.list_models))
+    from backend.proxy.runtime_observation import (
+        remember_running_models,
+        runtime_fields_for,
+        stale_or_unreachable,
+    )
+
+    try:
+        running_data = await get_proxy_client().get_running_models()
+        observation = remember_running_models(running_data)
+    except Exception as exc:
+        logger.debug("Running-model lookup failed; preserving last observation: %s", exc)
+        observation = stale_or_unreachable()
+
+    grouped_models = {}
+    for model in models:
+        source = model.get("source") if isinstance(model.get("source"), dict) else {}
+        hf_id = model.get("huggingface_id") or source.get("id") or ""
+        base_name = model.get("base_model_name") or (
+            hf_id.split("/")[-1] if hf_id else model.get("display_name") or "unknown"
+        )
+        proxy_model_id = resolve_model_id(model)
+        proxy_name = proxy_model_id
+        runtime = runtime_fields_for(observation, proxy_model_id)
+        is_embedding = model_is_embedding(model)
+        source_provider = source.get("provider") or (
+            "huggingface" if model.get("huggingface_id") else "local"
+        )
+        key = f"{source_provider}_{hf_id}_{base_name}"
+        if key not in grouped_models:
+            author = hf_id.split("/")[0] if isinstance(hf_id, str) and "/" in hf_id else ""
+            grouped_models[key] = {
+                "base_model_name": base_name,
+                "huggingface_id": hf_id,
+                "source": source,
+                "model_type": model.get("model_type"),
+                "family": model.get("family"),
+                "tasks": list(model.get("tasks") or []),
+                "input_modalities": list(model.get("input_modalities") or []),
+                "output_modalities": list(model.get("output_modalities") or []),
+                "capabilities": model.get("capabilities") or {},
+                "compatible_engines": compatible_engines_for_record(model),
+                "package_kind": (model.get("artifact") or {}).get("package_kind")
+                if isinstance(model.get("artifact"), dict)
+                else None,
+                "author": author,
+                "pipeline_tag": model.get("pipeline_tag"),
+                "is_embedding_model": is_embedding,
+                "quantizations": [],
+            }
+        else:
+            if model.get("pipeline_tag") and not grouped_models[key].get("pipeline_tag"):
+                grouped_models[key]["pipeline_tag"] = model.get("pipeline_tag")
+            if is_embedding and not grouped_models[key].get("is_embedding_model"):
+                grouped_models[key]["is_embedding_model"] = True
+
+        file_size = model.get("file_size") or 0
+
+        grouped_models[key]["quantizations"].append(
+            {
+                "id": model.get("id"),
+                "name": model.get("display_name") or model.get("name"),
+                # No filename persisted for GGUF models; a model is a single logical
+                # entity per (huggingface_id, quantization).
+                "file_size": file_size,
+                "quantization": model.get("quantization"),
+                "format": model.get("format")
+                or (
+                    (model.get("artifact") or {}).get("format")
+                    if isinstance(model.get("artifact"), dict)
+                    else None
+                )
+                or "gguf",
+                "artifact": model.get("artifact") or {},
+                "source": source,
+                "family": model.get("family"),
+                "tasks": list(model.get("tasks") or []),
+                "input_modalities": list(model.get("input_modalities") or []),
+                "output_modalities": list(model.get("output_modalities") or []),
+                "capabilities": model.get("capabilities") or {},
+                "compatible_engines": compatible_engines_for_record(model),
+                "downloaded_at": model.get("downloaded_at"),
+                "is_active": runtime["is_active"],
+                "status": runtime["status"],
+                "run_state": runtime["run_state"],
+                "runtime_quality": runtime["runtime_quality"],
+                "runtime_observed_at": runtime["runtime_observed_at"],
+                "has_config": bool(model.get("config")),
+                "config_reviewed": _config_was_reviewed(model),
+                "config_reviewed_at": model.get("config_reviewed_at"),
+                "mmproj_filename": model.get("mmproj_filename"),
+                "mtp_filename": model.get("mtp_filename"),
+                "dflash_filename": model.get("dflash_filename"),
+                "huggingface_id": hf_id,
+                "base_model_name": base_name,
+                "model_type": model.get("model_type"),
+                "config": catalog_config_summary(model.get("config")),
+                "proxy_name": proxy_name,
+                "proxy_model_id": proxy_model_id,
+                "routing_name": resolve_routing_name(model),
+                "pipeline_tag": model.get("pipeline_tag"),
+                "is_embedding_model": is_embedding,
+            }
+        )
+
+    result = []
+    for group in grouped_models.values():
+        group["quantizations"].sort(key=lambda x: x.get("file_size") or 0)
+        result.append(group)
+    result.sort(key=lambda x: x.get("base_model_name") or "")
+    return result
+
+
+@router.post("/search")
+async def search_huggingface_models(request: dict):
+    """Search HuggingFace for GGUF models"""
+    try:
+        query = request.get("query")
+        limit = request.get("limit", 20)
+        model_format = (request.get("model_format") or "gguf").lower()
+
+        if not query:
+            raise HTTPException(status_code=400, detail="query parameter is required")
+        if model_format not in ("gguf", "safetensors"):
+            raise HTTPException(
+                status_code=400,
+                detail="model_format must be either 'gguf' or 'safetensors'",
+            )
+
+        results = await search_models(query, limit, model_format=model_format)
+        return results
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/search/{model_id:path}/file-sizes")
+async def get_search_file_sizes(
+    model_id: str,
+    filenames: str = Query(..., description="Comma-separated list of file paths in the repo"),
+):
+    """Get accurate file sizes for specific files in a repo via HuggingFace API."""
+    file_list = [f.strip() for f in filenames.split(",") if f.strip()]
+    if not file_list:
+        raise HTTPException(status_code=400, detail="At least one filename is required")
+    try:
+        sizes = await run_metadata_lookup(get_accurate_file_sizes, model_id, file_list)
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail="Hugging Face file-size lookup timed out",
+        ) from exc
+    return {"sizes": sizes}
+
+
+@router.get("/safetensors")
+async def list_safetensors_models():
+    """List safetensors downloads stored locally."""
+    try:
+        results = []
+        for model in get_store().list_models():
+            fmt = (model.get("format") or "").lower()
+            if fmt != "safetensors":
+                continue
+            files = list(iter_model_files(model, roles={"weight", "shard"}))
+            total_size = sum(int(entry.get("size") or 0) for entry in files)
+            downloaded = [
+                entry.get("downloaded_at") for entry in files if entry.get("downloaded_at")
+            ]
+            results.append(
+                {
+                    "huggingface_id": model.get("huggingface_id"),
+                    "files": files,
+                    "file_count": len(files),
+                    "total_size": total_size,
+                    "total_size_mb": round(total_size / (1024 * 1024), 2),
+                    "latest_downloaded_at": max(downloaded) if downloaded else None,
+                    "max_context_length": model.get("max_context_length"),
+                    "model_id": model.get("id"),
+                }
+            )
+        results.sort(key=lambda row: row.get("latest_downloaded_at") or "", reverse=True)
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.delete("/safetensors")
+async def delete_safetensors_model(request: dict):
+    """Delete entire safetensors model (all files for the repo)."""
+    try:
+        huggingface_id = request.get("huggingface_id")
+        if not huggingface_id:
+            raise HTTPException(status_code=400, detail="huggingface_id is required")
+
+        store = get_store()
+        model_id = huggingface_id.replace("/", "--")
+        target_model = store.get_model(model_id)
+        if not target_model or target_model.get("format") != "safetensors":
+            raise HTTPException(status_code=404, detail="Safetensors model not found")
+
+        # LMDeploy runtime is now managed via Studio proxy; safetensors models
+        # are served through the same generic start/stop flow, so we don't
+        # need to special-case LMDeploy here.
+
+        if not list(iter_model_files(target_model, roles={"weight", "shard"})):
+            raise HTTPException(status_code=404, detail="Safetensors model not found")
+
+        from backend.proxy.client import get_proxy_client
+
+        proxy_name = resolve_proxy_name(target_model)
+        try:
+            running_data = await get_proxy_client().get_running_models()
+            running_list = running_data.get("running") or []
+            running_names = {
+                item.get("model")
+                for item in running_list
+                if item.get("state") in ("running", "ready", "loading")
+            }
+        except Exception:
+            running_names = set()
+        if proxy_name in running_names:
+            try:
+                from backend.proxy.control import get_proxy_controller
+
+                await get_proxy_controller().unregister_model(proxy_name)
+            except Exception as e:
+                logger.warning(
+                    "Failed to stop model %s: %s",
+                    proxy_name,
+                    describe_error(e),
+                    exc_info=e,
+                )
+
+        purge_hf_repo_cache(
+            huggingface_id,
+            retire_references=bool(request.get("retire_launch_references")),
+        )
+        store.delete_model(model_id)
+        _mark_runtime_changed()
+        return {"message": f"Safetensors model {huggingface_id} deleted"}
+    except HTTPException:
+        raise
+    except FilesystemRefusal as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/download")
+async def download_huggingface_model(request: dict, background_tasks: BackgroundTasks):
+    """Download model from HuggingFace"""
+    try:
+        huggingface_id = request.get("huggingface_id")
+        filename = request.get("filename")
+        total_bytes = request.get("total_bytes", 0)  # Get total size from search results
+        model_format = (request.get("model_format") or "gguf").lower()
+        pipeline_tag = request.get("pipeline_tag")
+
+        if not huggingface_id or not filename:
+            raise HTTPException(status_code=400, detail="huggingface_id and filename are required")
+        if model_format not in ("gguf", "safetensors"):
+            raise HTTPException(
+                status_code=400,
+                detail="model_format must be either 'gguf' or 'safetensors'",
+            )
+        if model_format == "gguf" and not filename.endswith(".gguf"):
+            raise HTTPException(
+                status_code=400,
+                detail="filename must end with .gguf for GGUF downloads",
+            )
+        if model_format == "safetensors" and not filename.endswith(".safetensors"):
+            raise HTTPException(
+                status_code=400,
+                detail="filename must end with .safetensors for Safetensors downloads",
+            )
+
+        store = get_store()
+        is_mmproj_download = model_format == "gguf" and "mmproj" in filename.lower()
+        # Check if this specific quantization already exists
+        if model_format == "gguf" and not is_mmproj_download:
+            quantization = extract_quantization(filename)
+            model_id = f"{huggingface_id.replace('/', '--')}--{quantization}"
+            if store.get_model(model_id):
+                raise HTTPException(
+                    status_code=400, detail="This quantization is already downloaded"
+                )
+
+        # Extract quantization for better task_id (use same function as search results)
+        quantization = (
+            os.path.splitext(os.path.basename(filename))[0]
+            if is_mmproj_download
+            else extract_quantization(filename)
+            if model_format == "gguf"
+            else os.path.splitext(filename)[0]
+        )
+
+        # Generate unique task ID with quantization and milliseconds
+        task_id = f"download_{model_format}_{huggingface_id.replace('/', '_')}_{quantization}_{int(time.time() * 1000)}"
+
+        try:
+            await register_single_model_download(
+                task_id=task_id,
+                huggingface_id=huggingface_id,
+                filename=filename,
+                quantization=quantization,
+                model_format=model_format,
+            )
+        except ActiveDownloadConflict as exc:
+            raise HTTPException(status_code=409, detail=exc.detail) from exc
+
+        # Start download in background with progress_manager for SSE
+        pm = get_progress_manager()
+        pm.create_task(
+            "download",
+            f"Download {filename}",
+            {
+                "huggingface_id": huggingface_id,
+                "filename": filename,
+                "resource_key": f"hf:{huggingface_id}:{filename}",
+            },
+            task_id=task_id,
+        )
+        await _fence_download(task_id)
+        background_tasks.add_task(
+            _spawn_background_operation,
+            task_id,
+            download_model_task,
+            huggingface_id,
+            filename,
+            pm,
+            task_id,
+            total_bytes,
+            model_format,
+            pipeline_tag,
+        )
+
+        return {
+            "message": "Download started",
+            "huggingface_id": huggingface_id,
+            "task_id": task_id,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        from backend.operations.exclusive import exclusive_http_error
+
+        mapped = exclusive_http_error(e)
+        if mapped is not None:
+            raise mapped from e
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+async def _fence_download(task_id: str) -> None:
+    """Durably record that a download may have started before the worker runs."""
+    from backend.operations.supervisor import get_supervisor
+    from backend.store_io import StoreDurabilityError
+
+    supervisor = get_supervisor()
+    # A progress stand-in that never records an operation has not admitted a
+    # download. The real manager records the row before this fence runs.
+    if supervisor._get(task_id) is None:
+        return
+    try:
+        await supervisor.fence_effect_started(task_id)
+    except StoreDurabilityError as exc:
+        raise HTTPException(
+            status_code=503 if exc.committed is False else 500,
+            detail={
+                "code": "ACTION_NOT_SENT",
+                "committed": exc.committed,
+                "message": (
+                    "The download had not started. It was not sent."
+                    if exc.committed is False
+                    else "Whether this download started could not be established. It was not sent."
+                ),
+            },
+        ) from exc
+
+
+@router.post("/downloads/cancel")
+async def cancel_download(payload: dict = Body(...)):
+    """Request cancellation of an in-flight model download."""
+    task_id = (payload or {}).get("task_id")
+    if not task_id:
+        raise HTTPException(status_code=400, detail="task_id is required")
+    return DownloadTaskManager.cancel(str(task_id))
+
+
+@router.post("/safetensors/download-bundle")
+async def download_safetensors_bundle(
+    request: SafetensorsBundleRequest, background_tasks: BackgroundTasks
+):
+    huggingface_id = request.huggingface_id
+    files = request.files or []
+
+    if not huggingface_id:
+        raise HTTPException(status_code=400, detail="huggingface_id is required")
+    if not files:
+        raise HTTPException(status_code=400, detail="Repository file list is required")
+
+    sanitized_files = []
+    declared_total = 0
+    for file in files:
+        filename = file.get("filename")
+        if not filename:
+            continue
+        size = max(int(file.get("size") or 0), 0)
+        declared_total += size
+        sanitized_files.append({"filename": filename, "size": size})
+
+    task_id = (
+        f"download_safetensors_bundle_{huggingface_id.replace('/', '_')}_{int(time.time() * 1000)}"
+    )
+
+    try:
+        await register_safetensors_bundle_download(task_id=task_id, huggingface_id=huggingface_id)
+    except ActiveDownloadConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+
+    pm = get_progress_manager()
+    pm.create_task(
+        "download",
+        f"Safetensors bundle {huggingface_id}",
+        {
+            "huggingface_id": huggingface_id,
+            "resource_key": f"hf:{huggingface_id}:safetensors-bundle",
+        },
+        task_id=task_id,
+    )
+    await _fence_download(task_id)
+    background_tasks.add_task(
+        _spawn_background_operation,
+        task_id,
+        download_safetensors_bundle_task,
+        huggingface_id,
+        sanitized_files,
+        pm,
+        task_id,
+        declared_total,
+    )
+
+    return {
+        "message": "Safetensors bundle download started",
+        "huggingface_id": huggingface_id,
+        "task_id": task_id,
+    }
+
+
+@router.post("/gguf/download-bundle")
+async def download_gguf_bundle(
+    request: dict,
+    background_tasks: BackgroundTasks,
+):
+    huggingface_id = request.get("huggingface_id")
+    quantization = request.get("quantization")
+    files = request.get("files") or []
+    pipeline_tag = request.get("pipeline_tag")
+    projector_filename = (request.get("mmproj_filename") or "").strip()
+    projector_size = max(int(request.get("mmproj_size") or 0), 0)
+    mtp_filename = (request.get("mtp_filename") or "").strip()
+    mtp_size = max(int(request.get("mtp_size") or 0), 0)
+    dflash_filename = (request.get("dflash_filename") or "").strip()
+    dflash_size = max(int(request.get("dflash_size") or 0), 0)
+
+    if not huggingface_id:
+        raise HTTPException(status_code=400, detail="huggingface_id is required")
+    if not quantization:
+        raise HTTPException(status_code=400, detail="quantization is required")
+    if not files:
+        raise HTTPException(status_code=400, detail="Repository file list is required")
+    if projector_filename and not _is_mmproj_filename(projector_filename):
+        raise HTTPException(status_code=400, detail="Invalid projector filename")
+    if mtp_filename and not _is_mtp_filename(mtp_filename):
+        raise HTTPException(status_code=400, detail="Invalid MTP draft filename")
+    if dflash_filename and not _is_dflash_filename(dflash_filename):
+        raise HTTPException(status_code=400, detail="Invalid DFlash draft filename")
+    if mtp_filename and dflash_filename:
+        raise HTTPException(
+            status_code=400,
+            detail="Choose either an MTP or DFlash draft, not both",
+        )
+
+    sanitized_files = []
+    declared_total = 0
+    for file in files:
+        filename = file.get("filename")
+        if not filename:
+            continue
+        size = max(int(file.get("size") or 0), 0)
+        declared_total += size
+        sanitized_files.append({"filename": filename, "size": size})
+
+    if not sanitized_files:
+        raise HTTPException(status_code=400, detail="No valid files to download")
+
+    projector_payload = None
+    if projector_filename:
+        declared_total += projector_size
+        projector_payload = {"filename": projector_filename, "size": projector_size}
+
+    mtp_payload = None
+    if mtp_filename:
+        declared_total += mtp_size
+        mtp_payload = {"filename": mtp_filename, "size": mtp_size}
+
+    dflash_payload = None
+    if dflash_filename:
+        declared_total += dflash_size
+        dflash_payload = {"filename": dflash_filename, "size": dflash_size}
+
+    task_id = f"download_gguf_bundle_{huggingface_id.replace('/', '_')}_{quantization}_{int(time.time() * 1000)}"
+
+    try:
+        await register_gguf_bundle_download(
+            task_id=task_id,
+            huggingface_id=huggingface_id,
+            quantization=quantization,
+        )
+    except ActiveDownloadConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+
+    pm = get_progress_manager()
+    pm.create_task(
+        "download",
+        f"GGUF bundle {huggingface_id} ({quantization})",
+        {
+            "huggingface_id": huggingface_id,
+            "quantization": quantization,
+            "resource_key": f"hf:{huggingface_id}:gguf:{quantization}",
+        },
+        task_id=task_id,
+    )
+    await _fence_download(task_id)
+    background_tasks.add_task(
+        _spawn_background_operation,
+        task_id,
+        download_gguf_bundle_task,
+        huggingface_id,
+        quantization,
+        sanitized_files,
+        pm,
+        task_id,
+        declared_total,
+        pipeline_tag,
+        projector_payload,
+        mtp_payload,
+        dflash_payload,
+    )
+
+    return {
+        "message": "GGUF bundle download started",
+        "huggingface_id": huggingface_id,
+        "quantization": quantization,
+        "task_id": task_id,
+    }
+
+
+@router.get("/huggingface-token")
+async def get_huggingface_token_status():
+    """Get HuggingFace API token status"""
+    token = get_huggingface_token()
+    env_token = os.getenv("HUGGINGFACE_API_KEY")
+
+    return {
+        "has_token": bool(token),
+        "token_preview": f"{token[:8]}..." if token else None,
+        "from_environment": bool(env_token),
+        "environment_set": bool(env_token),
+    }
+
+
+@router.post("/huggingface-token")
+async def set_huggingface_token_endpoint(request: dict):
+    """Set HuggingFace API token"""
+    try:
+        # Check if token is set via environment variable
+        env_token = os.getenv("HUGGINGFACE_API_KEY")
+        if env_token:
+            return {
+                "message": "Token is set via environment variable and cannot be overridden via UI",
+                "has_token": True,
+                "from_environment": True,
+            }
+
+        token = request.get("token", "").strip()
+
+        if not token:
+            set_huggingface_token("")
+            return {"message": "HuggingFace token cleared", "has_token": False}
+
+        # Validate token format (basic check)
+        if len(token) < 10:
+            raise HTTPException(status_code=400, detail="Invalid token format")
+
+        set_huggingface_token(token)
+        return {"message": "HuggingFace token set successfully", "has_token": True}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/{model_id:path}/companions")
+async def get_model_companions(model_id: str):
+    """List available mmproj / MTP / DFlash files for a GGUF model's HF repo."""
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    fmt = (model.get("format") or "gguf").lower()
+    if fmt != "gguf":
+        raise HTTPException(status_code=400, detail="Companions are only supported for GGUF models")
+    huggingface_id = model.get("huggingface_id")
+    if not huggingface_id:
+        raise HTTPException(status_code=400, detail="Model has no huggingface_id")
+
+    companions = await asyncio.to_thread(list_repo_companion_files, huggingface_id)
+    return {
+        **companions,
+        "current": {
+            "mmproj_filename": model.get("mmproj_filename"),
+            "mtp_filename": model.get("mtp_filename"),
+            "dflash_filename": model.get("dflash_filename"),
+        },
+    }
+
+
+@router.post("/{model_id:path}/refresh")
+async def refresh_model(
+    model_id: str,
+    background_tasks: BackgroundTasks,
+):
+    """Check HF for weight/companion changes and force-redownload only when needed."""
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    huggingface_id = model.get("huggingface_id")
+    if not huggingface_id:
+        raise HTTPException(status_code=400, detail="Model has no huggingface_id")
+    fmt = (model.get("format") or "gguf").lower()
+    if fmt not in ("gguf", "safetensors"):
+        raise HTTPException(
+            status_code=400,
+            detail="Refresh is only supported for GGUF and safetensors models",
+        )
+
+    try:
+        plan = await asyncio.to_thread(collect_model_refresh_plan, model)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to check Hugging Face: {exc}") from exc
+
+    # Heal basename-only ledger/companion fields when HF hosts them under a folder
+    # (e.g. mtp-….gguf → MTP/mtp-….gguf).
+    for correction in plan.get("path_corrections") or []:
+        old_name = correction.get("from")
+        new_name = correction.get("to")
+        if not old_name or not new_name or old_name == new_name:
+            continue
+        field_updates = {}
+        for field in ("mmproj_filename", "mtp_filename", "dflash_filename"):
+            if model.get(field) == old_name:
+                field_updates[field] = new_name
+        if field_updates:
+            store.update_model(model_id, field_updates)
+            model.update(field_updates)
+        remove_model_files(store, model_id, filenames=[old_name])
+        logger.info("Healed HF path for %s: %s -> %s", model_id, old_name, new_name)
+
+    changed = list(plan.get("changed") or [])
+    for remote_entry in plan.get("unchanged") or []:
+        filename = remote_entry.get("filename")
+        if not filename:
+            continue
+        upsert_model_file(
+            store,
+            model_id,
+            {
+                "filename": filename,
+                "size": remote_entry.get("size"),
+                "etag": remote_entry.get("etag"),
+                "sha256": remote_entry.get("sha256"),
+            },
+        )
+    removed_remote = list(plan.get("removed_remote") or [])
+    checked = len(plan.get("filenames") or [])
+
+    if not changed:
+        message = "Already up to date"
+        if removed_remote:
+            missing = ", ".join(f["filename"] for f in removed_remote[:3])
+            message = (
+                f"Already up to date; {len(removed_remote)} attached file(s) "
+                f"no longer on Hugging Face ({missing})"
+            )
+        return {
+            "updated": False,
+            "message": message,
+            "checked_files": checked,
+            "files": [],
+            "removed_remote": removed_remote,
+            "path_corrections": list(plan.get("path_corrections") or []),
+        }
+
+    task_id = f"refresh_{model_id.replace('/', '_')}_{int(time.time() * 1000)}"
+    try:
+        await register_model_refresh_download(
+            task_id=task_id,
+            huggingface_id=huggingface_id,
+            model_id=model_id,
+        )
+    except ActiveDownloadConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+
+    pm = get_progress_manager()
+    pm.create_task(
+        "download",
+        f"Refresh {huggingface_id}",
+        {
+            "huggingface_id": huggingface_id,
+            "model_id": model_id,
+            "filenames": [f["filename"] for f in changed],
+            "resource_key": f"hf:{huggingface_id}",
+        },
+        task_id=task_id,
+    )
+    await _fence_download(task_id)
+    background_tasks.add_task(
+        _spawn_background_operation,
+        task_id,
+        refresh_model_task,
+        model_id,
+        changed,
+        pm,
+        task_id,
+    )
+    return {
+        "updated": True,
+        "task_id": task_id,
+        "files": changed,
+        "removed_remote": removed_remote,
+        "checked_files": checked,
+        "path_corrections": list(plan.get("path_corrections") or []),
+        "message": f"Updating {len(changed)} file(s)",
+    }
+
+
+@router.post("/{model_id:path}/projector")
+async def update_model_projector(
+    model_id: str,
+    request: dict,
+    background_tasks: BackgroundTasks,
+):
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    if (model.get("format")) != "gguf":
+        raise HTTPException(status_code=400, detail="Projectors are only supported for GGUF models")
+
+    mmproj_filename = (request.get("mmproj_filename") or "").strip() or None
+    total_bytes = max(int(request.get("total_bytes") or 0), 0)
+
+    if mmproj_filename and not _is_mmproj_filename(mmproj_filename):
+        raise HTTPException(status_code=400, detail="Invalid projector filename")
+
+    current_projector = model.get("mmproj_filename")
+    if mmproj_filename == current_projector:
+        return {"message": "Projector already selected", "applied": True}
+
+    if not mmproj_filename:
+        store.update_model(model_id, {"mmproj_filename": None})
+        remove_model_files(store, model_id, roles={"mmproj"})
+        _mark_runtime_changed()
+        return {"message": "Projector cleared", "applied": True}
+
+    huggingface_id = model.get("huggingface_id")
+    cached_path = resolve_cached_model_path(huggingface_id, mmproj_filename)
+    if cached_path and os.path.exists(cached_path):
+        store.update_model(model_id, {"mmproj_filename": mmproj_filename})
+        _record_cached_companion(
+            store,
+            model_id,
+            huggingface_id,
+            mmproj_filename,
+            "mmproj",
+            cached_path,
+        )
+        _mark_runtime_changed()
+        return {"message": "Projector applied", "applied": True}
+
+    task_id = f"download_projector_{model_id.replace('/', '_')}_{int(time.time() * 1000)}"
+    try:
+        await register_gguf_projector_download(
+            task_id=task_id,
+            huggingface_id=huggingface_id,
+            model_id=model_id,
+            mmproj_filename=mmproj_filename,
+        )
+    except ActiveDownloadConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+
+    pm = get_progress_manager()
+    pm.create_task(
+        "download",
+        f"Projector {mmproj_filename}",
+        {
+            "huggingface_id": huggingface_id,
+            "filename": mmproj_filename,
+            "model_id": model_id,
+            "resource_key": f"hf:{huggingface_id}:{mmproj_filename}",
+        },
+        task_id=task_id,
+    )
+    await _fence_download(task_id)
+    background_tasks.add_task(
+        _spawn_background_operation,
+        task_id,
+        download_model_projector_task,
+        model_id,
+        mmproj_filename,
+        pm,
+        task_id,
+        total_bytes,
+    )
+    return {
+        "message": "Projector download started",
+        "task_id": task_id,
+        "applied": False,
+    }
+
+
+@router.post("/{model_id:path}/mtp")
+async def update_model_mtp(
+    model_id: str,
+    request: dict,
+    background_tasks: BackgroundTasks,
+):
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    if (model.get("format")) != "gguf":
+        raise HTTPException(status_code=400, detail="MTP drafts are only supported for GGUF models")
+
+    mtp_filename = (request.get("mtp_filename") or "").strip() or None
+    total_bytes = max(int(request.get("total_bytes") or 0), 0)
+
+    if mtp_filename and not _is_mtp_filename(mtp_filename):
+        raise HTTPException(status_code=400, detail="Invalid MTP draft filename")
+
+    current_mtp = model.get("mtp_filename")
+    if mtp_filename == current_mtp:
+        return {"message": "MTP draft already selected", "applied": True}
+
+    if not mtp_filename:
+        store.update_model(model_id, {"mtp_filename": None})
+        remove_model_files(store, model_id, roles={"mtp"})
+        _mark_runtime_changed()
+        return {"message": "MTP draft cleared", "applied": True}
+
+    huggingface_id = model.get("huggingface_id")
+    cached_path = resolve_cached_model_path(huggingface_id, mtp_filename)
+    if cached_path and os.path.exists(cached_path):
+        store.update_model(model_id, {"mtp_filename": mtp_filename, "dflash_filename": None})
+        remove_model_files(store, model_id, roles={"dflash"})
+        _record_cached_companion(store, model_id, huggingface_id, mtp_filename, "mtp", cached_path)
+        _mark_runtime_changed()
+        return {"message": "MTP draft applied", "applied": True}
+
+    task_id = f"download_mtp_{model_id.replace('/', '_')}_{int(time.time() * 1000)}"
+    try:
+        await register_gguf_mtp_download(
+            task_id=task_id,
+            huggingface_id=huggingface_id,
+            model_id=model_id,
+            mtp_filename=mtp_filename,
+        )
+    except ActiveDownloadConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+
+    pm = get_progress_manager()
+    pm.create_task(
+        "download",
+        f"MTP draft {mtp_filename}",
+        {
+            "huggingface_id": huggingface_id,
+            "filename": mtp_filename,
+            "model_id": model_id,
+            "resource_key": f"hf:{huggingface_id}:{mtp_filename}",
+        },
+        task_id=task_id,
+    )
+    await _fence_download(task_id)
+    background_tasks.add_task(
+        _spawn_background_operation,
+        task_id,
+        download_model_mtp_task,
+        model_id,
+        mtp_filename,
+        pm,
+        task_id,
+        total_bytes,
+    )
+    return {
+        "message": "MTP draft download started",
+        "task_id": task_id,
+        "applied": False,
+    }
+
+
+@router.post("/{model_id:path}/dflash")
+async def update_model_dflash(
+    model_id: str,
+    request: dict,
+    background_tasks: BackgroundTasks,
+):
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    if (model.get("format")) != "gguf":
+        raise HTTPException(
+            status_code=400, detail="DFlash drafts are only supported for GGUF models"
+        )
+
+    dflash_filename = (request.get("dflash_filename") or "").strip() or None
+    total_bytes = max(int(request.get("total_bytes") or 0), 0)
+
+    if dflash_filename and not _is_dflash_filename(dflash_filename):
+        raise HTTPException(status_code=400, detail="Invalid DFlash draft filename")
+
+    current_dflash = model.get("dflash_filename")
+    if dflash_filename == current_dflash:
+        return {"message": "DFlash draft already selected", "applied": True}
+
+    if not dflash_filename:
+        store.update_model(model_id, {"dflash_filename": None})
+        remove_model_files(store, model_id, roles={"dflash"})
+        _mark_runtime_changed()
+        return {"message": "DFlash draft cleared", "applied": True}
+
+    huggingface_id = model.get("huggingface_id")
+    cached_path = resolve_cached_model_path(huggingface_id, dflash_filename)
+    if cached_path and os.path.exists(cached_path):
+        store.update_model(model_id, {"dflash_filename": dflash_filename, "mtp_filename": None})
+        remove_model_files(store, model_id, roles={"mtp"})
+        _record_cached_companion(
+            store, model_id, huggingface_id, dflash_filename, "dflash", cached_path
+        )
+        _mark_runtime_changed()
+        return {"message": "DFlash draft applied", "applied": True}
+
+    task_id = f"download_dflash_{model_id.replace('/', '_')}_{int(time.time() * 1000)}"
+    try:
+        await register_gguf_dflash_download(
+            task_id=task_id,
+            huggingface_id=huggingface_id,
+            model_id=model_id,
+            dflash_filename=dflash_filename,
+        )
+    except ActiveDownloadConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+
+    pm = get_progress_manager()
+    pm.create_task(
+        "download",
+        f"DFlash draft {dflash_filename}",
+        {
+            "huggingface_id": huggingface_id,
+            "filename": dflash_filename,
+            "model_id": model_id,
+            "resource_key": f"hf:{huggingface_id}:{dflash_filename}",
+        },
+        task_id=task_id,
+    )
+    await _fence_download(task_id)
+    background_tasks.add_task(
+        _spawn_background_operation,
+        task_id,
+        download_model_dflash_task,
+        model_id,
+        dflash_filename,
+        pm,
+        task_id,
+        total_bytes,
+    )
+    return {
+        "message": "DFlash draft download started",
+        "task_id": task_id,
+        "applied": False,
+    }
+
+
+_saved_cmd_cache: Dict[str, tuple] = {}
+_SAVED_CMD_CACHE_TTL = 60.0
+
+
+def _safe_mtime(path: Optional[str]) -> float:
+    if not path:
+        return 0.0
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return 0.0
+
+
+def _saved_cmd_cache_key(store, model: Dict[str, Any]) -> str:
+    config_dir = getattr(store, "_config_dir", "")
+    payload = {
+        "config_dir": os.path.abspath(config_dir) if config_dir else "",
+        "model": model,
+        "engines_mtime": _safe_mtime(
+            os.path.join(config_dir, "engines.yaml") if config_dir else None
+        ),
+        "catalog_mtime": _safe_mtime(
+            os.path.join(config_dir, "engine_params_catalog.yaml") if config_dir else None
+        ),
+    }
+    raw = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _local_model_limits(model: Dict[str, Any]) -> Dict[str, Optional[int]]:
+    """
+    Local runtime limits for UI hints.
+
+    Best-effort and deliberately offline. Download-time metadata is persisted on
+    the model row; missing values stay null rather than triggering network work.
+    """
+    stored_ctx = model.get("max_context_length") or model.get("context_length")
+    stored_layers = model.get("layer_count")
+    max_ctx = int(stored_ctx) if isinstance(stored_ctx, (int, float)) and stored_ctx > 0 else None
+    layer_count = (
+        int(stored_layers)
+        if isinstance(stored_layers, (int, float)) and stored_layers > 0
+        else None
+    )
+    return {"max_context_length": max_ctx, "layer_count": layer_count}
+
+
+def _model_config_response(model: Dict[str, Any]) -> Dict[str, Any]:
+    payload = config_api_response(normalize_model_config(model.get("config")))
+    payload["runtime_limits"] = _local_model_limits(model)
+    return payload
+
+
+def _validate_model_runtime_config(store, model: dict, normalized: dict) -> None:
+    config = effective_model_config(normalized)
+    aliases = config.get("set_params_by_id", [])
+    if not isinstance(aliases, list):
+        raise HTTPException(status_code=422, detail="Request parameter aliases must be a list")
+    seen = set()
+    for item in aliases:
+        if not isinstance(item, dict) or not isinstance(item.get("params"), dict):
+            raise HTTPException(status_code=422, detail="Each request alias needs a params object")
+        suffix = str(item.get("sub_id") or "").strip()
+        if suffix in seen or (
+            suffix and not all(c.isascii() and (c.isalnum() or c in "._-") for c in suffix)
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Request alias suffixes must be unique and contain letters, numbers, dots, underscores, or hyphens",
+            )
+        seen.add(suffix)
+        if any(str(key).rstrip("?").split(".")[0] == "model" for key in item["params"]):
+            raise HTTPException(status_code=422, detail="The model parameter is managed by Studio")
+    if effective_model_config(normalized).get("engine") != "audio_cpp":
+        return
+    from backend.audio.model_config import validate_audio_model_config
+
+    try:
+        validate_audio_model_config(store, model, normalized)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/{model_id:path}/config")
+async def get_model_config(model_id: str):
+    """Get model's llama.cpp configuration"""
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    return _model_config_response(model)
+
+
+def _audio_model_bundle_root_or_400(model: dict) -> str:
+    from backend.reference_audio import get_audio_model_bundle_root
+
+    compatible = set(model.get("compatible_engines") or [])
+    fmt = str(model.get("format") or "").lower()
+    if "audio_cpp" not in compatible and fmt != "audio_cpp":
+        raise HTTPException(
+            status_code=400,
+            detail="Reference audio is only supported for audio.cpp models",
+        )
+    return get_audio_model_bundle_root(model)
+
+
+def _reference_audio_usage(model: dict) -> Dict[str, List[str]]:
+    from backend.reference_audio import find_config_references
+
+    effective = effective_model_config(model.get("config") or {})
+    usage: Dict[str, List[str]] = {}
+    for entry in _list_reference_audio_entries(model):
+        path = entry["path"]
+        refs = find_config_references(effective, path)
+        if refs:
+            usage[path] = refs
+    return usage
+
+
+def _list_reference_audio_entries(model: dict) -> List[Dict[str, Any]]:
+    from backend.audio.community_voices import list_reference_entries
+    from backend.reference_audio import list_reference_audio
+
+    bundle_root = _audio_model_bundle_root_or_400(model)
+    uploaded = list_reference_audio(bundle_root, storage_key=model.get("id"))
+    return uploaded + list_reference_entries()
+
+
+@router.get("/{model_id:path}/reference-audio")
+async def list_model_reference_audio(model_id: str):
+    """List WAV reference clips stored under the per-model data refs/ directory."""
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    entries = _list_reference_audio_entries(model)
+    usage = _reference_audio_usage(model)
+    for entry in entries:
+        entry["used_by"] = usage.get(entry["path"], [])
+    return {"items": entries}
+
+
+@router.post("/{model_id:path}/reference-audio")
+async def upload_model_reference_audio(
+    model_id: str,
+    file: UploadFile = File(...),
+):
+    """Upload a reference WAV into the per-model data refs/ directory."""
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    bundle_root = _audio_model_bundle_root_or_400(model)
+    content = await file.read()
+    from backend.reference_audio import save_reference_audio
+
+    entry = save_reference_audio(
+        bundle_root,
+        filename=file.filename or "reference.wav",
+        content=content,
+        storage_key=model.get("id"),
+    )
+    _mark_runtime_changed()
+    return entry
+
+
+@router.delete("/{model_id:path}/reference-audio/{filename}")
+async def delete_model_reference_audio(model_id: str, filename: str):
+    """Delete a reference WAV from the per-model data refs/ directory."""
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    bundle_root = _audio_model_bundle_root_or_400(model)
+    effective = effective_model_config(model.get("config") or {})
+    from backend.reference_audio import delete_reference_audio
+
+    delete_reference_audio(
+        bundle_root,
+        filename=filename,
+        storage_key=model.get("id"),
+        effective_config=effective,
+    )
+    _mark_runtime_changed()
+    return {"ok": True}
+
+
+@router.put("/{model_id:path}/config")
+async def update_model_config(model_id: str, config: dict):
+    """Update model's llama.cpp configuration"""
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    merged = merge_model_config_put(model.get("config"), config)
+    _validate_model_runtime_config(store, model, merged)
+    eff = effective_model_config(merged)
+    conflicts = find_model_name_conflicts(store, model_id, eff)
+    if conflicts:
+        names = ", ".join(sorted(set(conflicts)))
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Routing name or alias already used by another model: {names}. "
+                "Each Studio proxy id and alias must be unique across the catalog."
+            ),
+        )
+    review_update = _reviewed_config_update(merged)
+    updated_model = store.update_model(model_id, review_update) or {
+        **model,
+        **review_update,
+    }
+    _mark_runtime_changed()
+    return _model_config_response(updated_model)
+
+
+class SaveConfigTemplateBody(BaseModel):
+    name: str
+    description: str = ""
+    include_routing: bool = False
+    engines_scope: str = "all"
+    use_saved: bool = False
+    config: Optional[Dict[str, Any]] = None
+
+
+class ApplyConfigTemplateBody(BaseModel):
+    template_id: str
+    include_routing: Optional[bool] = None
+    apply_engines: str = "active"
+    persist: bool = False
+
+
+@router.post("/{model_id:path}/config/save-template")
+async def save_model_config_as_template(model_id: str, body: SaveConfigTemplateBody):
+    """Snapshot this model's configuration as a reusable template."""
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    if body.use_saved or not body.config:
+        raw = model.get("config")
+    else:
+        raw = merge_model_config_put(model.get("config"), body.config)
+    try:
+        record = new_template_record(
+            name=body.name,
+            description=body.description,
+            config=normalize_model_config(raw),
+            source_model_id=model_id,
+            include_routing=body.include_routing,
+            engines_scope=body.engines_scope if body.engines_scope in ("all", "active") else "all",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    store.add_config_template(record)
+    return record
+
+
+@router.post("/{model_id:path}/config/apply-template")
+async def apply_model_config_template(model_id: str, body: ApplyConfigTemplateBody):
+    """Apply a stored template to this model (form preview or persist)."""
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    template = store.get_config_template(body.template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    include_routing = (
+        body.include_routing
+        if body.include_routing is not None
+        else bool(template.get("include_routing"))
+    )
+    apply_engines = body.apply_engines
+    if apply_engines not in ("active", "all", "set_engine"):
+        raise HTTPException(
+            status_code=400,
+            detail="apply_engines must be active, all, or set_engine",
+        )
+    merged = apply_template_to_config(
+        model.get("config"),
+        template.get("config") or {},
+        include_routing=include_routing,
+        apply_engines=apply_engines,
+    )
+    if body.persist:
+        _validate_model_runtime_config(store, model, merged)
+        eff = effective_model_config(merged)
+        conflicts = find_model_name_conflicts(store, model_id, eff)
+        if conflicts:
+            names = ", ".join(sorted(set(conflicts)))
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Routing name or alias already used by another model: {names}. "
+                    "Each Studio proxy id and alias must be unique across the catalog."
+                ),
+            )
+        store.update_model(model_id, _reviewed_config_update(merged))
+        _mark_runtime_changed()
+    return {
+        "config": config_api_response(merged),
+        "persisted": bool(body.persist),
+        "template_id": body.template_id,
+        "template_name": template.get("name"),
+    }
+
+
+class ActionConfirmBody(BaseModel):
+    confirm_operation_id: Optional[str] = None
+    confirm_state: Optional[str] = None
+
+
+class RuntimeApplyBody(BaseModel):
+    mode: str
+    expected_desired_revision: Optional[str] = None
+    expected_published_revision: Optional[str] = None
+    idempotency_key: str
+    confirm_operation_id: Optional[str] = None
+    confirm_state: Optional[str] = None
+
+
+@router.post("/{model_id:path}/runtime/apply")
+async def apply_model_runtime(model_id: str, body: RuntimeApplyBody):
+    """Publish one model's launch revision without reloading the proxy."""
+    from backend.proxy.control import (
+        get_proxy_controller,
+    )
+    from backend.operations.supervisor import ResourceBusyError, get_supervisor
+    from backend.services.model_runtime_apply import (
+        ApplyRejected,
+        NativeRuntimeGateway,
+        apply_model,
+        withheld_apply,
+    )
+
+    from backend.operations.action_recovery import ActionAdmissionError, bind_action_confirmation
+    from backend.store_io import StoreDurabilityError
+
+    bind_action_confirmation(body.model_dump())
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    held = withheld_apply(
+        None,
+        [model_id, resolve_proxy_name(model)],
+        confirm_operation_id=body.confirm_operation_id,
+        confirm_state=body.confirm_state,
+    )
+    if held:
+        raise HTTPException(status_code=409, detail=held)
+    manager = get_proxy_controller()
+    supervisor = get_supervisor()
+    try:
+        supervisor.start_operation(
+            body.idempotency_key,
+            "runtime_apply",
+            resource_key=f"runtime-apply:{model_id}",
+            detail={"model_id": model_id, "mode": body.mode, "effect_started": False},
+        )
+    except ResourceBusyError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "ACTION_IN_FLIGHT",
+                "error": "busy",
+                "message": str(exc),
+            },
+        ) from exc
+    except ActionAdmissionError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    try:
+        await supervisor.fence_effect_started(body.idempotency_key)
+    except StoreDurabilityError as exc:
+        raise HTTPException(
+            status_code=503 if exc.committed is False else 500,
+            detail={
+                "code": "ACTION_NOT_SENT",
+                "committed": exc.committed,
+                "message": (
+                    "The action had not started. It was not run."
+                    if exc.committed is False
+                    else "Whether this action finished could not be established. It was not run."
+                ),
+            },
+        ) from exc
+    handed_off = False
+    try:
+        box: Dict[str, Any] = {}
+        accepted = asyncio.Event()
+
+        async def _finish_apply() -> None:
+            outcome = "failed"
+            try:
+                async with manager._apply_lock:
+
+                    def _on_accept(result: Dict[str, Any]) -> None:
+                        box["accepted"] = result
+                        accepted.set()
+
+                    result = await apply_model(
+                        model,
+                        mode=body.mode,
+                        expected_desired_revision=body.expected_desired_revision,
+                        expected_published_revision=body.expected_published_revision,
+                        check_published_revision="expected_published_revision"
+                        in body.model_fields_set,
+                        idempotency_key=body.idempotency_key,
+                        gateway=NativeRuntimeGateway(manager._client()),
+                        after_accept=_on_accept,
+                    )
+                box["final"] = result
+                if result.get("status") == "succeeded":
+                    outcome = "succeeded"
+                elif result.get("status") == "cancelled":
+                    outcome = "cancelled"
+                else:
+                    outcome = "failed"
+            except ApplyRejected as exc:
+                box["error"] = exc
+            except Exception as exc:
+                box["error"] = exc
+            finally:
+                if not accepted.is_set():
+                    accepted.set()
+                supervisor.finish_operation(body.idempotency_key, outcome)
+
+        supervisor.spawn(body.idempotency_key, _finish_apply())
+        handed_off = True
+        await accepted.wait()
+        error = box.get("error")
+        if isinstance(error, ApplyRejected):
+            raise HTTPException(status_code=error.status, detail=error.detail) from error
+        if error is not None:
+            raise HTTPException(status_code=500, detail=str(error)) from error
+        final = box.get("final")
+        if final is not None and final.get("status") != "running":
+            return final
+        return JSONResponse(status_code=202, content=box.get("accepted") or final)
+    finally:
+        if not handed_off:
+            supervisor.finish_operation(body.idempotency_key, "failed")
+
+
+def _apply_operation_for_model(model: dict, model_id: str, operation_id: str) -> dict:
+    from backend.services.model_runtime_apply import read_apply_operation
+
+    payload = read_apply_operation(operation_id)
+    names = {str(model_id), str(resolve_proxy_name(model) or "")}
+    if not payload or (
+        str(payload.get("catalog_id") or "") not in names
+        and str(payload.get("model_id") or "") not in names
+    ):
+        raise HTTPException(status_code=404, detail="Apply operation not found")
+    return payload
+
+
+@router.get("/{model_id:path}/runtime/apply/{operation_id}")
+async def get_model_runtime_apply(model_id: str, operation_id: str):
+    """Poll an apply that has already returned its operation id."""
+    model = _get_model_or_404(get_store(), model_id)
+    return _apply_operation_for_model(model, model_id, operation_id)
+
+
+@router.post("/{model_id:path}/runtime/apply/{operation_id}/cancel")
+async def cancel_model_runtime_apply(model_id: str, operation_id: str):
+    """Stop an apply before it unloads the model."""
+    from backend.services.model_runtime_apply import request_cancel
+
+    model = _get_model_or_404(get_store(), model_id)
+    payload = _apply_operation_for_model(model, model_id, operation_id)
+    if payload.get("status") != "running":
+        return payload
+    request_cancel(operation_id)
+    return {**payload, "cancel_requested": True}
+
+
+@router.get("/{model_id:path}/saved-llama-swap-cmd", include_in_schema=False)
+@router.get("/{model_id:path}/saved-command")
+async def get_saved_command(model_id: str):
+    """
+    Return the Studio proxy ``cmd`` for this model using **stored** DB config only.
+    Cheap to poll: no request-body merge (unlike POST preview).
+    """
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    cache_key = _saved_cmd_cache_key(store, model)
+    now = time.monotonic()
+    cached = _saved_cmd_cache.get(cache_key)
+    if cached and now - cached[1] < _SAVED_CMD_CACHE_TTL:
+        return cached[0]
+
+    payload = await runtime_commands.preview_model_command_async({**model})
+    _saved_cmd_cache[cache_key] = (payload, now)
+    return payload
+
+
+@router.post("/{model_id:path}/preview-llama-swap-cmd", include_in_schema=False)
+@router.post("/{model_id:path}/preview-command")
+async def preview_command(model_id: str, body: dict = Body(default_factory=dict)):
+    """
+    Return the Studio proxy ``cmd`` string that would be generated for this model,
+    using the same merge rules as PUT /config. Body: ``{ "engine", "engines" }`` (optional).
+    """
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    merged = merge_model_config_put(model.get("config"), body or {})
+    _validate_model_runtime_config(store, model, merged)
+    preview_model = {**model, "config": merged}
+    return await runtime_commands.preview_model_command_async(preview_model)
+
+
+@router.post("/{model_id:path}/start")
+async def start_model(
+    model_id: str,
+    body: Optional[ActionConfirmBody] = Body(default=None),
+):
+    """Pass through model start to Studio proxy."""
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    proxy_model_name = resolve_proxy_name(model)
+    response = await _run_model_power(model_id, proxy_model_name, "start", body)
+    return _passthrough_native_proxy_response(response)
+
+
+def _connect_test_payload(model: dict) -> tuple[str, dict]:
+    """Bounded chat or embeddings probe. Audio stays on the Audio page."""
+    proxy_name = resolve_proxy_name(model)
+    if model_is_embedding(model):
+        return (
+            f"/upstream/{proxy_name}/v1/embeddings",
+            {"model": proxy_name, "input": "ping"},
+        )
+    fmt = str(model.get("format") or "").lower()
+    engine = ""
+    config = model.get("config")
+    if isinstance(config, dict):
+        engine = str(config.get("engine") or "")
+    if fmt == "audio_cpp" or engine == "audio_cpp":
+        raise HTTPException(
+            status_code=400,
+            detail="Audio models are tested from the Audio page.",
+        )
+    return (
+        f"/upstream/{proxy_name}/v1/chat/completions",
+        {
+            "model": proxy_name,
+            "messages": [{"role": "user", "content": "Reply with the word pong."}],
+            "max_tokens": 16,
+        },
+    )
+
+
+@router.post("/{model_id:path}/connect-test")
+async def connect_test_model(model_id: str):
+    """Relay a short inference probe through Studio so the browser stays same-origin."""
+    from backend.proxy.client import get_proxy_client
+
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    path, body = _connect_test_payload(model)
+    try:
+        response = await get_proxy_client().request("POST", path, json=body, timeout=10)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Inference proxy did not accept the test: {exc}",
+        ) from exc
+    text = response.text or ""
+    if len(text) > 4000:
+        text = text[:4000]
+    return {"status_code": response.status_code, "body": text}
+
+
+@router.post("/{model_id:path}/stop")
+async def stop_model(
+    model_id: str,
+    body: Optional[ActionConfirmBody] = Body(default=None),
+):
+    """Pass through model stop to Studio proxy."""
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    proxy_name = resolve_proxy_name(model)
+    response = await _run_model_power(model_id, proxy_name, "stop", body)
+    return _passthrough_native_proxy_response(response)
+
+
+async def _run_model_power(
+    model_id: str,
+    proxy_name: str,
+    action: str,
+    confirmation: Optional[ActionConfirmBody] = None,
+):
+    """Start or stop only after the effect-started row is durable.
+
+    ``effect_started: false`` is written first. The true value is replaced
+    and awaited before the proxy call. A crash before that replacement can
+    stay negative. A crash after it stays unknown even if the request was
+    never sent. A verified stopped model does not prove an earlier start
+    request cannot still take effect.
+    """
+    import uuid
+
+    import httpx
+
+    from backend.operations.action_recovery import (
+        ActionAdmissionError,
+        bind_action_confirmation,
+        classify_action,
+        open_action,
+        state_token,
+    )
+    from backend.operations.supervisor import ResourceBusyError, get_supervisor
+    from backend.proxy.client import get_proxy_client
+    from backend.store_io import StoreDurabilityError
+
+    kind = "model_start" if action == "start" else "model_stop"
+    resource_key = f"{kind}:{model_id}"
+    bind_action_confirmation(confirmation.model_dump() if confirmation is not None else None)
+    rows = get_store().list_operations()
+    active = [
+        row
+        for row in rows
+        if str(row.get("resource_key") or "") == resource_key
+        and str(row.get("status") or "") in {"queued", "running", "cancelling"}
+    ]
+    if active:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "ACTION_IN_FLIGHT",
+                "retry": "withheld",
+                "operation_id": str(active[-1].get("operation_id") or ""),
+                "message": "Another attempt for this model is still in progress. It was not sent again.",
+            },
+        )
+    prior = open_action(rows, resource_key)
+    supervisor = get_supervisor()
+    if prior is not None:
+        observation = await _observe_proxy_model(proxy_name)
+        decision = classify_action(kind, prior.get("detail"), observation)
+        if decision["retry"] == "unnecessary":
+            return httpx.Response(
+                200,
+                json={"model": proxy_name, "state": observation.get("state")},
+            )
+        if decision["retry"] != "safe":
+            token = state_token(prior)
+            operation_id = str(prior.get("operation_id") or "")
+            confirmed = (
+                confirmation is not None
+                and confirmation.confirm_operation_id == operation_id
+                and confirmation.confirm_state == token
+            )
+            if not confirmed:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "ACTION_RETRY_WITHHELD",
+                        "retry": "withheld",
+                        "operation_id": operation_id,
+                        "state_token": token,
+                        "message": (
+                            "Prior work may already have happened. "
+                            "Confirm this operation and its current state before trying again."
+                        ),
+                    },
+                )
+    operation_id = uuid.uuid4().hex
+    try:
+        supervisor.start_operation(
+            operation_id,
+            kind,
+            resource_key,
+            detail={
+                "model_id": model_id,
+                "proxy_name": proxy_name,
+                "effect_started": False,
+            },
+        )
+    except ResourceBusyError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "ACTION_IN_FLIGHT",
+                "retry": "withheld",
+                "message": str(exc),
+            },
+        ) from exc
+    except ActionAdmissionError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    client = get_proxy_client()
+    try:
+        await supervisor.fence_effect_started(operation_id)
+    except StoreDurabilityError as exc:
+        raise HTTPException(
+            status_code=503 if exc.committed is False else 500,
+            detail={
+                "code": "ACTION_NOT_SENT",
+                "retry": "safe" if exc.committed is False else "withheld",
+                "committed": exc.committed,
+                "message": (
+                    "The action had not started. It was not sent."
+                    if exc.committed is False
+                    else "Whether this action finished could not be established. It was not sent."
+                ),
+            },
+        ) from exc
+    try:
+        if action == "start":
+            response = await client.start_model_passthrough(proxy_name)
+        else:
+            response = await client.stop_model_passthrough(proxy_name)
+    except Exception as exc:
+        supervisor.finish_operation(
+            operation_id,
+            "unknown",
+            "Whether this action finished could not be established. It was not run again.",
+        )
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": "ACTION_RETRY_WITHHELD",
+                "retry": "withheld",
+                "message": (
+                    "Whether this action finished could not be established. It was not run again."
+                ),
+            },
+        ) from exc
+    if response.status_code >= 400:
+        supervisor.finish_operation(
+            operation_id,
+            "failed",
+            "The proxy rejected the action.",
+        )
+    else:
+        supervisor.finish_operation(operation_id, "succeeded", "")
+    return response
+
+
+async def _observe_proxy_model(proxy_name: str) -> dict:
+    from backend.proxy.client import get_proxy_client
+
+    try:
+        response = await get_proxy_client().request("GET", "/running", timeout=5)
+        if response.status_code >= 400:
+            return {"quality": "unreachable", "state": "unknown"}
+        payload = response.json()
+    except Exception:
+        return {"quality": "unreachable", "state": "unknown"}
+    rows = payload.get("running") if isinstance(payload, dict) else None
+    for item in rows or []:
+        if isinstance(item, dict) and item.get("model") == proxy_name:
+            state = str(item.get("state") or "running").lower()
+            if state not in {"running", "loading", "stopped"}:
+                state = "running"
+            return {"quality": "verified", "state": state}
+    return {"quality": "verified", "state": "stopped"}
+
+
+_HEAD_FALLBACK_CONCURRENCY = 4
+_head_fallback_semaphore = asyncio.Semaphore(_HEAD_FALLBACK_CONCURRENCY)
+
+
+async def _head_one_quantization_size(client, huggingface_id: str, quant_name: str, filename: str):
+    """HEAD one file through the shared client. Failures stay empty."""
+    from backend.http_client import UPSTREAM_TIMEOUT
+
+    url = f"https://huggingface.co/{huggingface_id}/resolve/main/{filename}"
+    async with _head_fallback_semaphore:
+        try:
+            response = await client.head(url, timeout=UPSTREAM_TIMEOUT)
+        except Exception:
+            return None
+    if response.status_code != 200:
+        return None
+    content_length = response.headers.get("content-length")
+    if not content_length:
+        return None
+    try:
+        actual_size = int(content_length)
+    except (TypeError, ValueError):
+        return None
+    return quant_name, {
+        "filename": filename,
+        "size": actual_size,
+        "size_mb": round(actual_size / (1024 * 1024), 2),
+    }
+
+
+async def _head_quantization_sizes(huggingface_id: str, quantizations: dict, missing: list) -> dict:
+    """Fill missing sizes with bounded concurrent HEAD requests."""
+    from backend.http_client import get_http_client
+
+    client = get_http_client()
+    tasks = []
+    for quant_name in missing:
+        quant_data = quantizations.get(quant_name) or {}
+        filename = quant_data.get("filename")
+        if not filename:
+            continue
+        tasks.append(_head_one_quantization_size(client, huggingface_id, quant_name, filename))
+    if not tasks:
+        return {}
+    filled = {}
+    for result in await asyncio.gather(*tasks):
+        if not result:
+            continue
+        quant_name, payload = result
+        filled[quant_name] = payload
+    return filled
+
+
+@router.post("/quantization-sizes")
+async def get_quantization_sizes(request: dict):
+    """Get actual file sizes for quantizations from HuggingFace API"""
+    try:
+        huggingface_id = request.get("huggingface_id")
+        quantizations = request.get("quantizations", {})
+
+        if not huggingface_id or not quantizations:
+            raise HTTPException(
+                status_code=400, detail="huggingface_id and quantizations are required"
+            )
+        # Use centralized Hugging Face service helper
+        from backend.models.hub import get_quantization_sizes_from_hf
+
+        try:
+            updated_quantizations = await get_quantization_sizes_from_hf(
+                huggingface_id, quantizations
+            )
+        except asyncio.TimeoutError as exc:
+            raise HTTPException(
+                status_code=504,
+                detail="Hugging Face quantization lookup timed out",
+            ) from exc
+
+        # Fallback: for any remaining without size, try HTTP HEAD
+        if updated_quantizations is None:
+            updated_quantizations = {}
+
+        missing = [q for q in quantizations.keys() if q not in updated_quantizations]
+        if missing:
+            filled = await _head_quantization_sizes(huggingface_id, quantizations, missing)
+            updated_quantizations.update(filled)
+
+        return {"quantizations": updated_quantizations}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+class DeleteGroupRequest(BaseModel):
+    huggingface_id: str
+    retire_launch_references: bool = False
+
+
+@router.post("/delete-group")
+async def delete_model_group(request: DeleteGroupRequest):
+    """Delete all quantizations of a model group"""
+    from backend.proxy.client import get_proxy_client
+
+    huggingface_id = request.huggingface_id
+    store = get_store()
+    models = [m for m in store.list_models() if m.get("huggingface_id") == huggingface_id]
+    if not models:
+        raise HTTPException(status_code=404, detail="Model group not found")
+
+    try:
+        running_data = await get_proxy_client().get_running_models()
+        running_list = running_data.get("running") or []
+        running_names = {
+            item.get("model")
+            for item in running_list
+            if item.get("state") in ("running", "ready", "loading")
+        }
+    except Exception:
+        running_names = set()
+
+    deleted_count = 0
+    try:
+        for model in models:
+            proxy_name = resolve_proxy_name(model)
+            if proxy_name in running_names:
+                try:
+                    from backend.proxy.control import get_proxy_controller
+
+                    await get_proxy_controller().unregister_model(proxy_name)
+                except Exception as e:
+                    logger.warning(
+                        "Failed to stop model %s: %s",
+                        proxy_name,
+                        describe_error(e),
+                        exc_info=e,
+                    )
+
+            await _remove_model_from_disk(
+                store, model, retire_references=request.retire_launch_references
+            )
+            store.delete_model(model.get("id"))
+            deleted_count += 1
+    except FilesystemRefusal as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+
+    _mark_runtime_changed()
+    return {"message": f"Deleted {deleted_count} quantizations"}
+
+
+@router.delete("/{model_id:path}")
+async def delete_model(model_id: str, retire_launch_references: bool = False):
+    """Delete individual model quantization and its files"""
+    from backend.proxy.client import get_proxy_client
+
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    proxy_name = resolve_proxy_name(model)
+
+    try:
+        running_data = await get_proxy_client().get_running_models()
+        running_list = running_data.get("running") or []
+        running_names = {
+            item.get("model")
+            for item in running_list
+            if item.get("state") in ("running", "ready", "loading")
+        }
+    except Exception:
+        running_names = set()
+    if proxy_name in running_names:
+        try:
+            from backend.proxy.control import get_proxy_controller
+
+            await get_proxy_controller().unregister_model(proxy_name)
+        except Exception as e:
+            logger.warning(
+                "Failed to stop model %s: %s",
+                proxy_name,
+                describe_error(e),
+                exc_info=e,
+            )
+
+    try:
+        await _remove_model_from_disk(store, model, retire_references=retire_launch_references)
+    except FilesystemRefusal as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    store.delete_model(model_id)
+    _mark_runtime_changed()
+    return {"message": "Model quantization deleted"}

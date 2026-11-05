@@ -1,0 +1,387 @@
+"""Voice preset validation edge cases."""
+
+import pytest
+
+from backend.audio.voice_presets import (
+    audio_request_defaults_to_request_params,
+    normalize_default_voice_preset,
+    normalize_voice_preset,
+    normalize_voice_presets,
+    resolve_session_voice_default,
+    seed_session_voice_from_ids,
+    validate_voice_presets,
+)
+
+
+def test_audio_request_defaults_to_request_params_maps_tts_fields():
+    params = audio_request_defaults_to_request_params(
+        {
+            "engine": "audio_cpp",
+            "task": "vdes",
+            "speech_defaults": {
+                "instructions": "warm adult narrator",
+                "temperature": 0.7,
+                "voice": "assistant",
+                "options": {"speaker": "Vivian"},
+            },
+        }
+    )
+    assert params == {
+        "instructions": "warm adult narrator",
+        "temperature": 0.7,
+        "voice": "assistant",
+        "options": {"speaker": "Vivian"},
+    }
+
+
+def test_audio_request_defaults_to_request_params_maps_transcription_fields():
+    from backend.audio.voice_presets import audio_request_defaults_to_request_params
+
+    params = audio_request_defaults_to_request_params(
+        {
+            "engine": "audio_cpp",
+            "task": "asr",
+            "family": "qwen3_asr",
+            "transcription_defaults": {
+                "language": "en",
+                "stream": True,
+                "prompt": "Transcribe clearly.",
+                "options": {"num_beams": 4},
+            },
+        }
+    )
+    assert params == {
+        "language": "en",
+        "stream": True,
+        "options": {"num_beams": 4, "text": "Transcribe clearly."},
+    }
+
+
+def test_audio_request_defaults_to_request_params_maps_task_defaults():
+    from backend.audio.voice_presets import audio_request_defaults_to_request_params
+
+    params = audio_request_defaults_to_request_params(
+        {
+            "engine": "audio_cpp",
+            "task": "gen",
+            "family": "ace_step",
+            "task_defaults": {
+                "duration_seconds": 30.0,
+                "guidance_scale": 7.5,
+                "options": {"steps": 50},
+            },
+        }
+    )
+    assert params == {
+        "duration_seconds": 30.0,
+        "guidance_scale": 7.5,
+        "options": {"steps": 50},
+    }
+
+
+def test_audio_request_defaults_to_request_params_ignores_non_tts_tasks():
+    assert audio_request_defaults_to_request_params(
+        {
+            "engine": "audio_cpp",
+            "task": "asr",
+            "transcription_defaults": {"language": "en"},
+        }
+    ) == {
+        "language": "en",
+    }
+
+
+def test_audio_request_defaults_to_request_params_ignores_other_engines():
+    assert audio_request_defaults_to_request_params(
+        {
+            "engine": "llama_cpp",
+            "task": "tts",
+            "speech_defaults": {"instructions": "ignored"},
+        }
+    ) == {}
+
+
+def test_normalize_voice_preset_requires_at_least_one_field():
+    assert normalize_voice_preset({}, model_root="/tmp") is None
+    assert normalize_voice_preset({"language": "en"}, model_root="/tmp") is None
+
+
+def test_normalize_voice_preset_accepts_voice_id_only():
+    out = normalize_voice_preset({"voice_id": "M1"}, model_root="/tmp")
+    assert out == {"voice_id": "M1"}
+
+
+def test_normalize_voice_presets_skips_empty_names_and_invalid_entries(tmp_path):
+    model_root = tmp_path / "bundle"
+    model_root.mkdir()
+    presets = normalize_voice_presets(
+        {
+            "": {"voice_id": "x"},
+            "valid": {"voice_id": "M1"},
+            "invalid": "not-a-dict",
+        },
+        model_root=str(model_root),
+    )
+    assert list(presets.keys()) == ["valid"]
+
+
+def test_validate_voice_presets_missing_named_default(tmp_path):
+    errors: list[str] = []
+    validate_voice_presets(
+        {
+            "voice_presets": {"assistant": {"voice_id": "M1"}},
+            "default_voice_preset": "missing",
+        },
+        model_root=str(tmp_path),
+        errors=errors,
+    )
+    assert any("not defined in voice_presets" in err for err in errors)
+
+
+def test_validate_voice_presets_missing_voice_ref_file(tmp_path):
+    model_root = tmp_path / "bundle"
+    model_root.mkdir()
+    errors: list[str] = []
+    validate_voice_presets(
+        {
+            "voice_presets": {
+                "clone": {"voice_ref": "missing.wav"},
+            }
+        },
+        model_root=str(model_root),
+        errors=errors,
+    )
+    assert any("voice_ref does not exist" in err for err in errors)
+
+
+def test_validate_voice_presets_rejects_relative_escape(tmp_path):
+    model_root = tmp_path / "bundle"
+    model_root.mkdir()
+    (tmp_path / "outside.wav").write_bytes(b"RIFF")
+    errors: list[str] = []
+    validate_voice_presets(
+        {
+            "voice_presets": {
+                "clone": {"voice_ref": "../outside.wav"},
+            }
+        },
+        model_root=str(model_root),
+        errors=errors,
+    )
+    assert any("voice_presets.clone.voice_ref escapes" in err for err in errors)
+
+
+def test_validate_voice_presets_inline_default_object_missing_fields(tmp_path):
+    errors: list[str] = []
+    validate_voice_presets(
+        {"default_voice_preset": {"language": "en"}},
+        model_root=str(tmp_path),
+        errors=errors,
+    )
+    assert any("must include voice_id, voice_ref, or reference_text" in err for err in errors)
+
+
+def test_normalize_speech_defaults_resolves_voice_ref_paths(tmp_path):
+    model_root = tmp_path / "bundle"
+    model_root.mkdir()
+    wav = model_root / "refs" / "voice.wav"
+    wav.parent.mkdir()
+    wav.write_bytes(b"RIFF")
+    from backend.audio.voice_presets import normalize_speech_defaults
+
+    out = normalize_speech_defaults(
+        {
+            "voice_ref": "refs/voice.wav",
+            "temperature": "0.8",
+            "max_tokens": "256",
+            "options": {"speaker": "Vivian"},
+        }
+    )
+    assert out["voice_ref"] == "refs/voice.wav"
+    assert out["temperature"] == 0.8
+    assert out["max_tokens"] == 256
+    assert out["options"]["speaker"] == "Vivian"
+
+
+def test_task_swap_params_merges_prompt_into_existing_options():
+    from backend.audio.voice_presets import _task_normalized_to_request_params
+
+    params = _task_normalized_to_request_params(
+        {
+            "text": "generate music",
+            "prompt": "upbeat chorus",
+            "options": {"task_route": "text2music", "text": "old"},
+        }
+    )
+    assert params["text"] == "generate music"
+    assert params["options"]["task_route"] == "text2music"
+    assert params["options"]["text"] == "upbeat chorus"
+
+
+def test_audio_request_defaults_to_request_params_for_clon_task():
+    params = audio_request_defaults_to_request_params(
+        {
+            "engine": "audio_cpp",
+            "task": "clon",
+            "family": "chatterbox",
+            "speech_defaults": {"voice": "assistant", "temperature": 0.5},
+        }
+    )
+    assert params == {"voice": "assistant", "temperature": 0.5}
+
+
+def test_validate_voice_presets_reference_text_only_preset_is_valid(tmp_path):
+    errors: list[str] = []
+    validate_voice_presets(
+        {
+            "voice_presets": {
+                "clone": {"reference_text": "Hello world."},
+            }
+        },
+        model_root=str(tmp_path),
+        errors=errors,
+    )
+    assert errors == []
+
+
+def test_normalize_speech_defaults_ignores_invalid_numeric_fields():
+    from backend.audio.voice_presets import normalize_speech_defaults
+
+    out = normalize_speech_defaults(
+        {"temperature": "hot", "max_tokens": "many", "voice": "assistant"}
+    )
+    assert out == {"voice": "assistant"}
+
+
+def test_normalize_default_voice_preset_inline_object(tmp_path):
+    wav = tmp_path / "ref.wav"
+    wav.write_bytes(b"RIFF")
+    out = normalize_default_voice_preset(
+        {"voice_ref": str(wav)},
+        model_root=str(tmp_path),
+    )
+    assert out["voice_ref"] == str(wav.resolve())
+
+
+def test_speech_defaults_voice_id_maps_to_openai_voice():
+    params = audio_request_defaults_to_request_params(
+        {
+            "engine": "audio_cpp",
+            "task": "tts",
+            "family": "pocket_tts",
+            "speech_defaults": {"voice_id": "alba", "temperature": 0.6},
+        }
+    )
+    assert params == {"voice": "alba", "temperature": 0.6}
+
+
+def test_resolve_session_voice_prefers_named_default(tmp_path):
+    out = resolve_session_voice_default(
+        {
+            "voice_presets": {"alba": {"voice_id": "alba"}, "clone": {"voice_ref": "x.wav"}},
+            "default_voice_preset": "alba",
+        },
+        model_root=str(tmp_path),
+    )
+    assert out == "alba"
+
+
+def test_resolve_session_voice_from_speech_defaults():
+    out = resolve_session_voice_default(
+        {"speech_defaults": {"voice_id": "alba"}},
+        model_root="/tmp",
+    )
+    assert out == {"voice_id": "alba"}
+
+
+def test_resolve_session_voice_promotes_unique_preset():
+    out = resolve_session_voice_default(
+        {"voice_presets": {"alba": {"voice_id": "alba"}}},
+        model_root="/tmp",
+    )
+    assert out == "alba"
+
+
+def test_resolve_session_voice_missing_returns_none():
+    assert resolve_session_voice_default({}, model_root="/tmp") is None
+    assert (
+        resolve_session_voice_default(
+            {
+                "voice_presets": {
+                    "a": {"voice_id": "alba"},
+                    "b": {"voice_id": "cosette"},
+                }
+            },
+            model_root="/tmp",
+        )
+        is None
+    )
+
+
+def test_seed_session_voice_uses_spec_default_before_other_ids():
+    config = {}
+    assert seed_session_voice_from_ids(
+        config,
+        ["bruno", "leo"],
+        preferred="leo",
+    ) is True
+    assert config["default_voice_preset"] == "leo"
+    assert config["voice_presets"]["leo"]["voice_id"] == "leo"
+
+
+def test_seed_session_voice_from_ids_creates_named_default():
+    config = {}
+    assert seed_session_voice_from_ids(config, ["cosette", "alba"]) is True
+    assert config["default_voice_preset"] == "alba"
+    assert config["voice_presets"]["alba"] == {"voice_id": "alba"}
+
+
+def test_seed_session_voice_from_ids_fills_empty_named_default():
+    config = {
+        "voice_presets": {"preset-1": {}},
+        "default_voice_preset": "preset-1",
+    }
+    assert seed_session_voice_from_ids(config, ["cosette"]) is True
+    assert config["default_voice_preset"] == "preset-1"
+    assert config["voice_presets"]["preset-1"]["voice_id"] == "cosette"
+
+
+def test_seed_session_voice_from_ids_skips_when_usable_default_exists():
+    config = {
+        "voice_presets": {"clone": {"voice_id": "cosette"}},
+        "default_voice_preset": "clone",
+    }
+    assert seed_session_voice_from_ids(config, ["alba"]) is False
+    assert config["default_voice_preset"] == "clone"
+    assert "alba" not in config["voice_presets"]
+
+
+def test_normalize_speech_defaults_coerces_streaming_fields():
+    from backend.audio.voice_presets import normalize_speech_defaults
+
+    out = normalize_speech_defaults(
+        {"stream": "true", "stream_format": " sse ", "return_text": 0, "voice": "alba"}
+    )
+    assert out["stream"] is True
+    assert out["stream_format"] == "sse"
+    assert out["return_text"] is False
+    assert out["voice"] == "alba"
+
+
+def test_speech_stream_defaults_map_to_swap_params():
+    from backend.audio.voice_presets import audio_request_defaults_to_request_params
+
+    config = {
+        "engine": "audio_cpp",
+        "family": "pocket_tts",
+        "task": "tts",
+        "speech_defaults": {
+            "stream": True,
+            "stream_format": "sse",
+            "voice": "alba",
+        },
+    }
+    params = audio_request_defaults_to_request_params(config)
+    assert params["stream"] is True
+    assert params["stream_format"] == "sse"
+    assert params["voice"] == "alba"

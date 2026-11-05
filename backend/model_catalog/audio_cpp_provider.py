@@ -1,0 +1,572 @@
+"""Curated audio.cpp package catalog provider."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import subprocess
+import sys
+from typing import Any, Dict, Iterable, List, Optional
+
+from backend.engines.audio_cpp.discovery import build_discovery_index
+from backend.data_store import get_store
+from backend.feature_flags import audio_cpp_enabled
+from backend.engines.params import get_version_entry
+from backend.logging_config import get_logger
+from backend.model_catalog.base import normalized_item
+
+
+logger = get_logger(__name__)
+
+_GATED_TEXT_MARKERS = (
+    "gated",
+    "requires access",
+    "accept the license",
+    "accept the conditions",
+)
+
+_METHOD_LABELS = {
+    "builtin": "Built-in utility",
+    "direct": "Direct HF",
+    "composite": "Assemble",
+    "converter": "Convert",
+    "bundled": "Bundled asset",
+    "unavailable": "Unavailable",
+}
+
+_METHOD_HINTS = {
+    "builtin": "Registers an audio.cpp utility; the active engine owns its assets and no package download is needed.",
+    "direct": (
+        "Downloads a ready Hugging Face snapshot into the framework layout "
+        "(prefers audio.cpp model_manager_v2 when available)."
+    ),
+    "composite": "Assembles a package from more than one Hugging Face snapshot.",
+    "converter": "Converts an archive or local checkpoint into the framework layout.",
+    "bundled": "Ships inside the audio.cpp source tree (assets/framework/models); no Hugging Face download.",
+    "unavailable": "This package cannot be installed by the active audio.cpp model manager.",
+}
+
+
+def _collect_repo_ids(value: Any) -> List[str]:
+    output: List[str] = []
+    if isinstance(value, dict):
+        repo = value.get("repo_id")
+        if isinstance(repo, str):
+            output.append(repo)
+        for nested in value.values():
+            output.extend(_collect_repo_ids(nested))
+    elif isinstance(value, list):
+        for nested in value:
+            output.extend(_collect_repo_ids(nested))
+    return list(dict.fromkeys(output))
+
+
+def compute_upstream_install_kind(_package_id: str, source: Optional[dict]) -> str:
+    """Map a package source kind onto an install kind."""
+    source = source if isinstance(source, dict) else {}
+    source_kind = str(source.get("kind") or "").strip().lower()
+    if source_kind == "builtin":
+        return "builtin"
+    if source_kind == "bundled_asset":
+        return "bundled"
+    if source_kind == "huggingface_snapshot":
+        return "snapshot"
+    if source_kind == "composite_snapshot":
+        return "composite"
+    if source_kind == "utility":
+        return "utility"
+    if source_kind == "composite":
+        return "composite"
+    if source_kind == "unsupported":
+        return "unsupported"
+    return "unsupported"
+
+
+def resolve_studio_install_method(package: dict) -> str:
+    """Map a catalog package to Studio's install path: direct | composite | converter | bundled."""
+    package = package if isinstance(package, dict) else {}
+    source = package.get("source") if isinstance(package.get("source"), dict) else {}
+    package_id = str(package.get("id") or "")
+    install_kind = str(package.get("install_kind") or "").strip().lower()
+    source_kind = str(source.get("kind") or "").strip().lower()
+    # Recompute when the stored kind is missing or is actually a source kind.
+    if (
+        not install_kind
+        or install_kind == source_kind
+        or install_kind
+        in {"huggingface_snapshot", "composite_snapshot", "bundled_asset", "unknown"}
+    ):
+        install_kind = compute_upstream_install_kind(package_id, source)
+
+    if install_kind == "builtin" or source_kind == "builtin":
+        return "builtin"
+    if install_kind == "bundled" or source_kind == "bundled_asset":
+        return "bundled"
+    if install_kind == "snapshot":
+        return "direct"
+    if install_kind == "utility":
+        return "converter"
+    if install_kind == "composite":
+        # ConverterSource (non-utility) uses source.kind=composite; assemble uses
+        # composite_snapshot or a post-processed SnapshotSource.
+        if source_kind in {"composite", "utility"}:
+            return "converter"
+        return "composite"
+    if source_kind == "huggingface_snapshot":
+        return "direct"
+    if source_kind == "composite_snapshot":
+        return "composite"
+    if source_kind in {"composite", "utility"}:
+        return "converter"
+    return "unavailable"
+
+
+def install_method_label(method: str) -> str:
+    return _METHOD_LABELS.get(str(method or "").strip().lower(), "Unavailable")
+
+
+def install_method_hint(method: str) -> str:
+    return _METHOD_HINTS.get(str(method or "").strip().lower(), _METHOD_HINTS["unavailable"])
+
+
+def package_is_gated(
+    source: Optional[dict], *, description: Optional[str] = None
+) -> bool:
+    if isinstance(source, dict) and isinstance(source.get("gated"), bool):
+        return source["gated"]
+    text = " ".join(
+        filter(
+            None,
+            [
+                str(description or ""),
+                str((source or {}).get("description") or "")
+                if isinstance(source, dict)
+                else "",
+                str((source or {}).get("reason") or "")
+                if isinstance(source, dict)
+                else "",
+            ],
+        )
+    ).lower()
+    return any(marker in text for marker in _GATED_TEXT_MARKERS)
+
+
+def _manager_python(active: dict) -> str:
+    """Prefer the Studio helper venv (Torch) so ``list --json`` can run."""
+    python_name = "python.exe" if os.name == "nt" else "python"
+    python_subdir = "Scripts" if os.name == "nt" else "bin"
+    candidates: List[str] = []
+    helper_venv = str(active.get("helper_venv_path") or "").strip()
+    if helper_venv:
+        candidates.append(helper_venv)
+    # Default location created by AudioModelInstaller.ensure_helper_environment.
+    from backend.engines.audio_cpp.manager import _data_root
+
+    candidates.append(
+        os.path.join(_data_root(), "audio-cpp", "tools", "model-manager-venv")
+    )
+    for venv in candidates:
+        candidate = os.path.join(venv, python_subdir, python_name)
+        if os.path.isfile(candidate):
+            return candidate
+    return sys.executable
+
+
+def discover_bundled_framework_packages(
+    *,
+    source_path: str,
+    families: Iterable[str],
+    existing_package_ids: Iterable[str],
+) -> List[dict]:
+    """Expose loader families that ship under assets/framework/models/."""
+    root = os.path.join(str(source_path or ""), "assets", "framework", "models")
+    if not os.path.isdir(root):
+        return []
+    family_set = {str(f).strip().lower() for f in families if str(f).strip()}
+    existing = {str(pid).strip().lower() for pid in existing_package_ids if str(pid).strip()}
+    packages: List[dict] = []
+    try:
+        entries = sorted(os.listdir(root))
+    except OSError:
+        return []
+    for name in entries:
+        family = str(name or "").strip().lower()
+        if not family or family not in family_set or family in existing:
+            continue
+        model_dir = os.path.join(root, name)
+        if not os.path.isdir(model_dir):
+            continue
+        required: List[str] = []
+        try:
+            for dirpath, _dirnames, filenames in os.walk(model_dir):
+                for filename in filenames:
+                    rel = os.path.relpath(os.path.join(dirpath, filename), model_dir)
+                    required.append(rel.replace("\\", "/"))
+        except OSError:
+            required = []
+        packages.append(
+            {
+                "id": family,
+                "display_name": f"{family} (bundled)",
+                "target_directory": family,
+                "description": (
+                    "Bundled with the audio.cpp source tree under "
+                    "assets/framework/models. No Hugging Face download required."
+                ),
+                "required_files": required,
+                "source": {
+                    "kind": "bundled_asset",
+                    "path": model_dir,
+                    "relative_path": f"assets/framework/models/{name}",
+                },
+                "installable": True,
+                "install_kind": "bundled",
+                "family": family,
+                "standalone": True,
+                "usage_examples": [],
+            }
+        )
+    return packages
+
+
+class AudioCppCatalogProvider:
+    id = "audio_cpp"
+
+    def __init__(self, store=None):
+        self.store = store or get_store()
+        self.status: dict = {"available": False, "reason": None}
+
+    def _manager_packages(self, active: dict) -> List[dict]:
+        from backend.engines.audio_cpp.builtin import discover_builtin_audio_packages
+        from backend.engines.audio_cpp.model_managers import (
+            merge_catalog_packages,
+            normalize_v2_catalog_packages,
+            resolve_model_manager_v2_path,
+        )
+
+        version_entry = get_version_entry(self.store, "audio_cpp", str(active.get("version") or ""))
+        caps = (version_entry or {}).get("capabilities") or {}
+        families = [str(f).strip() for f in (caps.get("families") or []) if str(f).strip()]
+        builtins = discover_builtin_audio_packages(active, families)
+
+        v2_path = resolve_model_manager_v2_path(version_row=active)
+        if not v2_path:
+            if builtins:
+                self.status = {"available": True, "source": "engine_inspect", "builtin_packages": len(builtins)}
+                return builtins
+            self.status = {
+                "available": False,
+                "reason": (
+                    "The active audio.cpp version does not contain tools/model_manager_v2.py."
+                ),
+            }
+            return []
+
+        def _run_list_json(manager_path: str) -> subprocess.CompletedProcess:
+            try:
+                return subprocess.run(
+                    [_manager_python(active), manager_path, "list", "--json"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=120,
+                    cwd=os.path.dirname(manager_path),
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                return subprocess.CompletedProcess(
+                    args=[], returncode=1, stdout="", stderr=str(exc)
+                )
+
+        packages: List[dict] = []
+        source = "missing"
+        process = _run_list_json(v2_path)
+        if process.returncode == 0:
+            try:
+                payload = json.loads(process.stdout)
+                if isinstance(payload, list):
+                    packages = normalize_v2_catalog_packages(
+                        [item for item in payload if isinstance(item, dict)],
+                        source_path=str(active.get("source_path") or "") or None,
+                    )
+                    source = "model_manager_v2_json"
+            except json.JSONDecodeError:
+                pass
+
+        if not packages and not builtins:
+            self.status = {
+                "available": False,
+                "reason": "No package declarations were found in model_manager_v2.py.",
+                "manager_warning": (process.stderr or "").strip()[-1000:] or None,
+            }
+            return []
+
+        bundled = discover_bundled_framework_packages(
+            source_path=str(active.get("source_path") or ""),
+            families=families,
+            existing_package_ids=[
+                str(pkg.get("id") or "") for pkg in packages if isinstance(pkg, dict)
+            ],
+        )
+        if bundled:
+            packages = [*packages, *bundled]
+        packages = merge_catalog_packages(packages, builtins)
+
+        self.status = {
+            "available": bool(packages),
+            "source": source,
+            "reason": None if packages else "No package declarations were found.",
+            "bundled_packages": len(bundled),
+            "builtin_packages": len(builtins),
+            "manager_v2": True,
+        }
+        if process.stderr:
+            self.status["manager_warning"] = process.stderr.strip()[-1000:]
+        return packages
+
+    def _normalize_packages(self, packages: Iterable[dict], active: dict) -> List[dict]:
+        version_entry = get_version_entry(
+            self.store, "audio_cpp", str(active.get("version") or "")
+        )
+        caps = (version_entry or {}).get("capabilities") or {}
+        scanned_families = [
+            str(f).strip() for f in (caps.get("families") or []) if str(f).strip()
+        ]
+        family_tasks = caps.get("family_tasks") if isinstance(caps.get("family_tasks"), dict) else {}
+        package_list = list(packages)
+        index = build_discovery_index(
+            packages=package_list,
+            families=scanned_families,
+            family_tasks=family_tasks,
+            family_modes=(
+                caps.get("family_modes")
+                if isinstance(caps.get("family_modes"), dict)
+                else None
+            ),
+            source_path=str(active.get("source_path") or ""),
+        )
+        active_commit = active.get("source_commit") or active.get("version")
+        output: List[dict] = []
+        for package in package_list:
+            package_id = str(package.get("id") or "").strip()
+            if not package_id:
+                continue
+            discovered = index.get(package_id)
+            family = (
+                (discovered.family if discovered and discovered.family else None)
+                or str(package.get("family") or "")
+            )
+            standalone = True if discovered is None else bool(discovered.standalone)
+            tasks = list(discovered.tasks) if discovered and discovered.tasks else list(package.get("tasks") or [])
+            modes = list(discovered.modes) if discovered and discovered.modes else list(package.get("modes") or [])
+            installable = bool(package.get("installable", True)) and standalone
+            verified = bool(
+                installable and scanned_families and family in set(scanned_families)
+            )
+            parent = discovered.parent_package_id if discovered else None
+            if not standalone:
+                unavailable = (
+                    f"Dependency/subcomponent package; install parent "
+                    f"'{parent}' instead."
+                    if parent
+                    else "Dependency/subcomponent package; install its parent runtime package."
+                )
+            elif not package.get("installable", True):
+                unavailable = (
+                    (package.get("source") or {}).get("reason")
+                    or "The active audio.cpp version cannot install this package."
+                )
+            elif not scanned_families:
+                unavailable = "Activate and capability-scan audio.cpp to verify loader compatibility."
+            elif not family:
+                unavailable = (
+                    "Neither the package catalog nor model_specs declares a loader "
+                    "family for this package; audio.cpp cannot verify compatibility."
+                )
+            elif family not in set(scanned_families):
+                unavailable = (
+                    f"The active audio.cpp build does not advertise loader family '{family}'."
+                )
+            else:
+                unavailable = None
+
+            source = package.get("source") if isinstance(package.get("source"), dict) else {}
+            # Catalog adapters may omit access metadata that the engine spec retains.
+            if not isinstance(package.get("gated"), bool) and not isinstance(source.get("gated"), bool):
+                from backend.engines.audio_cpp.contracts import load_family_contract
+
+                contract = load_family_contract(str(active.get("source_path") or ""), family) if family else None
+                if contract:
+                    declared = next((row for row in contract.get("packages", [])
+                                     if isinstance(row, dict) and row.get("id") == package_id), None)
+                    if declared is not None:
+                        defaults = contract.get("package_defaults") or {}
+                        candidates = [declared, declared.get("download"), defaults.get("download")]
+                        for candidate in candidates:
+                            if isinstance(candidate, dict) and isinstance(candidate.get("gated"), bool):
+                                source = {**source, "gated": candidate["gated"]}
+                                break
+            source_kind = str(source.get("kind") or "unknown")
+            install_kind = str(
+                package.get("install_kind")
+                or compute_upstream_install_kind(package_id, source)
+            )
+            method_package = {
+                **package,
+                "id": package_id,
+                "source": source,
+                "install_kind": install_kind,
+            }
+            method = resolve_studio_install_method(method_package)
+            if isinstance(package.get("gated"), bool):
+                gated = bool(package.get("gated"))
+            else:
+                gated = package_is_gated(
+                    source, description=str(package.get("description") or "")
+                )
+            features = [
+                *tasks,
+                "streaming" if "streaming" in modes else "",
+                "builtin" if method == "builtin" else "prepared-bundle",
+                "model-manager" if method in {"composite", "converter"} else "",
+            ]
+            output.append(
+                normalized_item(
+                    provider="audio_cpp",
+                    item_id=package_id,
+                    display_name=package.get("display_name") or package_id,
+                    description=package.get("description") or "",
+                    source={
+                        "provider": "audio_cpp",
+                        "package_id": package_id,
+                        "id": package_id,
+                        "upstream": source,
+                        "engine_commit": active_commit,
+                    },
+                    artifact_format="builtin" if method == "builtin" else "mixed",
+                    package_kind="builtin" if method == "builtin" else "prepared_bundle",
+                    tasks=tasks,
+                    family=family,
+                    modes=modes,
+                    languages=[],
+                    features=features,
+                    compatible_engines=["audio_cpp"] if verified else [],
+                    compatibility={
+                        "audio_cpp": {
+                            "verified": verified,
+                            "evidence": [
+                                f"audio.cpp model manager at {active_commit}",
+                                (
+                                    f"active loader scan advertises {family}"
+                                    if family in set(scanned_families)
+                                    else f"active loader scan does not advertise {family}"
+                                ),
+                                (
+                                    f"discovery match score={discovered.match_score:.1f}"
+                                    f" ({discovered.match_reason})"
+                                    if discovered
+                                    else "no engine-declared family"
+                                ),
+                                (
+                                    f"discovery_source="
+                                    f"{discovered.discovery_source if discovered else 'undeclared'}"
+                                ),
+                                f"install_method={method}",
+                            ],
+                        }
+                    },
+                    install_variants=[
+                        {
+                            "id": package_id,
+                            "label": package.get("display_name") or package_id,
+                            "method": method,
+                            "method_label": install_method_label(method),
+                            "method_hint": install_method_hint(method),
+                            "uses_model_manager": method in {"composite", "converter"},
+                            "manager_backend": str(package.get("manager_backend") or ""),
+                            "install_kind": install_kind,
+                            "installable": bool(installable and verified),
+                            "required_files": package.get("required_files") or [],
+                            "source": source,
+                            "format": str(package.get("format") or ""),
+                            "precision": str(package.get("precision") or ""),
+                            "default": bool(package.get("default")),
+                            "external_inputs_required": source_kind == "utility",
+                            "external_inputs_optional": (
+                                bool(source.get("external_inputs_optional"))
+                            ),
+                            "operation_kind": source.get("operation_kind"),
+                            "operation_description": source.get("description"),
+                        }
+                    ],
+                    size_bytes=package.get("size_bytes"),
+                    gated=gated,
+                    release_status=(
+                        "stable"
+                        if discovered
+                        and discovered.discovery_source == "json"
+                        else "experimental"
+                    ),
+                    unavailable_reason=unavailable,
+                    metadata={
+                        "access_status": (
+                            "gated" if gated else "public"
+                            if isinstance(package.get("gated"), bool)
+                            or isinstance(source.get("gated"), bool) else "unknown"
+                        ),
+                        "target_directory": package.get("target_directory"),
+                        "usage_examples": package.get("usage_examples") or [],
+                        "install_kind": install_kind,
+                        "install_method": method,
+                        "manager_backend": str(package.get("manager_backend") or ""),
+                        "format": str(package.get("format") or ""),
+                        "precision": str(package.get("precision") or ""),
+                        "default": bool(package.get("default")),
+                        "discovery": {
+                            "family": family,
+                            "standalone": standalone,
+                            "parent_package_id": parent,
+                            "match_score": discovered.match_score if discovered else None,
+                            "match_reason": discovered.match_reason if discovered else None,
+                            "discovery_source": (
+                                discovered.discovery_source if discovered else "undeclared"
+                            ),
+                        },
+                    },
+                )
+            )
+        return output
+
+    async def search(self, query: str, limit: int, filters: dict) -> List[dict]:
+        if not audio_cpp_enabled():
+            self.status = {
+                "available": False,
+                "reason": "The audio.cpp integration is disabled by AUDIO_CPP_ENABLED.",
+            }
+            return []
+        active = self.store.get_active_engine_version("audio_cpp")
+        if not active:
+            self.status = {
+                "available": False,
+                "reason": "Install and activate audio.cpp to load its version-pinned package catalog.",
+            }
+            return []
+        packages = await asyncio.to_thread(self._manager_packages, active)
+        items = self._normalize_packages(packages, active)
+        needle = str(query or "").strip().lower()
+        if needle:
+            items = [
+                item
+                for item in items
+                if needle
+                in " ".join(
+                    [
+                        str(item.get("provider_item_id") or ""),
+                        str(item.get("display_name") or ""),
+                        str(item.get("description") or ""),
+                        str(item.get("family") or ""),
+                        " ".join(item.get("tasks") or []),
+                    ]
+                ).lower()
+            ]
+        return items[: max(limit, 1)]

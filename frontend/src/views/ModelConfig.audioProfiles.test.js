@@ -1,0 +1,744 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { enableAutoUnmount, mount, flushPromises } from '@vue/test-utils'
+
+enableAutoUnmount(afterEach)
+
+import ModelConfig from './ModelConfig.vue'
+
+const toastAdd = vi.fn()
+const fetchModels = vi.fn()
+const listReferenceAudio = vi.fn().mockResolvedValue([])
+const uploadReferenceAudio = vi.fn()
+const deleteReferenceAudio = vi.fn()
+const fetchRuntimePlanState = vi.fn()
+const fetchGpuList = vi.fn()
+const invalidateRuntimePlan = vi.fn()
+
+vi.mock('axios', () => ({
+  default: {
+    defaults: {},
+    get: vi.fn(),
+    post: vi.fn(),
+    put: vi.fn(),
+    interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
+  },
+}))
+
+vi.mock('vue-router', () => ({
+  useRoute: () => ({ params: { id: 'audio-model-1' } }),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  onBeforeRouteLeave: () => {},
+}))
+
+vi.mock('primevue/usetoast', () => ({
+  useToast: () => ({ add: toastAdd }),
+}))
+
+vi.mock('primevue/useconfirm', () => ({
+  useConfirm: () => ({ require: vi.fn() }),
+}))
+
+vi.mock('@/stores/models', () => ({
+  useModelStore: () => ({
+    models: [
+      {
+        base_model_name: 'Audio Model',
+        huggingface_id: 'org/audio-model',
+        quantizations: [
+          {
+            id: 'audio-model-1',
+            display_name: 'Audio Model',
+            base_model_name: 'Audio Model',
+            huggingface_id: 'org/audio-model',
+            format: 'audio_cpp',
+          },
+        ],
+      },
+    ],
+    allQuantizations: [],
+    fetchModels,
+    listReferenceAudio,
+    uploadReferenceAudio,
+    deleteReferenceAudio,
+  }),
+}))
+
+const fetchEngineDescriptors = vi.fn()
+
+vi.mock('@/stores/engines', () => ({
+  useEnginesStore: () => ({
+    runtimePlanState: { applicable: false, stale: false },
+    engineDescriptors: [
+      {
+        id: 'audio_cpp',
+        label: 'audio.cpp',
+        available_runtime_backends: ['cpu', 'cuda'],
+      },
+    ],
+    fetchRuntimePlanState,
+    fetchGpuList,
+    fetchEngineDescriptors,
+    invalidateRuntimePlan,
+  }),
+}))
+
+import axios from 'axios'
+
+const buttonStub = {
+  props: ['label', 'icon', 'text', 'severity', 'loading', 'outlined', 'rounded'],
+  emits: ['click'],
+  template: '<button :data-label="label" @click="$emit(`click`)">{{ label }}</button>',
+}
+
+const textInputStub = {
+  props: ['modelValue', 'placeholder', 'disabled', 'id'],
+  emits: ['update:modelValue'],
+  template:
+    '<input :id="id" :value="modelValue ?? ``" :placeholder="placeholder" :disabled="disabled" @input="$emit(`update:modelValue`, $event.target.value)" />',
+}
+
+const textareaStub = {
+  props: ['modelValue', 'rows', 'readonly'],
+  emits: ['update:modelValue'],
+  template:
+    '<textarea :value="modelValue ?? ``" :readonly="readonly" @input="$emit(`update:modelValue`, $event.target.value)" />',
+}
+
+function selectStub(name = 'select') {
+  return {
+    props: ['modelValue', 'options', 'disabled', 'id'],
+    emits: ['update:modelValue'],
+    template: `<${name} :id="id" :disabled="disabled" :value="modelValue ?? ''" @change="$emit('update:modelValue', $event.target.value)">
+      <option value=""></option>
+      <option v-for="opt in options || []" :key="opt.value ?? opt" :value="opt.value ?? opt">{{ opt.label ?? opt }}</option>
+    </${name}>`,
+  }
+}
+
+function mountView() {
+  return mount(ModelConfig, {
+    global: {
+      directives: {
+        tooltip: (el, binding) => {
+          el.setAttribute('data-tooltip', String(binding.value || ''))
+        },
+      },
+      stubs: {
+        RouterLink: { template: '<a><slot /></a>' },
+        Button: buttonStub,
+        Tag: { props: ['value'], template: '<span>{{ value }}</span>' },
+        InputText: textInputStub,
+        InputNumber: textInputStub,
+        ToggleSwitch: {
+          props: ['modelValue', 'inputId'],
+          emits: ['update:modelValue'],
+          template:
+            '<input :id="inputId" type="checkbox" :checked="Boolean(modelValue)" @change="$emit(`update:modelValue`, $event.target.checked)" />',
+        },
+        Select: selectStub(),
+        InputTags: {
+          props: ['modelValue', 'id'],
+          emits: ['update:modelValue'],
+          template:
+            '<input :id="id" :value="Array.isArray(modelValue) ? modelValue.join(`,`) : ``" @input="$emit(`update:modelValue`, $event.target.value ? $event.target.value.split(`,`) : [])" />',
+        },
+        Message: { template: '<div><slot /></div>' },
+        Textarea: textareaStub,
+        MultiSelect: {
+          props: ['modelValue'],
+          emits: ['update:modelValue'],
+          template: '<div class="multiselect-stub" />',
+        },
+        Slider: true,
+        LoadingState: { template: '<div>loading</div>' },
+        EmptyState: { template: '<div><slot /></div>' },
+        PageHeader: { template: '<div><slot name="start" /><slot name="title" /><slot name="actions" /></div>' },
+        Dialog: {
+          props: ['visible', 'header'],
+          emits: ['update:visible', 'show'],
+          template:
+            '<div v-if="visible" class="dialog-stub"><slot /><slot name="footer" /></div>',
+        },
+      },
+    },
+  })
+}
+
+async function settleView(wrapper) {
+  await vi.waitFor(() => expect(wrapper.vm.loading).toBe(false))
+  await flushPromises()
+  await wrapper.vm.$nextTick()
+  await flushPromises()
+}
+
+function audioConfigResponse(audioSection = {}) {
+  return {
+    engine: 'audio_cpp',
+    engines: {
+      audio_cpp: {
+        family: 'omnivoice',
+        task: 'tts',
+        mode: 'offline',
+        backend: 'cuda',
+        ...audioSection,
+      },
+    },
+  }
+}
+
+function paramRegistryResponse(overrides = {}) {
+  const merged = {
+    sections: [
+      {
+        id: 'identity',
+        label: 'Identity',
+        params: [
+          {
+            key: 'family',
+            label: 'Family',
+            type: 'string',
+            scope: 'process',
+            supported: true,
+          },
+          {
+            key: 'task',
+            label: 'Task',
+            type: 'string',
+            scope: 'process',
+            supported: true,
+          },
+          {
+            key: 'mode',
+            label: 'Mode',
+            type: 'string',
+            scope: 'process',
+            supported: true,
+          },
+          {
+            key: 'backend',
+            label: 'Backend',
+            type: 'string',
+            scope: 'process',
+            supported: true,
+          },
+        ],
+      },
+    ],
+    scan_error: null,
+    scan_pending: false,
+    task_profile: {
+      label: 'OmniVoice',
+      workflows: ['clone', 'design'],
+      summary: 'Clone from reference audio or design a voice with instructions.',
+      api_hint: 'Use voice presets for cloning.',
+    },
+    request_field_groups: [
+      {
+        id: 'voice',
+        label: 'Voice & reference',
+        fields: [
+          { key: 'voice_ref', label: 'Reference audio', type: 'path', preset_field: true },
+        ],
+      },
+    ],
+    request_defaults_key: 'speech_defaults',
+    api_endpoint: '/v1/audio/speech',
+    api_example_hint: 'OpenAI-compatible speech synthesis request.',
+    instructions_policy: 'soft_tags',
+    ...overrides,
+  }
+  if (!Object.prototype.hasOwnProperty.call(overrides, 'supports_voice_presets')) {
+    merged.supports_voice_presets = merged.request_defaults_key === 'speech_defaults'
+  }
+  if (
+    !Object.prototype.hasOwnProperty.call(overrides, 'instructions_policy')
+    && merged.request_defaults_key !== 'speech_defaults'
+  ) {
+    merged.instructions_policy = 'none'
+  }
+  return merged
+}
+
+function setupAudioMocks(registryOverrides = {}, configSection = {}, { onRegistry } = {}) {
+  const registryCalls = []
+  vi.mocked(axios.get).mockImplementation((url, config) => {
+    if (url === '/api/models/audio-model-1/config') {
+      return Promise.resolve({ data: audioConfigResponse(configSection) })
+    }
+    if (url === '/api/models/param-registry') {
+      const params = { ...(config?.params || {}) }
+      registryCalls.push(params)
+      const payload = onRegistry
+        ? onRegistry(params, registryOverrides)
+        : paramRegistryResponse(registryOverrides)
+      return Promise.resolve({ data: payload })
+    }
+    if (url === '/api/models/audio-model-1/saved-command') {
+      return Promise.resolve({ data: { ok: true, cmd: 'saved-cmd' } })
+    }
+    if (url === '/api/gpu-list') {
+      return Promise.resolve({
+        data: { vendor: null, device_count: 0, gpus: [], cpu_only_mode: true },
+      })
+    }
+    throw new Error(`Unexpected GET ${url} ${JSON.stringify(config?.params || {})}`)
+  })
+
+  vi.mocked(axios.put).mockResolvedValue({
+    data: audioConfigResponse(configSection),
+  })
+  return { registryCalls }
+}
+
+describe('ModelConfig audio profiles', () => {
+  beforeEach(() => {
+    sessionStorage.clear()
+    toastAdd.mockReset()
+    fetchModels.mockReset()
+    fetchRuntimePlanState.mockReset()
+    fetchGpuList.mockReset()
+    fetchEngineDescriptors.mockReset()
+    invalidateRuntimePlan.mockReset()
+    listReferenceAudio.mockReset()
+    listReferenceAudio.mockResolvedValue([])
+    uploadReferenceAudio.mockReset()
+    deleteReferenceAudio.mockReset()
+    vi.mocked(axios.get).mockReset()
+    vi.mocked(axios.post).mockReset()
+    vi.mocked(axios.put).mockReset()
+
+    fetchGpuList.mockResolvedValue({
+      vendor: null,
+      device_count: 0,
+      gpus: [],
+      cpu_only_mode: true,
+    })
+    fetchEngineDescriptors.mockResolvedValue([
+      {
+        id: 'audio_cpp',
+        label: 'audio.cpp',
+        available_runtime_backends: ['cpu', 'cuda'],
+      },
+    ])
+    vi.mocked(axios.post).mockImplementation((url, payload) => {
+      if (url === '/api/models/audio-model-1/preview-command') {
+        return Promise.resolve({ data: { ok: true, cmd: JSON.stringify(payload) } })
+      }
+      throw new Error(`Unexpected POST ${url}`)
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('shows GPU assignment on the audio runtime tab', async () => {
+    setupAudioMocks()
+    fetchGpuList.mockResolvedValue({
+      vendor: 'nvidia',
+      device_count: 1,
+      gpus: [{ index: 0, name: 'RTX 4090', uuid: 'GPU-1' }],
+      cpu_only_mode: false,
+    })
+    const wrapper = mountView()
+    await settleView(wrapper)
+
+    expect(wrapper.find('#gpu-mode').exists()).toBe(true)
+    expect(wrapper.text()).toContain('All GPUs')
+    const choose = wrapper.findAll('#gpu-mode button').find((button) => button.text() === 'Choose GPUs')
+    await choose.trigger('click')
+    expect(wrapper.text()).toContain('RTX 4090')
+    expect(wrapper.get('.gpu-card').text()).toContain('Not used')
+
+    const assets = wrapper.findAll('button').find((button) => button.text().includes('Assets'))
+    await assets.trigger('click')
+    expect(wrapper.find('#gpu-mode').exists()).toBe(false)
+  })
+
+  it('renders speech profile card for TTS models', async () => {
+    setupAudioMocks()
+    const wrapper = mountView()
+    await settleView(wrapper)
+
+    expect(wrapper.text()).toContain('Speech synthesis defaults')
+    expect(wrapper.text()).toContain('Runtime')
+    expect(wrapper.text()).toContain('Defaults')
+    expect(wrapper.text()).toContain('Voice presets')
+    expect(wrapper.text()).toContain('/v1/audio/speech')
+  })
+
+  it('renders transcription profile card for ASR models', async () => {
+    setupAudioMocks(
+      {
+        task_profile: {
+          label: 'Nemotron ASR',
+          workflows: ['offline', 'streaming'],
+          summary: 'RNNT ASR with language prompts.',
+          api_hint: 'Supports streaming.',
+        },
+        request_field_groups: [
+          {
+            id: 'context',
+            label: 'Prompt & language',
+            fields: [{ key: 'language', label: 'Language', type: 'string' }],
+          },
+        ],
+        request_defaults_key: 'transcription_defaults',
+        api_endpoint: '/v1/audio/transcriptions',
+        api_example_hint: 'JSON uses a server-local audio path.',
+      },
+      { family: 'nemotron_asr', task: 'asr' },
+    )
+    const wrapper = mountView()
+    await settleView(wrapper)
+
+    expect(wrapper.text()).toContain('Transcription defaults')
+    expect(wrapper.text()).not.toContain('Add preset')
+    expect(wrapper.text()).toContain('/v1/audio/transcriptions')
+  })
+
+  it('renders generic task defaults card for generation models', async () => {
+    setupAudioMocks(
+      {
+        task_profile: {
+          label: 'ACE-Step',
+          workflows: ['text2music', 'repaint'],
+          summary: 'Generate and edit music from prompts.',
+          api_hint: 'Routes control source audio requirements.',
+        },
+        request_field_groups: [
+          {
+            id: 'route',
+            label: 'Route',
+            fields: [{ key: 'task_route', label: 'Task route', type: 'string' }],
+          },
+        ],
+        request_defaults_key: 'task_defaults',
+        api_endpoint: '/audioapi/v1/tasks/run',
+        api_example_hint: 'Generic task request via Studio proxy /audioapi/v1/tasks/run.',
+      },
+      { family: 'ace_step', task: 'gen' },
+    )
+    const wrapper = mountView()
+    await settleView(wrapper)
+
+    expect(wrapper.text()).toContain('Task request defaults')
+    expect(wrapper.text()).toContain('/audioapi/v1/tasks/run')
+    expect(wrapper.text()).toContain('API example')
+  })
+
+  it('persists speech_defaults and voice presets on save', async () => {
+    setupAudioMocks(
+      {},
+      {
+        voice_presets: { assistant: { voice_id: 'M1' } },
+        default_voice_preset: 'assistant',
+        speech_defaults: { voice: 'assistant', language: 'en' },
+      },
+    )
+    const wrapper = mountView()
+    await settleView(wrapper)
+
+    await wrapper.get('button[data-label="Save changes"]').trigger('click')
+    await flushPromises()
+
+    expect(axios.put).toHaveBeenCalledWith(
+      '/api/models/audio-model-1/config',
+      expect.objectContaining({
+        engine: 'audio_cpp',
+        engines: {
+          audio_cpp: expect.objectContaining({
+            voice_presets: { assistant: { voice_id: 'M1' } },
+            default_voice_preset: 'assistant',
+            speech_defaults: { voice: 'assistant', language: 'en' },
+          }),
+        },
+      }),
+    )
+  })
+
+  it('persists task_defaults on save for generic tasks', async () => {
+    setupAudioMocks(
+      {
+        task_profile: {
+          label: 'Seed-VC',
+          workflows: ['v2_vc'],
+          summary: 'Voice conversion.',
+          api_hint: 'Default vc route is v2_vc.',
+        },
+        request_field_groups: [
+          {
+            id: 'audio',
+            label: 'Audio inputs',
+            fields: [{ key: 'audio', label: 'Input audio', type: 'path' }],
+          },
+        ],
+        request_defaults_key: 'task_defaults',
+        api_endpoint: '/audioapi/v1/tasks/run',
+      },
+      {
+        family: 'seed_vc',
+        task: 'vc',
+        task_defaults: {
+          audio: 'source.wav',
+          options: { task_route: 'v2_vc' },
+        },
+      },
+    )
+    const wrapper = mountView()
+    await settleView(wrapper)
+
+    await wrapper.get('button[data-label="Save changes"]').trigger('click')
+    await flushPromises()
+
+    expect(axios.put).toHaveBeenCalledWith(
+      '/api/models/audio-model-1/config',
+      expect.objectContaining({
+        engines: {
+          audio_cpp: expect.objectContaining({
+            task_defaults: {
+              audio: 'source.wav',
+              options: { task_route: 'v2_vc' },
+            },
+          }),
+        },
+      }),
+    )
+  })
+
+  it('does not warn about studio-managed audio.cpp keys', async () => {
+    setupAudioMocks(
+      {},
+      {
+        lazy_load: false,
+        speech_defaults: { voice: 'assistant' },
+        voice_presets: { assistant: { voice_id: 'M1' } },
+        default_voice_preset: 'assistant',
+      },
+    )
+    const wrapper = mountView()
+    await settleView(wrapper)
+
+    expect(wrapper.text()).not.toContain('Unrecognized audio.cpp keys')
+  })
+
+  it('does not warn about a changed audio.cpp engine on the model config page', async () => {
+    setupAudioMocks(
+      {
+        contract_fingerprint: 'new-fingerprint',
+        contract_changed: true,
+        contract_review_required: true,
+        last_reviewed_fingerprint: 'old-fingerprint',
+      },
+      { last_reviewed_fingerprint: 'old-fingerprint' },
+    )
+    const wrapper = mountView()
+    await settleView(wrapper)
+
+    expect(wrapper.text()).not.toContain('This audio.cpp build changed')
+    expect(wrapper.text()).not.toContain('Mark reviewed')
+    expect(wrapper.text()).not.toContain('confirm this model')
+  })
+
+  it('shows fallback guidance when registry has no task_profile', async () => {
+    setupAudioMocks({
+      task_profile: null,
+      request_field_groups: [],
+      request_defaults_key: 'task_defaults',
+      api_endpoint: '/audioapi/v1/tasks/run',
+    })
+    const wrapper = mountView()
+    await settleView(wrapper)
+
+    expect(wrapper.text()).not.toContain('Speech synthesis defaults')
+    expect(wrapper.text()).not.toContain('Transcription defaults')
+    expect(wrapper.text()).toContain('No request defaults profile is available for this audio model')
+    expect(listReferenceAudio).toHaveBeenCalledWith('audio-model-1')
+  })
+
+  it('loads reference audio library on the Assets tab for profiled models', async () => {
+    listReferenceAudio.mockResolvedValue([
+      {
+        path: '/app/data/models/audio-cpp/reference-audio/audio-model-1/refs/voice.wav',
+        relative_path: 'refs/voice.wav',
+        display_path: 'refs/voice.wav',
+        filename: 'voice.wav',
+        size_bytes: 1024,
+        used_by: [],
+      },
+    ])
+    setupAudioMocks()
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.vm.$nextTick()
+    await flushPromises()
+
+    const assetsTab = wrapper.findAll('button').find((btn) => btn.text().includes('Assets'))
+    expect(assetsTab).toBeTruthy()
+    await assetsTab.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Reference audio')
+    expect(wrapper.text()).toContain('refs/voice.wav')
+  })
+
+  it('persists transcription_defaults on save for ASR models', async () => {
+    setupAudioMocks(
+      {
+        task_profile: {
+          label: 'Nemotron ASR',
+          workflows: ['offline'],
+          summary: 'RNNT ASR.',
+          api_hint: 'Supports streaming.',
+        },
+        request_field_groups: [
+          {
+            id: 'context',
+            label: 'Prompt & language',
+            fields: [{ key: 'language', label: 'Language', type: 'string' }],
+          },
+        ],
+        request_defaults_key: 'transcription_defaults',
+        api_endpoint: '/v1/audio/transcriptions',
+      },
+      {
+        family: 'nemotron_asr',
+        task: 'asr',
+        transcription_defaults: {
+          language: 'en',
+          prompt: 'Transcribe clearly.',
+          options: { num_beams: 4 },
+        },
+      },
+    )
+    const wrapper = mountView()
+    await settleView(wrapper)
+
+    await wrapper.get('button[data-label="Save changes"]').trigger('click')
+    await flushPromises()
+
+    expect(axios.put).toHaveBeenCalledWith(
+      '/api/models/audio-model-1/config',
+      expect.objectContaining({
+        engines: {
+          audio_cpp: expect.objectContaining({
+            transcription_defaults: {
+              language: 'en',
+              prompt: 'Transcribe clearly.',
+              options: { num_beams: 4 },
+            },
+          }),
+        },
+      }),
+    )
+  })
+
+  it('preserves unknown audio.cpp keys on save', async () => {
+    setupAudioMocks(
+      {},
+      {
+        custom_future_sidecar_key: { keep: true },
+        speech_defaults: { voice: 'assistant' },
+      },
+    )
+    const wrapper = mountView()
+    await settleView(wrapper)
+
+    await wrapper.get('button[data-label="Save changes"]').trigger('click')
+    await flushPromises()
+
+    expect(axios.put).toHaveBeenCalledWith(
+      '/api/models/audio-model-1/config',
+      expect.objectContaining({
+        engines: {
+          audio_cpp: expect.objectContaining({
+            custom_future_sidecar_key: { keep: true },
+          }),
+        },
+      }),
+    )
+  })
+
+  it('hides sub-id variants section for audio engine', async () => {
+    setupAudioMocks()
+    const wrapper = mountView()
+    await settleView(wrapper)
+
+    expect(wrapper.text()).not.toContain('Sub-ID variants')
+  })
+
+  it('hides command import on audio.cpp forms', async () => {
+    setupAudioMocks()
+    const wrapper = mountView()
+    await settleView(wrapper)
+
+    expect(wrapper.find('button[data-label="Import command"]').exists()).toBe(false)
+    expect(wrapper.find('button[data-label="Parse into parameters"]').exists()).toBe(false)
+    expect(wrapper.find('#parse-command-text').exists()).toBe(false)
+  })
+
+  it('refetches param-registry with draft family/task and prunes stale defaults', async () => {
+    const { registryCalls } = setupAudioMocks(
+      {},
+      {
+        family: 'omnivoice',
+        task: 'tts',
+        speech_defaults: { temperature: 0.7 },
+        voice_presets: { assistant: { voice_id: 'A1' } },
+        default_voice_preset: 'assistant',
+      },
+      {
+        onRegistry: (params, baseOverrides) => {
+          if (params.family === 'ace_step' && params.task === 'gen') {
+            return paramRegistryResponse({
+              task_profile: {
+                label: 'ACE-Step',
+                workflows: ['text2music'],
+                summary: 'Generate music.',
+                api_hint: 'Generic task.',
+              },
+              request_field_groups: [
+                {
+                  id: 'route',
+                  label: 'Route',
+                  fields: [{ key: 'task_route', label: 'Task route', type: 'string' }],
+                },
+              ],
+              request_defaults_key: 'task_defaults',
+              api_endpoint: '/audioapi/v1/tasks/run',
+              api_example_hint: 'Generic task request.',
+              instructions_policy: 'none',
+              supports_voice_presets: false,
+              policy_family: 'ace_step',
+              policy_task: 'gen',
+            })
+          }
+          return paramRegistryResponse(baseOverrides)
+        },
+      },
+    )
+    const wrapper = mountView()
+    await settleView(wrapper)
+
+    expect(registryCalls.some((call) => call.family === 'omnivoice' && call.task === 'tts')).toBe(true)
+    expect(wrapper.vm.config.speech_defaults.temperature).toBe(0.7)
+
+    // Install fake timers only around the debounced registry refresh — settleView
+    // uses flushPromises/setTimeout and must run on real timers first.
+    vi.useFakeTimers()
+    wrapper.vm.config.family = 'ace_step'
+    wrapper.vm.config.task = 'gen'
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+
+    expect(registryCalls.some((call) => call.family === 'ace_step' && call.task === 'gen')).toBe(true)
+    expect(wrapper.vm.paramRegistry.request_defaults_key).toBe('task_defaults')
+    expect(wrapper.vm.paramRegistry.api_endpoint).toBe('/audioapi/v1/tasks/run')
+    expect(wrapper.vm.config.speech_defaults).toEqual({})
+    expect(wrapper.vm.config.voice_presets).toEqual({})
+    expect(wrapper.vm.config.default_voice_preset).toBeNull()
+    expect(wrapper.text()).toContain('Task request defaults')
+    expect(wrapper.vm.paramRegistry.supports_voice_presets).toBe(false)
+  })
+})

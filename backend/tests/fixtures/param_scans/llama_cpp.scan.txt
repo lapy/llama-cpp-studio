@@ -1,0 +1,1279 @@
+=== Parameter scan: llama_cpp ===
+version: source-master-1787907440
+started_at: 2026-09-18T21:19:38.933144Z
+using llama-swap binary: /app/data/llama-cpp/source-master-1787907440/llama-server
+----- command -----
+argv: /app/data/llama-cpp/source-master-1787907440/llama-server --help
+cwd: /app/data/llama-cpp/source-master-1787907440
+scan_engine: llama_cpp
+extra_env_keys: LD_LIBRARY_PATH
+===== HELP OUTPUT: /app/data/llama-cpp/source-master-1787907440/llama-server --help (730 lines, 58868 chars) =====
+H0001|----- common params -----
+H0002|
+H0003|-h,    --help, --usage                  print usage and exit
+H0004|--version                               show version and build info
+H0005|-cl,   --cache-list                     show list of models in cache
+H0006|--completion-bash                       print source-able bash completion script for llama.cpp
+H0007|-t,    --threads N                      number of CPU threads to use during generation (default: -1)
+H0008|                                        (env: LLAMA_ARG_THREADS)
+H0009|-tb,   --threads-batch N                number of threads to use during batch and prompt processing (default:
+H0010|                                        same as --threads)
+H0011|-C,    --cpu-mask M                     CPU affinity mask: arbitrarily long hex. Complements cpu-range
+H0012|                                        (default: "")
+H0013|-Cr,   --cpu-range lo-hi                range of CPUs for affinity. Complements --cpu-mask
+H0014|--cpu-strict <0|1>                      use strict CPU placement (default: 0)
+H0015|--prio N                                set process/thread priority : low(-1), normal(0), medium(1), high(2),
+H0016|                                        realtime(3) (default: 0)
+H0017|--poll <0...100>                        use polling level to wait for work (0 - no polling, default: 50)
+H0018|-Cb,   --cpu-mask-batch M               CPU affinity mask: arbitrarily long hex. Complements cpu-range-batch
+H0019|                                        (default: same as --cpu-mask)
+H0020|-Crb,  --cpu-range-batch lo-hi          ranges of CPUs for affinity. Complements --cpu-mask-batch
+H0021|--cpu-strict-batch <0|1>                use strict CPU placement (default: same as --cpu-strict)
+H0022|--prio-batch N                          set process/thread priority : 0-normal, 1-medium, 2-high, 3-realtime
+H0023|                                        (default: 0)
+H0024|--poll-batch <0|1>                      use polling to wait for work (default: same as --poll)
+H0025|-c,    --ctx-size N                     size of the prompt context (default: 0, 0 = loaded from model)
+H0026|                                        (env: LLAMA_ARG_CTX_SIZE)
+H0027|-n,    --predict, --n-predict N         number of tokens to predict (default: -1, -1 = infinity)
+H0028|                                        (env: LLAMA_ARG_N_PREDICT)
+H0029|-b,    --batch-size N                   logical maximum batch size (default: 2048)
+H0030|                                        (env: LLAMA_ARG_BATCH)
+H0031|-ub,   --ubatch-size N                  physical maximum batch size (default: 512)
+H0032|                                        (env: LLAMA_ARG_UBATCH)
+H0033|--keep N                                number of tokens to keep from the initial prompt (default: 0, -1 =
+H0034|                                        all)
+H0035|--swa-full                              use full-size SWA cache (default: false)
+H0036|                                        [(more
+H0037|                                        info)](https://github.com/ggml-org/llama.cpp/pull/13194#issuecomment-2868343055)
+H0038|                                        (env: LLAMA_ARG_SWA_FULL)
+H0039|-fa,   --flash-attn [on|off|auto]       set Flash Attention use ('on', 'off', or 'auto', default: 'auto')
+H0040|                                        (env: LLAMA_ARG_FLASH_ATTN)
+H0041|--perf, --no-perf                       whether to enable internal libllama performance timings (default:
+H0042|                                        false)
+H0043|                                        (env: LLAMA_ARG_PERF)
+H0044|-e,    --escape, --no-escape            whether to process escapes sequences (\n, \r, \t, \', \", \\)
+H0045|                                        (default: true)
+H0046|--rope-scaling {none,linear,yarn}       RoPE frequency scaling method, defaults to linear unless specified by
+H0047|                                        the model
+H0048|                                        (env: LLAMA_ARG_ROPE_SCALING_TYPE)
+H0049|--rope-scale N                          RoPE context scaling factor, expands context by a factor of N
+H0050|                                        (env: LLAMA_ARG_ROPE_SCALE)
+H0051|--rope-freq-base N                      RoPE base frequency, used by NTK-aware scaling (default: loaded from
+H0052|                                        model)
+H0053|                                        (env: LLAMA_ARG_ROPE_FREQ_BASE)
+H0054|--rope-freq-scale N                     RoPE frequency scaling factor, expands context by a factor of 1/N
+H0055|                                        (env: LLAMA_ARG_ROPE_FREQ_SCALE)
+H0056|--yarn-orig-ctx N                       YaRN: original context size of model (default: 0 = model training
+H0057|                                        context size)
+H0058|                                        (env: LLAMA_ARG_YARN_ORIG_CTX)
+H0059|--yarn-ext-factor N                     YaRN: extrapolation mix factor (default: -1.00, 0.0 = full
+H0060|                                        interpolation)
+H0061|                                        (env: LLAMA_ARG_YARN_EXT_FACTOR)
+H0062|--yarn-attn-factor N                    YaRN: scale sqrt(t) or attention magnitude (default: -1.00)
+H0063|                                        (env: LLAMA_ARG_YARN_ATTN_FACTOR)
+H0064|--yarn-beta-slow N                      YaRN: high correction dim or alpha (default: -1.00)
+H0065|                                        (env: LLAMA_ARG_YARN_BETA_SLOW)
+H0066|--yarn-beta-fast N                      YaRN: low correction dim or beta (default: -1.00)
+H0067|                                        (env: LLAMA_ARG_YARN_BETA_FAST)
+H0068|-kvo,  --kv-offload, -nkvo, --no-kv-offload
+H0069|                                        whether to enable KV cache offloading (default: enabled)
+H0070|                                        (env: LLAMA_ARG_KV_OFFLOAD)
+H0071|--repack, -nr, --no-repack              whether to enable weight repacking (default: enabled)
+H0072|                                        (env: LLAMA_ARG_REPACK)
+H0073|--no-host                               bypass host buffer allowing extra buffers to be used
+H0074|                                        (env: LLAMA_ARG_NO_HOST)
+H0075|-ctk,  --cache-type-k TYPE              KV cache data type for K
+H0076|                                        allowed values: f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1
+H0077|                                        (default: f16)
+H0078|                                        (env: LLAMA_ARG_CACHE_TYPE_K)
+H0079|-ctv,  --cache-type-v TYPE              KV cache data type for V
+H0080|                                        allowed values: f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1
+H0081|                                        (default: f16)
+H0082|                                        (env: LLAMA_ARG_CACHE_TYPE_V)
+H0083|-dt,   --defrag-thold N                 KV cache defragmentation threshold (DEPRECATED)
+H0084|                                        (env: LLAMA_ARG_DEFRAG_THOLD)
+H0085|--mlock                                 DEPRECATED in favor of `--load-mode`: force system to keep model in
+H0086|                                        RAM rather than swapping or compressing
+H0087|                                        (env: LLAMA_ARG_MLOCK)
+H0088|--mmap, --no-mmap                       DEPRECATED in favor of `--load-mode`: whether to memory-map model. (if
+H0089|                                        mmap disabled, slower load but may reduce pageouts if not using mlock)
+H0090|                                        (env: LLAMA_ARG_MMAP)
+H0091|-dio,  --direct-io, -ndio, --no-direct-io
+H0092|                                        DEPRECATED in favor of `--load-mode`: use DirectIO if available
+H0093|                                        (env: LLAMA_ARG_DIO)
+H0094|-lm,   --load-mode MODE                 model loading mode (default: auto)
+H0095|                                        - auto: mmap, unless a device does not support it
+H0096|                                        - none: no special loading mode
+H0097|                                        - mmap: memory-map model (if mmap disabled, slower load but may reduce
+H0098|                                        pageouts if not using mlock)
+H0099|                                        - mlock: force system to keep model in RAM rather than swapping or
+H0100|                                        compressing
+H0101|                                        - mmap+mlock: mmap + force system to keep model in RAM rather than
+H0102|                                        swapping or compressing
+H0103|                                        - dio: use DirectIO if available
+H0104|
+H0105|                                        (env: LLAMA_ARG_LOAD_MODE)
+H0106|--tensor-read-lazy MODE                 on-demand reading of certain tensors, for example per-layer embeddings
+H0107|                                        (default: auto)
+H0108|                                        - on: read the rows of such tensors from disk on demand instead of
+H0109|                                        keeping them resident (requires mmap)
+H0110|                                        - auto: on, but only for tensors larger than 4 GiB
+H0111|                                        - off: always keep them resident
+H0112|                                        (env: LLAMA_ARG_TENSOR_READ_LAZY)
+H0113|--numa TYPE                             attempt optimizations that help on some NUMA systems
+H0114|                                        - distribute: spread execution evenly over all nodes
+H0115|                                        - isolate: only spawn threads on CPUs on the node that execution
+H0116|                                        started on
+H0117|                                        - numactl: use the CPU map provided by numactl
+H0118|                                        if run without this previously, it is recommended to drop the system
+H0119|                                        page cache before using this
+H0120|                                        see https://github.com/ggml-org/llama.cpp/issues/1437
+H0121|                                        (env: LLAMA_ARG_NUMA)
+H0122|-dev,  --device <dev1,dev2,..>          comma-separated list of devices to use for offloading (none = don't
+H0123|                                        offload)
+H0124|                                        use --list-devices to see a list of available devices
+H0125|                                        (env: LLAMA_ARG_DEVICE)
+H0126|--list-devices                          print list of available devices and exit
+H0127|-ot,   --override-tensor <tensor name pattern>=<buffer type>,...
+H0128|                                        override tensor buffer type
+H0129|                                        (env: LLAMA_ARG_OVERRIDE_TENSOR)
+H0130|-cmoe, --cpu-moe                        keep all Mixture of Experts (MoE) weights in the CPU
+H0131|                                        (env: LLAMA_ARG_CPU_MOE)
+H0132|-ncmoe, --n-cpu-moe N                   keep the Mixture of Experts (MoE) weights of the first N layers in the
+H0133|                                        CPU
+H0134|                                        (env: LLAMA_ARG_N_CPU_MOE)
+H0135|-ncffn, --n-cpu-ffn N                   keep the dense FFN weights of the first N layers in the CPU
+H0136|                                        (dense models; for MoE expert weights use --n-cpu-moe)
+H0137|                                        (env: LLAMA_ARG_N_CPU_FFN)
+H0138|-ngl,  --gpu-layers, --n-gpu-layers N   max. number of layers to store in VRAM, either an exact number,
+H0139|                                        'auto', or 'all' (default: auto)
+H0140|                                        (env: LLAMA_ARG_N_GPU_LAYERS)
+H0141|-sm,   --split-mode {none,layer,row,tensor}
+H0142|                                        how to split the model across multiple GPUs, one of:
+H0143|                                        - none: use one GPU only
+H0144|                                        - layer (default): split layers and KV across GPUs (pipelined)
+H0145|                                        - row: split weight across GPUs by rows (parallelized)
+H0146|                                        - tensor: split weights and KV across GPUs (parallelized,
+H0147|                                        EXPERIMENTAL)
+H0148|                                        (env: LLAMA_ARG_SPLIT_MODE)
+H0149|-ts,   --tensor-split N0,N1,N2,...      fraction of the model to offload to each GPU, comma-separated list of
+H0150|                                        proportions, e.g. 3,1
+H0151|                                        (env: LLAMA_ARG_TENSOR_SPLIT)
+H0152|-mg,   --main-gpu INDEX                 the GPU to use for the model (with split-mode = none), or for
+H0153|                                        intermediate results and KV (with split-mode = row) (default: 0)
+H0154|                                        (env: LLAMA_ARG_MAIN_GPU)
+H0155|-fit,  --fit [on|off]                   whether to adjust unset arguments to fit in device memory ('on' or
+H0156|                                        'off', default: 'on')
+H0157|                                        (env: LLAMA_ARG_FIT)
+H0158|-fitt, --fit-target MiB0,MiB1,MiB2,...
+H0159|                                        target margin per device for --fit, comma-separated list of values,
+H0160|                                        single value is broadcast across all devices, default: 1024
+H0161|                                        (env: LLAMA_ARG_FIT_TARGET)
+H0162|-fitc, --fit-ctx N                      minimum ctx size that can be set by --fit option, default: 4096
+H0163|                                        (env: LLAMA_ARG_FIT_CTX)
+H0164|--check-tensors                         check model tensor data for invalid values (default: false)
+H0165|--override-kv KEY=TYPE:VALUE,...        advanced option to override model metadata by key. to specify multiple
+H0166|                                        overrides, either use comma-separated values.
+H0167|                                        types: int, float, bool, str. example: --override-kv
+H0168|                                        tokenizer.ggml.add_bos_token=bool:false,tokenizer.ggml.add_eos_token=bool:false
+H0169|--op-offload, --no-op-offload           whether to offload host tensor operations to device (default: true)
+H0170|--lora FNAME                            path to LoRA adapter (use comma-separated values to load multiple
+H0171|                                        adapters)
+H0172|--lora-scaled FNAME:SCALE,...           path to LoRA adapter with user defined scaling (format:
+H0173|                                        FNAME:SCALE,...)
+H0174|                                        note: use comma-separated values
+H0175|--control-vector FNAME                  add a control vector
+H0176|                                        note: use comma-separated values to add multiple control vectors
+H0177|--control-vector-scaled FNAME:SCALE,...
+H0178|                                        add a control vector with user defined scaling SCALE
+H0179|                                        note: use comma-separated values (format: FNAME:SCALE,...)
+H0180|--control-vector-layer-range START END
+H0181|                                        layer range to apply the control vector(s) to, start and end inclusive
+H0182|-m,    --model FNAME                    model path to load
+H0183|                                        (env: LLAMA_ARG_MODEL)
+H0184|-mu,   --model-url MODEL_URL            model download url (default: unused)
+H0185|                                        (env: LLAMA_ARG_MODEL_URL)
+H0186|-dr,   --docker-repo [<repo>/]<model>[:quant]
+H0187|                                        Docker Hub model repository. repo is optional, default to ai/. quant
+H0188|                                        is optional, default to :latest.
+H0189|                                        example: gemma3
+H0190|                                        (default: unused)
+H0191|                                        (env: LLAMA_ARG_DOCKER_REPO)
+H0192|-hf,   -hfr, --hf-repo <user>/<model>[:quant]
+H0193|                                        Hugging Face model repository; quant is optional, case-insensitive,
+H0194|                                        default to Q4_K_M, or falls back to the first file in the repo if
+H0195|                                        Q4_K_M doesn't exist.
+H0196|                                        mmproj is also downloaded automatically if available. to disable, add
+H0197|                                        --no-mmproj
+H0198|                                        example: ggml-org/GLM-4.7-Flash-GGUF:Q4_K_M
+H0199|                                        (default: unused)
+H0200|                                        (env: LLAMA_ARG_HF_REPO)
+H0201|-hff,  --hf-file FILE                   Hugging Face model file. If specified, it will override the quant in
+H0202|                                        --hf-repo (default: unused)
+H0203|                                        (env: LLAMA_ARG_HF_FILE)
+H0204|-hft,  --hf-token TOKEN                 Hugging Face access token (default: value from HF_TOKEN environment
+H0205|                                        variable)
+H0206|                                        (env: HF_TOKEN)
+H0207|--log-disable                           Log disable
+H0208|--log-file FNAME                        Log to file
+H0209|                                        (env: LLAMA_ARG_LOG_FILE)
+H0210|--log-colors [on|off|auto]              Set colored logging ('on', 'off', or 'auto', default: 'auto')
+H0211|                                        'auto' enables colors when output is to a terminal
+H0212|                                        (env: LLAMA_ARG_LOG_COLORS)
+H0213|-v,    --verbose, --log-verbose         Set verbosity level to infinity (i.e. log all messages, useful for
+H0214|                                        debugging)
+H0215|--offline                               Offline mode: forces use of cache, prevents network access
+H0216|                                        (env: LLAMA_ARG_OFFLINE)
+H0217|-lv,   --verbosity, --log-verbosity N   Set the verbosity threshold. Messages with a higher verbosity will be
+H0218|                                        ignored. Values:
+H0219|                                         - 0: generic output
+H0220|                                         - 1: error
+H0221|                                         - 2: warning
+H0222|                                         - 3: info
+H0223|                                         - 4: trace (more info)
+H0224|                                         - 5: debug
+H0225|                                        (default: 3)
+H0226|
+H0227|                                        (env: LLAMA_ARG_LOG_VERBOSITY)
+H0228|--log-prefix, --no-log-prefix           Enable prefix in log messages
+H0229|                                        (env: LLAMA_ARG_LOG_PREFIX)
+H0230|--log-timestamps, --no-log-timestamps   Enable timestamps in log messages
+H0231|                                        (env: LLAMA_ARG_LOG_TIMESTAMPS)
+H0232|--spec-draft-type-k, -ctkd, --cache-type-k-draft TYPE
+H0233|                                        KV cache data type for K for the draft model
+H0234|                                        allowed values: f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1
+H0235|                                        (default: f16)
+H0236|                                        (env: LLAMA_ARG_SPEC_DRAFT_CACHE_TYPE_K)
+H0237|--spec-draft-type-v, -ctvd, --cache-type-v-draft TYPE
+H0238|                                        KV cache data type for V for the draft model
+H0239|                                        allowed values: f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1
+H0240|                                        (default: f16)
+H0241|                                        (env: LLAMA_ARG_SPEC_DRAFT_CACHE_TYPE_V)
+H0242|
+H0243|
+H0244|----- sampling params -----
+H0245|
+H0246|--samplers SAMPLERS                     samplers that will be used for generation in the order, separated by
+H0247|                                        ';'
+H0248|                                        (default:
+H0249|                                        penalties;dry;top_n_sigma;top_k;typ_p;top_p;min_p;xtc;temperature)
+H0250|-s,    --seed SEED                      RNG seed (default: -1, use random seed for -1)
+H0251|--sampler-seq, --sampling-seq SEQUENCE
+H0252|                                        simplified sequence for samplers that will be used (default:
+H0253|                                        edskypmxt)
+H0254|--ignore-eos                            ignore end of stream token and continue generating (implies
+H0255|                                        --logit-bias EOS-inf)
+H0256|--temp, --temperature N                 temperature (default: 0.80)
+H0257|--top-k N                               top-k sampling (default: 40, 0 = disabled)
+H0258|                                        (env: LLAMA_ARG_TOP_K)
+H0259|--top-p N                               top-p sampling (default: 0.95, 1.0 = disabled)
+H0260|--min-p N                               min-p sampling (default: 0.05, 0.0 = disabled)
+H0261|--top-nsigma, --top-n-sigma N           top-n-sigma sampling (default: -1.00, -1.0 = disabled)
+H0262|--xtc-probability N                     xtc probability (default: 0.00, 0.0 = disabled)
+H0263|--xtc-threshold N                       xtc threshold (default: 0.10, 1.0 = disabled)
+H0264|--typical, --typical-p N                locally typical sampling, parameter p (default: 1.00, 1.0 = disabled)
+H0265|--repeat-last-n N                       last n tokens to consider for penalize (default: 64, 0 = disabled)
+H0266|--repeat-penalty N                      penalize repeat sequence of tokens (default: 1.00, 1.0 = disabled)
+H0267|--presence-penalty N                    repeat alpha presence penalty (default: 0.00, 0.0 = disabled)
+H0268|--frequency-penalty N                   repeat alpha frequency penalty (default: 0.00, 0.0 = disabled)
+H0269|--dry-multiplier N                      set DRY sampling multiplier (default: 0.00, 0.0 = disabled)
+H0270|--dry-base N                            set DRY sampling base value (default: 1.75)
+H0271|--dry-allowed-length N                  set allowed length for DRY sampling (default: 2)
+H0272|--dry-penalty-last-n N                  set DRY penalty for the last n tokens (default: 64, 0 = disable)
+H0273|--dry-sequence-breaker STRING           add sequence breaker for DRY sampling, clearing out default breakers
+H0274|                                        ('\n', ':', '"', '*') in the process; use "none" to not use any
+H0275|                                        sequence breakers
+H0276|--adaptive-target N                     adaptive-p: select tokens near this probability (valid range 0.0 to
+H0277|                                        1.0; negative = disabled) (default: -1.00)
+H0278|                                        [(more info)](https://github.com/ggml-org/llama.cpp/pull/17927)
+H0279|--adaptive-decay N                      adaptive-p: decay rate for target adaptation over time. lower values
+H0280|                                        are more reactive, higher values are more stable.
+H0281|                                        (valid range 0.0 to 0.99) (default: 0.90)
+H0282|--dynatemp-range N                      dynamic temperature range (default: 0.00, 0.0 = disabled)
+H0283|--dynatemp-exp N                        dynamic temperature exponent (default: 1.00)
+H0284|--mirostat N                            use Mirostat sampling.
+H0285|                                        Top K, Nucleus and Locally Typical samplers are ignored if used.
+H0286|                                        (default: 0, 0 = disabled, 1 = Mirostat, 2 = Mirostat 2.0)
+H0287|--mirostat-lr N                         Mirostat learning rate, parameter eta (default: 0.10)
+H0288|--mirostat-ent N                        Mirostat target entropy, parameter tau (default: 5.00)
+H0289|-l,    --logit-bias TOKEN_ID(+/-)BIAS   modifies the likelihood of token appearing in the completion,
+H0290|                                        i.e. `--logit-bias 15043+1` to increase likelihood of token ' Hello',
+H0291|                                        or `--logit-bias 15043-1` to decrease likelihood of token ' Hello'
+H0292|--grammar GRAMMAR                       BNF-like grammar to constrain generations (see samples in grammars/
+H0293|                                        dir)
+H0294|--grammar-file FNAME                    file to read grammar from
+H0295|-j,    --json-schema SCHEMA             JSON schema to constrain generations (https://json-schema.org/), e.g.
+H0296|                                        `{}` for any JSON object
+H0297|                                        For schemas w/ external $refs, use --grammar +
+H0298|                                        example/json_schema_to_grammar.py instead
+H0299|-jf,   --json-schema-file FILE          File containing a JSON schema to constrain generations
+H0300|                                        (https://json-schema.org/), e.g. `{}` for any JSON object
+H0301|                                        For schemas w/ external $refs, use --grammar +
+H0302|                                        example/json_schema_to_grammar.py instead
+H0303|-bs,   --backend-sampling               enable backend sampling (experimental) (default: disabled)
+H0304|                                        (env: LLAMA_ARG_BACKEND_SAMPLING)
+H0305|
+H0306|
+H0307|----- speculative params -----
+H0308|
+H0309|--spec-draft-hf, -hfd, -hfrd, --hf-repo-draft <user>/<model>[:quant]
+H0310|                                        Same as --hf-repo, but for the draft model (default: unused)
+H0311|                                        (env: LLAMA_ARG_SPEC_DRAFT_HF_REPO)
+H0312|--spec-draft-threads, -td, --threads-draft N
+H0313|                                        number of threads to use during generation (default: same as
+H0314|                                        --threads)
+H0315|--spec-draft-threads-batch, -tbd, --threads-batch-draft N
+H0316|                                        number of threads to use during batch and prompt processing (default:
+H0317|                                        same as --threads-draft)
+H0318|--spec-draft-cpu-mask, -Cd, --cpu-mask-draft M
+H0319|                                        Draft model CPU affinity mask. Complements cpu-range-draft (default:
+H0320|                                        same as --cpu-mask)
+H0321|--spec-draft-cpu-range, -Crd, --cpu-range-draft lo-hi
+H0322|                                        Ranges of CPUs for affinity. Complements --cpu-mask-draft
+H0323|--spec-draft-cpu-strict, --cpu-strict-draft <0|1>
+H0324|                                        Use strict CPU placement for draft model (default: same as
+H0325|                                        --cpu-strict)
+H0326|--spec-draft-prio, --prio-draft N       set draft process/thread priority : 0-normal, 1-medium, 2-high,
+H0327|                                        3-realtime (default: 0)
+H0328|--spec-draft-poll, --poll-draft <0|1>   Use polling to wait for draft model work (default: same as --poll)
+H0329|--spec-draft-cpu-mask-batch, -Cbd, --cpu-mask-batch-draft M
+H0330|                                        Draft model CPU affinity mask. Complements cpu-range-draft (default:
+H0331|                                        same as --cpu-mask)
+H0332|--spec-draft-cpu-strict-batch, --cpu-strict-batch-draft <0|1>
+H0333|                                        Use strict CPU placement for draft model (default: --cpu-strict-draft)
+H0334|--spec-draft-prio-batch, --prio-batch-draft N
+H0335|                                        set draft process/thread priority : 0-normal, 1-medium, 2-high,
+H0336|                                        3-realtime (default: 0)
+H0337|--spec-draft-poll-batch, --poll-batch-draft <0|1>
+H0338|                                        Use polling to wait for draft model work (default: --poll-draft)
+H0339|--spec-draft-override-tensor, -otd, --override-tensor-draft <tensor name pattern>=<buffer type>,...
+H0340|                                        override tensor buffer type for draft model
+H0341|--spec-draft-cpu-moe, -cmoed, --cpu-moe-draft
+H0342|                                        keep all Mixture of Experts (MoE) weights in the CPU for the draft
+H0343|                                        model
+H0344|                                        (env: LLAMA_ARG_SPEC_DRAFT_CPU_MOE)
+H0345|--spec-draft-n-cpu-moe, --spec-draft-ncmoe, -ncmoed, --n-cpu-moe-draft N
+H0346|                                        keep the Mixture of Experts (MoE) weights of the first N layers in the
+H0347|                                        CPU for the draft model
+H0348|                                        (env: LLAMA_ARG_SPEC_DRAFT_N_CPU_MOE)
+H0349|--spec-draft-n-max N                    number of tokens to draft for speculative decoding (default: 3)
+H0350|                                        (env: LLAMA_ARG_SPEC_DRAFT_N_MAX)
+H0351|--spec-draft-n-min N                    minimum number of draft tokens to use for speculative decoding
+H0352|                                        (default: 0)
+H0353|                                        (env: LLAMA_ARG_SPEC_DRAFT_N_MIN)
+H0354|--spec-synth-len L                      target mean synthetic acceptance length, including the target token
+H0355|                                        (benchmarking only)
+H0356|                                        (env: LLAMA_ARG_SPEC_SYNTH_LEN)
+H0357|--spec-synth-rates P0,P1,...            comma-separated unconditional per-position synthetic acceptance
+H0358|                                        probabilities (benchmarking only)
+H0359|                                        (env: LLAMA_ARG_SPEC_SYNTH_RATES)
+H0360|--spec-draft-p-split, --draft-p-split P
+H0361|                                        speculative decoding split probability (default: 0.10)
+H0362|                                        (env: LLAMA_ARG_SPEC_DRAFT_P_SPLIT)
+H0363|--spec-draft-p-min, --draft-p-min P     minimum speculative decoding probability (greedy) (default: 0.00)
+H0364|                                        (env: LLAMA_ARG_SPEC_DRAFT_P_MIN)
+H0365|--spec-draft-backend-sampling, --no-spec-draft-backend-sampling
+H0366|                                        offload draft sampling to the backend (default: enabled)
+H0367|                                        (env: LLAMA_ARG_SPEC_DRAFT_BACKEND_SAMPLING)
+H0368|--spec-draft-device, -devd, --device-draft <dev1,dev2,..>
+H0369|                                        comma-separated list of devices to use for offloading the draft model
+H0370|                                        (none = don't offload)
+H0371|                                        use --list-devices to see a list of available devices
+H0372|--spec-draft-ngl, -ngld, --gpu-layers-draft, --n-gpu-layers-draft N
+H0373|                                        max. number of draft model layers to store in VRAM, either an exact
+H0374|                                        number, 'auto', or 'all' (default: auto)
+H0375|                                        (env: LLAMA_ARG_N_GPU_LAYERS_DRAFT)
+H0376|--spec-draft-model, -md, --model-draft FNAME
+H0377|                                        draft model for speculative decoding (default: unused)
+H0378|                                        (env: LLAMA_ARG_SPEC_DRAFT_MODEL)
+H0379|--spec-type none,draft-simple,draft-eagle3,draft-mtp,draft-dflash,draft-dspark,ngram-simple,ngram-map-k,ngram-map-k4v,ngram-mod,ngram-cache
+H0380|                                        comma-separated list of types of speculative decoding to use (default:
+H0381|                                        none)
+H0382|
+H0383|                                        (env: LLAMA_ARG_SPEC_TYPE)
+H0384|--spec-ngram-mod-n-min N                minimum number of ngram tokens to use for ngram-based speculative
+H0385|                                        decoding (default: 48)
+H0386|--spec-ngram-mod-n-max N                maximum number of ngram tokens to use for ngram-based speculative
+H0387|                                        decoding (default: 64)
+H0388|--spec-ngram-mod-n-match N              ngram-mod lookup length (default: 24)
+H0389|--spec-ngram-simple-size-n N            ngram size N for ngram-simple speculative decoding, length of lookup
+H0390|                                        n-gram (default: 12)
+H0391|--spec-ngram-simple-size-m N            ngram size M for ngram-simple speculative decoding, length of draft
+H0392|                                        m-gram (default: 48)
+H0393|--spec-ngram-simple-min-hits N          minimum hits for ngram-simple speculative decoding (default: 1)
+H0394|--spec-ngram-map-k-size-n N             ngram size N for ngram-map-k speculative decoding, length of lookup
+H0395|                                        n-gram (default: 12)
+H0396|--spec-ngram-map-k-size-m N             ngram size M for ngram-map-k speculative decoding, length of draft
+H0397|                                        m-gram (default: 48)
+H0398|--spec-ngram-map-k-min-hits N           minimum hits for ngram-map-k speculative decoding (default: 1)
+H0399|--spec-ngram-map-k4v-size-n N           ngram size N for ngram-map-k4v speculative decoding, length of lookup
+H0400|                                        n-gram (default: 12)
+H0401|--spec-ngram-map-k4v-size-m N           ngram size M for ngram-map-k4v speculative decoding, length of draft
+H0402|                                        m-gram (default: 48)
+H0403|--spec-ngram-map-k4v-min-hits N         minimum hits for ngram-map-k4v speculative decoding (default: 1)
+H0404|--draft, --draft-n, --draft-max N       the argument has been removed. use --spec-draft-n-max or
+H0405|                                        --spec-ngram-mod-n-max
+H0406|                                        (env: LLAMA_ARG_DRAFT_MAX)
+H0407|--draft-min, --draft-n-min N            the argument has been removed. use --spec-draft-n-min or
+H0408|                                        --spec-ngram-mod-n-min
+H0409|                                        (env: LLAMA_ARG_DRAFT_MIN)
+H0410|--spec-ngram-size-n N                   the argument has been removed. use the respective
+H0411|                                        --spec-ngram-*-size-n or --spec-ngram-mod-n-match
+H0412|--spec-ngram-size-m N                   the argument has been removed. use the respective
+H0413|                                        --spec-ngram-*-size-m
+H0414|--spec-ngram-min-hits N                 the argument has been removed. use the respective
+H0415|                                        --spec-ngram-*-min-hits
+H0416|
+H0417|
+H0418|----- example-specific params -----
+H0419|
+H0420|-lcs,  --lookup-cache-static FNAME      path to static lookup cache to use for lookup decoding (not updated by
+H0421|                                        generation)
+H0422|-lcd,  --lookup-cache-dynamic FNAME     path to dynamic lookup cache to use for lookup decoding (updated by
+H0423|                                        generation)
+H0424|--kv-unified-per-slot N                 context limit per parallel slot (default: unset, behavior unchanged).
+H0425|                                        when set without -c/--ctx-size, the shared KV pool is sized to
+H0426|                                        n_parallel*N
+H0427|                                        (env: LLAMA_ARG_KV_UNIFIED_PER_SLOT)
+H0428|-ctxcp, --ctx-checkpoints, --swa-checkpoints N
+H0429|                                        max number of context checkpoints to create per slot (default:
+H0430|                                        32)[(more info)](https://github.com/ggml-org/llama.cpp/pull/15293)
+H0431|                                        (env: LLAMA_ARG_CTX_CHECKPOINTS)
+H0432|-cms,  --checkpoint-min-step N          minimum spacing between context checkpoints in tokens (default: 8192,
+H0433|                                        0 = no minimum)
+H0434|                                        (env: LLAMA_ARG_CHECKPOINT_MIN_SPACING_NT)
+H0435|-cram, --cache-ram N                    set the maximum cache size in MiB (default: 8192, -1 - no limit, 0 -
+H0436|                                        disable)[(more
+H0437|                                        info)](https://github.com/ggml-org/llama.cpp/pull/16391)
+H0438|                                        (env: LLAMA_ARG_CACHE_RAM)
+H0439|-kvu,  --kv-unified, -no-kvu, --no-kv-unified
+H0440|                                        use single unified KV buffer shared across all sequences (default:
+H0441|                                        enabled if number of slots is auto)
+H0442|                                        (env: LLAMA_ARG_KV_UNIFIED)
+H0443|--cache-idle-slots, --no-cache-idle-slots
+H0444|                                        save idle slots to the prompt cache on new task, and clear them when
+H0445|                                        using unified KV (default: enabled, requires cache-ram)
+H0446|                                        (env: LLAMA_ARG_CACHE_IDLE_SLOTS)
+H0447|--context-shift, --no-context-shift     whether to use context shift on infinite text generation (default:
+H0448|                                        disabled)
+H0449|                                        (env: LLAMA_ARG_CONTEXT_SHIFT)
+H0450|-r,    --reverse-prompt PROMPT          halt generation at PROMPT, return control in interactive mode
+H0451|-sp,   --special                        special tokens output enabled (default: false)
+H0452|--warmup, --no-warmup                   whether to perform warmup with an empty run (default: enabled)
+H0453|--spm-infill                            use Suffix/Prefix/Middle pattern for infill (instead of
+H0454|                                        Prefix/Suffix/Middle) as some models prefer this. (default: disabled)
+H0455|--pooling {none,mean,cls,last,rank}     pooling type for embeddings, use model default if unspecified
+H0456|                                        (env: LLAMA_ARG_POOLING)
+H0457|-np,   --parallel N                     number of server slots (default: -1, -1 = auto)
+H0458|                                        (env: LLAMA_ARG_N_PARALLEL)
+H0459|-cb,   --cont-batching, -nocb, --no-cont-batching
+H0460|                                        whether to enable continuous batching (a.k.a dynamic batching)
+H0461|                                        (default: enabled)
+H0462|                                        (env: LLAMA_ARG_CONT_BATCHING)
+H0463|-mm,   --mmproj FILE                    path to a multimodal projector file. see tools/mtmd/README.md
+H0464|                                        note: if -hf is used, this argument can be omitted
+H0465|                                        (env: LLAMA_ARG_MMPROJ)
+H0466|-mmu,  --mmproj-url URL                 URL to a multimodal projector file. see tools/mtmd/README.md
+H0467|                                        (env: LLAMA_ARG_MMPROJ_URL)
+H0468|--mmproj-auto, --no-mmproj, --no-mmproj-auto
+H0469|                                        whether to use multimodal projector file (if available), useful when
+H0470|                                        using -hf (default: enabled)
+H0471|                                        (env: LLAMA_ARG_MMPROJ_AUTO)
+H0472|--mmproj-offload, --no-mmproj-offload   whether to enable GPU offloading for multimodal projector (default:
+H0473|                                        enabled)
+H0474|                                        (env: LLAMA_ARG_MMPROJ_OFFLOAD)
+H0475|-mmdev, --mmproj-device DEVICE          device to use for multimodal projector (none = don't offload, default:
+H0476|                                        auto)
+H0477|                                        use --list-devices to see a list of available devices
+H0478|                                        (env: MTMD_BACKEND_DEVICE)
+H0479|--image-min-tokens N                    minimum number of tokens each image can take, only used by vision
+H0480|                                        models with dynamic resolution (default: read from model)
+H0481|                                        (env: LLAMA_ARG_IMAGE_MIN_TOKENS)
+H0482|--image-max-tokens N                    maximum number of tokens each image can take, only used by vision
+H0483|                                        models with dynamic resolution (default: read from model)
+H0484|                                        (env: LLAMA_ARG_IMAGE_MAX_TOKENS)
+H0485|--mtmd-batch-max-tokens N               maximum number of image tokens per batch when encoding images
+H0486|                                        (default: 1024)
+H0487|                                        (env: LLAMA_ARG_MTMD_BATCH_MAX_TOKENS)
+H0488|--video-fps N                           target video frame rate (default: 4.0)
+H0489|                                        (env: LLAMA_ARG_VIDEO_FPS)
+H0490|--video-timestamp-interval N            interval in milliseconds between text timestamps (default: 5000)
+H0491|                                        (env: LLAMA_ARG_VIDEO_TIMESTAMP_INTERVAL)
+H0492|--video-ffmpeg-dir DIR                  path to the directory containing ffmpeg and ffprobe (default: search
+H0493|                                        in PATH)
+H0494|                                        (env: LLAMA_ARG_VIDEO_FFMPEG_DIR)
+H0495|-a,    --alias STRING                   set model name aliases, comma-separated (to be used by API)
+H0496|                                        (env: LLAMA_ARG_ALIAS)
+H0497|--tags STRING                           set model tags, comma-separated (informational, not used for routing)
+H0498|                                        (env: LLAMA_ARG_TAGS)
+H0499|--embd-normalize N                      normalisation for embeddings (default: 2) (-1=none, 0=max absolute
+H0500|                                        int16, 1=taxicab, 2=euclidean, >2=p-norm)
+H0501|--host HOST                             ip address to listen, or bind to an UNIX socket if the address ends
+H0502|                                        with .sock (default: 127.0.0.1)
+H0503|                                        (env: LLAMA_ARG_HOST)
+H0504|--port PORT                             port to listen (default: 8080)
+H0505|                                        (env: LLAMA_ARG_PORT)
+H0506|--reuse-port                            allow multiple sockets to bind to the same port (default: disabled)
+H0507|                                        (env: LLAMA_ARG_REUSE_PORT)
+H0508|--path PATH                             path to serve static files from (default: )
+H0509|                                        (env: LLAMA_ARG_STATIC_PATH)
+H0510|--cors-origins ORIGINS                  comma-separated list of allowed origins for CORS (default: *)
+H0511|                                        if set to special value 'localhost', reflect the Origin header only if
+H0512|                                        it is localhost
+H0513|                                        (env: LLAMA_ARG_CORS_ORIGINS)
+H0514|--cors-methods METHODS                  comma-separated list of allowed methods for CORS (default: GET, POST,
+H0515|                                        DELETE, OPTIONS)
+H0516|                                        (env: LLAMA_ARG_CORS_METHODS)
+H0517|--cors-headers HEADERS                  comma-separated list of allowed headers for CORS (default: *)
+H0518|                                        (env: LLAMA_ARG_CORS_HEADERS)
+H0519|--cors-credentials, --no-cors-credentials
+H0520|                                        whether to allow credentials for CORS (default: enabled)
+H0521|                                        note: if this is enabled and --cors-origins is set to * (default), the
+H0522|                                        Origin header will be echoed back, and credentials will always be
+H0523|                                        allowed
+H0524|                                        (env: LLAMA_ARG_CORS_CREDENTIALS)
+H0525|--api-prefix PREFIX                     prefix path the server serves from, without the trailing slash
+H0526|                                        (default: )
+H0527|                                        (env: LLAMA_ARG_API_PREFIX)
+H0528|--ui-config, --webui-config JSON        JSON that provides default UI settings (overrides UI defaults)
+H0529|                                        (env: LLAMA_ARG_UI_CONFIG)
+H0530|--ui-config-file, --webui-config-file PATH
+H0531|                                        JSON file that provides default UI settings (overrides UI defaults)
+H0532|                                        (env: LLAMA_ARG_UI_CONFIG_FILE)
+H0533|--ui-mcp-proxy, --webui-mcp-proxy, --no-ui-mcp-proxy, --no-webui-mcp-proxy
+H0534|                                        experimental: whether to enable MCP CORS proxy - do not enable in
+H0535|                                        untrusted environments (default: disabled)
+H0536|                                        (env: LLAMA_ARG_UI_MCP_PROXY)
+H0537|--tools TOOL1,TOOL2,...                 experimental: whether to enable built-in tools for AI agents - do not
+H0538|                                        enable in untrusted environments (default: no tools)
+H0539|                                        specify "all" to enable all tools
+H0540|                                        available tools: read_file, file_glob_search, grep_search,
+H0541|                                        exec_shell_command, write_file, edit_file, get_info
+H0542|                                        note: for security reasons, this will limit --cors-origins to
+H0543|                                        localhost by default
+H0544|                                        (env: LLAMA_ARG_TOOLS)
+H0545|--tools-runtime OPTION                  experimental: run tools in a separate runtime environment (default:
+H0546|                                        none, use host environment)
+H0547|                                        available options:
+H0548|                                        'docker:<image>', 'podman:<image>': spin up a new container and reuse
+H0549|                                        it for all invocations, clean up on server exit
+H0550|                                        'docker-container:<id>', 'podman-container:<id>': use an existing
+H0551|                                        container by ID, won't stop on server exit
+H0552|                                        'ssh:<target>': run tools on a remote POSIX host over SSH, key-based
+H0553|                                        auth and a trusted host key are required
+H0554|
+H0555|                                        (env: LLAMA_ARG_TOOLS_RUNTIME)
+H0556|--mcp-servers-config PATH               experimental: path to JSON file with MCP server definitions
+H0557|                                        (Cursor-compatible format) - do not enable in untrusted environments
+H0558|                                        (default: none)
+H0559|                                        note: for security reasons, this will limit --cors-origins to
+H0560|                                        localhost by default
+H0561|                                        (env: LLAMA_ARG_MCP_SERVERS_CONFIG)
+H0562|--mcp-servers-json JSON                 experimental: inline JSON with MCP server definitions
+H0563|                                        (Cursor-compatible format) - do not enable in untrusted environments
+H0564|                                        (default: none)
+H0565|                                        note: for security reasons, this will limit --cors-origins to
+H0566|                                        localhost by default
+H0567|                                        (env: LLAMA_ARG_MCP_SERVERS_JSON)
+H0568|-ag,   --agent, -no-ag, --no-agent      whether to enable CORS proxy and all built-in tools - do not enable in
+H0569|                                        untrusted environments (default: disabled)
+H0570|                                        note: for security reasons, this will limit --cors-origins to
+H0571|                                        localhost by default
+H0572|                                        (env: LLAMA_ARG_AGENT)
+H0573|--ui,  --webui, --no-ui, --no-webui     whether to enable the Web UI (default: enabled)
+H0574|                                        (env: LLAMA_ARG_UI)
+H0575|--embedding, --embeddings               restrict to only support embedding use case; use only with dedicated
+H0576|                                        embedding models (default: disabled)
+H0577|                                        (env: LLAMA_ARG_EMBEDDINGS)
+H0578|--rerank, --reranking                   enable reranking endpoint on server (default: disabled)
+H0579|                                        (env: LLAMA_ARG_RERANKING)
+H0580|--api-key KEY                           API key to use for authentication, multiple keys can be provided as a
+H0581|                                        comma-separated list (default: none)
+H0582|                                        (env: LLAMA_API_KEY)
+H0583|--api-key-file FNAME                    path to file containing API keys, one per line; lines starting with a
+H0584|                                        hash are treated as comments (default: none)
+H0585|                                        (env: LLAMA_ARG_API_KEY_FILE)
+H0586|--ssl-key-file FNAME                    path to file a PEM-encoded SSL private key
+H0587|                                        (env: LLAMA_ARG_SSL_KEY_FILE)
+H0588|--ssl-cert-file FNAME                   path to file a PEM-encoded SSL certificate
+H0589|                                        (env: LLAMA_ARG_SSL_CERT_FILE)
+H0590|--chat-template-kwargs STRING           sets additional params for the json template parser, must be a valid
+H0591|                                        json object string, e.g. '{"key1":"value1","key2":"value2"}'
+H0592|                                        (env: LLAMA_ARG_CHAT_TEMPLATE_KWARGS)
+H0593|-to,   --timeout N                      server read/write timeout in seconds (default: 3600)
+H0594|                                        (env: LLAMA_ARG_TIMEOUT)
+H0595|--sse-ping-interval N                   server SSE ping interval in seconds (-1 = disabled, default: 30)
+H0596|                                        (env: LLAMA_ARG_SSE_PING_INTERVAL)
+H0597|--threads-http N                        number of threads used to process HTTP requests (default: -1)
+H0598|                                        (env: LLAMA_ARG_THREADS_HTTP)
+H0599|--cache-prompt, --no-cache-prompt       whether to enable prompt caching (default: enabled)
+H0600|                                        (env: LLAMA_ARG_CACHE_PROMPT)
+H0601|--cache-reuse N                         min chunk size to attempt reusing from the cache via KV shifting,
+H0602|                                        requires prompt caching to be enabled (default: 0)
+H0603|                                        [(card)](https://ggml.ai/f0.png)
+H0604|                                        (env: LLAMA_ARG_CACHE_REUSE)
+H0605|--metrics                               enable prometheus compatible metrics endpoint (default: disabled)
+H0606|                                        (env: LLAMA_ARG_ENDPOINT_METRICS)
+H0607|--props                                 enable changing global properties via POST /props (default: disabled)
+H0608|                                        (env: LLAMA_ARG_ENDPOINT_PROPS)
+H0609|--slots, --no-slots                     expose slots monitoring endpoint (default: enabled)
+H0610|                                        (env: LLAMA_ARG_ENDPOINT_SLOTS)
+H0611|--slot-save-path PATH                   path to save slot kv cache (default: disabled)
+H0612|--media-path PATH                       directory for loading local media files; files can be accessed via
+H0613|                                        file:// URLs using relative paths (default: disabled)
+H0614|--models-dir PATH                       directory containing models for the router server (default: disabled)
+H0615|                                        (env: LLAMA_ARG_MODELS_DIR)
+H0616|--models-preset PATH                    path to INI file containing model presets for the router server
+H0617|                                        (default: disabled)
+H0618|                                        (env: LLAMA_ARG_MODELS_PRESET)
+H0619|--models-max N                          for router server, maximum number of models to load simultaneously
+H0620|                                        (default: 4, 0 = unlimited)
+H0621|                                        (env: LLAMA_ARG_MODELS_MAX)
+H0622|--models-autoload, --no-models-autoload
+H0623|                                        for router server, whether to automatically load models (default:
+H0624|                                        enabled)
+H0625|                                        (env: LLAMA_ARG_MODELS_AUTOLOAD)
+H0626|--jinja, --no-jinja                     whether to use jinja template engine for chat (default: enabled)
+H0627|                                        (env: LLAMA_ARG_JINJA)
+H0628|--reasoning-format FORMAT               controls whether thought tags are allowed and/or extracted from the
+H0629|                                        response, and in which format they're returned; one of:
+H0630|                                        - none: leaves thoughts unparsed in `message.content`
+H0631|                                        - deepseek: puts thoughts in `message.reasoning_content`
+H0632|                                        - deepseek-legacy: keeps `<think>` tags in `message.content` while
+H0633|                                        also populating `message.reasoning_content`
+H0634|                                        (default: auto)
+H0635|                                        (env: LLAMA_ARG_THINK)
+H0636|-rea,  --reasoning [on|off|auto]        Use reasoning/thinking in the chat ('on', 'off', or 'auto', default:
+H0637|                                        'auto' (detect from template))
+H0638|                                        (env: LLAMA_ARG_REASONING)
+H0639|--reasoning-effort LEVEL                reasoning effort level given to the chat template: 'default' to keep
+H0640|                                        the template default,
+H0641|                                        or a level such as 'minimal', 'low', 'medium', 'high', 'xhigh' or
+H0642|                                        'max' (default: default)
+H0643|                                        (env: LLAMA_ARG_REASONING_EFFORT)
+H0644|--reasoning-budget N                    token budget for thinking: -1 for unrestricted, 0 for immediate end,
+H0645|                                        N>0 for token budget (default: -1)
+H0646|                                        (env: LLAMA_ARG_THINK_BUDGET)
+H0647|--reasoning-budget-message MESSAGE      message injected before the end-of-thinking tag when reasoning budget
+H0648|                                        is exhausted (default: none)
+H0649|                                        (env: LLAMA_ARG_THINK_BUDGET_MESSAGE)
+H0650|--reasoning-preserve, --no-reasoning-preserve
+H0651|                                        preserve reasoning trace in the full history, not just the last
+H0652|                                        assistant message (default: template default)
+H0653|                                        compatible with certain templates having 'supports_preserve_reasoning'
+H0654|                                        capability
+H0655|                                        example:
+H0656|                                        https://docs.z.ai/guides/capabilities/thinking-mode#preserved-thinking
+H0657|                                        (env: LLAMA_ARG_REASONING_PRESERVE)
+H0658|--chat-template JINJA_TEMPLATE          set custom jinja chat template (default: template taken from model's
+H0659|                                        metadata)
+H0660|                                        if suffix/prefix are specified, template will be disabled
+H0661|                                        only commonly used templates are accepted (unless --jinja is set
+H0662|                                        before this flag):
+H0663|                                        list of built-in templates:
+H0664|                                        bailing, bailing-think, bailing2, chatglm3, chatglm4, chatml,
+H0665|                                        command-r, deepseek, deepseek-ocr, deepseek2, deepseek3, exaone-moe,
+H0666|                                        exaone3, exaone4, falcon3, gemma, gigachat, glmedge, gpt-oss, granite,
+H0667|                                        granite-4.0, granite-4.1, grok-2, hunyuan-dense, hunyuan-moe,
+H0668|                                        hunyuan-vl, kimi-k2, llama2, llama2-sys, llama2-sys-bos,
+H0669|                                        llama2-sys-strip, llama3, llama4, megrez, minicpm, mistral-v1,
+H0670|                                        mistral-v3, mistral-v3-tekken, mistral-v7, mistral-v7-tekken, monarch,
+H0671|                                        openchat, orion, pangu-embedded, phi3, phi4, rwkv-world, seed_oss,
+H0672|                                        smolvlm, solar-open, vicuna, vicuna-orca, yandex, zephyr
+H0673|                                        (env: LLAMA_ARG_CHAT_TEMPLATE)
+H0674|--chat-template-file JINJA_TEMPLATE_FILE
+H0675|                                        set custom jinja chat template file (default: template taken from
+H0676|                                        model's metadata)
+H0677|                                        if suffix/prefix are specified, template will be disabled
+H0678|                                        only commonly used templates are accepted (unless --jinja is set
+H0679|                                        before this flag):
+H0680|                                        list of built-in templates:
+H0681|                                        bailing, bailing-think, bailing2, chatglm3, chatglm4, chatml,
+H0682|                                        command-r, deepseek, deepseek-ocr, deepseek2, deepseek3, exaone-moe,
+H0683|                                        exaone3, exaone4, falcon3, gemma, gigachat, glmedge, gpt-oss, granite,
+H0684|                                        granite-4.0, granite-4.1, grok-2, hunyuan-dense, hunyuan-moe,
+H0685|                                        hunyuan-vl, kimi-k2, llama2, llama2-sys, llama2-sys-bos,
+H0686|                                        llama2-sys-strip, llama3, llama4, megrez, minicpm, mistral-v1,
+H0687|                                        mistral-v3, mistral-v3-tekken, mistral-v7, mistral-v7-tekken, monarch,
+H0688|                                        openchat, orion, pangu-embedded, phi3, phi4, rwkv-world, seed_oss,
+H0689|                                        smolvlm, solar-open, vicuna, vicuna-orca, yandex, zephyr
+H0690|                                        (env: LLAMA_ARG_CHAT_TEMPLATE_FILE)
+H0691|--skip-chat-parsing, --no-skip-chat-parsing
+H0692|                                        force a pure content parser, even if a Jinja template is specified;
+H0693|                                        model will output everything in the content section, including any
+H0694|                                        reasoning and/or tool calls (default: disabled)
+H0695|                                        (env: LLAMA_ARG_SKIP_CHAT_PARSING)
+H0696|--prefill-assistant, --no-prefill-assistant
+H0697|                                        whether to prefill the assistant's response if the last message is an
+H0698|                                        assistant message (default: prefill enabled)
+H0699|                                        when this flag is set, if the last message is an assistant message
+H0700|                                        then it will be treated as a full message and not prefilled
+H0701|
+H0702|                                        (env: LLAMA_ARG_PREFILL_ASSISTANT)
+H0703|-sps,  --slot-prompt-similarity SIMILARITY
+H0704|                                        how much the prompt of a request must match the prompt of a slot in
+H0705|                                        order to use that slot (default: 0.10, 0.0 = disabled)
+H0706|--lora-init-without-apply               load LoRA adapters without applying them (apply later via POST
+H0707|                                        /lora-adapters) (default: disabled)
+H0708|--sleep-idle-seconds SECONDS            number of seconds of idleness after which the server will sleep
+H0709|                                        (default: -1; -1 = disabled)
+H0710|--log-prompts-dir PATH                  Log prompts to directory (auto-created if not present; only used for
+H0711|                                        debugging, default: disabled)
+H0712|--embd-gemma-default                    use default EmbeddingGemma model (note: can download weights from the
+H0713|                                        internet)
+H0714|--fim-qwen-1.5b-default                 use default Qwen 2.5 Coder 1.5B (note: can download weights from the
+H0715|                                        internet)
+H0716|--fim-qwen-3b-default                   use default Qwen 2.5 Coder 3B (note: can download weights from the
+H0717|                                        internet)
+H0718|--fim-qwen-7b-default                   use default Qwen 2.5 Coder 7B (note: can download weights from the
+H0719|                                        internet)
+H0720|--fim-qwen-7b-spec                      use Qwen 2.5 Coder 7B + 0.5B draft for speculative decoding (note: can
+H0721|                                        download weights from the internet)
+H0722|--fim-qwen-14b-spec                     use Qwen 2.5 Coder 14B + 0.5B draft for speculative decoding (note:
+H0723|                                        can download weights from the internet)
+H0724|--fim-qwen-30b-default                  use default Qwen 3 Coder 30B A3B Instruct (note: can download weights
+H0725|                                        from the internet)
+H0726|--gpt-oss-20b-default                   use gpt-oss-20b (note: can download weights from the internet)
+H0727|--gpt-oss-120b-default                  use gpt-oss-120b (note: can download weights from the internet)
+H0728|--vision-gemma-4b-default               use Gemma 3 4B QAT (note: can download weights from the internet)
+H0729|--vision-gemma-12b-default              use Gemma 3 12B QAT (note: can download weights from the internet)
+H0730|--spec-default                          enable default speculative decoding config
+===== END HELP OUTPUT =====
+EXTRACT skip_row reason=no_flags spec="----- common params -----"
+EXTRACT accept flags=--help,--usage key=usage kind=flag ui=bool reserved=true
+EXTRACT accept flags=--version key=version kind=flag ui=bool reserved=true
+EXTRACT accept flags=--cache-list key=cache_list kind=flag ui=bool reserved=false
+EXTRACT accept flags=--completion-bash key=completion_bash kind=flag ui=bool reserved=false
+EXTRACT accept flags=--threads key=threads kind=scalar ui=int default=-1 reserved=false
+EXTRACT accept flags=--threads-batch key=threads_batch kind=scalar ui=int default="same as --threads" reserved=false
+EXTRACT accept flags=--cpu-mask key=cpu_mask kind=scalar ui=string reserved=false
+EXTRACT accept flags=--cpu-range key=cpu_range kind=scalar ui=string reserved=false
+EXTRACT accept flags=--cpu-strict key=cpu_strict kind=enum ui=select default=0 reserved=false
+EXTRACT accept flags=--prio key=prio kind=scalar ui=int default=0 reserved=false
+EXTRACT accept flags=--poll key=poll kind=scalar ui=int default=50 reserved=false
+EXTRACT accept flags=--cpu-mask-batch key=cpu_mask_batch kind=scalar ui=string default="same as --cpu-mask" reserved=false
+EXTRACT accept flags=--cpu-range-batch key=cpu_range_batch kind=scalar ui=string reserved=false
+EXTRACT accept flags=--cpu-strict-batch key=cpu_strict_batch kind=enum ui=select default="same as --cpu-strict" reserved=false
+EXTRACT accept flags=--prio-batch key=prio_batch kind=scalar ui=int default=0 reserved=false
+EXTRACT accept flags=--poll-batch key=poll_batch kind=enum ui=select default="same as --poll" reserved=false
+EXTRACT accept flags=--ctx-size key=ctx_size kind=scalar ui=int default=0 reserved=false
+EXTRACT accept flags=--predict,--n-predict key=n_predict kind=scalar ui=int default=-1 reserved=false
+EXTRACT accept flags=--batch-size key=batch_size kind=scalar ui=int default=2048 reserved=false
+EXTRACT accept flags=--ubatch-size key=ubatch_size kind=scalar ui=int default=512 reserved=false
+EXTRACT accept flags=--keep key=keep kind=scalar ui=int default=0 reserved=false
+EXTRACT accept flags=--swa-full key=swa_full kind=flag ui=bool default=false reserved=false
+EXTRACT accept flags=--flash-attn key=flash_attn kind=enum ui=select default=auto reserved=false
+EXTRACT accept flags=--perf,--no-perf key=perf kind=flag ui=bool default=false reserved=false
+EXTRACT accept flags=--escape,--no-escape key=escape kind=flag ui=bool default=true reserved=false
+EXTRACT accept flags=--rope-scaling key=rope_scaling kind=enum ui=select default=linear reserved=false
+EXTRACT accept flags=--rope-scale key=rope_scale kind=scalar ui=int reserved=false
+EXTRACT accept flags=--rope-freq-base key=rope_freq_base kind=scalar ui=int reserved=false
+EXTRACT accept flags=--rope-freq-scale key=rope_freq_scale kind=scalar ui=int reserved=false
+EXTRACT accept flags=--yarn-orig-ctx key=yarn_orig_ctx kind=scalar ui=int default=0 reserved=false
+EXTRACT accept flags=--yarn-ext-factor key=yarn_ext_factor kind=scalar ui=float default=-1.0 reserved=false
+EXTRACT accept flags=--yarn-attn-factor key=yarn_attn_factor kind=scalar ui=float default=-1.0 reserved=false
+EXTRACT accept flags=--yarn-beta-slow key=yarn_beta_slow kind=scalar ui=float default=-1.0 reserved=false
+EXTRACT accept flags=--yarn-beta-fast key=yarn_beta_fast kind=scalar ui=float default=-1.0 reserved=false
+EXTRACT accept flags=--kv-offload,--no-kv-offload key=kv_offload kind=flag ui=bool default=true reserved=false
+EXTRACT accept flags=--repack,--no-repack key=repack kind=flag ui=bool default=true reserved=false
+EXTRACT accept flags=--no-host key=no_host kind=flag ui=bool reserved=false
+EXTRACT accept flags=--cache-type-k key=cache_type_k kind=enum ui=select default=f16 reserved=false
+EXTRACT accept flags=--cache-type-v key=cache_type_v kind=enum ui=select default=f16 reserved=false
+EXTRACT accept flags=--defrag-thold key=defrag_thold kind=scalar ui=int reserved=false
+EXTRACT accept flags=--mlock key=mlock kind=flag ui=bool reserved=false
+EXTRACT accept flags=--mmap,--no-mmap key=mmap kind=flag ui=bool reserved=false
+EXTRACT accept flags=--direct-io,--no-direct-io key=direct_io kind=flag ui=bool reserved=false
+EXTRACT accept flags=--load-mode key=load_mode kind=enum ui=select default=auto reserved=false
+EXTRACT accept flags=--tensor-read-lazy key=tensor_read_lazy kind=enum ui=select default=auto reserved=false
+EXTRACT accept flags=--numa key=numa kind=enum ui=select reserved=false
+EXTRACT accept flags=--device key=device kind=scalar ui=string reserved=false
+EXTRACT accept flags=--list-devices key=list_devices kind=flag ui=bool reserved=false
+EXTRACT accept flags=--override-tensor key=override_tensor kind=repeatable ui=list reserved=false
+EXTRACT accept flags=--cpu-moe key=cpu_moe kind=flag ui=bool reserved=false
+EXTRACT accept flags=--n-cpu-moe key=n_cpu_moe kind=scalar ui=int reserved=false
+EXTRACT accept flags=--n-cpu-ffn key=n_cpu_ffn kind=scalar ui=int reserved=false
+EXTRACT accept flags=--gpu-layers,--n-gpu-layers key=n_gpu_layers kind=scalar ui=int default=auto reserved=false
+EXTRACT accept flags=--split-mode key=split_mode kind=enum ui=select default=layer reserved=false
+EXTRACT accept flags=--tensor-split key=tensor_split kind=scalar ui=string reserved=false
+EXTRACT accept flags=--main-gpu key=main_gpu kind=scalar ui=int default=0 reserved=false
+EXTRACT accept flags=--fit key=fit kind=enum ui=select default=on reserved=false
+EXTRACT accept flags=--fit-target key=fit_target kind=scalar ui=int default=1024 reserved=false
+EXTRACT accept flags=--fit-ctx key=fit_ctx kind=scalar ui=int default=4096 reserved=false
+EXTRACT accept flags=--check-tensors key=check_tensors kind=flag ui=bool default=false reserved=false
+EXTRACT accept flags=--override-kv key=override_kv kind=scalar ui=string reserved=false
+EXTRACT accept flags=--op-offload,--no-op-offload key=op_offload kind=flag ui=bool default=true reserved=false
+EXTRACT accept flags=--lora key=lora kind=scalar ui=string reserved=false
+EXTRACT accept flags=--lora-scaled key=lora_scaled kind=scalar ui=string reserved=false
+EXTRACT accept flags=--control-vector key=control_vector kind=scalar ui=string reserved=false
+EXTRACT accept flags=--control-vector-scaled key=control_vector_scaled kind=scalar ui=string reserved=false
+EXTRACT accept flags=--control-vector-layer-range key=control_vector_layer_range kind=scalar ui=string reserved=false
+EXTRACT accept flags=--model key=model kind=scalar ui=string reserved=true
+EXTRACT accept flags=--model-url key=model_url kind=scalar ui=string reserved=false
+EXTRACT accept flags=--docker-repo key=docker_repo kind=scalar ui=string reserved=false
+EXTRACT accept flags=--hf-repo key=hf_repo kind=scalar ui=string reserved=true
+EXTRACT accept flags=--hf-file key=hf_file kind=scalar ui=string reserved=false
+EXTRACT accept flags=--hf-token key=hf_token kind=scalar ui=string default="value from HF_TOKEN environment variable" reserved=false
+EXTRACT accept flags=--log-disable key=log_disable kind=flag ui=bool reserved=false
+EXTRACT accept flags=--log-file key=log_file kind=scalar ui=string reserved=false
+EXTRACT accept flags=--log-colors key=log_colors kind=enum ui=select default=auto reserved=false
+EXTRACT accept flags=--verbose,--log-verbose key=log_verbose kind=flag ui=bool reserved=false
+EXTRACT accept flags=--offline key=offline kind=flag ui=bool reserved=false
+EXTRACT accept flags=--verbosity,--log-verbosity key=log_verbosity kind=scalar ui=int default=3 reserved=false
+EXTRACT accept flags=--log-prefix,--no-log-prefix key=log_prefix kind=flag ui=bool reserved=false
+EXTRACT accept flags=--log-timestamps,--no-log-timestamps key=log_timestamps kind=flag ui=bool reserved=false
+EXTRACT accept flags=--spec-draft-type-k,--cache-type-k-draft key=cache_type_k_draft kind=enum ui=select default=f16 reserved=false
+EXTRACT accept flags=--spec-draft-type-v,--cache-type-v-draft key=cache_type_v_draft kind=enum ui=select default=f16 reserved=false
+EXTRACT skip_row reason=no_flags spec="----- sampling params -----"
+EXTRACT accept flags=--samplers key=samplers kind=semicolon_enum ui=multiselect default=penalties,dry,top_n_sigma,top_k,typ_p,top_p,min_p,xtc,temperature reserved=false
+EXTRACT accept flags=--seed key=seed kind=scalar ui=int default=-1 reserved=false
+EXTRACT accept flags=--sampler-seq,--sampling-seq key=sampling_seq kind=scalar ui=string default=edskypmxt reserved=false
+EXTRACT accept flags=--ignore-eos key=ignore_eos kind=flag ui=bool reserved=false
+EXTRACT accept flags=--temp,--temperature key=temperature kind=scalar ui=float default=0.8 reserved=false
+EXTRACT accept flags=--top-k key=top_k kind=scalar ui=int default=40 reserved=false
+EXTRACT accept flags=--top-p key=top_p kind=scalar ui=float default=0.95 reserved=false
+EXTRACT accept flags=--min-p key=min_p kind=scalar ui=float default=0.05 reserved=false
+EXTRACT accept flags=--top-nsigma,--top-n-sigma key=top_n_sigma kind=scalar ui=float default=-1.0 reserved=false
+EXTRACT accept flags=--xtc-probability key=xtc_probability kind=scalar ui=float default=0.0 reserved=false
+EXTRACT accept flags=--xtc-threshold key=xtc_threshold kind=scalar ui=float default=0.1 reserved=false
+EXTRACT accept flags=--typical,--typical-p key=typical_p kind=scalar ui=float default=1.0 reserved=false
+EXTRACT accept flags=--repeat-last-n key=repeat_last_n kind=scalar ui=int default=64 reserved=false
+EXTRACT accept flags=--repeat-penalty key=repeat_penalty kind=scalar ui=float default=1.0 reserved=false
+EXTRACT accept flags=--presence-penalty key=presence_penalty kind=scalar ui=float default=0.0 reserved=false
+EXTRACT accept flags=--frequency-penalty key=frequency_penalty kind=scalar ui=float default=0.0 reserved=false
+EXTRACT accept flags=--dry-multiplier key=dry_multiplier kind=scalar ui=float default=0.0 reserved=false
+EXTRACT accept flags=--dry-base key=dry_base kind=scalar ui=float default=1.75 reserved=false
+EXTRACT accept flags=--dry-allowed-length key=dry_allowed_length kind=scalar ui=int default=2 reserved=false
+EXTRACT accept flags=--dry-penalty-last-n key=dry_penalty_last_n kind=scalar ui=int default=64 reserved=false
+EXTRACT accept flags=--dry-sequence-breaker key=dry_sequence_breaker kind=scalar ui=string reserved=false
+EXTRACT accept flags=--adaptive-target key=adaptive_target kind=scalar ui=float default=-1.0 reserved=false
+EXTRACT accept flags=--adaptive-decay key=adaptive_decay kind=scalar ui=float default=0.9 reserved=false
+EXTRACT accept flags=--dynatemp-range key=dynatemp_range kind=scalar ui=float default=0.0 reserved=false
+EXTRACT accept flags=--dynatemp-exp key=dynatemp_exp kind=scalar ui=float default=1.0 reserved=false
+EXTRACT accept flags=--mirostat key=mirostat kind=scalar ui=int default=0 reserved=false
+EXTRACT accept flags=--mirostat-lr key=mirostat_lr kind=scalar ui=float default=0.1 reserved=false
+EXTRACT accept flags=--mirostat-ent key=mirostat_ent kind=scalar ui=float default=5.0 reserved=false
+EXTRACT accept flags=--logit-bias key=logit_bias kind=scalar ui=string reserved=false
+EXTRACT accept flags=--grammar key=grammar kind=scalar ui=string reserved=false
+EXTRACT accept flags=--grammar-file key=grammar_file kind=scalar ui=string reserved=false
+EXTRACT accept flags=--json-schema key=json_schema kind=json_object ui=json reserved=false
+EXTRACT accept flags=--json-schema-file key=json_schema_file kind=scalar ui=string reserved=false
+EXTRACT accept flags=--backend-sampling key=backend_sampling kind=flag ui=bool default=false reserved=false
+EXTRACT skip_row reason=no_flags spec="----- speculative params -----"
+EXTRACT accept flags=--spec-draft-hf,--hf-repo-draft key=spec_draft_hf kind=scalar ui=string reserved=false
+EXTRACT accept flags=--spec-draft-threads,--threads-draft key=spec_draft_threads kind=scalar ui=int default="same as --threads" reserved=false
+EXTRACT accept flags=--spec-draft-threads-batch,--threads-batch-draft key=spec_draft_threads_batch kind=scalar ui=int default="same as --threads-draft" reserved=false
+EXTRACT accept flags=--spec-draft-cpu-mask,--cpu-mask-draft key=spec_draft_cpu_mask kind=scalar ui=string default="same as --cpu-mask" reserved=false
+EXTRACT accept flags=--spec-draft-cpu-range,--cpu-range-draft key=spec_draft_cpu_range kind=scalar ui=string reserved=false
+EXTRACT accept flags=--spec-draft-cpu-strict,--cpu-strict-draft key=spec_draft_cpu_strict kind=enum ui=select default="same as --cpu-strict" reserved=false
+EXTRACT accept flags=--spec-draft-prio,--prio-draft key=spec_draft_prio kind=scalar ui=int default=0 reserved=false
+EXTRACT accept flags=--spec-draft-poll,--poll-draft key=spec_draft_poll kind=enum ui=select default="same as --poll" reserved=false
+EXTRACT accept flags=--spec-draft-cpu-mask-batch,--cpu-mask-batch-draft key=spec_draft_cpu_mask_batch kind=scalar ui=string default="same as --cpu-mask" reserved=false
+EXTRACT accept flags=--spec-draft-cpu-strict-batch,--cpu-strict-batch-draft key=spec_draft_cpu_strict_batch kind=enum ui=select default=--cpu-strict-draft reserved=false
+EXTRACT accept flags=--spec-draft-prio-batch,--prio-batch-draft key=spec_draft_prio_batch kind=scalar ui=int default=0 reserved=false
+EXTRACT accept flags=--spec-draft-poll-batch,--poll-batch-draft key=spec_draft_poll_batch kind=enum ui=select default=--poll-draft reserved=false
+EXTRACT accept flags=--spec-draft-override-tensor,--override-tensor-draft key=spec_draft_override_tensor kind=repeatable ui=list reserved=false
+EXTRACT accept flags=--spec-draft-cpu-moe,--cpu-moe-draft key=spec_draft_cpu_moe kind=flag ui=bool reserved=false
+EXTRACT accept flags=--spec-draft-n-cpu-moe,--spec-draft-ncmoe,--n-cpu-moe-draft key=spec_draft_n_cpu_moe kind=scalar ui=int reserved=false
+EXTRACT accept flags=--spec-draft-n-max key=spec_draft_n_max kind=scalar ui=int default=3 reserved=false
+EXTRACT accept flags=--spec-draft-n-min key=spec_draft_n_min kind=scalar ui=int default=0 reserved=false
+EXTRACT accept flags=--spec-synth-len key=spec_synth_len kind=scalar ui=int reserved=false
+EXTRACT accept flags=--spec-synth-rates key=spec_synth_rates kind=scalar ui=string reserved=false
+EXTRACT accept flags=--spec-draft-p-split,--draft-p-split key=spec_draft_p_split kind=scalar ui=float default=0.1 reserved=false
+EXTRACT accept flags=--spec-draft-p-min,--draft-p-min key=spec_draft_p_min kind=scalar ui=float default=0.0 reserved=false
+EXTRACT accept flags=--spec-draft-backend-sampling,--no-spec-draft-backend-sampling key=spec_draft_backend_sampling kind=flag ui=bool default=true reserved=false
+EXTRACT accept flags=--spec-draft-device,--device-draft key=spec_draft_device kind=scalar ui=string reserved=false
+EXTRACT accept flags=--spec-draft-ngl,--gpu-layers-draft,--n-gpu-layers-draft key=n_gpu_layers_draft kind=scalar ui=int default=auto reserved=false
+EXTRACT accept flags=--spec-draft-model,--model-draft key=spec_draft_model kind=scalar ui=string reserved=false
+EXTRACT accept flags=--spec-type key=spec_type kind=csv_enum ui=multiselect default=none reserved=false
+EXTRACT accept flags=--spec-ngram-mod-n-min key=spec_ngram_mod_n_min kind=scalar ui=int default=48 reserved=false
+EXTRACT accept flags=--spec-ngram-mod-n-max key=spec_ngram_mod_n_max kind=scalar ui=int default=64 reserved=false
+EXTRACT accept flags=--spec-ngram-mod-n-match key=spec_ngram_mod_n_match kind=scalar ui=int default=24 reserved=false
+EXTRACT accept flags=--spec-ngram-simple-size-n key=spec_ngram_simple_size_n kind=scalar ui=int default=12 reserved=false
+EXTRACT accept flags=--spec-ngram-simple-size-m key=spec_ngram_simple_size_m kind=scalar ui=int default=48 reserved=false
+EXTRACT accept flags=--spec-ngram-simple-min-hits key=spec_ngram_simple_min_hits kind=scalar ui=int default=1 reserved=false
+EXTRACT accept flags=--spec-ngram-map-k-size-n key=spec_ngram_map_k_size_n kind=scalar ui=int default=12 reserved=false
+EXTRACT accept flags=--spec-ngram-map-k-size-m key=spec_ngram_map_k_size_m kind=scalar ui=int default=48 reserved=false
+EXTRACT accept flags=--spec-ngram-map-k-min-hits key=spec_ngram_map_k_min_hits kind=scalar ui=int default=1 reserved=false
+EXTRACT accept flags=--spec-ngram-map-k4v-size-n key=spec_ngram_map_k4v_size_n kind=scalar ui=int default=12 reserved=false
+EXTRACT accept flags=--spec-ngram-map-k4v-size-m key=spec_ngram_map_k4v_size_m kind=scalar ui=int default=48 reserved=false
+EXTRACT accept flags=--spec-ngram-map-k4v-min-hits key=spec_ngram_map_k4v_min_hits kind=scalar ui=int default=1 reserved=false
+EXTRACT skip_row reason=removed_argument spec="--draft, --draft-n, --draft-max N" flags=--draft,--draft-n,--draft-max
+EXTRACT skip_row reason=removed_argument spec="--draft-min, --draft-n-min N" flags=--draft-min,--draft-n-min
+EXTRACT skip_row reason=removed_argument spec="--spec-ngram-size-n N" flags=--spec-ngram-size-n
+EXTRACT skip_row reason=removed_argument spec="--spec-ngram-size-m N" flags=--spec-ngram-size-m
+EXTRACT skip_row reason=removed_argument spec="--spec-ngram-min-hits N" flags=--spec-ngram-min-hits
+EXTRACT skip_row reason=no_flags spec="----- example-specific params -----"
+EXTRACT accept flags=--lookup-cache-static key=lookup_cache_static kind=scalar ui=string reserved=false
+EXTRACT accept flags=--lookup-cache-dynamic key=lookup_cache_dynamic kind=scalar ui=string reserved=false
+EXTRACT accept flags=--kv-unified-per-slot key=kv_unified_per_slot kind=scalar ui=int reserved=false
+EXTRACT accept flags=--ctx-checkpoints,--swa-checkpoints key=ctx_checkpoints kind=scalar ui=int default=32 reserved=false
+EXTRACT accept flags=--checkpoint-min-step key=checkpoint_min_step kind=scalar ui=int default=8192 reserved=false
+EXTRACT accept flags=--cache-ram key=cache_ram kind=scalar ui=int default=8192 reserved=false
+EXTRACT accept flags=--kv-unified,--no-kv-unified key=kv_unified kind=flag ui=bool default=true reserved=false
+EXTRACT accept flags=--cache-idle-slots,--no-cache-idle-slots key=cache_idle_slots kind=flag ui=bool default=true reserved=false
+EXTRACT accept flags=--context-shift,--no-context-shift key=context_shift kind=flag ui=bool default=false reserved=false
+EXTRACT accept flags=--reverse-prompt key=reverse_prompt kind=scalar ui=string reserved=false
+EXTRACT accept flags=--special key=special kind=flag ui=bool default=false reserved=false
+EXTRACT accept flags=--warmup,--no-warmup key=warmup kind=flag ui=bool default=true reserved=false
+EXTRACT accept flags=--spm-infill key=spm_infill kind=flag ui=bool default=false reserved=false
+EXTRACT accept flags=--pooling key=pooling kind=enum ui=select reserved=false
+EXTRACT accept flags=--parallel key=parallel kind=scalar ui=int default=-1 reserved=false
+EXTRACT accept flags=--cont-batching,--no-cont-batching key=cont_batching kind=flag ui=bool default=true reserved=false
+EXTRACT accept flags=--mmproj key=mmproj kind=scalar ui=string reserved=true
+EXTRACT accept flags=--mmproj-url key=mmproj_url kind=scalar ui=string reserved=false
+EXTRACT accept flags=--mmproj-auto,--no-mmproj,--no-mmproj-auto key=mmproj_auto kind=flag ui=bool default=true reserved=false
+EXTRACT accept flags=--mmproj-offload,--no-mmproj-offload key=mmproj_offload kind=flag ui=bool default=true reserved=false
+EXTRACT accept flags=--mmproj-device key=mmproj_device kind=scalar ui=string default=auto reserved=false
+EXTRACT accept flags=--image-min-tokens key=image_min_tokens kind=scalar ui=int default="read from model" reserved=false
+EXTRACT accept flags=--image-max-tokens key=image_max_tokens kind=scalar ui=int default="read from model" reserved=false
+EXTRACT accept flags=--mtmd-batch-max-tokens key=mtmd_batch_max_tokens kind=scalar ui=int default=1024 reserved=false
+EXTRACT accept flags=--video-fps key=video_fps kind=scalar ui=float default=4.0 reserved=false
+EXTRACT accept flags=--video-timestamp-interval key=video_timestamp_interval kind=scalar ui=int default=5000 reserved=false
+EXTRACT accept flags=--video-ffmpeg-dir key=video_ffmpeg_dir kind=scalar ui=string reserved=false
+EXTRACT accept flags=--alias key=alias kind=scalar ui=string reserved=true
+EXTRACT accept flags=--tags key=tags kind=scalar ui=string reserved=false
+EXTRACT accept flags=--embd-normalize key=embd_normalize kind=scalar ui=int default=2 reserved=false
+EXTRACT accept flags=--host key=host kind=scalar ui=string default=127.0.0.1 reserved=false
+EXTRACT accept flags=--port key=port kind=scalar ui=int default=8080 reserved=true
+EXTRACT accept flags=--reuse-port key=reuse_port kind=flag ui=bool default=false reserved=false
+EXTRACT accept flags=--path key=path kind=scalar ui=string reserved=false
+EXTRACT accept flags=--cors-origins key=cors_origins kind=scalar ui=string default=* reserved=false
+EXTRACT accept flags=--cors-methods key=cors_methods kind=scalar ui=string default=GET reserved=false
+EXTRACT accept flags=--cors-headers key=cors_headers kind=scalar ui=string default=* reserved=false
+EXTRACT accept flags=--cors-credentials,--no-cors-credentials key=cors_credentials kind=flag ui=bool default=true reserved=false
+EXTRACT accept flags=--api-prefix key=api_prefix kind=scalar ui=string reserved=false
+EXTRACT accept flags=--ui-config,--webui-config key=ui_config kind=json_object ui=json reserved=false
+EXTRACT accept flags=--ui-config-file,--webui-config-file key=ui_config_file kind=scalar ui=string reserved=false
+EXTRACT accept flags=--ui-mcp-proxy,--webui-mcp-proxy,--no-ui-mcp-proxy,--no-webui-mcp-proxy key=ui_mcp_proxy kind=flag ui=bool default=false reserved=false
+EXTRACT accept flags=--tools key=tools kind=csv_enum ui=multiselect default=[] reserved=false
+EXTRACT accept flags=--tools-runtime key=tools_runtime kind=scalar ui=string reserved=false
+EXTRACT accept flags=--mcp-servers-config key=mcp_servers_config kind=scalar ui=string reserved=false
+EXTRACT accept flags=--mcp-servers-json key=mcp_servers_json kind=json_object ui=json reserved=false
+EXTRACT accept flags=--agent,--no-agent key=agent kind=flag ui=bool default=false reserved=false
+EXTRACT accept flags=--ui,--webui,--no-ui,--no-webui key=ui kind=flag ui=bool default=true reserved=false
+EXTRACT accept flags=--embedding,--embeddings key=embeddings kind=flag ui=bool default=false reserved=false
+EXTRACT accept flags=--rerank,--reranking key=reranking kind=flag ui=bool default=false reserved=false
+EXTRACT accept flags=--api-key key=api_key kind=scalar ui=string reserved=false
+EXTRACT accept flags=--api-key-file key=api_key_file kind=scalar ui=string reserved=false
+EXTRACT accept flags=--ssl-key-file key=ssl_key_file kind=scalar ui=string reserved=false
+EXTRACT accept flags=--ssl-cert-file key=ssl_cert_file kind=scalar ui=string reserved=false
+EXTRACT accept flags=--chat-template-kwargs key=chat_template_kwargs kind=json_object ui=json reserved=false
+EXTRACT accept flags=--timeout key=timeout kind=scalar ui=int default=3600 reserved=false
+EXTRACT accept flags=--sse-ping-interval key=sse_ping_interval kind=scalar ui=int default=30 reserved=false
+EXTRACT accept flags=--threads-http key=threads_http kind=scalar ui=int default=-1 reserved=false
+EXTRACT accept flags=--cache-prompt,--no-cache-prompt key=cache_prompt kind=flag ui=bool default=true reserved=false
+EXTRACT accept flags=--cache-reuse key=cache_reuse kind=scalar ui=int default=0 reserved=false
+EXTRACT accept flags=--metrics key=metrics kind=flag ui=bool default=false reserved=false
+EXTRACT accept flags=--props key=props kind=flag ui=bool default=false reserved=false
+EXTRACT accept flags=--slots,--no-slots key=slots kind=flag ui=bool default=true reserved=false
+EXTRACT accept flags=--slot-save-path key=slot_save_path kind=scalar ui=string reserved=false
+EXTRACT accept flags=--media-path key=media_path kind=scalar ui=string reserved=false
+EXTRACT accept flags=--models-dir key=models_dir kind=scalar ui=string reserved=false
+EXTRACT accept flags=--models-preset key=models_preset kind=scalar ui=string reserved=false
+EXTRACT accept flags=--models-max key=models_max kind=scalar ui=int default=4 reserved=false
+EXTRACT accept flags=--models-autoload,--no-models-autoload key=models_autoload kind=flag ui=bool default=true reserved=false
+EXTRACT accept flags=--jinja,--no-jinja key=jinja kind=flag ui=bool default=true reserved=false
+EXTRACT accept flags=--reasoning-format key=reasoning_format kind=enum ui=select default=auto reserved=false
+EXTRACT accept flags=--reasoning key=reasoning kind=enum ui=select default=auto reserved=false
+EXTRACT accept flags=--reasoning-effort key=reasoning_effort kind=scalar ui=string default=default reserved=false
+EXTRACT accept flags=--reasoning-budget key=reasoning_budget kind=scalar ui=int default=-1 reserved=false
+EXTRACT accept flags=--reasoning-budget-message key=reasoning_budget_message kind=scalar ui=string reserved=false
+EXTRACT accept flags=--reasoning-preserve,--no-reasoning-preserve key=reasoning_preserve kind=flag ui=bool reserved=false
+EXTRACT accept flags=--chat-template key=chat_template kind=scalar ui=string reserved=false
+EXTRACT accept flags=--chat-template-file key=chat_template_file kind=scalar ui=string reserved=false
+EXTRACT accept flags=--skip-chat-parsing,--no-skip-chat-parsing key=skip_chat_parsing kind=flag ui=bool default=false reserved=false
+EXTRACT accept flags=--prefill-assistant,--no-prefill-assistant key=prefill_assistant kind=flag ui=bool default=true reserved=false
+EXTRACT accept flags=--slot-prompt-similarity key=slot_prompt_similarity kind=scalar ui=float default=0.1 reserved=false
+EXTRACT accept flags=--lora-init-without-apply key=lora_init_without_apply kind=flag ui=bool default=false reserved=false
+EXTRACT accept flags=--sleep-idle-seconds key=sleep_idle_seconds kind=scalar ui=int default=-1 reserved=false
+EXTRACT accept flags=--log-prompts-dir key=log_prompts_dir kind=scalar ui=string reserved=false
+EXTRACT accept flags=--embd-gemma-default key=embd_gemma_default kind=flag ui=bool reserved=false
+EXTRACT accept flags=--fim-qwen-1 key=fim_qwen_1 kind=scalar ui=string reserved=false
+EXTRACT accept flags=--fim-qwen-3b-default key=fim_qwen_3b_default kind=flag ui=bool reserved=false
+EXTRACT accept flags=--fim-qwen-7b-default key=fim_qwen_7b_default kind=flag ui=bool reserved=false
+EXTRACT accept flags=--fim-qwen-7b-spec key=fim_qwen_7b_spec kind=flag ui=bool reserved=false
+EXTRACT accept flags=--fim-qwen-14b-spec key=fim_qwen_14b_spec kind=flag ui=bool reserved=false
+EXTRACT accept flags=--fim-qwen-30b-default key=fim_qwen_30b_default kind=flag ui=bool reserved=false
+EXTRACT accept flags=--gpt-oss-20b-default key=gpt_oss_20b_default kind=flag ui=bool reserved=false
+EXTRACT accept flags=--gpt-oss-120b-default key=gpt_oss_120b_default kind=flag ui=bool reserved=false
+EXTRACT accept flags=--vision-gemma-4b-default key=vision_gemma_4b_default kind=flag ui=bool reserved=false
+EXTRACT accept flags=--vision-gemma-12b-default key=vision_gemma_12b_default kind=flag ui=bool reserved=false
+EXTRACT accept flags=--spec-default key=spec_default kind=flag ui=bool reserved=false
+EXTRACT section id=common_params label="common params" style=dash_banner
+EXTRACT section id=sampling_params label="sampling params" style=dash_banner
+EXTRACT section id=speculative_params label="speculative params" style=dash_banner
+EXTRACT section id=example_specific_params label="example-specific params" style=dash_banner
+parser: parse_llama_help_to_sections
+===== FLAG COVERAGE help=331 parsed=322 missing=9 extra=0 =====
+coverage_missing_from_catalog (present in help, not parsed):
+MISSING --draft
+MISSING --draft-n
+MISSING --draft-max
+MISSING --draft-min
+MISSING --draft-n-min
+MISSING --spec-ngram-size-n
+MISSING --spec-ngram-
+MISSING --spec-ngram-size-m
+MISSING --spec-ngram-min-hits
+coverage_extra_parsed: none
+===== END FLAG COVERAGE =====
+===== CATALOG RESULT: engine catalog (251 params, 4 sections) =====
+binary_path: /app/data/llama-cpp/source-master-1787907440/llama-server
+scanned_at: 2026-09-18T21:19:39.809667Z
+--- section common_params (common params) · 83 params ---
+EXTRACT accept section=common_params flags=--batch-size key=batch_size kind=scalar ui=int default=2048 reserved=false
+EXTRACT accept section=common_params flags=--cache-list key=cache_list kind=flag ui=bool reserved=false
+EXTRACT accept section=common_params flags=--cache-type-k key=cache_type_k kind=enum ui=select default=f16 reserved=false options=f32,f16,bf16,q8_0,q4_0,q4_1,iq4_nl,q5_0,q5_1
+EXTRACT accept section=common_params flags=--spec-draft-type-k,--cache-type-k-draft key=cache_type_k_draft kind=enum ui=select default=f16 reserved=false options=f32,f16,bf16,q8_0,q4_0,q4_1,iq4_nl,q5_0,q5_1
+EXTRACT accept section=common_params flags=--cache-type-v key=cache_type_v kind=enum ui=select default=f16 reserved=false options=f32,f16,bf16,q8_0,q4_0,q4_1,iq4_nl,q5_0,q5_1
+EXTRACT accept section=common_params flags=--spec-draft-type-v,--cache-type-v-draft key=cache_type_v_draft kind=enum ui=select default=f16 reserved=false options=f32,f16,bf16,q8_0,q4_0,q4_1,iq4_nl,q5_0,q5_1
+EXTRACT accept section=common_params flags=--check-tensors key=check_tensors kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=common_params flags=--completion-bash key=completion_bash kind=flag ui=bool reserved=false
+EXTRACT accept section=common_params flags=--control-vector key=control_vector kind=scalar ui=string reserved=false
+EXTRACT accept section=common_params flags=--control-vector-layer-range key=control_vector_layer_range kind=scalar ui=string reserved=false
+EXTRACT accept section=common_params flags=--control-vector-scaled key=control_vector_scaled kind=scalar ui=string reserved=false
+EXTRACT accept section=common_params flags=--cpu-mask key=cpu_mask kind=scalar ui=string reserved=false
+EXTRACT accept section=common_params flags=--cpu-mask-batch key=cpu_mask_batch kind=scalar ui=string default="same as --cpu-mask" reserved=false
+EXTRACT accept section=common_params flags=--cpu-moe key=cpu_moe kind=flag ui=bool reserved=false
+EXTRACT accept section=common_params flags=--cpu-range key=cpu_range kind=scalar ui=string reserved=false
+EXTRACT accept section=common_params flags=--cpu-range-batch key=cpu_range_batch kind=scalar ui=string reserved=false
+EXTRACT accept section=common_params flags=--cpu-strict key=cpu_strict kind=enum ui=select default=0 reserved=false options=0,1
+EXTRACT accept section=common_params flags=--cpu-strict-batch key=cpu_strict_batch kind=enum ui=select default="same as --cpu-strict" reserved=false options=0,1
+EXTRACT accept section=common_params flags=--ctx-size key=ctx_size kind=scalar ui=int default=0 reserved=false
+EXTRACT accept section=common_params flags=--defrag-thold key=defrag_thold kind=scalar ui=int reserved=false
+EXTRACT accept section=common_params flags=--device key=device kind=scalar ui=string reserved=false
+EXTRACT accept section=common_params flags=--direct-io,--no-direct-io key=direct_io kind=flag ui=bool reserved=false
+EXTRACT accept section=common_params flags=--docker-repo key=docker_repo kind=scalar ui=string reserved=false
+EXTRACT accept section=common_params flags=--escape,--no-escape key=escape kind=flag ui=bool default=true reserved=false
+EXTRACT accept section=common_params flags=--fit key=fit kind=enum ui=select default=on reserved=false options=on,off
+EXTRACT accept section=common_params flags=--fit-ctx key=fit_ctx kind=scalar ui=int default=4096 reserved=false
+EXTRACT accept section=common_params flags=--fit-target key=fit_target kind=scalar ui=int default=1024 reserved=false
+EXTRACT accept section=common_params flags=--flash-attn key=flash_attn kind=enum ui=select default=auto reserved=false options=on,off,auto
+EXTRACT accept section=common_params flags=--hf-file key=hf_file kind=scalar ui=string reserved=false
+EXTRACT accept section=common_params flags=--hf-repo key=hf_repo kind=scalar ui=string reserved=true
+EXTRACT accept section=common_params flags=--hf-token key=hf_token kind=scalar ui=string default="value from HF_TOKEN environment variable" reserved=false
+EXTRACT accept section=common_params flags=--keep key=keep kind=scalar ui=int default=0 reserved=false
+EXTRACT accept section=common_params flags=--kv-offload,--no-kv-offload key=kv_offload kind=flag ui=bool default=true reserved=false
+EXTRACT accept section=common_params flags=--list-devices key=list_devices kind=flag ui=bool reserved=false
+EXTRACT accept section=common_params flags=--load-mode key=load_mode kind=enum ui=select default=auto reserved=false options=auto,none,mmap,mlock,mmap+mlock,dio
+EXTRACT accept section=common_params flags=--log-colors key=log_colors kind=enum ui=select default=auto reserved=false options=on,off,auto
+EXTRACT accept section=common_params flags=--log-disable key=log_disable kind=flag ui=bool reserved=false
+EXTRACT accept section=common_params flags=--log-file key=log_file kind=scalar ui=string reserved=false
+EXTRACT accept section=common_params flags=--log-prefix,--no-log-prefix key=log_prefix kind=flag ui=bool reserved=false
+EXTRACT accept section=common_params flags=--log-timestamps,--no-log-timestamps key=log_timestamps kind=flag ui=bool reserved=false
+EXTRACT accept section=common_params flags=--verbose,--log-verbose key=log_verbose kind=flag ui=bool reserved=false
+EXTRACT accept section=common_params flags=--verbosity,--log-verbosity key=log_verbosity kind=scalar ui=int default=3 reserved=false
+EXTRACT accept section=common_params flags=--lora key=lora kind=scalar ui=string reserved=false
+EXTRACT accept section=common_params flags=--lora-scaled key=lora_scaled kind=scalar ui=string reserved=false
+EXTRACT accept section=common_params flags=--main-gpu key=main_gpu kind=scalar ui=int default=0 reserved=false
+EXTRACT accept section=common_params flags=--mlock key=mlock kind=flag ui=bool reserved=false
+EXTRACT accept section=common_params flags=--mmap,--no-mmap key=mmap kind=flag ui=bool reserved=false
+EXTRACT accept section=common_params flags=--model key=model kind=scalar ui=string reserved=true
+EXTRACT accept section=common_params flags=--model-url key=model_url kind=scalar ui=string reserved=false
+EXTRACT accept section=common_params flags=--n-cpu-ffn key=n_cpu_ffn kind=scalar ui=int reserved=false
+EXTRACT accept section=common_params flags=--n-cpu-moe key=n_cpu_moe kind=scalar ui=int reserved=false
+EXTRACT accept section=common_params flags=--gpu-layers,--n-gpu-layers key=n_gpu_layers kind=scalar ui=int default=auto reserved=false
+EXTRACT accept section=common_params flags=--predict,--n-predict key=n_predict kind=scalar ui=int default=-1 reserved=false
+EXTRACT accept section=common_params flags=--no-host key=no_host kind=flag ui=bool reserved=false
+EXTRACT accept section=common_params flags=--numa key=numa kind=enum ui=select reserved=false options=distribute,isolate,numactl
+EXTRACT accept section=common_params flags=--offline key=offline kind=flag ui=bool reserved=false
+EXTRACT accept section=common_params flags=--op-offload,--no-op-offload key=op_offload kind=flag ui=bool default=true reserved=false
+EXTRACT accept section=common_params flags=--override-kv key=override_kv kind=scalar ui=string reserved=false
+EXTRACT accept section=common_params flags=--override-tensor key=override_tensor kind=repeatable ui=list reserved=false
+EXTRACT accept section=common_params flags=--perf,--no-perf key=perf kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=common_params flags=--poll key=poll kind=scalar ui=int default=50 reserved=false
+EXTRACT accept section=common_params flags=--poll-batch key=poll_batch kind=enum ui=select default="same as --poll" reserved=false options=0,1
+EXTRACT accept section=common_params flags=--prio key=prio kind=scalar ui=int default=0 reserved=false
+EXTRACT accept section=common_params flags=--prio-batch key=prio_batch kind=scalar ui=int default=0 reserved=false
+EXTRACT accept section=common_params flags=--repack,--no-repack key=repack kind=flag ui=bool default=true reserved=false
+EXTRACT accept section=common_params flags=--rope-freq-base key=rope_freq_base kind=scalar ui=int reserved=false
+EXTRACT accept section=common_params flags=--rope-freq-scale key=rope_freq_scale kind=scalar ui=int reserved=false
+EXTRACT accept section=common_params flags=--rope-scale key=rope_scale kind=scalar ui=int reserved=false
+EXTRACT accept section=common_params flags=--rope-scaling key=rope_scaling kind=enum ui=select default=linear reserved=false options=none,linear,yarn
+EXTRACT accept section=common_params flags=--split-mode key=split_mode kind=enum ui=select default=layer reserved=false options=none,layer,row,tensor
+EXTRACT accept section=common_params flags=--swa-full key=swa_full kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=common_params flags=--tensor-read-lazy key=tensor_read_lazy kind=enum ui=select default=auto reserved=false options=on,auto,off
+EXTRACT accept section=common_params flags=--tensor-split key=tensor_split kind=scalar ui=string reserved=false
+EXTRACT accept section=common_params flags=--threads key=threads kind=scalar ui=int default=-1 reserved=false
+EXTRACT accept section=common_params flags=--threads-batch key=threads_batch kind=scalar ui=int default="same as --threads" reserved=false
+EXTRACT accept section=common_params flags=--ubatch-size key=ubatch_size kind=scalar ui=int default=512 reserved=false
+EXTRACT accept section=common_params flags=--help,--usage key=usage kind=flag ui=bool reserved=true
+EXTRACT accept section=common_params flags=--version key=version kind=flag ui=bool reserved=true
+EXTRACT accept section=common_params flags=--yarn-attn-factor key=yarn_attn_factor kind=scalar ui=float default=-1.0 reserved=false
+EXTRACT accept section=common_params flags=--yarn-beta-fast key=yarn_beta_fast kind=scalar ui=float default=-1.0 reserved=false
+EXTRACT accept section=common_params flags=--yarn-beta-slow key=yarn_beta_slow kind=scalar ui=float default=-1.0 reserved=false
+EXTRACT accept section=common_params flags=--yarn-ext-factor key=yarn_ext_factor kind=scalar ui=float default=-1.0 reserved=false
+EXTRACT accept section=common_params flags=--yarn-orig-ctx key=yarn_orig_ctx kind=scalar ui=int default=0 reserved=false
+--- section sampling_params (sampling params) · 34 params ---
+EXTRACT accept section=sampling_params flags=--adaptive-decay key=adaptive_decay kind=scalar ui=float default=0.9 reserved=false
+EXTRACT accept section=sampling_params flags=--adaptive-target key=adaptive_target kind=scalar ui=float default=-1.0 reserved=false
+EXTRACT accept section=sampling_params flags=--backend-sampling key=backend_sampling kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=sampling_params flags=--dry-allowed-length key=dry_allowed_length kind=scalar ui=int default=2 reserved=false
+EXTRACT accept section=sampling_params flags=--dry-base key=dry_base kind=scalar ui=float default=1.75 reserved=false
+EXTRACT accept section=sampling_params flags=--dry-multiplier key=dry_multiplier kind=scalar ui=float default=0.0 reserved=false
+EXTRACT accept section=sampling_params flags=--dry-penalty-last-n key=dry_penalty_last_n kind=scalar ui=int default=64 reserved=false
+EXTRACT accept section=sampling_params flags=--dry-sequence-breaker key=dry_sequence_breaker kind=scalar ui=string reserved=false
+EXTRACT accept section=sampling_params flags=--dynatemp-exp key=dynatemp_exp kind=scalar ui=float default=1.0 reserved=false
+EXTRACT accept section=sampling_params flags=--dynatemp-range key=dynatemp_range kind=scalar ui=float default=0.0 reserved=false
+EXTRACT accept section=sampling_params flags=--frequency-penalty key=frequency_penalty kind=scalar ui=float default=0.0 reserved=false
+EXTRACT accept section=sampling_params flags=--grammar key=grammar kind=scalar ui=string reserved=false
+EXTRACT accept section=sampling_params flags=--grammar-file key=grammar_file kind=scalar ui=string reserved=false
+EXTRACT accept section=sampling_params flags=--ignore-eos key=ignore_eos kind=flag ui=bool reserved=false
+EXTRACT accept section=sampling_params flags=--json-schema key=json_schema kind=json_object ui=json reserved=false
+EXTRACT accept section=sampling_params flags=--json-schema-file key=json_schema_file kind=scalar ui=string reserved=false
+EXTRACT accept section=sampling_params flags=--logit-bias key=logit_bias kind=scalar ui=string reserved=false
+EXTRACT accept section=sampling_params flags=--min-p key=min_p kind=scalar ui=float default=0.05 reserved=false
+EXTRACT accept section=sampling_params flags=--mirostat key=mirostat kind=scalar ui=int default=0 reserved=false
+EXTRACT accept section=sampling_params flags=--mirostat-ent key=mirostat_ent kind=scalar ui=float default=5.0 reserved=false
+EXTRACT accept section=sampling_params flags=--mirostat-lr key=mirostat_lr kind=scalar ui=float default=0.1 reserved=false
+EXTRACT accept section=sampling_params flags=--presence-penalty key=presence_penalty kind=scalar ui=float default=0.0 reserved=false
+EXTRACT accept section=sampling_params flags=--repeat-last-n key=repeat_last_n kind=scalar ui=int default=64 reserved=false
+EXTRACT accept section=sampling_params flags=--repeat-penalty key=repeat_penalty kind=scalar ui=float default=1.0 reserved=false
+EXTRACT accept section=sampling_params flags=--samplers key=samplers kind=semicolon_enum ui=multiselect default=penalties,dry,top_n_sigma,top_k,typ_p,top_p,min_p,xtc,temperature reserved=false options=penalties,dry,top_n_sigma,top_k,typ_p,top_p,min_p,xtc,temperature
+EXTRACT accept section=sampling_params flags=--sampler-seq,--sampling-seq key=sampling_seq kind=scalar ui=string default=edskypmxt reserved=false
+EXTRACT accept section=sampling_params flags=--seed key=seed kind=scalar ui=int default=-1 reserved=false
+EXTRACT accept section=sampling_params flags=--temp,--temperature key=temperature kind=scalar ui=float default=0.8 reserved=false
+EXTRACT accept section=sampling_params flags=--top-k key=top_k kind=scalar ui=int default=40 reserved=false
+EXTRACT accept section=sampling_params flags=--top-nsigma,--top-n-sigma key=top_n_sigma kind=scalar ui=float default=-1.0 reserved=false
+EXTRACT accept section=sampling_params flags=--top-p key=top_p kind=scalar ui=float default=0.95 reserved=false
+EXTRACT accept section=sampling_params flags=--typical,--typical-p key=typical_p kind=scalar ui=float default=1.0 reserved=false
+EXTRACT accept section=sampling_params flags=--xtc-probability key=xtc_probability kind=scalar ui=float default=0.0 reserved=false
+EXTRACT accept section=sampling_params flags=--xtc-threshold key=xtc_threshold kind=scalar ui=float default=0.1 reserved=false
+--- section speculative_params (speculative params) · 38 params ---
+EXTRACT accept section=speculative_params flags=--spec-draft-ngl,--gpu-layers-draft,--n-gpu-layers-draft key=n_gpu_layers_draft kind=scalar ui=int default=auto reserved=false
+EXTRACT accept section=speculative_params flags=--spec-draft-backend-sampling,--no-spec-draft-backend-sampling key=spec_draft_backend_sampling kind=flag ui=bool default=true reserved=false
+EXTRACT accept section=speculative_params flags=--spec-draft-cpu-mask,--cpu-mask-draft key=spec_draft_cpu_mask kind=scalar ui=string default="same as --cpu-mask" reserved=false
+EXTRACT accept section=speculative_params flags=--spec-draft-cpu-mask-batch,--cpu-mask-batch-draft key=spec_draft_cpu_mask_batch kind=scalar ui=string default="same as --cpu-mask" reserved=false
+EXTRACT accept section=speculative_params flags=--spec-draft-cpu-moe,--cpu-moe-draft key=spec_draft_cpu_moe kind=flag ui=bool reserved=false
+EXTRACT accept section=speculative_params flags=--spec-draft-cpu-range,--cpu-range-draft key=spec_draft_cpu_range kind=scalar ui=string reserved=false
+EXTRACT accept section=speculative_params flags=--spec-draft-cpu-strict,--cpu-strict-draft key=spec_draft_cpu_strict kind=enum ui=select default="same as --cpu-strict" reserved=false options=0,1
+EXTRACT accept section=speculative_params flags=--spec-draft-cpu-strict-batch,--cpu-strict-batch-draft key=spec_draft_cpu_strict_batch kind=enum ui=select default=--cpu-strict-draft reserved=false options=0,1
+EXTRACT accept section=speculative_params flags=--spec-draft-device,--device-draft key=spec_draft_device kind=scalar ui=string reserved=false
+EXTRACT accept section=speculative_params flags=--spec-draft-hf,--hf-repo-draft key=spec_draft_hf kind=scalar ui=string reserved=false
+EXTRACT accept section=speculative_params flags=--spec-draft-model,--model-draft key=spec_draft_model kind=scalar ui=string reserved=false
+EXTRACT accept section=speculative_params flags=--spec-draft-n-cpu-moe,--spec-draft-ncmoe,--n-cpu-moe-draft key=spec_draft_n_cpu_moe kind=scalar ui=int reserved=false
+EXTRACT accept section=speculative_params flags=--spec-draft-n-max key=spec_draft_n_max kind=scalar ui=int default=3 reserved=false
+EXTRACT accept section=speculative_params flags=--spec-draft-n-min key=spec_draft_n_min kind=scalar ui=int default=0 reserved=false
+EXTRACT accept section=speculative_params flags=--spec-draft-override-tensor,--override-tensor-draft key=spec_draft_override_tensor kind=repeatable ui=list reserved=false
+EXTRACT accept section=speculative_params flags=--spec-draft-p-min,--draft-p-min key=spec_draft_p_min kind=scalar ui=float default=0.0 reserved=false
+EXTRACT accept section=speculative_params flags=--spec-draft-p-split,--draft-p-split key=spec_draft_p_split kind=scalar ui=float default=0.1 reserved=false
+EXTRACT accept section=speculative_params flags=--spec-draft-poll,--poll-draft key=spec_draft_poll kind=enum ui=select default="same as --poll" reserved=false options=0,1
+EXTRACT accept section=speculative_params flags=--spec-draft-poll-batch,--poll-batch-draft key=spec_draft_poll_batch kind=enum ui=select default=--poll-draft reserved=false options=0,1
+EXTRACT accept section=speculative_params flags=--spec-draft-prio,--prio-draft key=spec_draft_prio kind=scalar ui=int default=0 reserved=false
+EXTRACT accept section=speculative_params flags=--spec-draft-prio-batch,--prio-batch-draft key=spec_draft_prio_batch kind=scalar ui=int default=0 reserved=false
+EXTRACT accept section=speculative_params flags=--spec-draft-threads,--threads-draft key=spec_draft_threads kind=scalar ui=int default="same as --threads" reserved=false
+EXTRACT accept section=speculative_params flags=--spec-draft-threads-batch,--threads-batch-draft key=spec_draft_threads_batch kind=scalar ui=int default="same as --threads-draft" reserved=false
+EXTRACT accept section=speculative_params flags=--spec-ngram-map-k4v-min-hits key=spec_ngram_map_k4v_min_hits kind=scalar ui=int default=1 reserved=false
+EXTRACT accept section=speculative_params flags=--spec-ngram-map-k4v-size-m key=spec_ngram_map_k4v_size_m kind=scalar ui=int default=48 reserved=false
+EXTRACT accept section=speculative_params flags=--spec-ngram-map-k4v-size-n key=spec_ngram_map_k4v_size_n kind=scalar ui=int default=12 reserved=false
+EXTRACT accept section=speculative_params flags=--spec-ngram-map-k-min-hits key=spec_ngram_map_k_min_hits kind=scalar ui=int default=1 reserved=false
+EXTRACT accept section=speculative_params flags=--spec-ngram-map-k-size-m key=spec_ngram_map_k_size_m kind=scalar ui=int default=48 reserved=false
+EXTRACT accept section=speculative_params flags=--spec-ngram-map-k-size-n key=spec_ngram_map_k_size_n kind=scalar ui=int default=12 reserved=false
+EXTRACT accept section=speculative_params flags=--spec-ngram-mod-n-match key=spec_ngram_mod_n_match kind=scalar ui=int default=24 reserved=false
+EXTRACT accept section=speculative_params flags=--spec-ngram-mod-n-max key=spec_ngram_mod_n_max kind=scalar ui=int default=64 reserved=false
+EXTRACT accept section=speculative_params flags=--spec-ngram-mod-n-min key=spec_ngram_mod_n_min kind=scalar ui=int default=48 reserved=false
+EXTRACT accept section=speculative_params flags=--spec-ngram-simple-min-hits key=spec_ngram_simple_min_hits kind=scalar ui=int default=1 reserved=false
+EXTRACT accept section=speculative_params flags=--spec-ngram-simple-size-m key=spec_ngram_simple_size_m kind=scalar ui=int default=48 reserved=false
+EXTRACT accept section=speculative_params flags=--spec-ngram-simple-size-n key=spec_ngram_simple_size_n kind=scalar ui=int default=12 reserved=false
+EXTRACT accept section=speculative_params flags=--spec-synth-len key=spec_synth_len kind=scalar ui=int reserved=false
+EXTRACT accept section=speculative_params flags=--spec-synth-rates key=spec_synth_rates kind=scalar ui=string reserved=false
+EXTRACT accept section=speculative_params flags=--spec-type key=spec_type kind=csv_enum ui=multiselect default=none reserved=false options=none,draft-simple,draft-eagle3,draft-mtp,draft-dflash,draft-dspark,ngram-simple,ngram-map-k,ngram-map-k4v,ngram-mod,ngram-cache
+--- section example_specific_params (example-specific params) · 96 params ---
+EXTRACT accept section=example_specific_params flags=--agent,--no-agent key=agent kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=example_specific_params flags=--alias key=alias kind=scalar ui=string reserved=true
+EXTRACT accept section=example_specific_params flags=--api-key key=api_key kind=scalar ui=string reserved=false
+EXTRACT accept section=example_specific_params flags=--api-key-file key=api_key_file kind=scalar ui=string reserved=false
+EXTRACT accept section=example_specific_params flags=--api-prefix key=api_prefix kind=scalar ui=string reserved=false
+EXTRACT accept section=example_specific_params flags=--cache-idle-slots,--no-cache-idle-slots key=cache_idle_slots kind=flag ui=bool default=true reserved=false
+EXTRACT accept section=example_specific_params flags=--cache-prompt,--no-cache-prompt key=cache_prompt kind=flag ui=bool default=true reserved=false
+EXTRACT accept section=example_specific_params flags=--cache-ram key=cache_ram kind=scalar ui=int default=8192 reserved=false
+EXTRACT accept section=example_specific_params flags=--cache-reuse key=cache_reuse kind=scalar ui=int default=0 reserved=false
+EXTRACT accept section=example_specific_params flags=--chat-template key=chat_template kind=scalar ui=string reserved=false
+EXTRACT accept section=example_specific_params flags=--chat-template-file key=chat_template_file kind=scalar ui=string reserved=false
+EXTRACT accept section=example_specific_params flags=--chat-template-kwargs key=chat_template_kwargs kind=json_object ui=json reserved=false
+EXTRACT accept section=example_specific_params flags=--checkpoint-min-step key=checkpoint_min_step kind=scalar ui=int default=8192 reserved=false
+EXTRACT accept section=example_specific_params flags=--cont-batching,--no-cont-batching key=cont_batching kind=flag ui=bool default=true reserved=false
+EXTRACT accept section=example_specific_params flags=--context-shift,--no-context-shift key=context_shift kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=example_specific_params flags=--cors-credentials,--no-cors-credentials key=cors_credentials kind=flag ui=bool default=true reserved=false
+EXTRACT accept section=example_specific_params flags=--cors-headers key=cors_headers kind=scalar ui=string default=* reserved=false
+EXTRACT accept section=example_specific_params flags=--cors-methods key=cors_methods kind=scalar ui=string default=GET reserved=false
+EXTRACT accept section=example_specific_params flags=--cors-origins key=cors_origins kind=scalar ui=string default=* reserved=false
+EXTRACT accept section=example_specific_params flags=--ctx-checkpoints,--swa-checkpoints key=ctx_checkpoints kind=scalar ui=int default=32 reserved=false
+EXTRACT accept section=example_specific_params flags=--embd-gemma-default key=embd_gemma_default kind=flag ui=bool reserved=false
+EXTRACT accept section=example_specific_params flags=--embd-normalize key=embd_normalize kind=scalar ui=int default=2 reserved=false
+EXTRACT accept section=example_specific_params flags=--embedding,--embeddings key=embeddings kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=example_specific_params flags=--fim-qwen-1 key=fim_qwen_1 kind=scalar ui=string reserved=false
+EXTRACT accept section=example_specific_params flags=--fim-qwen-14b-spec key=fim_qwen_14b_spec kind=flag ui=bool reserved=false
+EXTRACT accept section=example_specific_params flags=--fim-qwen-30b-default key=fim_qwen_30b_default kind=flag ui=bool reserved=false
+EXTRACT accept section=example_specific_params flags=--fim-qwen-3b-default key=fim_qwen_3b_default kind=flag ui=bool reserved=false
+EXTRACT accept section=example_specific_params flags=--fim-qwen-7b-default key=fim_qwen_7b_default kind=flag ui=bool reserved=false
+EXTRACT accept section=example_specific_params flags=--fim-qwen-7b-spec key=fim_qwen_7b_spec kind=flag ui=bool reserved=false
+EXTRACT accept section=example_specific_params flags=--gpt-oss-120b-default key=gpt_oss_120b_default kind=flag ui=bool reserved=false
+EXTRACT accept section=example_specific_params flags=--gpt-oss-20b-default key=gpt_oss_20b_default kind=flag ui=bool reserved=false
+EXTRACT accept section=example_specific_params flags=--host key=host kind=scalar ui=string default=127.0.0.1 reserved=false
+EXTRACT accept section=example_specific_params flags=--image-max-tokens key=image_max_tokens kind=scalar ui=int default="read from model" reserved=false
+EXTRACT accept section=example_specific_params flags=--image-min-tokens key=image_min_tokens kind=scalar ui=int default="read from model" reserved=false
+EXTRACT accept section=example_specific_params flags=--jinja,--no-jinja key=jinja kind=flag ui=bool default=true reserved=false
+EXTRACT accept section=example_specific_params flags=--kv-unified,--no-kv-unified key=kv_unified kind=flag ui=bool default=true reserved=false
+EXTRACT accept section=example_specific_params flags=--kv-unified-per-slot key=kv_unified_per_slot kind=scalar ui=int reserved=false
+EXTRACT accept section=example_specific_params flags=--log-prompts-dir key=log_prompts_dir kind=scalar ui=string reserved=false
+EXTRACT accept section=example_specific_params flags=--lookup-cache-dynamic key=lookup_cache_dynamic kind=scalar ui=string reserved=false
+EXTRACT accept section=example_specific_params flags=--lookup-cache-static key=lookup_cache_static kind=scalar ui=string reserved=false
+EXTRACT accept section=example_specific_params flags=--lora-init-without-apply key=lora_init_without_apply kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=example_specific_params flags=--mcp-servers-config key=mcp_servers_config kind=scalar ui=string reserved=false
+EXTRACT accept section=example_specific_params flags=--mcp-servers-json key=mcp_servers_json kind=json_object ui=json reserved=false
+EXTRACT accept section=example_specific_params flags=--media-path key=media_path kind=scalar ui=string reserved=false
+EXTRACT accept section=example_specific_params flags=--metrics key=metrics kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=example_specific_params flags=--mmproj key=mmproj kind=scalar ui=string reserved=true
+EXTRACT accept section=example_specific_params flags=--mmproj-auto,--no-mmproj,--no-mmproj-auto key=mmproj_auto kind=flag ui=bool default=true reserved=false
+EXTRACT accept section=example_specific_params flags=--mmproj-device key=mmproj_device kind=scalar ui=string default=auto reserved=false
+EXTRACT accept section=example_specific_params flags=--mmproj-offload,--no-mmproj-offload key=mmproj_offload kind=flag ui=bool default=true reserved=false
+EXTRACT accept section=example_specific_params flags=--mmproj-url key=mmproj_url kind=scalar ui=string reserved=false
+EXTRACT accept section=example_specific_params flags=--models-autoload,--no-models-autoload key=models_autoload kind=flag ui=bool default=true reserved=false
+EXTRACT accept section=example_specific_params flags=--models-dir key=models_dir kind=scalar ui=string reserved=false
+EXTRACT accept section=example_specific_params flags=--models-max key=models_max kind=scalar ui=int default=4 reserved=false
+EXTRACT accept section=example_specific_params flags=--models-preset key=models_preset kind=scalar ui=string reserved=false
+EXTRACT accept section=example_specific_params flags=--mtmd-batch-max-tokens key=mtmd_batch_max_tokens kind=scalar ui=int default=1024 reserved=false
+EXTRACT accept section=example_specific_params flags=--parallel key=parallel kind=scalar ui=int default=-1 reserved=false
+EXTRACT accept section=example_specific_params flags=--path key=path kind=scalar ui=string reserved=false
+EXTRACT accept section=example_specific_params flags=--pooling key=pooling kind=enum ui=select reserved=false options=none,mean,cls,last,rank
+EXTRACT accept section=example_specific_params flags=--port key=port kind=scalar ui=int default=8080 reserved=true
+EXTRACT accept section=example_specific_params flags=--prefill-assistant,--no-prefill-assistant key=prefill_assistant kind=flag ui=bool default=true reserved=false
+EXTRACT accept section=example_specific_params flags=--props key=props kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=example_specific_params flags=--reasoning key=reasoning kind=enum ui=select default=auto reserved=false options=on,off,auto
+EXTRACT accept section=example_specific_params flags=--reasoning-budget key=reasoning_budget kind=scalar ui=int default=-1 reserved=false
+EXTRACT accept section=example_specific_params flags=--reasoning-budget-message key=reasoning_budget_message kind=scalar ui=string reserved=false
+EXTRACT accept section=example_specific_params flags=--reasoning-effort key=reasoning_effort kind=scalar ui=string default=default reserved=false
+EXTRACT accept section=example_specific_params flags=--reasoning-format key=reasoning_format kind=enum ui=select default=auto reserved=false options=none,deepseek,deepseek-legacy,auto
+EXTRACT accept section=example_specific_params flags=--reasoning-preserve,--no-reasoning-preserve key=reasoning_preserve kind=flag ui=bool reserved=false
+EXTRACT accept section=example_specific_params flags=--rerank,--reranking key=reranking kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=example_specific_params flags=--reuse-port key=reuse_port kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=example_specific_params flags=--reverse-prompt key=reverse_prompt kind=scalar ui=string reserved=false
+EXTRACT accept section=example_specific_params flags=--skip-chat-parsing,--no-skip-chat-parsing key=skip_chat_parsing kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=example_specific_params flags=--sleep-idle-seconds key=sleep_idle_seconds kind=scalar ui=int default=-1 reserved=false
+EXTRACT accept section=example_specific_params flags=--slot-prompt-similarity key=slot_prompt_similarity kind=scalar ui=float default=0.1 reserved=false
+EXTRACT accept section=example_specific_params flags=--slot-save-path key=slot_save_path kind=scalar ui=string reserved=false
+EXTRACT accept section=example_specific_params flags=--slots,--no-slots key=slots kind=flag ui=bool default=true reserved=false
+EXTRACT accept section=example_specific_params flags=--spec-default key=spec_default kind=flag ui=bool reserved=false
+EXTRACT accept section=example_specific_params flags=--special key=special kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=example_specific_params flags=--spm-infill key=spm_infill kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=example_specific_params flags=--sse-ping-interval key=sse_ping_interval kind=scalar ui=int default=30 reserved=false
+EXTRACT accept section=example_specific_params flags=--ssl-cert-file key=ssl_cert_file kind=scalar ui=string reserved=false
+EXTRACT accept section=example_specific_params flags=--ssl-key-file key=ssl_key_file kind=scalar ui=string reserved=false
+EXTRACT accept section=example_specific_params flags=--tags key=tags kind=scalar ui=string reserved=false
+EXTRACT accept section=example_specific_params flags=--threads-http key=threads_http kind=scalar ui=int default=-1 reserved=false
+EXTRACT accept section=example_specific_params flags=--timeout key=timeout kind=scalar ui=int default=3600 reserved=false
+EXTRACT accept section=example_specific_params flags=--tools key=tools kind=csv_enum ui=multiselect default=[] reserved=false options=all,read_file,file_glob_search,grep_search,exec_shell_command,write_file,edit_file,get_info
+EXTRACT accept section=example_specific_params flags=--tools-runtime key=tools_runtime kind=scalar ui=string reserved=false
+EXTRACT accept section=example_specific_params flags=--ui,--webui,--no-ui,--no-webui key=ui kind=flag ui=bool default=true reserved=false
+EXTRACT accept section=example_specific_params flags=--ui-config,--webui-config key=ui_config kind=json_object ui=json reserved=false
+EXTRACT accept section=example_specific_params flags=--ui-config-file,--webui-config-file key=ui_config_file kind=scalar ui=string reserved=false
+EXTRACT accept section=example_specific_params flags=--ui-mcp-proxy,--webui-mcp-proxy,--no-ui-mcp-proxy,--no-webui-mcp-proxy key=ui_mcp_proxy kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=example_specific_params flags=--video-ffmpeg-dir key=video_ffmpeg_dir kind=scalar ui=string reserved=false
+EXTRACT accept section=example_specific_params flags=--video-fps key=video_fps kind=scalar ui=float default=4.0 reserved=false
+EXTRACT accept section=example_specific_params flags=--video-timestamp-interval key=video_timestamp_interval kind=scalar ui=int default=5000 reserved=false
+EXTRACT accept section=example_specific_params flags=--vision-gemma-12b-default key=vision_gemma_12b_default kind=flag ui=bool reserved=false
+EXTRACT accept section=example_specific_params flags=--vision-gemma-4b-default key=vision_gemma_4b_default kind=flag ui=bool reserved=false
+EXTRACT accept section=example_specific_params flags=--warmup,--no-warmup key=warmup kind=flag ui=bool default=true reserved=false
+===== END CATALOG RESULT =====
+status: completed (Indexed 251 CLI options)

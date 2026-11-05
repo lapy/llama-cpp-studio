@@ -1,0 +1,2074 @@
+=== Parameter scan: 1cat_vllm ===
+version: 20260831-065859-source
+started_at: 2026-09-18T21:24:04.704846Z
+----- command -----
+argv: /app/data/1cat-vllm/20260831-065859-source/venv/bin/vllm serve --help=all
+cwd: /app/data/1cat-vllm/20260831-065859-source/venv
+scan_engine: 1cat_vllm
+extra_env_keys: PATH, VIRTUAL_ENV
+H1088|                        Additional args passed to process media inputs, keyed
+H1089|                        by modalities. For example, to set num_frames for
+H1090|                        video, set `--media-io-kwargs '{"video":
+H1091|                        {"num_frames": 40} }'`
+H1092|                        Should either be a valid JSON string or JSON keys
+H1093|                        passed individually. (default: {})
+H1094|  --mm-encoder-attn-backend MM_ENCODER_ATTN_BACKEND
+H1095|                        Optional override for the multi-modal encoder
+H1096|                        attention backend when using vision transformers.
+H1097|                        Accepts any value from `vllm.v1.attention.backends.reg
+H1098|                        istry.AttentionBackendEnum` (e.g. `FLASH_ATTN`).
+H1099|                        (default: None)
+H1100|  --mm-encoder-attn-dtype {fp8,None}
+H1101|                        Optional dtype override for ViT encoder attention. Set
+H1102|                        to `"fp8"` to enable FP8 quantization via the
+H1103|                        FlashInfer cuDNN backend. When set to `"fp8"` without
+H1104|                        a scale file, dynamic scaling is used automatically.
+H1105|                        See docs/features/quantization/fp8_vit_attn.md for
+H1106|                        details. (default: None)
+H1107|  --mm-encoder-fp8-scale-path MM_ENCODER_FP8_SCALE_PATH
+H1108|                        Path to a JSON file containing per-layer FP8 Q/K/V
+H1109|                        scales for ViT encoder attention. When provided (with
+H1110|                        `mm_encoder_attn_dtype="fp8"`), static scaling is
+H1111|                        used. When omitted, dynamic scaling is used. (default:
+H1112|                        None)
+H1113|  --mm-encoder-fp8-scale-save-margin MM_ENCODER_FP8_SCALE_SAVE_MARGIN
+H1114|                        Safety margin multiplied onto scales when auto-saving.
+H1115|                        A value > 1 leaves headroom so that inputs with larger
+H1116|                        activations than the calibration set do not overflow
+H1117|                        FP8 range. Default 1.5. (default: 1.5)
+H1118|  --mm-encoder-fp8-scale-save-path MM_ENCODER_FP8_SCALE_SAVE_PATH
+H1119|                        When set with dynamic FP8 scaling
+H1120|                        (`mm_encoder_attn_dtype="fp8"` and no
+H1121|                        `mm_encoder_fp8_scale_path`), saves the calibrated
+H1122|                        scales to this file after the amax history buffer is
+H1123|                        full. The saved file can then be used as
+H1124|                        `mm_encoder_fp8_scale_path` in subsequent runs.
+H1125|                        (default: None)
+H1126|  --mm-encoder-only, --no-mm-encoder-only
+H1127|                        When enabled, skips the language component of the
+H1128|                        model.
+H1129|                        This is usually only valid in disaggregated Encoder
+H1130|                        process. (default: False)
+H1131|  --mm-encoder-tp-mode {data,weights}
+H1132|                        Indicates how to optimize multi-modal encoder
+H1133|                        inference using tensor parallelism (TP).
+H1134|                        - `"weights"`: Within the same vLLM engine, split the
+H1135|                        weights of each layer across TP ranks. (default TP
+H1136|                        behavior)
+H1137|                        - `"data"`: Within the same vLLM engine, split the
+H1138|                        batched input data across TP ranks to process the data
+H1139|                        in parallel, while hosting the full weights on each TP
+H1140|                        rank. This batch-level DP is not to be confused with
+H1141|                        API request-level DP (which is controlled by `--data-
+H1142|                        parallel-size`). This is only supported on a per-model
+H1143|                        basis and falls back to `"weights"` if the encoder
+H1144|                        does not support DP. (default: weights)
+H1145|  --mm-processor-cache-gb MM_PROCESSOR_CACHE_GB
+H1146|                        The size (in GiB) of the multi-modal processor cache,
+H1147|                        which is used to avoid re-processing past multi-modal
+H1148|                        inputs.
+H1149|                        This cache is duplicated for each API process and
+H1150|                        engine core process, resulting in a total memory usage
+H1151|                        of `mm_processor_cache_gb * (api_server_count +
+H1152|                        data_parallel_size)`.
+H1153|                        Set to `0` to disable this cache completely (not
+H1154|                        recommended). (default: 4)
+H1155|  --mm-processor-cache-type {lru,shm}
+H1156|                        Type of cache to use for the multi-modal
+H1157|                        preprocessor/mapper. If `shm`, use shared memory FIFO
+H1158|                        cache. If `lru`, use mirrored LRU cache. (default:
+H1159|                        lru)
+H1160|  --mm-processor-kwargs MM_PROCESSOR_KWARGS
+H1161|                        Arguments to be forwarded to the model's processor for
+H1162|                        multi-modal data, e.g., image processor. Overrides for
+H1163|                        the multi-modal processor obtained from
+H1164|                        `transformers.AutoProcessor.from_pretrained`.
+H1165|                        The available overrides depend on the model that is
+H1166|                        being run.
+H1167|                        For example, for Phi-3-Vision: `{"num_crops": 4}`.
+H1168|                        Should either be a valid JSON string or JSON keys
+H1169|                        passed individually. (default: None)
+H1170|  --mm-shm-cache-max-object-size-mb MM_SHM_CACHE_MAX_OBJECT_SIZE_MB
+H1171|                        Size limit (in MiB) for each object stored in the
+H1172|                        multi-modal processor shared memory cache. Only
+H1173|                        effective when `mm_processor_cache_type` is `"shm"`.
+H1174|                        (default: 128)
+H1175|  --mm-tensor-ipc {direct_rpc,torch_shm}
+H1176|                        IPC (inter-process communication) method for
+H1177|                        multimodal tensors.
+H1178|                        - "direct_rpc": Use msgspec serialization via RPC
+H1179|                        - "torch_shm": Use torch.multiprocessing shared memory
+H1180|                        for zero-copy IPC Defaults to "direct_rpc". (default:
+H1181|                        direct_rpc)
+H1182|  --skip-mm-profiling, --no-skip-mm-profiling
+H1183|                        When enabled, skips multimodal memory profiling and
+H1184|                        only profiles with language backbone model during
+H1185|                        engine initialization.
+H1186|                        This reduces engine startup time but shifts the
+H1187|                        responsibility to users for estimating the peak memory
+H1188|                        usage of the activation of multimodal encoder and
+H1189|                        embedding cache. (default: False)
+H1190|  --video-pruning-rate VIDEO_PRUNING_RATE
+H1191|                        Sets pruning rate for video pruning via Efficient
+H1192|                        Video Sampling. Value sits in range [0;1) and
+H1193|                        determines fraction of media tokens from each video to
+H1194|                        be pruned. (default: None)
+H1195|
+H1196|LoRAConfig:
+H1197|  Configuration for LoRA.
+H1198|
+H1199|  --default-mm-loras DEFAULT_MM_LORAS
+H1200|                        Dictionary mapping specific modalities to LoRA model
+H1201|                        paths; this field is only applicable to multimodal
+H1202|                        models and should be leveraged when a model always
+H1203|                        expects a LoRA to be active when a given modality is
+H1204|                        present. Note that currently, if a request provides
+H1205|                        multiple additional modalities, each of which have
+H1206|                        their own LoRA, we do NOT apply default_mm_loras
+H1207|                        because we currently only support one lora adapter per
+H1208|                        prompt. When run in offline mode, the lora IDs for n
+H1209|                        modalities will be automatically assigned to 1-n with
+H1210|                        the names of the modalities in alphabetic order.
+H1211|                        Should either be a valid JSON string or JSON keys
+H1212|                        passed individually. (default: None)
+H1213|  --enable-lora, --no-enable-lora
+H1214|                        If True, enable handling of LoRA adapters. (default:
+H1215|                        None)
+H1216|  --enable-mixed-moe-lora-format, --no-enable-mixed-moe-lora-format
+H1217|                        If True, force the engine to use the universal 2D MoE
+H1218|                        LoRA wrapper (`FusedMoEWithLoRA`) regardless of the
+H1219|                        model's `is_3d_moe_weight` flag, so that 2D-format and
+H1220|                        3D-format MoE LoRA adapters can be served in the same
+H1221|                        deployment. Only meaningful forMoE models; ignored
+H1222|                        otherwise. Default False  keeps the existing model-
+H1223|                        driven behavior. (default: False)
+H1224|  --enable-tower-connector-lora, --no-enable-tower-connector-lora
+H1225|                        If `True`, LoRA support for the tower (vision encoder)
+H1226|                        and connector  of multimodal models will be enabled.
+H1227|                        This is an experimental feature and  currently only
+H1228|                        supports some MM models such as the Qwen VL series.
+H1229|                        The default  is False. (default: False)
+H1230|  --fully-sharded-loras, --no-fully-sharded-loras
+H1231|                        By default, only half of the LoRA computation is
+H1232|                        sharded with tensor parallelism. Enabling this will
+H1233|                        use the fully sharded layers. At high sequence length,
+H1234|                        max rank or tensor parallel size, this is likely
+H1235|                        faster. (default: False)
+H1236|  --lora-dtype {auto,bfloat16,float16}
+H1237|                        Data type for LoRA. If auto, will default to base
+H1238|                        model dtype. (default: auto)
+H1239|  --lora-target-modules LORA_TARGET_MODULES [LORA_TARGET_MODULES ...]
+H1240|                        Restrict LoRA to specific module suffixes (e.g.,
+H1241|                        ["o_proj", "qkv_proj"]). If None, all supported LoRA
+H1242|                        modules are used. This allows deployment-time control
+H1243|                        over which modules have LoRA applied, useful for
+H1244|                        performance tuning. (default: None)
+H1245|  --max-cpu-loras MAX_CPU_LORAS
+H1246|                        Maximum number of LoRAs to store in CPU memory. Must
+H1247|                        be >= than `max_loras`. (default: None)
+H1248|  --max-lora-rank {1,8,16,32,64,128,256,320,512}
+H1249|                        Max LoRA rank. (default: 16)
+H1250|  --max-loras MAX_LORAS
+H1251|                        Max number of LoRAs in a single batch. (default: 1)
+H1252|  --specialize-active-lora, --no-specialize-active-lora
+H1253|                        Whether to construct lora kernel grid by the number of
+H1254|                        active LoRA adapters. When set to True, separate cuda
+H1255|                        graphs will be captured for different counts of active
+H1256|                        LoRAs (powers of 2 up to max_loras), which can improve
+H1257|                        performance for variable LoRA usage patterns at the
+H1258|                        cost of increased startup time and memory usage. Only
+H1259|                        takes effect when cudagraph_specialize_lora is True.
+H1260|                        (default: False)
+H1261|
+H1262|ObservabilityConfig:
+H1263|  Configuration for observability - metrics and tracing.
+H1264|
+H1265|  --collect-detailed-traces {all,model,worker,None} [{all,model,worker,None} ...]
+H1266|                        It makes sense to set this only if `--otlp-traces-
+H1267|                        endpoint` is set. If set, it will collect detailed
+H1268|                        traces for the specified modules. This involves use of
+H1269|                        possibly costly and or blocking operations and hence
+H1270|                        might have a performance impact.
+H1271|                        Note that collecting detailed timing information for
+H1272|                        each request can be expensive. (default: None)
+H1273|  --cudagraph-metrics, --no-cudagraph-metrics
+H1274|                        Enable CUDA graph metrics (number of padded/unpadded
+H1275|                        tokens, runtime cudagraph dispatch modes, and their
+H1276|                        observed frequencies at every logging interval).
+H1277|                        (default: False)
+H1278|  --enable-layerwise-nvtx-tracing, --no-enable-layerwise-nvtx-tracing
+H1279|                        Enable layerwise NVTX tracing. This traces the
+H1280|                        execution of each layer or module in the model and
+H1281|                        attach information such as input/output shapes to nvtx
+H1282|                        range markers. Noted that this doesn't work with CUDA
+H1283|                        graphs enabled. (default: False)
+H1284|  --enable-logging-iteration-details, --no-enable-logging-iteration-details
+H1285|                        Enable detailed logging of iteration details. If set,
+H1286|                        vllm EngineCore will log iteration details This
+H1287|                        includes number of context/generation requests and
+H1288|                        tokens and the elapsed cpu time for the iteration.
+H1289|                        (default: False)
+H1290|  --enable-mfu-metrics, --no-enable-mfu-metrics
+H1291|                        Enable Model FLOPs Utilization (MFU) metrics.
+H1292|                        (default: False)
+H1293|  --kv-cache-metrics, --no-kv-cache-metrics
+H1294|                        Enable KV cache residency metrics (lifetime, idle
+H1295|                        time, reuse gaps). Uses sampling to minimize overhead.
+H1296|                        Requires log stats to be enabled (i.e., --disable-log-
+H1297|                        stats not set). (default: False)
+H1298|  --kv-cache-metrics-sample KV_CACHE_METRICS_SAMPLE
+H1299|                        Sampling rate for KV cache metrics (0.0, 1.0]. Default
+H1300|                        0.01 = 1% of blocks. (default: 0.01)
+H1301|  --otlp-traces-endpoint OTLP_TRACES_ENDPOINT
+H1302|                        Target URL to which OpenTelemetry traces will be sent.
+H1303|                        (default: None)
+H1304|  --show-hidden-metrics-for-version SHOW_HIDDEN_METRICS_FOR_VERSION
+H1305|                        Enable deprecated Prometheus metrics that have been
+H1306|                        hidden since the specified version. For example, if a
+H1307|                        previously deprecated metric has been hidden since the
+H1308|                        v0.7.0 release, you use `--show-hidden-metrics-for-
+H1309|                        version=0.7` as a temporary escape hatch while you
+H1310|                        migrate to new metrics. The metric is likely to be
+H1311|                        removed completely in an upcoming release. (default:
+H1312|                        None)
+H1313|
+H1314|SchedulerConfig:
+H1315|  Scheduler configuration.
+H1316|
+H1317|  --async-scheduling, --no-async-scheduling
+H1318|                        If set to False, disable async scheduling. Async
+H1319|                        scheduling helps to avoid gaps in GPU utilization,
+H1320|                        leading to better latency and throughput. (default:
+H1321|                        None)
+H1322|  --disable-chunked-mm-input, --no-disable-chunked-mm-input
+H1323|                        If set to true and chunked prefill is enabled, we do
+H1324|                        not want to partially schedule a multimodal item. Only
+H1325|                        used in V1 This ensures that if a request has a mixed
+H1326|                        prompt (like text tokens TTTT followed by image tokens
+H1327|                        IIIIIIIIII) where only some image tokens can be
+H1328|                        scheduled (like TTTTIIIII, leaving IIIII), it will be
+H1329|                        scheduled as TTTT in one step and IIIIIIIIII in the
+H1330|                        next. (default: False)
+H1331|  --disable-hybrid-kv-cache-manager, --no-disable-hybrid-kv-cache-manager
+H1332|                        If set to True, KV cache manager will allocate the
+H1333|                        same size of KV cache for all attention layers even if
+H1334|                        there are multiple type of attention layers like full
+H1335|                        attention and sliding window attention. If set to
+H1336|                        None, the default value will be determined based on
+H1337|                        the environment and starting configuration. (default:
+H1338|                        None)
+H1339|  --enable-chunked-prefill, --no-enable-chunked-prefill
+H1340|                        If True, prefill requests can be chunked based on the
+H1341|                        remaining `max_num_batched_tokens`.
+H1342|                        The default value here is mainly for convenience when
+H1343|                        testing. In real usage, this should be set in
+H1344|                        `EngineArgs.create_engine_config`. (default: None)
+H1345|  --long-prefill-token-threshold LONG_PREFILL_TOKEN_THRESHOLD
+H1346|                        For chunked prefill, a request is considered long if
+H1347|                        the prompt is longer than this number of tokens.
+H1348|                        (default: 0)
+H1349|  --max-long-partial-prefills MAX_LONG_PARTIAL_PREFILLS
+H1350|                        For chunked prefill, the maximum number of prompts
+H1351|                        longer than long_prefill_token_threshold that will be
+H1352|                        prefilled concurrently. Setting this less than
+H1353|                        max_num_partial_prefills will allow shorter prompts to
+H1354|                        jump the queue in front of longer prompts in some
+H1355|                        cases, improving latency. (default: 1)
+H1356|  --max-num-batched-tokens MAX_NUM_BATCHED_TOKENS
+H1357|                        Maximum number of tokens that can be processed in a
+H1358|                        single iteration.
+H1359|                        The default value here is mainly for convenience when
+H1360|                        testing. In real usage, this should be set in
+H1361|                        `EngineArgs.create_engine_config`.
+H1362|                        Parse human-readable integers like '1k', '2M', etc.
+H1363|                        Including decimal values with decimal multipliers.
+H1364|                            Examples:
+H1365|                            - '1k' -> 1,000
+H1366|                            - '1K' -> 1,024
+H1367|                            - '25.6k' -> 25,600 (default: None)
+H1368|  --max-num-partial-prefills MAX_NUM_PARTIAL_PREFILLS
+H1369|                        For chunked prefill, the maximum number of sequences
+H1370|                        that can be partially prefilled concurrently.
+H1371|                        (default: 1)
+H1372|  --max-num-seqs MAX_NUM_SEQS
+H1373|                        Maximum number of sequences to be processed in a
+H1374|                        single iteration.
+H1375|                        The default value here is mainly for convenience when
+H1376|                        testing. In real usage, this should be set in
+H1377|                        `EngineArgs.create_engine_config`. (default: None)
+H1378|  --scheduler-cls SCHEDULER_CLS
+H1379|                        The scheduler class to use.
+H1380|                        "vllm.v1.core.sched.scheduler.Scheduler" is the
+H1381|                        default scheduler. Can be a class directly or the path
+H1382|                        to a class of form "mod.custom_class". (default: None)
+H1383|  --scheduler-reserve-full-isl, --no-scheduler-reserve-full-isl
+H1384|                        If True, the scheduler checks whether the full input
+H1385|                        sequence length fits in the KV cache before admitting
+H1386|                        a new request, rather than only checking the first
+H1387|                        chunk. Prevents over-admission and KV cache thrashing
+H1388|                        with chunked prefill. (default: True)
+H1389|  --scheduling-policy {fcfs,priority}
+H1390|                        The scheduling policy to use:
+H1391|                        - "fcfs" means first come first served, i.e. requests
+H1392|                        are handled in order  of arrival.
+H1393|                        - "priority" means requests are handled based on given
+H1394|                        priority (lower value means earlier handling) and time
+H1395|                        of arrival deciding any ties). (default: fcfs)
+H1396|  --stream-interval STREAM_INTERVAL
+H1397|                        The interval (or buffer size) for streaming in terms
+H1398|                        of token length. A smaller value (1) makes streaming
+H1399|                        smoother by sending each token immediately, while a
+H1400|                        larger value (e.g., 10) reduces host overhead and may
+H1401|                        increase throughput by batching multiple tokens before
+H1402|                        sending. (default: 1)
+H1403|
+H1404|CompilationConfig:
+H1405|  Configuration for compilation.
+H1406|
+H1407|      You must pass CompilationConfig to VLLMConfig constructor.
+H1408|      VLLMConfig's post_init does further initialization. If used outside of the
+H1409|      VLLMConfig, some fields will be left in an improper state.
+H1410|
+H1411|      It contains PassConfig, which controls the custom fusion/transformation passes.
+H1412|      The rest has three parts:
+H1413|
+H1414|      - Top-level Compilation control:
+H1415|          - [`mode`][vllm.config.CompilationConfig.mode]
+H1416|          - [`debug_dump_path`][vllm.config.CompilationConfig.debug_dump_path]
+H1417|          - [`cache_dir`][vllm.config.CompilationConfig.cache_dir]
+H1418|          - [`backend`][vllm.config.CompilationConfig.backend]
+H1419|          - [`custom_ops`][vllm.config.CompilationConfig.custom_ops]
+H1420|          - [`splitting_ops`][vllm.config.CompilationConfig.splitting_ops]
+H1421|          - [`compile_mm_encoder`][vllm.config.CompilationConfig.compile_mm_encoder]
+H1422|      - CudaGraph capture:
+H1423|          - [`cudagraph_mode`][vllm.config.CompilationConfig.cudagraph_mode]
+H1424|          - [`cudagraph_capture_sizes`]
+H1425|          [vllm.config.CompilationConfig.cudagraph_capture_sizes]
+H1426|          - [`max_cudagraph_capture_size`]
+H1427|          [vllm.config.CompilationConfig.max_cudagraph_capture_size]
+H1428|          - [`cudagraph_num_of_warmups`]
+H1429|          [vllm.config.CompilationConfig.cudagraph_num_of_warmups]
+H1430|          - [`cudagraph_copy_inputs`]
+H1431|          [vllm.config.CompilationConfig.cudagraph_copy_inputs]
+H1432|      - Inductor compilation:
+H1433|          - [`compile_sizes`][vllm.config.CompilationConfig.compile_sizes]
+H1434|          - [`compile_ranges_endpoints`]
+H1435|              [vllm.config.CompilationConfig.compile_ranges_endpoints]
+H1436|          - [`inductor_compile_config`]
+H1437|          [vllm.config.CompilationConfig.inductor_compile_config]
+H1438|          - [`inductor_passes`][vllm.config.CompilationConfig.inductor_passes]
+H1439|          - custom inductor passes
+H1440|
+H1441|      Why we have different sizes for cudagraph and inductor:
+H1442|      - cudagraph: a cudagraph captured for a specific size can only be used
+H1443|          for the same size. We need to capture all the sizes we want to use.
+H1444|      - inductor: a graph compiled by inductor for a general shape can be used
+H1445|          for different sizes. Inductor can also compile for specific sizes,
+H1446|          where it can have more information to optimize the graph with fully
+H1447|          static shapes. However, we find the general shape compilation is
+H1448|          sufficient for most cases. It might be beneficial to compile for
+H1449|          certain small batchsizes, where inductor is good at optimizing.
+H1450|
+H1451|
+H1452|  --cudagraph-capture-sizes CUDAGRAPH_CAPTURE_SIZES [CUDAGRAPH_CAPTURE_SIZES ...]
+H1453|                        Sizes to capture cudagraph.
+H1454|                        - None (default): capture sizes are inferred from vllm
+H1455|                        config.
+H1456|                        - list[int]: capture sizes are specified as given.
+H1457|                        (default: None)
+H1458|  --max-cudagraph-capture-size MAX_CUDAGRAPH_CAPTURE_SIZE
+H1459|                        The maximum cudagraph capture size.
+H1460|                        If cudagraph_capture_sizes is specified, this will be
+H1461|                        set to the largest size in that list (or checked for
+H1462|                        consistency if specified). If cudagraph_capture_sizes
+H1463|                        is not specified, the list of sizes is generated
+H1464|                        automatically following the pattern:
+H1465|                            [1, 2, 4] + list(range(8, 256, 8)) + list(
+H1466|                        range(256, max_cudagraph_capture_size + 1, 16))
+H1467|                        If not specified, max_cudagraph_capture_size is set to
+H1468|                        min(max_num_seqs*2, 512) by default. This voids OOM in
+H1469|                        tight memory scenarios with small max_num_seqs, and
+H1470|                        prevents capture of many large graphs (>512) that
+H1471|                        would greatly increase startup time with limited
+H1472|                        performance benefit. (default: None)
+H1473|
+H1474|KernelConfig:
+H1475|  Configuration for kernel selection and warmup behavior.
+H1476|
+H1477|  --enable-flashinfer-autotune, --no-enable-flashinfer-autotune
+H1478|                        If True, run FlashInfer autotuning during kernel
+H1479|                        warmup. (default: None)
+H1480|  --ir-op-priority IR_OP_PRIORITY
+H1481|                        vLLM IR op priority for dispatching/lowering during
+H1482|                        the forward pass. Platform defaults appended
+H1483|                        automatically during VllmConfig.__post_init__.
+H1484|                        API docs: https://docs.vllm.ai/en/latest/api/vllm/conf
+H1485|                        ig/#vllm.config.IrOpPriorityConfig
+H1486|                        Should either be a valid JSON string or JSON keys
+H1487|                        passed individually. (default:
+H1488|                        IrOpPriorityConfig(rms_norm=[],
+H1489|                        fused_add_rms_norm=[]))
+H1490|  --linear-backend {aiter,auto,conch,cutlass,deep_gemm,emulation,exllama,fbgemm,flashinfer_cudnn,flashinfer_cutlass,flashinfer_trtllm,machete,marlin,torch,triton}
+H1491|                        Backend for quantized linear layer GEMM kernels.
+H1492|                        Available options:
+H1493|                        - "auto": Automatically select the best backend based
+H1494|                        on model and hardware
+H1495|                        - "cutlass": Use CUTLASS-based kernels
+H1496|                        - "flashinfer_cutlass": Use FlashInfer with CUTLASS
+H1497|                        kernels
+H1498|                        - "flashinfer_trtllm": Use FlashInfer with TensorRT-
+H1499|                        LLM kernels
+H1500|                        - "flashinfer_cudnn": Use FlashInfer with cuDNN
+H1501|                        kernels
+H1502|                        - "marlin": Use Marlin kernels
+H1503|                        - "triton": Use Triton-based kernels
+H1504|                        - "deep_gemm": Use DeepGEMM kernels
+H1505|                        - "torch": Use PyTorch native scaled_mm kernels
+H1506|                        - "aiter": Use AMD AITer kernels (ROCm only)
+H1507|                        - "machete": Use Machete kernels (mixed-precision)
+H1508|                        - "fbgemm": Use FBGEMM kernels
+H1509|                        - "conch": Use Conch mixed-precision kernels
+H1510|                        - "exllama": Use Exllama mixed-precision kernels
+H1511|                        - "emulation": Use slow dequant-to-BF16 emulation (for
+H1512|                        testing only) (default: auto)
+H1513|  --moe-backend {aiter,auto,cutlass,deep_gemm,deep_gemm_mega_moe,emulation,flashinfer_b12x,flashinfer_cutedsl,flashinfer_cutlass,flashinfer_trtllm,humming,marlin,triton,triton_unfused}
+H1514|                        Backend for MoE expert computation kernels. Available
+H1515|                        options:
+H1516|                        - "auto": Automatically select the best backend based
+H1517|                        on model and hardware
+H1518|                        - "triton": Use Triton-based fused MoE kernels
+H1519|                        - "deep_gemm": Use DeepGEMM kernels (FP8 block-
+H1520|                        quantized only)
+H1521|                        - "deep_gemm_mega_moe": Use DeepGEMM mega MoE kernels
+H1522|                        - "cutlass": Use vLLM CUTLASS kernels
+H1523|                        - "flashinfer_trtllm": Use FlashInfer with TRTLLM-GEN
+H1524|                        kernels
+H1525|                        - "flashinfer_cutlass": Use FlashInfer with CUTLASS
+H1526|                        kernels
+H1527|                        - "flashinfer_cutedsl": Use FlashInfer with CuteDSL
+H1528|                        kernels (FP4 only)
+H1529|                        - "flashinfer_b12x": Use FlashInfer CuteDSL fused MoE
+H1530|                        for SM12x (RTX Pro 6000 / DGX Spark)
+H1531|                        - "marlin": Use Marlin kernels (weight-only
+H1532|                        quantization)
+H1533|                        - "humming": Use Humming Mixed Precision kernels
+H1534|                        - "triton_unfused": Use Triton unfused MoE kernels
+H1535|                        - "aiter": Use AMD AITer kernels (ROCm only)
+H1536|                        - "emulation": use BF16/FP16 GEMM, dequantizing
+H1537|                        weights and running QDQ on activations. (default:
+H1538|                        auto)
+H1539|
+H1540|VllmConfig:
+H1541|  Dataclass which contains all vllm-related configuration. This
+H1542|      simplifies passing around the distinct configurations in the codebase.
+H1543|
+H1544|
+H1545|  --additional-config ADDITIONAL_CONFIG
+H1546|                        Additional config for specified platform. Different
+H1547|                        platforms may support different configs. Make sure the
+H1548|                        configs are valid for the platform you are using.
+H1549|                        Contents must be hashable. (default: {})
+H1550|  --attention-config ATTENTION_CONFIG, -ac ATTENTION_CONFIG
+H1551|                        Attention configuration.
+H1552|                        API docs: https://docs.vllm.ai/en/latest/api/vllm/conf
+H1553|                        ig/#vllm.config.AttentionConfig
+H1554|                        Should either be a valid JSON string or JSON keys
+H1555|                        passed individually. (default:
+H1556|                        AttentionConfig(backend=None, flash_attn_version=None,
+H1557|                        use_prefill_decode_attention=False,
+H1558|                        flash_attn_max_num_splits_for_cuda_graph=32,
+H1559|                        tq_max_kv_splits_for_cuda_graph=32,
+H1560|                        use_trtllm_attention=None,
+H1561|                        disable_flashinfer_q_quantization=False,
+H1562|                        mla_prefill_backend=None,
+H1563|                        use_prefill_query_quantization=False,
+H1564|                        use_fp4_indexer_cache=False, use_non_causal=False,
+H1565|                        prefix_anchored_decode_window=None,
+H1566|                        flex_attn_block_m=None, flex_attn_block_n=None,
+H1567|                        flex_attn_q_block_size=None,
+H1568|                        flex_attn_kv_block_size=None))
+H1569|  --compilation-config COMPILATION_CONFIG, -cc COMPILATION_CONFIG
+H1570|                        `torch.compile` and cudagraph capture configuration
+H1571|                        for the model.
+H1572|                        As a shorthand, one can append compilation arguments
+H1573|                        via
+H1574|                        -cc.parameter=argument such as `-cc.mode=3` (same as
+H1575|                        `-cc='{"mode":3}'`).
+H1576|                        You can specify the full compilation config like so:
+H1577|                        `{"mode": 3, "cudagraph_capture_sizes": [1, 2, 4, 8]}`
+H1578|                        API docs: https://docs.vllm.ai/en/latest/api/vllm/conf
+H1579|                        ig/#vllm.config.CompilationConfig
+H1580|                        Should either be a valid JSON string or JSON keys
+H1581|                        passed individually. (default: {'mode': None,
+H1582|                        'debug_dump_path': None, 'cache_dir': '',
+H1583|                        'compile_cache_save_format': 'binary', 'backend':
+H1584|                        'inductor', 'custom_ops': [], 'ir_enable_torch_wrap':
+H1585|                        None, 'splitting_ops': None, 'compile_mm_encoder':
+H1586|                        False, 'cudagraph_mm_encoder': False,
+H1587|                        'encoder_cudagraph_token_budgets': [],
+H1588|                        'encoder_cudagraph_max_vision_items_per_batch': 0,
+H1589|                        'encoder_cudagraph_max_frames_per_batch': None,
+H1590|                        'compile_sizes': None, 'compile_ranges_endpoints':
+H1591|                        None, 'inductor_compile_config':
+H1592|                        {'enable_auto_functionalized_v2': False,
+H1593|                        'size_asserts': False, 'alignment_asserts': False,
+H1594|                        'scalar_asserts': False, 'combo_kernels': True,
+H1595|                        'benchmark_combo_kernel': True}, 'inductor_passes':
+H1596|                        {}, 'cudagraph_mode': None,
+H1597|                        'cudagraph_num_of_warmups': 0,
+H1598|                        'cudagraph_capture_sizes': None,
+H1599|                        'cudagraph_copy_inputs': False,
+H1600|                        'cudagraph_specialize_lora': True,
+H1601|                        'use_inductor_graph_partition': None, 'pass_config':
+H1602|                        {}, 'max_cudagraph_capture_size': None,
+H1603|                        'dynamic_shapes_config': {'type':
+H1604|                        <DynamicShapesType.BACKED: 'backed'>,
+H1605|                        'evaluate_guards': False, 'assume_32_bit_indexing':
+H1606|                        False}, 'local_cache_dir': None,
+H1607|                        'fast_moe_cold_start': None, 'static_all_moe_layers':
+H1608|                        []})
+H1609|  --ec-transfer-config EC_TRANSFER_CONFIG
+H1610|                        The configurations for distributed EC cache transfer.
+H1611|                        API docs: https://docs.vllm.ai/en/latest/api/vllm/conf
+H1612|                        ig/#vllm.config.ECTransferConfig
+H1613|                        Should either be a valid JSON string or JSON keys
+H1614|                        passed individually. (default: None)
+H1615|  --kernel-config KERNEL_CONFIG
+H1616|                        Kernel configuration.
+H1617|                        API docs: https://docs.vllm.ai/en/latest/api/vllm/conf
+H1618|                        ig/#vllm.config.KernelConfig
+H1619|                        Should either be a valid JSON string or JSON keys
+H1620|                        passed individually. (default: KernelConfig(ir_op_prio
+H1621|                        rity=IrOpPriorityConfig(rms_norm=[],
+H1622|                        fused_add_rms_norm=[]),
+H1623|                        enable_flashinfer_autotune=None, moe_backend='auto',
+H1624|                        linear_backend='auto'))
+H1625|  --kv-events-config KV_EVENTS_CONFIG
+H1626|                        The configurations for event publishing.
+H1627|                        API docs: https://docs.vllm.ai/en/latest/api/vllm/conf
+H1628|                        ig/#vllm.config.KVEventsConfig
+H1629|                        Should either be a valid JSON string or JSON keys
+H1630|                        passed individually. (default: None)
+H1631|  --kv-transfer-config KV_TRANSFER_CONFIG
+H1632|                        The configurations for distributed KV cache transfer.
+H1633|                        API docs: https://docs.vllm.ai/en/latest/api/vllm/conf
+H1634|                        ig/#vllm.config.KVTransferConfig
+H1635|                        Should either be a valid JSON string or JSON keys
+H1636|                        passed individually. (default: None)
+H1637|  --optimization-level OPTIMIZATION_LEVEL
+H1638|                        The optimization level. These levels trade startup
+H1639|                        time cost for performance, with -O0 having the best
+H1640|                        startup time and -O3 having the best performance. -O2
+H1641|                        is used by default. See OptimizationLevel for full
+H1642|                        description. (default: 2)
+H1643|  --performance-mode {balanced,interactivity,throughput}
+H1644|                        Performance mode for runtime behavior, 'balanced' is
+H1645|                        the default. 'interactivity' favors low end-to-end
+H1646|                        per-request latency at small batch sizes (fine-grained
+H1647|                        CUDA graphs, latency-oriented kernels). For explicit
+H1648|                        DFlash on SM70, it also selects the audited B1/q4096
+H1649|                        capacity defaults. 'throughput' favors aggregate
+H1650|                        tokens/sec at high concurrency (larger CUDA graphs,
+H1651|                        more aggressive batching, throughput-oriented
+H1652|                        kernels). (default: balanced)
+H1653|  --profiler-config PROFILER_CONFIG
+H1654|                        Profiling configuration.
+H1655|                        API docs: https://docs.vllm.ai/en/latest/api/vllm/conf
+H1656|                        ig/#vllm.config.ProfilerConfig
+H1657|                        Should either be a valid JSON string or JSON keys
+H1658|                        passed individually. (default:
+H1659|                        ProfilerConfig(profiler=None, torch_profiler_dir='',
+H1660|                        torch_profiler_with_stack=True,
+H1661|                        torch_profiler_with_flops=False,
+H1662|                        torch_profiler_use_gzip=True,
+H1663|                        torch_profiler_dump_cuda_time_total=True,
+H1664|                        torch_profiler_record_shapes=False,
+H1665|                        torch_profiler_with_memory=False,
+H1666|                        ignore_frontend=False, delay_iterations=0,
+H1667|                        max_iterations=0, warmup_iterations=0,
+H1668|                        active_iterations=5, wait_iterations=0))
+H1669|  --reasoning-config REASONING_CONFIG
+H1670|                        The configurations for reasoning model.
+H1671|                        API docs: https://docs.vllm.ai/en/latest/api/vllm/conf
+H1672|                        ig/#vllm.config.ReasoningConfig
+H1673|                        Should either be a valid JSON string or JSON keys
+H1674|                        passed individually. (default: None)
+H1675|  --spec-method {custom_class,deepseek_mtp,dflash,dflash_ddtree,draft_model,dspark,eagle,eagle3,ernie_mtp,exaone4_5_mtp,exaone_moe_mtp,extract_hidden_states,gemma4_mtp,glm4_moe_lite_mtp,glm4_moe_mtp,glm_ocr_mtp,hy_v3_mtp,longcat_flash_mtp,medusa,mimo_mtp,mimo_v2_mtp,mlp_speculator,mtp,nemotron_h_mtp,ngram,ngram_gpu,pangu_ultra_moe_mtp,qwen3_5_mtp,qwen3_next_mtp,qwen4_exp_mtp,step3p5_mtp,suffix,None}
+H1676|                        The name of the speculative method to use. If users
+H1677|                        provide and set the `model` param, the speculative
+H1678|                        method type will be detected automatically if
+H1679|                        possible, if `model` param is not provided, the method
+H1680|                        name must be provided.
+H1681|                        If using `ngram` method, the related configuration
+H1682|                        `prompt_lookup_max` and `prompt_lookup_min` should be
+H1683|                        considered. (default: None)
+H1684|  --spec-model SPEC_MODEL
+H1685|                        The name of the draft model, eagle head, or additional
+H1686|                        weights, if provided. (default: None)
+H1687|  --spec-tokens SPEC_TOKENS
+H1688|                        The number of speculative tokens, if provided. It will
+H1689|                        default to the number in the draft model config if
+H1690|                        present; selector-based DFlash2 uses checkpoint
+H1691|                        ``block_size - 1``. Otherwise, it is required.
+H1692|                        (default: None)
+H1693|  --speculative-config SPECULATIVE_CONFIG, -sc SPECULATIVE_CONFIG
+H1694|                        Speculative decoding configuration.
+H1695|                        API docs: https://docs.vllm.ai/en/latest/api/vllm/conf
+H1696|                        ig/#vllm.config.SpeculativeConfig
+H1697|                        Should either be a valid JSON string or JSON keys
+H1698|                        passed individually. (default: None)
+H1699|  --structured-outputs-config STRUCTURED_OUTPUTS_CONFIG
+H1700|                        Structured outputs configuration.
+H1701|                        API docs: https://docs.vllm.ai/en/latest/api/vllm/conf
+H1702|                        ig/#vllm.config.StructuredOutputsConfig
+H1703|                        Should either be a valid JSON string or JSON keys
+H1704|                        passed individually. (default:
+H1705|                        StructuredOutputsConfig(backend='auto',
+H1706|                        disable_any_whitespace=False,
+H1707|                        disable_additional_properties=False,
+H1708|                        reasoning_parser='', reasoning_parser_plugin='',
+H1709|                        enable_in_reasoning=False))
+H1710|  --weight-transfer-config WEIGHT_TRANSFER_CONFIG
+H1711|                        The configurations for weight transfer during RL
+H1712|                        training.
+H1713|                        API docs: https://docs.vllm.ai/en/latest/api/vllm/conf
+H1714|                        ig/#vllm.config.WeightTransferConfig
+H1715|                        Should either be a valid JSON string or JSON keys
+H1716|                        passed individually. (default: None)
+H1717|
+H1718|When passing JSON CLI arguments, the following sets of arguments are equivalent:
+H1719|   --json-arg '{"key1": "value1", "key2": {"key3": "value2"}}'
+H1720|   --json-arg.key1 value1 --json-arg.key2.key3 value2
+H1721|
+H1722|Additionally, list elements can be passed individually using +:
+H1723|   --json-arg '{"key4": ["value3", "value4", "value5"]}'
+H1724|   --json-arg.key4+ value3 --json-arg.key4+='value4,value5'
+===== END HELP OUTPUT =====
+===== HELP OUTPUT: /app/data/1cat-vllm/20260831-065859-source/venv/bin/vllm serve --help=all (1724 lines, 109696 chars) =====
+H0001|usage: vllm serve [model_tag] [options]
+H0002|
+H0003|Launch a local OpenAI-compatible API server to serve LLM
+H0004|completions via HTTP. Defaults to Qwen/Qwen3-0.6B if no model is specified.
+H0005|
+H0006|Search by using: `--help=<ConfigGroup>` to explore options by section (e.g.,
+H0007|--help=ModelConfig, --help=Frontend)
+H0008|  Use `--help=all` to show all available flags at once.
+H0009|
+H0010|positional arguments:
+H0011|  model_tag             The model tag to serve (optional if specified in
+H0012|                        config) (default: None)
+H0013|
+H0014|options:
+H0015|  --aggregate-engine-logging
+H0016|                        Log aggregate rather than per-engine statistics when
+H0017|                        using data parallelism. (default: False)
+H0018|  --api-server-count API_SERVER_COUNT, -asc API_SERVER_COUNT
+H0019|                        How many API server processes to run. Defaults to
+H0020|                        data_parallel_size if not specified. (default: None)
+H0021|  --config CONFIG       Read CLI options from a config file. Must be a YAML
+H0022|                        with the following options: https://docs.vllm.ai/en/la
+H0023|                        test/configuration/serve_args.html (default: None)
+H0024|  --disable-log-stats   Disable logging statistics. (default: False)
+H0025|  --enable-log-requests, --no-enable-log-requests
+H0026|                        Enable logging request information, dependent on log
+H0027|                        level:
+H0028|                        - INFO: Request ID, parameters and LoRA request.
+H0029|                        - DEBUG: Prompt inputs (e.g: text, token IDs). You can
+H0030|                        set the minimum log level via `VLLM_LOGGING_LEVEL`.
+H0031|                        (default: False)
+H0032|  --fail-on-environ-validation, --no-fail-on-environ-validation
+H0033|                        If set, the engine will raise an error if environment
+H0034|                        validation fails. (default: False)
+H0035|  --gdn-prefill-backend {flashinfer,triton,cutedsl,flashqla_sm70}
+H0036|                        Select GDN prefill backend. (default: None)
+H0037|  --grpc                Launch a gRPC server instead of the HTTP OpenAI-
+H0038|                        compatible server. Requires: pip install vllm[grpc].
+H0039|                        (default: False)
+H0040|  --headless            Run in headless mode. See multi-node data parallel
+H0041|                        documentation for more details. (default: False)
+H0042|  --shutdown-timeout SHUTDOWN_TIMEOUT
+H0043|                        Shutdown timeout in seconds. 0 = abort, >0 = wait.
+H0044|                        (default: 0)
+H0045|  -h, --help            show this help message and exit
+H0046|
+H0047|Frontend:
+H0048|  Arguments for the OpenAI-compatible frontend server.
+H0049|
+H0050|  --allow-credentials, --no-allow-credentials
+H0051|                        Allow credentials. (default: False)
+H0052|  --allowed-headers ALLOWED_HEADERS
+H0053|                        Allowed headers. (default: ['*'])
+H0054|  --allowed-methods ALLOWED_METHODS
+H0055|                        Allowed methods. (default: ['*'])
+H0056|  --allowed-origins ALLOWED_ORIGINS
+H0057|                        Allowed origins. (default: ['*'])
+H0058|  --api-key API_KEY [API_KEY ...]
+H0059|                        If provided, the server will require one of these keys
+H0060|                        to be presented in the header. (default: None)
+H0061|  --chat-template CHAT_TEMPLATE
+H0062|  --chat-template-content-format {auto,openai,string}
+H0063|  --data-parallel-supervisor-port DATA_PARALLEL_SUPERVISOR_PORT
+H0064|                        HTTP port for aggregated health endpoints in multi-
+H0065|                        port external LB mode. (default: 9256)
+H0066|  --default-chat-template-kwargs DEFAULT_CHAT_TEMPLATE_KWARGS
+H0067|                        Should either be a valid JSON string or JSON keys
+H0068|                        passed individually. (default: {'enable_thinking':
+H0069|                        False})
+H0070|  --disable-access-log-for-endpoints DISABLE_ACCESS_LOG_FOR_ENDPOINTS
+H0071|                        Comma-separated list of endpoint paths to exclude from
+H0072|                        uvicorn access logs. This is useful to reduce log
+H0073|                        noise from high-frequency endpoints like health
+H0074|                        checks. Example: "/health,/metrics,/ping". When set,
+H0075|                        access logs for requests to these paths will be
+H0076|                        suppressed while keeping logs for other endpoints.
+H0077|                        (default: None)
+H0078|  --disable-fastapi-docs, --no-disable-fastapi-docs
+H0079|                        Disable FastAPI's OpenAPI schema, Swagger UI, and
+H0080|                        ReDoc endpoint. (default: False)
+H0081|  --disable-uvicorn-access-log, --no-disable-uvicorn-access-log
+H0082|                        Disable uvicorn access log. (default: False)
+H0083|  --dp-supervisor-probe-failure-threshold DP_SUPERVISOR_PROBE_FAILURE_THRESHOLD
+H0084|                        Number of consecutive connection-error retries before
+H0085|                        a child health probe is declared failed in multi-port
+H0086|                        external LB mode. (default: 3)
+H0087|  --dp-supervisor-probe-interval-s DP_SUPERVISOR_PROBE_INTERVAL_S
+H0088|                        Seconds between aggregated health probes in multi-port
+H0089|                        external LB mode. (default: 5.0)
+H0090|  --dp-supervisor-probe-timeout-s DP_SUPERVISOR_PROBE_TIMEOUT_S
+H0091|                        Seconds to wait between retries when a child health
+H0092|                        probe fails with a connection error in multi-port
+H0093|                        external LB mode. (default: 5.0)
+H0094|  --enable-auto-tool-choice, --no-enable-auto-tool-choice
+H0095|  --enable-flash-late-interaction, --no-enable-flash-late-interaction
+H0096|                        If set, run pooling score MaxSim on GPU in the API
+H0097|                        server process. Can significantly improve late-
+H0098|                        interaction scoring performance. (default: True)
+H0099|  --enable-force-include-usage, --no-enable-force-include-usage
+H0100|  --enable-log-deltas, --no-enable-log-deltas
+H0101|  --enable-log-outputs, --no-enable-log-outputs
+H0102|  --enable-offline-docs, --no-enable-offline-docs
+H0103|                        Enable offline FastAPI documentation for air-gapped
+H0104|                        environments. Uses vendored static assets bundled with
+H0105|                        vLLM. (default: False)
+H0106|  --enable-prompt-tokens-details, --no-enable-prompt-tokens-details
+H0107|  --enable-request-id-headers, --no-enable-request-id-headers
+H0108|                        If specified, API server will add X-Request-Id header
+H0109|                        to responses. (default: False)
+H0110|  --enable-server-load-tracking, --no-enable-server-load-tracking
+H0111|  --enable-ssl-refresh, --no-enable-ssl-refresh
+H0112|                        Refresh SSL Context when SSL certificate files change
+H0113|                        (default: False)
+H0114|  --enable-tokenizer-info-endpoint, --no-enable-tokenizer-info-endpoint
+H0115|  --exclude-tools-when-tool-choice-none, --no-exclude-tools-when-tool-choice-none
+H0116|  --fingerprint-mode {custom,full,hash,none}
+H0117|  --fingerprint-value FINGERPRINT_VALUE
+H0118|  --h11-max-header-count H11_MAX_HEADER_COUNT
+H0119|                        Maximum number of HTTP headers allowed in a request
+H0120|                        for h11 parser. Helps mitigate header abuse. Default:
+H0121|                        256. (default: 256)
+H0122|  --h11-max-incomplete-event-size H11_MAX_INCOMPLETE_EVENT_SIZE
+H0123|                        Maximum size (bytes) of an incomplete HTTP event
+H0124|                        (header or body) for h11 parser. Helps mitigate header
+H0125|                        abuse. Default: 4194304 (4 MB). (default: 4194304)
+H0126|  --host HOST           Host name. (default: None)
+H0127|  --log-config-file LOG_CONFIG_FILE
+H0128|  --log-error-stack, --no-log-error-stack
+H0129|  --lora-modules LORA_MODULES [LORA_MODULES ...]
+H0130|  --max-log-len MAX_LOG_LEN
+H0131|  --middleware MIDDLEWARE
+H0132|                        Additional ASGI middleware to apply to the app. We
+H0133|                        accept multiple
+H0134|                        --middleware arguments. The value should be an import
+H0135|                        path. If a function is provided, vLLM will add it to
+H0136|                        the server using `@app.middleware('http')`. If a class
+H0137|                        is provided, vLLM will add it to the server using
+H0138|                        `app.add_middleware()`. (default: [])
+H0139|  --port PORT           Port number. (default: 8000)
+H0140|  --response-role RESPONSE_ROLE
+H0141|  --return-tokens-as-token-ids, --no-return-tokens-as-token-ids
+H0142|  --root-path ROOT_PATH
+H0143|                        FastAPI root_path when app is behind a path based
+H0144|                        routing proxy. (default: None)
+H0145|  --ssl-ca-certs SSL_CA_CERTS
+H0146|                        The CA certificates file. (default: None)
+H0147|  --ssl-cert-reqs SSL_CERT_REQS
+H0148|                        Whether client certificate is required (see stdlib ssl
+H0149|                        module's). (default: 0)
+H0150|  --ssl-certfile SSL_CERTFILE
+H0151|                        The file path to the SSL cert file. (default: None)
+H0152|  --ssl-ciphers SSL_CIPHERS
+H0153|                        SSL cipher suites for HTTPS (TLS 1.2 and below only).
+H0154|                        Example: 'ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-
+H0155|                        CHACHA20-POLY1305' (default: None)
+H0156|  --ssl-keyfile SSL_KEYFILE
+H0157|                        The file path to the SSL key file. (default: None)
+H0158|  --tokens-only, --no-tokens-only
+H0159|  --tool-call-parser {apertus,cohere_command3,cohere_command4,deepseek_v3,deepseek_v31,deepseek_v32,deepseek_v4,ernie45,functiongemma,gemma4,gigachat3,glm45,glm47,granite,granite-20b-fc,granite4,hermes,hunyuan_a13b,hy_v3,internlm,jamba,kimi_k2,lfm2,llama3_json,llama4_json,llama4_pythonic,longcat,mimo,minicpm5,minimax,minimax_m2,mistral,olmo3,openai,phi4_mini_json,poolside_v1,pythonic,qwen3_coder,qwen3_xml,seed_oss,step3,step3p5,xlam} or name registered in --tool-parser-plugin
+H0160|  --tool-parser-plugin TOOL_PARSER_PLUGIN
+H0161|  --tool-server TOOL_SERVER
+H0162|  --trust-request-chat-template, --no-trust-request-chat-template
+H0163|  --uds UDS             Unix domain socket path. If set, host and port
+H0164|                        arguments are ignored. (default: None)
+H0165|  --uvicorn-log-level {critical,debug,error,info,trace,warning}
+H0166|                        Log level for uvicorn. (default: info)
+H0167|
+H0168|ModelConfig:
+H0169|  Configuration for the model.
+H0170|
+H0171|  --allow-deprecated-quantization, --no-allow-deprecated-quantization
+H0172|                        Whether to allow deprecated quantization methods.
+H0173|                        (default: False)
+H0174|  --allowed-local-media-path ALLOWED_LOCAL_MEDIA_PATH
+H0175|                        Allowing API requests to read local images or videos
+H0176|                        from directories specified by the server file system.
+H0177|                        This is a security risk. Should only be enabled in
+H0178|                        trusted environments. (default: )
+H0179|  --allowed-media-domains ALLOWED_MEDIA_DOMAINS [ALLOWED_MEDIA_DOMAINS ...]
+H0180|                        If set, only media URLs that belong to this domain can
+H0181|                        be used for multi-modal inputs. (default: None)
+H0182|  --code-revision CODE_REVISION
+H0183|                        The specific revision to use for the model code on the
+H0184|                        Hugging Face Hub. It can be a branch name, a tag name,
+H0185|                        or a commit id. If unspecified, will use the default
+H0186|                        version. (default: None)
+H0187|  --config-format ['auto', 'hf', 'mistral']
+H0188|                        The format of the model config to load:
+H0189|                        - "auto" will try to load the config in hf format if
+H0190|                        available after trying to load in mistral format.
+H0191|                        - "hf" will load the config in hf format.
+H0192|                        - "mistral" will load the config in mistral format.
+H0193|                        (default: auto)
+H0194|  --convert {auto,classify,embed,none}
+H0195|                        Convert the model using adapters defined in
+H0196|                        [vllm.model_executor.models.adapters][]. The most
+H0197|                        common use case is to adapt a text generation model to
+H0198|                        be used for pooling tasks. (default: auto)
+H0199|  --disable-cascade-attn, --no-disable-cascade-attn
+H0200|                        Disable cascade attention for V1. While cascade
+H0201|                        attention does not change the mathematical
+H0202|                        correctness, disabling it could be useful for
+H0203|                        preventing potential numerical issues. This defaults
+H0204|                        to True, so users must opt in to cascade attention by
+H0205|                        setting this to False. Even when this is set to False,
+H0206|                        cascade attention will only be used when the heuristic
+H0207|                        tells that it's beneficial. (default: True)
+H0208|  --disable-sliding-window, --no-disable-sliding-window
+H0209|                        Whether to disable sliding window. If True, we will
+H0210|                        disable the sliding window functionality of the model,
+H0211|                        capping to sliding window size. If the model does not
+H0212|                        support sliding window, this argument is ignored.
+H0213|                        (default: False)
+H0214|  --dtype {auto,bfloat16,float,float16,float32,half}
+H0215|                        Data type for model weights and activations:
+H0216|                        - "auto" will use FP16 precision for FP32 and FP16
+H0217|                        models, and BF16 precision for BF16 models.
+H0218|                        - "half" for FP16. Recommended for AWQ quantization.
+H0219|                        - "float16" is the same as "half".
+H0220|                        - "bfloat16" for a balance between precision and
+H0221|                        range.
+H0222|                        - "float" is shorthand for FP32 precision.
+H0223|                        - "float32" for FP32 precision. (default: auto)
+H0224|  --enable-cumem-allocator, --no-enable-cumem-allocator
+H0225|                        Enable the custom cumem allocator to leverage advanced
+H0226|                        GPU memory allocation features such as multi-node
+H0227|                        NVLink support.
+H0228|                        Sleep mode automatically enables this allocator. Only
+H0229|                        cuda and hip platforms are supported. (default: False)
+H0230|  --enable-prompt-embeds, --no-enable-prompt-embeds
+H0231|                        If `True`, enables passing text embeddings as inputs
+H0232|                        via the `prompt_embeds` key.
+H0233|                        WARNING: The vLLM engine may crash if incorrect shape
+H0234|                        of embeddings is passed. Only enable this flag for
+H0235|                        trusted users! (default: False)
+H0236|  --enable-return-routed-experts, --no-enable-return-routed-experts
+H0237|                        Whether to return routed experts. (default: False)
+H0238|  --enable-sleep-mode, --no-enable-sleep-mode
+H0239|                        Enable sleep mode for the engine (only cuda and hip
+H0240|                        platforms are supported). (default: False)
+H0241|  --enforce-eager, --no-enforce-eager
+H0242|                        Whether to always use eager-mode PyTorch. If True, we
+H0243|                        will disable CUDA graph and always execute the model
+H0244|                        in eager mode. If False, we will use CUDA graph and
+H0245|                        eager execution in hybrid for maximal performance and
+H0246|                        flexibility. (default: False)
+H0247|  --generation-config GENERATION_CONFIG
+H0248|                        The folder path to the generation config. Defaults to
+H0249|                        `"auto"`, the generation config will be loaded from
+H0250|                        model path. If set to `"vllm"`, no generation config
+H0251|                        is loaded, vLLM defaults will be used. If set to a
+H0252|                        folder path, the generation config will be loaded from
+H0253|                        the specified folder path. If `max_new_tokens` is
+H0254|                        specified in generation config, then it sets a server-
+H0255|                        wide limit on the number of output tokens for all
+H0256|                        requests. (default: auto)
+H0257|  --hf-config-path HF_CONFIG_PATH
+H0258|                        Name or path of the Hugging Face config to use. If
+H0259|                        unspecified, model name or path will be used.
+H0260|                        (default: None)
+H0261|  --hf-overrides HF_OVERRIDES
+H0262|                        If a dictionary, contains arguments to be forwarded to
+H0263|                        the Hugging Face config. If a callable, it is called
+H0264|                        to update the HuggingFace config. (default: {})
+H0265|  --hf-token [HF_TOKEN]
+H0266|                        The token to use as HTTP bearer authorization for
+H0267|                        remote files . If `True`, will use the token generated
+H0268|                        when running `hf auth login` (stored in
+H0269|                        `~/.cache/huggingface/token`). (default: None)
+H0270|  --io-processor-plugin IO_PROCESSOR_PLUGIN
+H0271|                        IOProcessor plugin name to load at model startup
+H0272|                        (default: None)
+H0273|  --logits-processors LOGITS_PROCESSORS [LOGITS_PROCESSORS ...]
+H0274|                        One or more logits processors' fully-qualified class
+H0275|                        names or class definitions (default: None)
+H0276|  --logprobs-mode {processed_logits,processed_logprobs,raw_logits,raw_logprobs}
+H0277|                        Indicates the content returned in the logprobs and
+H0278|                        prompt_logprobs. Supported mode: 1) raw_logprobs, 2)
+H0279|                        processed_logprobs, 3) raw_logits, 4)
+H0280|                        processed_logits. Raw means the values before applying
+H0281|                        any logit processors, like bad words. Processed means
+H0282|                        the values after applying all processors, including
+H0283|                        temperature and top_k/top_p. (default: raw_logprobs)
+H0284|  --max-logprobs MAX_LOGPROBS
+H0285|                        Maximum number of log probabilities to return when
+H0286|                        `logprobs` is specified in `SamplingParams`. The
+H0287|                        default value comes the default for the OpenAI Chat
+H0288|                        Completions API. -1 means no cap, i.e. all
+H0289|                        (output_length * vocab_size) logprobs are allowed to
+H0290|                        be returned and it may cause OOM. (default: 20)
+H0291|  --max-model-len MAX_MODEL_LEN
+H0292|                        Model context length (prompt and output). If
+H0293|                        unspecified, will be automatically derived from the
+H0294|                        model config.
+H0295|                        When passing via `--max-model-len`, supports
+H0296|                        k/m/g/K/M/G in human-readable format. Examples:
+H0297|                        - 1k -> 1000
+H0298|                        - 1K -> 1024
+H0299|                        - 25.6k -> 25,600
+H0300|                        - -1 or 'auto' -> Automatically choose the maximum
+H0301|                        model length that fits in GPU memory. This will use
+H0302|                        the model's maximum context length if it fits,
+H0303|                        otherwise it will find the largest length that can be
+H0304|                        accommodated.
+H0305|                        Parse human-readable integers like '1k', '2M', etc.
+H0306|                        Including decimal values with decimal multipliers.
+H0307|                        Also accepts -1 or 'auto' as a special value for auto-
+H0308|                        detection.
+H0309|                            Examples:
+H0310|                            - '1k' -> 1,000
+H0311|                            - '1K' -> 1,024
+H0312|                            - '25.6k' -> 25,600
+H0313|                            - '-1' or 'auto' -> -1 (special value for auto-
+H0314|                        detection) (default: None)
+H0315|  --model MODEL         Name or path of the Hugging Face model to use. It is
+H0316|                        also used as the content for `model_name` tag in
+H0317|                        metrics output when `served_model_name` is not
+H0318|                        specified. (default: Qwen/Qwen3-0.6B)
+H0319|  --model-impl ['auto', 'terratorch', 'transformers', 'vllm']
+H0320|                        Which implementation of the model to use:
+H0321|                        - "auto" will try to use the vLLM implementation, if
+H0322|                        it exists, and fall back to the Transformers
+H0323|                        implementation if no vLLM implementation is available.
+H0324|                        - "vllm" will use the vLLM model implementation.
+H0325|                        - "transformers" will use the Transformers model
+H0326|                        implementation.
+H0327|                        - "terratorch" will use the TerraTorch model
+H0328|                        implementation. (default: auto)
+H0329|  --override-attention-dtype OVERRIDE_ATTENTION_DTYPE
+H0330|                        Override dtype for attention (default: None)
+H0331|  --override-generation-config OVERRIDE_GENERATION_CONFIG
+H0332|                        Overrides or sets generation config. e.g.
+H0333|                        `{"temperature": 0.5}`. If used with `--generation-
+H0334|                        config auto`, the override parameters will be merged
+H0335|                        with the default config from the model. If used with
+H0336|                        `--generation-config vllm`, only the override
+H0337|                        parameters are used.
+H0338|                        Should either be a valid JSON string or JSON keys
+H0339|                        passed individually. (default: {})
+H0340|  --pooler-config POOLER_CONFIG
+H0341|                        Pooler config which controls the behaviour of output
+H0342|                        pooling in pooling models.
+H0343|                        API docs: https://docs.vllm.ai/en/latest/api/vllm/conf
+H0344|                        ig/#vllm.config.PoolerConfig
+H0345|                        Should either be a valid JSON string or JSON keys
+H0346|                        passed individually. (default: None)
+H0347|  --quantization QUANTIZATION, -q QUANTIZATION
+H0348|                        Method used to quantize the weights. If `None`, we
+H0349|                        first check the `quantization_config` attribute in the
+H0350|                        model config file. If that is `None`, we assume the
+H0351|                        model weights are not quantized and use `dtype` to
+H0352|                        determine the data type of the weights. (default:
+H0353|                        None)
+H0354|  --quantization-config QUANTIZATION_CONFIG
+H0355|                        User-facing quantization configuration. Carries per-
+H0356|                        layer-kind specs (linear, moe) and ignore patterns;
+H0357|                        see :class:`QuantizationConfigArgs`. Auto-populated
+H0358|                        from the matching online shorthand when `quantization`
+H0359|                        is one of the values in
+H0360|                        `ONLINE_QUANT_SHORTHAND_NAMES`.
+H0361|                        API docs: https://docs.vllm.ai/en/latest/api/vllm/conf
+H0362|                        ig/#vllm.config.QuantizationConfigArgs
+H0363|                        Should either be a valid JSON string or JSON keys
+H0364|                        passed individually. (default: None)
+H0365|  --renderer-num-workers RENDERER_NUM_WORKERS
+H0366|                        Number of worker threads in the renderer thread pool.
+H0367|                        The pool is consumed by the async renderer path (e.g.
+H0368|                        the OpenAI-compatible API server started by `vllm
+H0369|                        serve`) to parallelize tokenization, chat template
+H0370|                        rendering, and multimodal preprocessing across
+H0371|                        concurrent requests.
+H0372|                        The offline `LLM` entrypoint uses the synchronous
+H0373|                        renderer path and processes prompts (including
+H0374|                        multimodal preprocessing) serially, so this setting
+H0375|                        has no effect there. (default: 1)
+H0376|  --revision REVISION   The specific model version to use. It can be a branch
+H0377|                        name, a tag name, or a commit id. If unspecified, will
+H0378|                        use the default version. (default: None)
+H0379|  --runner {auto,draft,generate,pooling}
+H0380|                        The type of model runner to use. Each vLLM instance
+H0381|                        only supports one model runner, even if the same model
+H0382|                        can be used for multiple types. (default: auto)
+H0383|  --seed SEED           Random seed for reproducibility.
+H0384|                        We must set the global seed because otherwise,
+H0385|                        different tensor parallel workers would sample
+H0386|                        different tokens, leading to inconsistent results.
+H0387|                        (default: 0)
+H0388|  --served-model-name SERVED_MODEL_NAME [SERVED_MODEL_NAME ...]
+H0389|                        The model name(s) used in the API. If multiple names
+H0390|                        are provided, the server will respond to any of the
+H0391|                        provided names. The model name in the model field of a
+H0392|                        response will be the first name in this list. If not
+H0393|                        specified, the model name will be the same as the
+H0394|                        `--model` argument. Noted that this name(s) will also
+H0395|                        be used in `model_name` tag content of prometheus
+H0396|                        metrics, if multiple names provided, metrics tag will
+H0397|                        take the first one. (default: None)
+H0398|  --skip-tokenizer-init, --no-skip-tokenizer-init
+H0399|                        Skip initialization of tokenizer and detokenizer.
+H0400|                        Expects valid `prompt_token_ids` and `None` for prompt
+H0401|                        from the input. The generated output will contain
+H0402|                        token ids. (default: False)
+H0403|  --tokenizer TOKENIZER
+H0404|                        Name or path of the Hugging Face tokenizer to use. If
+H0405|                        unspecified, model name or path will be used.
+H0406|                        (default: None)
+H0407|  --tokenizer-mode ['auto', 'deepseek_v32', 'deepseek_v4', 'hf', 'mistral', 'slow']
+H0408|                        Tokenizer mode:
+H0409|                        - "auto" will use the tokenizer from `mistral_common`
+H0410|                        for Mistral models if available, otherwise it will use
+H0411|                        the "hf" tokenizer.
+H0412|                        - "hf" will use the fast tokenizer if available.
+H0413|                        - "slow" will always use the slow tokenizer.
+H0414|                        - "mistral" will always use the tokenizer from
+H0415|                        `mistral_common`.
+H0416|                        - "deepseek_v32" will always use the tokenizer from
+H0417|                        `deepseek_v32`.
+H0418|                        - "deepseek_v4" will always use the tokenizer from
+H0419|                        `deepseek_v4`.
+H0420|                        - "qwen_vl" will always use the tokenizer from
+H0421|                        `qwen_vl`.
+H0422|                        - Other custom values can be supported via plugins.
+H0423|                        To swap the Rust BPE backend that powers HF fast
+H0424|                        tokenizers for the
+H0425|                        [fastokens](https://github.com/crusoecloud/fastokens)
+H0426|                        implementation, set `VLLM_USE_FASTOKENS=1` instead —
+H0427|                        that override applies to any mode that loads an HF
+H0428|                        fast tokenizer (`hf`, `deepseek_v32`, `deepseek_v4`,
+H0429|                        `qwen_vl`, …). (default: auto)
+H0430|  --tokenizer-revision TOKENIZER_REVISION
+H0431|                        The specific revision to use for the tokenizer on the
+H0432|                        Hugging Face Hub. It can be a branch name, a tag name,
+H0433|                        or a commit id. If unspecified, will use the default
+H0434|                        version. (default: None)
+H0435|  --trust-remote-code, --no-trust-remote-code
+H0436|                        Trust remote code (e.g., from HuggingFace) when
+H0437|                        downloading the model and tokenizer. (default: False)
+H0438|  --use-fp64-gumbel, --no-use-fp64-gumbel
+H0439|                        Whether to use FP64 (instead of FP32) for the Gumbel
+H0440|                        noise used by the sampler. FP64 reduces the chance of
+H0441|                        ties in Gumbel-max sampling at the cost of
+H0442|                        significantly lower kernel throughput on most GPUs.
+H0443|                        (default: False)
+H0444|
+H0445|LoadConfig:
+H0446|  Configuration for loading the model weights.
+H0447|
+H0448|  --download-dir DOWNLOAD_DIR
+H0449|                        Directory to download and load the weights, default to
+H0450|                        the default cache directory of Hugging Face. (default:
+H0451|                        None)
+H0452|  --ignore-patterns IGNORE_PATTERNS [IGNORE_PATTERNS ...]
+H0453|                        The list of patterns to ignore when loading the model.
+H0454|                        Default to "original/**/*" to avoid repeated loading
+H0455|                        of llama's checkpoints. (default: ['original/**/*'])
+H0456|  --load-format LOAD_FORMAT
+H0457|                        The format of the model weights to load.
+H0458|                        - "auto" will try to load the weights in the
+H0459|                        safetensors format and fall back to the pytorch bin
+H0460|                        format if safetensors format is not available.
+H0461|                        - "pt" will load the weights in the pytorch bin
+H0462|                        format.
+H0463|                        - "safetensors" will load the weights in the
+H0464|                        safetensors format.
+H0465|                        - "instanttensor" will load the Safetensors weights on
+H0466|                        CUDA devices using InstantTensor, which enables
+H0467|                        distributed loading with pipelined prefetching and
+H0468|                        fast direct I/O.
+H0469|                        - "npcache" will load the weights in pytorch format
+H0470|                        and store a numpy cache to speed up the loading.
+H0471|                        - "dummy" will initialize the weights with random
+H0472|                        values, which is mainly for profiling.
+H0473|                        - "tensorizer" will use CoreWeave's tensorizer library
+H0474|                        for fast weight loading. See the Tensorize vLLM Model
+H0475|                        script in the Examples section for more information.
+H0476|                        - "runai_streamer" will load the Safetensors weights
+H0477|                        using Run:ai Model Streamer.
+H0478|                        - "runai_streamer_sharded" will load weights from pre-
+H0479|                        sharded checkpoint files using Run:ai Model Streamer.
+H0480|                        - "bitsandbytes" will load the weights using
+H0481|                        bitsandbytes quantization.
+H0482|                        - "sharded_state" will load weights from pre-sharded
+H0483|                        checkpoint files, supporting efficient loading of
+H0484|                        tensor-parallel models.
+H0485|                        - "gguf" will load weights from GGUF format files
+H0486|                        (details specified in https://github.com/ggml-
+H0487|                        org/ggml/blob/master/docs/gguf.md).
+H0488|                        - "mistral" will load weights from consolidated
+H0489|                        safetensors files used by Mistral models.
+H0490|                        - "modelexpress" will load weights using ModelExpress.
+H0491|                        - Other custom values can be supported via plugins.
+H0492|                        (default: auto)
+H0493|  --model-loader-extra-config MODEL_LOADER_EXTRA_CONFIG
+H0494|                        Extra config for model loader. This will be passed to
+H0495|                        the model loader corresponding to the chosen
+H0496|                        load_format. (default: {})
+H0497|  --pt-load-map-location PT_LOAD_MAP_LOCATION
+H0498|                        The map location for loading pytorch checkpoint, to
+H0499|                        support loading checkpoints can only be loaded on
+H0500|                        certain devices like "cuda", this is equivalent to
+H0501|                        `{"": "cuda"}`. Another supported format is mapping
+H0502|                        from different devices like from GPU 1 to GPU 0:
+H0503|                        `{"cuda:1": "cuda:0"}`. Note that when passed from
+H0504|                        command line, the strings in dictionary need to be
+H0505|                        double quoted for json parsing. For more details, see
+H0506|                        the original doc for `map_location` parameter in
+H0507|                        [`torch.load`][] parameter. (default: cpu)
+H0508|  --safetensors-load-strategy SAFETENSORS_LOAD_STRATEGY
+H0509|                        Specifies the loading strategy for safetensors
+H0510|                        weights.
+H0511|                        - None (default): Uses memory-mapped (lazy) loading.
+H0512|                        When an NFS filesystem is detected and the total
+H0513|                        checkpoint size fits within 90%% of available RAM,
+H0514|                        prefetching is enabled automatically.
+H0515|                        - "lazy": Weights are memory-mapped from the file.
+H0516|                        This enables on-demand loading and is highly efficient
+H0517|                        for models on local storage. Unlike the default
+H0518|                        (None), auto-prefetch on NFS is not performed.
+H0519|                        - "eager": The entire file is read into CPU memory
+H0520|                        upfront before loading. This is recommended for models
+H0521|                        on network filesystems (e.g., Lustre, NFS) as it
+H0522|                        avoids inefficient random reads, significantly
+H0523|                        speeding up model initialization. However, it uses
+H0524|                        more CPU RAM.
+H0525|                        - "prefetch": Checkpoint files are read into the OS
+H0526|                        page cache before workers load them, speeding up the
+H0527|                        model loading phase. Useful on network or high-latency
+H0528|                        storage.
+H0529|                        - "torchao": Weights are loaded in upfront and then
+H0530|                        reconstructed into torchao tensor subclasses. This is
+H0531|                        used when the checkpoint was quantized using torchao
+H0532|                        and saved using safetensors. Needs `torchao >=
+H0533|                        0.14.0`. (default: None)
+H0534|  --safetensors-prefetch-block-size SAFETENSORS_PREFETCH_BLOCK_SIZE
+H0535|                        Read size in bytes for each safetensors checkpoint
+H0536|                        file prefetch.
+H0537|                        Parse human-readable integers like '1k', '2M', etc.
+H0538|                        Including decimal values with decimal multipliers.
+H0539|                            Examples:
+H0540|                            - '1k' -> 1,000
+H0541|                            - '1K' -> 1,024
+H0542|                            - '25.6k' -> 25,600 (default: 16777216)
+H0543|  --safetensors-prefetch-num-threads SAFETENSORS_PREFETCH_NUM_THREADS
+H0544|                        Number of worker threads used to prefetch safetensors
+H0545|                        checkpoint files into the OS page cache when
+H0546|                        safetensors prefetching is enabled. (default: 8)
+H0547|  --use-tqdm-on-load, --no-use-tqdm-on-load
+H0548|                        Whether to enable tqdm for showing progress bar when
+H0549|                        loading model weights. (default: True)
+H0550|
+H0551|AttentionConfig:
+H0552|  Configuration for attention mechanisms in vLLM.
+H0553|
+H0554|  --attention-backend ATTENTION_BACKEND
+H0555|                        Attention backend to use. Use "auto" or None for
+H0556|                        automatic selection. (default: None)
+H0557|
+H0558|MambaConfig:
+H0559|  Configuration for Mamba SSM backends.
+H0560|
+H0561|  --enable-mamba-cache-stochastic-rounding, --no-enable-mamba-cache-stochastic-rounding
+H0562|                        Enable stochastic rounding when writing SSM state to
+H0563|                        fp16 cache. Uses random bits to unbias the rounding
+H0564|                        error, which can improve numerical stability for long
+H0565|                        sequences. (default: False)
+H0566|  --mamba-backend MAMBA_BACKEND
+H0567|                        Mamba SSU backend to use. (default:
+H0568|                        MambaBackendEnum.TRITON)
+H0569|  --mamba-cache-philox-rounds MAMBA_CACHE_PHILOX_ROUNDS
+H0570|                        Number of Philox PRNG rounds for stochastic rounding
+H0571|                        random number generation. 0 uses the Triton default.
+H0572|                        Higher values improve randomness quality at the cost
+H0573|                        of compute. (default: 0)
+H0574|
+H0575|StructuredOutputsConfig:
+H0576|  Dataclass which contains structured outputs config for the engine.
+H0577|
+H0578|  --reasoning-parser REASONING_PARSER
+H0579|                        Select the reasoning parser depending on the model
+H0580|                        that you're using. This is used to parse the reasoning
+H0581|                        content into OpenAI API format. (default: )
+H0582|  --reasoning-parser-plugin REASONING_PARSER_PLUGIN
+H0583|                        Path to a dynamically reasoning parser plugin that can
+H0584|                        be dynamically loaded and registered. (default: )
+H0585|
+H0586|ParallelConfig:
+H0587|  Configuration for the distributed execution.
+H0588|
+H0589|  --all2all-backend {allgather_reducescatter,deepep_high_throughput,deepep_low_latency,flashinfer_all2allv,flashinfer_nvlink_one_sided,flashinfer_nvlink_two_sided,mori_high_throughput,mori_low_latency,naive,nixl_ep,pplx}
+H0590|                        All2All backend for MoE expert parallel communication.
+H0591|                        Available options:
+H0592|                        - "allgather_reducescatter": All2all based on
+H0593|                        allgather and reducescatter
+H0594|                        - "deepep_high_throughput": Use deepep high-throughput
+H0595|                        kernels
+H0596|                        - "deepep_low_latency": Use deepep low-latency kernels
+H0597|                        - "mori_high_throughput": MoRI EP with InterNodeV1 for
+H0598|                        multi-node
+H0599|                        - "mori_low_latency": MoRI EP with InterNodeV1LL for
+H0600|                        multi-node
+H0601|                        - "nixl_ep": Use nixl-ep kernels
+H0602|                        - "flashinfer_nvlink_two_sided": Use flashinfer two-
+H0603|                        sided kernels for mnnvl
+H0604|                        - "flashinfer_nvlink_one_sided": Use flashinfer high-
+H0605|                        throughput a2a kernels (default:
+H0606|                        allgather_reducescatter)
+H0607|  --cp-kv-cache-interleave-size CP_KV_CACHE_INTERLEAVE_SIZE
+H0608|                        Interleave size of kv_cache storage while using DCP or
+H0609|                        PCP. For `total_cp_rank = pcp_rank * dcp_world_size +
+H0610|                        dcp_rank`, and `total_cp_world_size = pcp_world_size *
+H0611|                        dcp_world_size`. store interleave_size tokens on
+H0612|                        total_cp_rank i, then store next interleave_size
+H0613|                        tokens on total_cp_rank i+1. Interleave_size=1: token-
+H0614|                        level alignment, where token `i` is stored on
+H0615|                        total_cp_rank `i % total_cp_world_size`.
+H0616|                        Interleave_size=block_size: block-level alignment,
+H0617|                        where tokens are first populated to the preceding
+H0618|                        ranks. Tokens are then stored in (rank i+1, block j)
+H0619|                        only after (rank i, block j) is fully occupied.
+H0620|                        Block_size should be greater than or equal to
+H0621|                        cp_kv_cache_interleave_size. Block_size should be
+H0622|                        divisible by cp_kv_cache_interleave_size. (default: 1)
+H0623|  --cpu-distributed-timeout-seconds CPU_DISTRIBUTED_TIMEOUT_SECONDS
+H0624|                        Timeout (in seconds) for cpu communication groups. If
+H0625|                        None, PyTorch's default timeout is used (1800s for
+H0626|                        gloo). (default: None)
+H0627|  --data-parallel-address DATA_PARALLEL_ADDRESS, -dpa DATA_PARALLEL_ADDRESS
+H0628|                        Address of data parallel cluster head-node. (default:
+H0629|                        None)
+H0630|  --data-parallel-backend DATA_PARALLEL_BACKEND, -dpb DATA_PARALLEL_BACKEND
+H0631|                        Backend for data parallel, either "mp" or "ray".
+H0632|                        (default: mp)
+H0633|  --data-parallel-external-lb, --no-data-parallel-external-lb, -dpe
+H0634|                        Whether to use "external" DP LB mode. Applies only to
+H0635|                        online serving and when data_parallel_size > 0. This
+H0636|                        is useful for a "one-pod-per-rank" wide-EP setup in
+H0637|                        Kubernetes. Supported only for MoE deployments; non-
+H0638|                        MoE models should use independent vLLM instances
+H0639|                        without --data-parallel-* arguments. Set implicitly
+H0640|                        when --data-parallel-rank is provided explicitly to
+H0641|                        vllm serve. (default: False)
+H0642|  --data-parallel-hybrid-lb, --no-data-parallel-hybrid-lb, -dph
+H0643|                        Whether to use "hybrid" DP LB mode. Applies only to
+H0644|                        online serving and when data_parallel_size > 0.
+H0645|                        Enables running an AsyncLLM and API server on a "per-
+H0646|                        node" basis where vLLM load balances between local
+H0647|                        data parallel ranks, but an external LB balances
+H0648|                        between vLLM nodes/replicas. Set explicitly in
+H0649|                        conjunction with
+H0650|                        --data-parallel-start-rank. (default: False)
+H0651|  --data-parallel-multi-port-external-lb, -dpm
+H0652|                        Run a node-local supervisor that launches one
+H0653|                        external-LB API server per local data parallel rank
+H0654|                        and exposes aggregated health on a supervisor port.
+H0655|                        (default: False)
+H0656|  --data-parallel-rank DATA_PARALLEL_RANK, -dpn DATA_PARALLEL_RANK
+H0657|                        Data parallel rank of this instance. When set, enables
+H0658|                        external load balancer mode for MoE data-parallel
+H0659|                        deployments. Unsupported for non-MoE models; launch
+H0660|                        independent vLLM instances instead. (default: None)
+H0661|  --data-parallel-rpc-port DATA_PARALLEL_RPC_PORT, -dpp DATA_PARALLEL_RPC_PORT
+H0662|                        Port for data parallel RPC communication. (default:
+H0663|                        None)
+H0664|  --data-parallel-size DATA_PARALLEL_SIZE, -dp DATA_PARALLEL_SIZE
+H0665|                        Number of data parallel groups. MoE layers will be
+H0666|                        sharded according to the product of the tensor
+H0667|                        parallel size and data parallel size. (default: 1)
+H0668|  --data-parallel-size-local DATA_PARALLEL_SIZE_LOCAL, -dpl DATA_PARALLEL_SIZE_LOCAL
+H0669|                        Number of data parallel replicas to run on this node.
+H0670|                        (default: None)
+H0671|  --data-parallel-start-rank DATA_PARALLEL_START_RANK, -dpr DATA_PARALLEL_START_RANK
+H0672|                        Starting data parallel rank for secondary nodes.
+H0673|                        (default: None)
+H0674|  --dbo-decode-token-threshold DBO_DECODE_TOKEN_THRESHOLD
+H0675|                        The threshold for dual batch overlap for batches only
+H0676|                        containing decodes. If the number of tokens in the
+H0677|                        request is greater than this threshold, microbatching
+H0678|                        will be used. Otherwise, the request will be processed
+H0679|                        in a single batch. (default: 32)
+H0680|  --dbo-prefill-token-threshold DBO_PREFILL_TOKEN_THRESHOLD
+H0681|                        The threshold for dual batch overlap for batches that
+H0682|                        contain one or more prefills. If the number of tokens
+H0683|                        in the request is greater than this threshold,
+H0684|                        microbatching will be used. Otherwise, the request
+H0685|                        will be processed in a single batch. (default: 512)
+H0686|  --dcp-comm-backend {a2a,ag_rs}
+H0687|                        Communication backend for Decode Context Parallel
+H0688|                        (DCP).
+H0689|                        - "ag_rs": AllGather + ReduceScatter (default,
+H0690|                        existing behavior)
+H0691|                        - "a2a": All-to-All exchange of partial outputs + LSE,
+H0692|                        then combine with Triton kernel. Reduces NCCL calls
+H0693|                        from 3 to 2 per layer for MLA models. (default: ag_rs)
+H0694|  --dcp-kv-cache-interleave-size DCP_KV_CACHE_INTERLEAVE_SIZE
+H0695|                        Interleave size of kv_cache storage while using DCP.
+H0696|                        dcp_kv_cache_interleave_size has been replaced by
+H0697|                        cp_kv_cache_interleave_size, and will be deprecated
+H0698|                        when PCP is fully supported. (default: 1)
+H0699|  --decode-context-parallel-size DECODE_CONTEXT_PARALLEL_SIZE, -dcp DECODE_CONTEXT_PARALLEL_SIZE
+H0700|                        Number of decode context parallel groups, because the
+H0701|                        world size does not change by dcp, it simply reuse the
+H0702|                        GPUs of TP group, and tp_size needs to be divisible by
+H0703|                        dcp_size. (default: 1)
+H0704|  --disable-custom-all-reduce, --no-disable-custom-all-reduce
+H0705|                        Disable the custom all-reduce kernel and fall back to
+H0706|                        NCCL. (default: False)
+H0707|  --disable-nccl-for-dp-synchronization, --no-disable-nccl-for-dp-synchronization
+H0708|                        Forces the dp synchronization logic in
+H0709|                        vllm/v1/worker/dp_utils.py  to use Gloo instead of
+H0710|                        NCCL for its all reduce.
+H0711|                        Defaults to True when async scheduling is enabled,
+H0712|                        False otherwise. (default: None)
+H0713|  --distributed-executor-backend ['external_launcher', 'mp', 'ray', 'uni']
+H0714|                        Backend to use for distributed model workers, either
+H0715|                        "ray" or "mp" (multiprocessing). If the product of
+H0716|                        pipeline_parallel_size and tensor_parallel_size is
+H0717|                        less than or equal to the number of GPUs available,
+H0718|                        "mp" will be used to keep processing on a single host.
+H0719|                        Otherwise, an error will be raised. To use "mp" you
+H0720|                        must also set nnodes, and to use "ray" you must
+H0721|                        manually set distributed_executor_backend to "ray".
+H0722|                        Note:
+H0723|                        [TPU](https://docs.vllm.ai/projects/tpu/en/latest/)
+H0724|                        platform only supports Ray for distributed inference.
+H0725|                        (default: None)
+H0726|  --distributed-timeout-seconds DISTRIBUTED_TIMEOUT_SECONDS
+H0727|                        Timeout in seconds for distributed operations (e.g.,
+H0728|                        init_process_group). If set, this value is passed to
+H0729|                        torch.distributed.init_process_group as the timeout
+H0730|                        parameter. If None, PyTorch's default timeout is used
+H0731|                        (600s for NCCL). Increase this for multi-node setups
+H0732|                        where model downloads may be slow. (default: None)
+H0733|  --enable-dbo, --no-enable-dbo
+H0734|                        Enable dual batch overlap for the model executor.
+H0735|                        (default: False)
+H0736|  --enable-elastic-ep, --no-enable-elastic-ep
+H0737|                        Enable elastic expert parallelism with stateless NCCL
+H0738|                        groups for DP/EP. (default: False)
+H0739|  --enable-ep-weight-filter, --no-enable-ep-weight-filter
+H0740|                        Skip non-local expert weights during model loading
+H0741|                        when expert parallelism is active.  Each rank only
+H0742|                        reads its own expert shard from disk, which can
+H0743|                        drastically reduce storage I/O for MoE models with
+H0744|                        per-expert weight tensors (e.g. DeepSeek, Mixtral,
+H0745|                        Kimi-K2.5).  Has no effect on 3D fused-expert
+H0746|                        checkpoints (e.g. GPT-OSS) or non-MoE models.
+H0747|                        (default: False)
+H0748|  --enable-eplb, --no-enable-eplb
+H0749|                        Enable expert parallelism load balancing for MoE
+H0750|                        layers. (default: False)
+H0751|  --enable-expert-parallel, --no-enable-expert-parallel, -ep
+H0752|                        Use expert parallelism instead of tensor parallelism
+H0753|                        for MoE layers. (default: False)
+H0754|  --eplb-config EPLB_CONFIG
+H0755|                        Expert parallelism configuration.
+H0756|                        API docs: https://docs.vllm.ai/en/latest/api/vllm/conf
+H0757|                        ig/#vllm.config.EPLBConfig
+H0758|                        Should either be a valid JSON string or JSON keys
+H0759|                        passed individually. (default:
+H0760|                        EPLBConfig(window_size=1000, step_interval=3000,
+H0761|                        num_redundant_experts=0, log_balancedness=False,
+H0762|                        log_balancedness_interval=1, use_async=False,
+H0763|                        policy='default', communicator=None))
+H0764|  --expert-placement-strategy {linear,round_robin}
+H0765|                        The expert placement strategy for MoE layers:
+H0766|                        - "linear": Experts are placed in a contiguous manner.
+H0767|                        For example, with 4 experts and 2 ranks, rank 0 will
+H0768|                        have experts [0, 1] and rank 1 will have experts [2,
+H0769|                        3].
+H0770|                        - "round_robin": Experts are placed in a round-robin
+H0771|                        manner. For example, with 4 experts and 2 ranks, rank
+H0772|                        0 will have experts [0, 2] and rank 1 will have
+H0773|                        experts [1, 3]. This strategy can help improve load
+H0774|                        balancing for grouped expert models with no redundant
+H0775|                        experts. (default: linear)
+H0776|  --master-addr MASTER_ADDR
+H0777|                        distributed master address for multi-node distributed
+H0778|                        inference when distributed_executor_backend is mp.
+H0779|                        (default: 127.0.0.1)
+H0780|  --master-port MASTER_PORT
+H0781|                        distributed master port for multi-node distributed
+H0782|                        inference when distributed_executor_backend is mp.
+H0783|                        (default: 29501)
+H0784|  --max-parallel-loading-workers MAX_PARALLEL_LOADING_WORKERS
+H0785|                        Maximum number of parallel loading workers when
+H0786|                        loading model sequentially in multiple batches. To
+H0787|                        avoid RAM OOM when using tensor parallel and large
+H0788|                        models. (default: None)
+H0789|  --nnodes NNODES, -n NNODES
+H0790|                        num of nodes for multi-node distributed inference when
+H0791|                        distributed_executor_backend is mp. (default: 1)
+H0792|  --node-rank NODE_RANK, -r NODE_RANK
+H0793|                        distributed node rank for multi-node distributed
+H0794|                        inference when distributed_executor_backend is mp.
+H0795|                        (default: 0)
+H0796|  --numa-bind, --no-numa-bind
+H0797|                        Enable NUMA binding for GPU worker subprocesses.
+H0798|                        By default, workers are pinned to their GPU's NUMA-
+H0799|                        local CPUs and memory; on PCT-capable Xeons they also
+H0800|                        auto-bind to the SKU's PCT priority cores. (default:
+H0801|                        False)
+H0802|  --numa-bind-cpus NUMA_BIND_CPUS [NUMA_BIND_CPUS ...]
+H0803|                        Optional CPU lists to bind each GPU worker to.
+H0804|                        Specify one CPU list per visible GPU, for example
+H0805|                        `["0-3", "4-7", "8-11", "12-15"]`. When set, vLLM uses
+H0806|                        `numactl --physcpubind` instead of `--cpunodebind`.
+H0807|                        This is useful for custom policies such as binding to
+H0808|                        PCT or other high-frequency cores. Each entry must use
+H0809|                        `numactl --physcpubind` CPU-list syntax, for example
+H0810|                        `"0-3"` or `"0,2,4-7"`. (default: None)
+H0811|  --numa-bind-nodes NUMA_BIND_NODES [NUMA_BIND_NODES ...]
+H0812|                        NUMA node to bind each GPU worker to.
+H0813|                        Specify one NUMA node per visible GPU, for example
+H0814|                        `[0, 0, 1, 1]` for a 4-GPU system with GPUs 0-1 on
+H0815|                        NUMA node 0 and GPUs 2-3 on NUMA node 1. If unset and
+H0816|                        `numa_bind=True`, vLLM auto-detects the GPU-to-NUMA
+H0817|                        topology. The values are passed to `numactl --membind`
+H0818|                        and `--cpunodebind`, so they must be valid `numactl`
+H0819|                        NUMA node indices. (default: None)
+H0820|  --pipeline-parallel-size PIPELINE_PARALLEL_SIZE, -pp PIPELINE_PARALLEL_SIZE
+H0821|                        Number of pipeline parallel groups. (default: 1)
+H0822|  --prefill-context-parallel-size PREFILL_CONTEXT_PARALLEL_SIZE, -pcp PREFILL_CONTEXT_PARALLEL_SIZE
+H0823|                        Number of prefill context parallel groups. (default:
+H0824|                        1)
+H0825|  --ray-workers-use-nsight, --no-ray-workers-use-nsight
+H0826|                        Whether to profile Ray workers with nsight, see
+H0827|                        https://docs.ray.io/en/latest/ray-observability/user-
+H0828|                        guides/profiling.html#profiling-nsight-profiler.
+H0829|                        (default: False)
+H0830|  --tensor-parallel-size TENSOR_PARALLEL_SIZE, -tp TENSOR_PARALLEL_SIZE
+H0831|                        Number of tensor parallel groups. (default: 1)
+H0832|  --ubatch-size UBATCH_SIZE
+H0833|                        Number of ubatch size. (default: 0)
+H0834|  --worker-cls WORKER_CLS
+H0835|                        The full name of the worker class to use. If "auto",
+H0836|                        the worker class will be determined based on the
+H0837|                        platform. (default: auto)
+H0838|  --worker-extension-cls WORKER_EXTENSION_CLS
+H0839|                        The full name of the worker extension class to use.
+H0840|                        The worker extension class is dynamically inherited by
+H0841|                        the worker class. This is used to inject new
+H0842|                        attributes and methods to the worker class for use in
+H0843|                        collective_rpc calls. (default: )
+H0844|
+H0845|CacheConfig:
+H0846|  Configuration for the KV cache.
+H0847|
+H0848|  --block-size BLOCK_SIZE
+H0849|                        Size of a contiguous cache block in number of tokens.
+H0850|                        Accepts None (meaning "use default"). After
+H0851|                        construction, always int. (default: None)
+H0852|  --calculate-kv-scales, --no-calculate-kv-scales
+H0853|                        Deprecated: This option is deprecated and will be
+H0854|                        removed in v0.19. It enables dynamic calculation of
+H0855|                        `k_scale` and `v_scale` when kv_cache_dtype is fp8. If
+H0856|                        `False`, the scales will be loaded from the model
+H0857|                        checkpoint if available. Otherwise, the scales will
+H0858|                        default to 1.0. (default: False)
+H0859|  --enable-prefix-caching, --no-enable-prefix-caching
+H0860|                        Whether to enable prefix caching. (default: None)
+H0861|  --gpu-memory-utilization GPU_MEMORY_UTILIZATION
+H0862|                        The fraction of GPU memory to be used for the model
+H0863|                        executor, which can range from 0 to 1. For example, a
+H0864|                        value of 0.5 would imply 50% GPU memory utilization.
+H0865|                        If unspecified, will use the default value of 0.92.
+H0866|                        This is a per-instance limit, and only applies to the
+H0867|                        current vLLM instance. It does not matter if you have
+H0868|                        another vLLM instance running on the same GPU. For
+H0869|                        example, if you have two vLLM instances running on the
+H0870|                        same GPU, you can set the GPU memory utilization to
+H0871|                        0.5 for each instance. (default: 0.92)
+H0872|  --kv-cache-dtype {auto,bfloat16,float16,fp8,fp8_ds_mla,fp8_e4m3,fp8_e5m2,fp8_inc,fp8_per_token_head,int8_per_token_head,nvfp4,turboquant_3bit_nc,turboquant_4bit_nc,turboquant_k3v4_nc,turboquant_k8v4}
+H0873|                        Data type for kv cache storage. If "auto", will use
+H0874|                        model data type. CUDA 11.8+ supports fp8 (=fp8_e4m3)
+H0875|                        and fp8_e5m2. ROCm (AMD GPU) supports fp8 (=fp8_e4m3).
+H0876|                        Intel Gaudi (HPU) supports fp8 (using fp8_inc). On
+H0877|                        SM70 with the 1Cat Flash-V100 backend enabled, the
+H0878|                        user-facing ``fp8`` shorthand resolves to fp8_e5m2 for
+H0879|                        compatibility with its optimized KV path; explicit
+H0880|                        fp8_e4m3 keeps the upstream E4M3 behavior. Some models
+H0881|                        (namely DeepSeekV3.2) default to fp8, set to bfloat16
+H0882|                        to use bfloat16 instead, this is an invalid option for
+H0883|                        models that do not default to fp8. (default: auto)
+H0884|  --kv-cache-dtype-skip-layers KV_CACHE_DTYPE_SKIP_LAYERS [KV_CACHE_DTYPE_SKIP_LAYERS ...]
+H0885|                        Layer patterns to skip KV cache quantization. Accepts
+H0886|                        layer indices (e.g., '0', '2', '4') or attention type
+H0887|                        names (e.g., 'sliding_window'). (default: [])
+H0888|  --kv-cache-memory-bytes KV_CACHE_MEMORY_BYTES
+H0889|                        Size of KV Cache per GPU in bytes. By default, this is
+H0890|                        set to None and vllm can automatically infer the kv
+H0891|                        cache size based on gpu_memory_utilization. However,
+H0892|                        users may want to manually specify the kv cache memory
+H0893|                        size. kv_cache_memory_bytes allows more fine-grain
+H0894|                        control of how much memory gets used when compared
+H0895|                        with using gpu_memory_utilization. Note that
+H0896|                        kv_cache_memory_bytes (when not-None) ignores
+H0897|                        gpu_memory_utilization
+H0898|                        Parse human-readable integers like '1k', '2M', etc.
+H0899|                        Including decimal values with decimal multipliers.
+H0900|                            Examples:
+H0901|                            - '1k' -> 1,000
+H0902|                            - '1K' -> 1,024
+H0903|                            - '25.6k' -> 25,600 (default: None)
+H0904|  --kv-offloading-backend {lmcache,native}
+H0905|                        The backend to use for KV cache offloading. Supported
+H0906|                        backends include 'native' (vLLM native CPU
+H0907|                        offloading), 'lmcache'. KV offloading is only
+H0908|                        activated when kv_offloading_size is set. (default:
+H0909|                        native)
+H0910|  --kv-offloading-size KV_OFFLOADING_SIZE
+H0911|                        Size of the KV cache offloading buffer in GiB. When TP
+H0912|                        > 1, this is the total buffer size summed across all
+H0913|                        TP ranks. By default, this is set to None, which means
+H0914|                        no KV offloading is enabled. When set, vLLM will
+H0915|                        enable KV cache offloading to CPU using the
+H0916|                        kv_offloading_backend. (default: None)
+H0917|  --kv-sharing-fast-prefill, --no-kv-sharing-fast-prefill
+H0918|                        This feature is work in progress and no prefill
+H0919|                        optimization takes place with this flag enabled
+H0920|                        currently.
+H0921|                        In some KV sharing setups, e.g. YOCO
+H0922|                        (https://arxiv.org/abs/2405.05254), some layers can
+H0923|                        skip tokens corresponding to prefill. This flag
+H0924|                        enables attention metadata for eligible layers to be
+H0925|                        overridden with metadata necessary for implementing
+H0926|                        this optimization in some models (e.g. Gemma3n)
+H0927|                        (default: False)
+H0928|  --mamba-block-size MAMBA_BLOCK_SIZE
+H0929|                        Size of a contiguous cache block in number of tokens
+H0930|                        for mamba cache. Can be set only when prefix caching
+H0931|                        is enabled. Value must be a multiple of 8 to align
+H0932|                        with causal_conv1d kernel. (default: None)
+H0933|  --mamba-cache-dtype {auto,bfloat16,float16,float32}
+H0934|                        The data type to use for the Mamba cache (both the
+H0935|                        conv as well as the ssm state). If set to 'auto', the
+H0936|                        data type will be inferred from the model config.
+H0937|                        (default: auto)
+H0938|  --mamba-cache-mode {align,all,none}
+H0939|                        The cache strategy for Mamba layers.
+H0940|                        - "none": set when prefix caching is disabled.
+H0941|                        - "all": cache the mamba state of all tokens at
+H0942|                        position i * block_size. This is the default behavior
+H0943|                        (for models that support it) when prefix caching is
+H0944|                        enabled.
+H0945|                        - "align": only cache the mamba state of the last
+H0946|                        token of each scheduler step and when the token is at
+H0947|                        position i * block_size. (default: none)
+H0948|  --mamba-ssm-cache-dtype {auto,bfloat16,float16,float32}
+H0949|                        The data type to use for the Mamba cache (ssm state
+H0950|                        only, conv state will still be controlled by
+H0951|                        mamba_cache_dtype). If set to 'auto', the data type
+H0952|                        for the ssm state will be determined by
+H0953|                        mamba_cache_dtype. (default: auto)
+H0954|  --num-gpu-blocks-override NUM_GPU_BLOCKS_OVERRIDE
+H0955|                        Number of GPU blocks to use. This overrides the
+H0956|                        profiled `num_gpu_blocks` if specified. Does nothing
+H0957|                        if `None`. Used for testing preemption. (default:
+H0958|                        None)
+H0959|  --prefix-caching-hash-algo {sha256,sha256_cbor,xxhash,xxhash_cbor}
+H0960|                        Set the hash algorithm for prefix caching:
+H0961|                        - "sha256" uses Pickle for object serialization before
+H0962|                        hashing. This is the current default, as SHA256 is the
+H0963|                        most secure choice to avoid potential hash collisions.
+H0964|                        - "sha256_cbor" provides a reproducible, cross-
+H0965|                        language compatible hash. It serializes objects using
+H0966|                        canonical CBOR and hashes them with SHA-256.
+H0967|                        - "xxhash" uses Pickle serialization with xxHash
+H0968|                        (128-bit) for faster, non-cryptographic hashing.
+H0969|                        Requires the optional ``xxhash`` package. IMPORTANT:
+H0970|                        Use of a hashing algorithm that is not considered
+H0971|                        cryptographically secure theoretically increases the
+H0972|                        risk of hash collisions, which can cause undefined
+H0973|                        behavior or even leak private information in multi-
+H0974|                        tenant environments. Even if collisions are still very
+H0975|                        unlikely, it is important to consider your security
+H0976|                        risk tolerance against the performance benefits before
+H0977|                        turning this on.
+H0978|                        - "xxhash_cbor" combines canonical CBOR serialization
+H0979|                        with xxHash for reproducible hashing. Requires the
+H0980|                        optional ``xxhash`` package. (default: sha256)
+H0981|
+H0982|OffloadConfig:
+H0983|  Configuration for model weight offloading to reduce GPU memory usage.
+H0984|
+H0985|  --cpu-offload-gb CPU_OFFLOAD_GB
+H0986|                        The space in GiB to offload to CPU, per GPU. Default
+H0987|                        is 0, which means no offloading. Intuitively, this
+H0988|                        argument can be seen as a virtual way to increase the
+H0989|                        GPU memory size. For example, if you have one 24 GB
+H0990|                        GPU and set this to 10, virtually you can think of it
+H0991|                        as a 34 GB GPU. Then you can load a 13B model with
+H0992|                        BF16 weight, which requires at least 26GB GPU memory.
+H0993|                        Note that this requires fast CPU-GPU interconnect, as
+H0994|                        part of the model is loaded from CPU memory to GPU
+H0995|                        memory on the fly in each model forward pass. This
+H0996|                        uses UVA (Unified Virtual Addressing) for zero-copy
+H0997|                        access. (default: 0)
+H0998|  --cpu-offload-params CPU_OFFLOAD_PARAMS [CPU_OFFLOAD_PARAMS ...]
+H0999|                        The set of parameter name segments to target for CPU
+H1000|                        offloading. Unmatched parameters are not offloaded. If
+H1001|                        this set is empty, parameters are offloaded non-
+H1002|                        selectively until the memory limit defined by
+H1003|                        `cpu_offload_gb` is reached. Examples:
+H1004|                            - For parameter name "mlp.experts.w2_weight":
+H1005|                                - "experts" or "experts.w2_weight" will match.
+H1006|                                - "expert" or "w2" will NOT match (must be
+H1007|                        exact segments).
+H1008|                            - A tower component name such as "visual" selects
+H1009|                        that complete multimodal tower, including parameters
+H1010|                        whose names are relative to the tower module. This
+H1011|                        allows distinguishing parameters like "w2_weight" and
+H1012|                        "w2_weight_scale". (default: set())
+H1013|  --offload-backend {auto,prefetch,uva}
+H1014|                        The backend for weight offloading. Options:
+H1015|                        - "auto": Selects based on which sub-config has non-
+H1016|                        default values (prefetch if offload_group_size > 0,
+H1017|                        uva if cpu_offload_gb > 0).
+H1018|                        - "uva": UVA (Unified Virtual Addressing) zero-copy
+H1019|                        offloading.
+H1020|                        - "prefetch": Async prefetch with group-based layer
+H1021|                        offloading. (default: auto)
+H1022|  --offload-group-size OFFLOAD_GROUP_SIZE
+H1023|                        Group every N layers together. Offload last
+H1024|                        `offload_num_in_group` layers of each group. Default
+H1025|                        is 0 (disabled). Example: group_size=8, num_in_group=2
+H1026|                        offloads layers 6,7,14,15,22,23,... Unlike
+H1027|                        cpu_offload_gb, this uses explicit async prefetching
+H1028|                        to hide transfer latency. (default: 0)
+H1029|  --offload-num-in-group OFFLOAD_NUM_IN_GROUP
+H1030|                        Number of layers to offload per group. Must be <=
+H1031|                        offload_group_size. Default is 1. (default: 1)
+H1032|  --offload-params OFFLOAD_PARAMS [OFFLOAD_PARAMS ...]
+H1033|                        The set of parameter name segments to target for
+H1034|                        prefetch offloading. Unmatched parameters are not
+H1035|                        offloaded. If this set is empty, ALL parameters of
+H1036|                        each offloaded layer are offloaded. Uses segment
+H1037|                        matching: "w13_weight" matches
+H1038|                        "mlp.experts.w13_weight" but not
+H1039|                        "mlp.experts.w13_weight_scale". (default: set())
+H1040|  --offload-prefetch-step OFFLOAD_PREFETCH_STEP
+H1041|                        Number of layers to prefetch ahead. Higher values hide
+H1042|                        more latency but use more GPU memory. Default is 1.
+H1043|                        (default: 1)
+H1044|
+H1045|MultiModalConfig:
+H1046|  Controls the behavior of multimodal models.
+H1047|
+H1048|  --enable-mm-embeds, --no-enable-mm-embeds
+H1049|                        If `True`, enables passing multimodal embeddings: for
+H1050|                        `LLM` class, this refers to tensor inputs under
+H1051|                        `multi_modal_data`; for the OpenAI-compatible server,
+H1052|                        this refers to chat messages with content `"type":
+H1053|                        "*_embeds"`.
+H1054|                        When enabled with `--limit-mm-per-prompt` set to 0 for
+H1055|                        a modality, precomputed embeddings skip count
+H1056|                        validation for that modality,  saving memory by not
+H1057|                        loading encoder modules while still enabling
+H1058|                        embeddings as an input. Limits greater than 0 still
+H1059|                        apply to embeddings.
+H1060|                        WARNING: The vLLM engine may crash if incorrect shape
+H1061|                        of embeddings is passed. Only enable this flag for
+H1062|                        trusted users! (default: False)
+H1063|  --interleave-mm-strings, --no-interleave-mm-strings
+H1064|                        Enable fully interleaved support for multimodal
+H1065|                        prompts, while using
+H1066|                        --chat-template-content-format=string. (default:
+H1067|                        False)
+H1068|  --language-model-only, --no-language-model-only
+H1069|                        If True, disables all multimodal inputs by setting all
+H1070|                        modality limits to 0. Equivalent to setting `--limit-
+H1071|                        mm-per-prompt` to 0 for every modality. (default:
+H1072|                        False)
+H1073|  --limit-mm-per-prompt LIMIT_MM_PER_PROMPT
+H1074|                        The maximum number of input items and options allowed
+H1075|                        per prompt for each modality.
+H1076|                        Defaults to 999 for each modality.
+H1077|                        Legacy format (count only): {"image": 16, "video": 2}
+H1078|                        Configurable format (with options): {"video":
+H1079|                        {"count": 1, "num_frames": 32, "width": 512, "height":
+H1080|                        512}, "image": {"count": 5, "width": 512, "height":
+H1081|                        512}}
+H1082|                        Mixed format (combining both): {"image": 16, "video":
+H1083|                        {"count": 1, "num_frames": 32, "width": 512, "height":
+H1084|                        512}}
+H1085|                        Should either be a valid JSON string or JSON keys
+H1086|                        passed individually. (default: {})
+H1087|  --media-io-kwargs MEDIA_IO_KWARGS
+EXTRACT accept section=options flags=--aggregate-engine-logging key=aggregate_engine_logging kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=options flags=--api-server-count key=api_server_count kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--config key=config kind=scalar ui=string reserved=false
+EXTRACT accept section=options flags=--disable-log-stats key=disable_log_stats kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=options flags=--enable-log-requests,--no-enable-log-requests key=enable_log_requests kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=options flags=--fail-on-environ-validation,--no-fail-on-environ-validation key=fail_on_environ_validation kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=options flags=--gdn-prefill-backend key=gdn_prefill_backend kind=enum ui=select reserved=false
+EXTRACT accept section=options flags=--grpc key=grpc kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=options flags=--headless key=headless kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=options flags=--shutdown-timeout key=shutdown_timeout kind=scalar ui=int default=0 reserved=false
+EXTRACT accept section=options flags=--help key=help kind=flag ui=bool reserved=true
+EXTRACT accept section=frontend flags=--allow-credentials,--no-allow-credentials key=allow_credentials kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=frontend flags=--allowed-headers key=allowed_headers kind=scalar ui=string default=* reserved=false
+EXTRACT accept section=frontend flags=--allowed-methods key=allowed_methods kind=scalar ui=string default=* reserved=false
+EXTRACT accept section=frontend flags=--allowed-origins key=allowed_origins kind=scalar ui=string default=* reserved=false
+EXTRACT accept section=frontend flags=--api-key key=api_key kind=repeatable ui=list reserved=false
+EXTRACT accept section=frontend flags=--chat-template key=chat_template kind=scalar ui=string reserved=false
+EXTRACT accept section=frontend flags=--chat-template-content-format key=chat_template_content_format kind=enum ui=select reserved=false
+EXTRACT accept section=frontend flags=--data-parallel-supervisor-port key=data_parallel_supervisor_port kind=scalar ui=int default=9256 reserved=false
+EXTRACT accept section=frontend flags=--default-chat-template-kwargs key=default_chat_template_kwargs kind=json_object ui=json default="{'enable_thinking': False}" reserved=false
+EXTRACT accept section=frontend flags=--disable-access-log-for-endpoints key=disable_access_log_for_endpoints kind=scalar ui=string reserved=false
+EXTRACT accept section=frontend flags=--disable-fastapi-docs,--no-disable-fastapi-docs key=disable_fastapi_docs kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=frontend flags=--disable-uvicorn-access-log,--no-disable-uvicorn-access-log key=disable_uvicorn_access_log kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=frontend flags=--dp-supervisor-probe-failure-threshold key=dp_supervisor_probe_failure_threshold kind=scalar ui=int default=3 reserved=false
+EXTRACT accept section=frontend flags=--dp-supervisor-probe-interval-s key=dp_supervisor_probe_interval_s kind=scalar ui=float default=5.0 reserved=false
+EXTRACT accept section=frontend flags=--dp-supervisor-probe-timeout-s key=dp_supervisor_probe_timeout_s kind=scalar ui=float default=5.0 reserved=false
+EXTRACT accept section=frontend flags=--enable-auto-tool-choice,--no-enable-auto-tool-choice key=enable_auto_tool_choice kind=flag ui=bool reserved=false
+EXTRACT accept section=frontend flags=--enable-flash-late-interaction,--no-enable-flash-late-interaction key=enable_flash_late_interaction kind=flag ui=bool default=true reserved=false
+EXTRACT accept section=frontend flags=--enable-force-include-usage,--no-enable-force-include-usage key=enable_force_include_usage kind=flag ui=bool reserved=false
+EXTRACT accept section=frontend flags=--enable-log-deltas,--no-enable-log-deltas key=enable_log_deltas kind=flag ui=bool reserved=false
+EXTRACT accept section=frontend flags=--enable-log-outputs,--no-enable-log-outputs key=enable_log_outputs kind=flag ui=bool reserved=false
+EXTRACT accept section=frontend flags=--enable-offline-docs,--no-enable-offline-docs key=enable_offline_docs kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=frontend flags=--enable-prompt-tokens-details,--no-enable-prompt-tokens-details key=enable_prompt_tokens_details kind=flag ui=bool reserved=false
+EXTRACT accept section=frontend flags=--enable-request-id-headers,--no-enable-request-id-headers key=enable_request_id_headers kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=frontend flags=--enable-server-load-tracking,--no-enable-server-load-tracking key=enable_server_load_tracking kind=flag ui=bool reserved=false
+EXTRACT accept section=frontend flags=--enable-ssl-refresh,--no-enable-ssl-refresh key=enable_ssl_refresh kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=frontend flags=--enable-tokenizer-info-endpoint,--no-enable-tokenizer-info-endpoint key=enable_tokenizer_info_endpoint kind=flag ui=bool reserved=false
+EXTRACT accept section=frontend flags=--exclude-tools-when-tool-choice-none,--no-exclude-tools-when-tool-choice-none key=exclude_tools_when_tool_choice_none kind=flag ui=bool reserved=false
+EXTRACT accept section=frontend flags=--fingerprint-mode key=fingerprint_mode kind=enum ui=select reserved=false
+EXTRACT accept section=frontend flags=--fingerprint-value key=fingerprint_value kind=scalar ui=string reserved=false
+EXTRACT accept section=frontend flags=--h11-max-header-count key=h11_max_header_count kind=scalar ui=int default=256 reserved=false
+EXTRACT accept section=frontend flags=--h11-max-incomplete-event-size key=h11_max_incomplete_event_size kind=scalar ui=int default=4194304 reserved=false
+EXTRACT accept section=frontend flags=--host key=host kind=scalar ui=string reserved=false
+EXTRACT accept section=frontend flags=--log-config-file key=log_config_file kind=scalar ui=string reserved=false
+EXTRACT accept section=frontend flags=--log-error-stack,--no-log-error-stack key=log_error_stack kind=flag ui=bool reserved=false
+EXTRACT accept section=frontend flags=--lora-modules key=lora_modules kind=repeatable ui=list reserved=false
+EXTRACT accept section=frontend flags=--max-log-len key=max_log_len kind=scalar ui=string reserved=false
+EXTRACT accept section=frontend flags=--middleware key=middleware kind=repeatable ui=list reserved=false
+EXTRACT accept section=frontend flags=--middleware key=middleware kind=flag ui=bool reserved=false
+EXTRACT accept section=frontend flags=--port key=port kind=scalar ui=int default=8000 reserved=true
+EXTRACT accept section=frontend flags=--response-role key=response_role kind=scalar ui=string reserved=false
+EXTRACT accept section=frontend flags=--return-tokens-as-token-ids,--no-return-tokens-as-token-ids key=return_tokens_as_token_ids kind=flag ui=bool reserved=false
+EXTRACT accept section=frontend flags=--root-path key=root_path kind=scalar ui=string reserved=false
+EXTRACT accept section=frontend flags=--ssl-ca-certs key=ssl_ca_certs kind=scalar ui=string reserved=false
+EXTRACT accept section=frontend flags=--ssl-cert-reqs key=ssl_cert_reqs kind=scalar ui=int default=0 reserved=false
+EXTRACT accept section=frontend flags=--ssl-certfile key=ssl_certfile kind=scalar ui=string reserved=false
+EXTRACT accept section=frontend flags=--ssl-ciphers key=ssl_ciphers kind=scalar ui=string reserved=false
+EXTRACT accept section=frontend flags=--ssl-keyfile key=ssl_keyfile kind=scalar ui=string reserved=false
+EXTRACT accept section=frontend flags=--tokens-only,--no-tokens-only key=tokens_only kind=flag ui=bool reserved=false
+EXTRACT accept section=frontend flags=--tool-call-parser key=tool_call_parser kind=enum ui=select reserved=false
+EXTRACT accept section=frontend flags=--tool-parser-plugin key=tool_parser_plugin kind=scalar ui=string reserved=false
+EXTRACT accept section=frontend flags=--tool-server key=tool_server kind=scalar ui=string reserved=false
+EXTRACT accept section=frontend flags=--trust-request-chat-template,--no-trust-request-chat-template key=trust_request_chat_template kind=flag ui=bool reserved=false
+EXTRACT accept section=frontend flags=--uds key=uds kind=scalar ui=string reserved=false
+EXTRACT accept section=frontend flags=--uvicorn-log-level key=uvicorn_log_level kind=enum ui=select default=info reserved=false
+EXTRACT accept section=modelconfig flags=--allow-deprecated-quantization,--no-allow-deprecated-quantization key=allow_deprecated_quantization kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=modelconfig flags=--allowed-local-media-path key=allowed_local_media_path kind=scalar ui=string reserved=false
+EXTRACT accept section=modelconfig flags=--allowed-media-domains key=allowed_media_domains kind=repeatable ui=list reserved=false
+EXTRACT accept section=modelconfig flags=--code-revision key=code_revision kind=scalar ui=string reserved=false
+EXTRACT accept section=modelconfig flags=--config-format key=config_format kind=enum ui=select default=auto reserved=false
+EXTRACT accept section=modelconfig flags=--convert key=convert kind=enum ui=select default=auto reserved=false
+EXTRACT accept section=modelconfig flags=--disable-cascade-attn,--no-disable-cascade-attn key=disable_cascade_attn kind=flag ui=bool default=true reserved=false
+EXTRACT accept section=modelconfig flags=--disable-sliding-window,--no-disable-sliding-window key=disable_sliding_window kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=modelconfig flags=--dtype key=dtype kind=enum ui=select default=auto reserved=false
+EXTRACT accept section=modelconfig flags=--enable-cumem-allocator,--no-enable-cumem-allocator key=enable_cumem_allocator kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=modelconfig flags=--enable-prompt-embeds,--no-enable-prompt-embeds key=enable_prompt_embeds kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=modelconfig flags=--enable-return-routed-experts,--no-enable-return-routed-experts key=enable_return_routed_experts kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=modelconfig flags=--enable-sleep-mode,--no-enable-sleep-mode key=enable_sleep_mode kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=modelconfig flags=--enforce-eager,--no-enforce-eager key=enforce_eager kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=modelconfig flags=--generation-config key=generation_config kind=scalar ui=string default=auto reserved=false
+EXTRACT accept section=modelconfig flags=--hf-config-path key=hf_config_path kind=scalar ui=string reserved=false
+EXTRACT accept section=modelconfig flags=--hf-overrides key=hf_overrides kind=scalar ui=string default={} reserved=false
+EXTRACT accept section=modelconfig flags=--hf-token key=hf_token kind=scalar ui=string reserved=false
+EXTRACT accept section=modelconfig flags=--io-processor-plugin key=io_processor_plugin kind=scalar ui=string reserved=false
+EXTRACT accept section=modelconfig flags=--logits-processors key=logits_processors kind=repeatable ui=list reserved=false
+EXTRACT accept section=modelconfig flags=--logprobs-mode key=logprobs_mode kind=enum ui=select default=raw_logprobs reserved=false
+EXTRACT accept section=modelconfig flags=--max-logprobs key=max_logprobs kind=scalar ui=int default=20 reserved=false
+EXTRACT accept section=modelconfig flags=--max-model-len key=max_model_len kind=scalar ui=string reserved=false
+EXTRACT accept section=examples flags=--model key=model kind=scalar ui=string default=Qwen/Qwen3-0.6B reserved=true
+EXTRACT accept section=examples flags=--model-impl key=model_impl kind=enum ui=select default=auto reserved=false
+EXTRACT accept section=examples flags=--override-attention-dtype key=override_attention_dtype kind=scalar ui=string reserved=false
+EXTRACT accept section=examples flags=--override-generation-config key=override_generation_config kind=json_object ui=json default={} reserved=false
+EXTRACT accept section=examples flags=--pooler-config key=pooler_config kind=json_object ui=json reserved=false
+EXTRACT accept section=examples flags=--quantization key=quantization kind=scalar ui=string reserved=false
+EXTRACT accept section=examples flags=--quantization-config key=quantization_config kind=json_object ui=json reserved=false
+EXTRACT accept section=examples flags=--renderer-num-workers key=renderer_num_workers kind=scalar ui=int default=1 reserved=false
+EXTRACT accept section=examples flags=--revision key=revision kind=scalar ui=string reserved=false
+EXTRACT accept section=examples flags=--runner key=runner kind=enum ui=select default=auto reserved=false
+EXTRACT accept section=examples flags=--seed key=seed kind=scalar ui=int default=0 reserved=false
+EXTRACT accept section=examples flags=--served-model-name key=served_model_name kind=repeatable ui=list reserved=false
+EXTRACT accept section=examples flags=--skip-tokenizer-init,--no-skip-tokenizer-init key=skip_tokenizer_init kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=examples flags=--tokenizer key=tokenizer kind=scalar ui=string reserved=false
+EXTRACT accept section=examples flags=--tokenizer-mode key=tokenizer_mode kind=enum ui=select default=auto reserved=false
+EXTRACT accept section=examples flags=--tokenizer-revision key=tokenizer_revision kind=scalar ui=string reserved=false
+EXTRACT accept section=examples flags=--trust-remote-code,--no-trust-remote-code key=trust_remote_code kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=examples flags=--use-fp64-gumbel,--no-use-fp64-gumbel key=use_fp64_gumbel kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=loadconfig flags=--download-dir key=download_dir kind=scalar ui=string reserved=false
+EXTRACT accept section=loadconfig flags=--ignore-patterns key=ignore_patterns kind=repeatable ui=list default=original/**/* reserved=false
+EXTRACT accept section=loadconfig flags=--load-format key=load_format kind=scalar ui=string default=auto reserved=false
+EXTRACT accept section=loadconfig flags=--model-loader-extra-config key=model_loader_extra_config kind=scalar ui=string default={} reserved=false
+EXTRACT accept section=loadconfig flags=--pt-load-map-location key=pt_load_map_location kind=scalar ui=string default=cpu reserved=false
+EXTRACT accept section=loadconfig flags=--safetensors-load-strategy key=safetensors_load_strategy kind=scalar ui=string reserved=false
+EXTRACT accept section=loadconfig flags=--safetensors-prefetch-block-size key=safetensors_prefetch_block_size kind=scalar ui=string reserved=false
+EXTRACT accept section=examples flags=--safetensors-prefetch-num-threads key=safetensors_prefetch_num_threads kind=scalar ui=int default=8 reserved=false
+EXTRACT accept section=examples flags=--use-tqdm-on-load,--no-use-tqdm-on-load key=use_tqdm_on_load kind=flag ui=bool default=true reserved=false
+EXTRACT accept section=attentionconfig flags=--attention-backend key=attention_backend kind=scalar ui=string reserved=false
+EXTRACT accept section=mambaconfig flags=--enable-mamba-cache-stochastic-rounding,--no-enable-mamba-cache-stochastic-rounding key=enable_mamba_cache_stochastic_rounding kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=mambaconfig flags=--mamba-backend key=mamba_backend kind=scalar ui=string default=MambaBackendEnum.TRITON reserved=false
+EXTRACT accept section=mambaconfig flags=--mamba-cache-philox-rounds key=mamba_cache_philox_rounds kind=scalar ui=int default=0 reserved=false
+EXTRACT accept section=structuredoutputsconfig flags=--reasoning-parser key=reasoning_parser kind=scalar ui=string reserved=false
+EXTRACT accept section=structuredoutputsconfig flags=--reasoning-parser-plugin key=reasoning_parser_plugin kind=scalar ui=string reserved=false
+EXTRACT accept section=parallelconfig flags=--all2all-backend key=all2all_backend kind=enum ui=select default=allgather_reducescatter reserved=false
+EXTRACT accept section=parallelconfig flags=--cp-kv-cache-interleave-size key=cp_kv_cache_interleave_size kind=scalar ui=int default=1 reserved=false
+EXTRACT accept section=parallelconfig flags=--cpu-distributed-timeout-seconds key=cpu_distributed_timeout_seconds kind=scalar ui=string reserved=false
+EXTRACT accept section=parallelconfig flags=--data-parallel-address key=data_parallel_address kind=scalar ui=string reserved=false
+EXTRACT accept section=parallelconfig flags=--data-parallel-backend key=data_parallel_backend kind=scalar ui=string default=mp reserved=false
+EXTRACT accept section=parallelconfig flags=--data-parallel-external-lb,--no-data-parallel-external-lb key=data_parallel_external_lb kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=parallelconfig flags=--data-parallel-hybrid-lb,--no-data-parallel-hybrid-lb key=data_parallel_hybrid_lb kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=parallelconfig flags=--data-parallel-multi-port-external-lb key=data_parallel_multi_port_external_lb kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=parallelconfig flags=--data-parallel-rank key=data_parallel_rank kind=scalar ui=string reserved=false
+EXTRACT accept section=parallelconfig flags=--data-parallel-rpc-port key=data_parallel_rpc_port kind=scalar ui=string reserved=false
+EXTRACT accept section=parallelconfig flags=--data-parallel-size key=data_parallel_size kind=scalar ui=int default=1 reserved=false
+EXTRACT accept section=parallelconfig flags=--data-parallel-size-local key=data_parallel_size_local kind=scalar ui=string reserved=false
+EXTRACT accept section=parallelconfig flags=--data-parallel-start-rank key=data_parallel_start_rank kind=scalar ui=string reserved=false
+EXTRACT accept section=parallelconfig flags=--dbo-decode-token-threshold key=dbo_decode_token_threshold kind=scalar ui=int default=32 reserved=false
+EXTRACT accept section=parallelconfig flags=--dbo-prefill-token-threshold key=dbo_prefill_token_threshold kind=scalar ui=int default=512 reserved=false
+EXTRACT accept section=parallelconfig flags=--dcp-comm-backend key=dcp_comm_backend kind=enum ui=select default=ag_rs reserved=false
+EXTRACT accept section=parallelconfig flags=--dcp-kv-cache-interleave-size key=dcp_kv_cache_interleave_size kind=scalar ui=int default=1 reserved=false
+EXTRACT accept section=parallelconfig flags=--decode-context-parallel-size key=decode_context_parallel_size kind=scalar ui=int default=1 reserved=false
+EXTRACT accept section=parallelconfig flags=--disable-custom-all-reduce,--no-disable-custom-all-reduce key=disable_custom_all_reduce kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=parallelconfig flags=--disable-nccl-for-dp-synchronization,--no-disable-nccl-for-dp-synchronization key=disable_nccl_for_dp_synchronization kind=flag ui=bool reserved=false
+EXTRACT accept section=parallelconfig flags=--distributed-executor-backend key=distributed_executor_backend kind=enum ui=select reserved=false
+EXTRACT accept section=note flags=--distributed-timeout-seconds key=distributed_timeout_seconds kind=scalar ui=string reserved=false
+EXTRACT accept section=note flags=--enable-dbo,--no-enable-dbo key=enable_dbo kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=note flags=--enable-elastic-ep,--no-enable-elastic-ep key=enable_elastic_ep kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=note flags=--enable-ep-weight-filter,--no-enable-ep-weight-filter key=enable_ep_weight_filter kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=note flags=--enable-eplb,--no-enable-eplb key=enable_eplb kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=note flags=--enable-expert-parallel,--no-enable-expert-parallel key=enable_expert_parallel kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=note flags=--eplb-config key=eplb_config kind=json_object ui=json default="EPLBConfig(window_size=1000" reserved=false
+EXTRACT accept section=note flags=--expert-placement-strategy key=expert_placement_strategy kind=enum ui=select default=linear reserved=false
+EXTRACT accept section=note flags=--master-addr key=master_addr kind=scalar ui=string default=127.0.0.1 reserved=false
+EXTRACT accept section=note flags=--master-port key=master_port kind=scalar ui=int default=29501 reserved=false
+EXTRACT accept section=note flags=--max-parallel-loading-workers key=max_parallel_loading_workers kind=scalar ui=string reserved=false
+EXTRACT accept section=note flags=--nnodes key=nnodes kind=scalar ui=int default=1 reserved=false
+EXTRACT accept section=note flags=--node-rank key=node_rank kind=scalar ui=int default=0 reserved=false
+EXTRACT accept section=note flags=--numa-bind,--no-numa-bind key=numa_bind kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=note flags=--numa-bind-cpus key=numa_bind_cpus kind=repeatable ui=list reserved=false
+EXTRACT accept section=note flags=--numa-bind-nodes key=numa_bind_nodes kind=repeatable ui=list reserved=false
+EXTRACT accept section=note flags=--pipeline-parallel-size key=pipeline_parallel_size kind=scalar ui=int default=1 reserved=false
+EXTRACT accept section=note flags=--prefill-context-parallel-size key=prefill_context_parallel_size kind=scalar ui=int default=1 reserved=false
+EXTRACT accept section=note flags=--ray-workers-use-nsight,--no-ray-workers-use-nsight key=ray_workers_use_nsight kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=note flags=--tensor-parallel-size key=tensor_parallel_size kind=scalar ui=int default=1 reserved=false
+EXTRACT accept section=note flags=--ubatch-size key=ubatch_size kind=scalar ui=int default=0 reserved=false
+EXTRACT accept section=note flags=--worker-cls key=worker_cls kind=scalar ui=string default=auto reserved=false
+EXTRACT accept section=note flags=--worker-extension-cls key=worker_extension_cls kind=scalar ui=string reserved=false
+EXTRACT accept section=cacheconfig flags=--block-size key=block_size kind=scalar ui=string reserved=false
+EXTRACT accept section=cacheconfig flags=--calculate-kv-scales,--no-calculate-kv-scales key=calculate_kv_scales kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=cacheconfig flags=--enable-prefix-caching,--no-enable-prefix-caching key=enable_prefix_caching kind=flag ui=bool reserved=false
+EXTRACT accept section=cacheconfig flags=--gpu-memory-utilization key=gpu_memory_utilization kind=scalar ui=float default=0.92 reserved=false
+EXTRACT accept section=cacheconfig flags=--kv-cache-dtype key=kv_cache_dtype kind=enum ui=select default=auto reserved=false
+EXTRACT accept section=cacheconfig flags=--kv-cache-dtype-skip-layers key=kv_cache_dtype_skip_layers kind=repeatable ui=list default=[] reserved=false
+EXTRACT accept section=cacheconfig flags=--kv-cache-memory-bytes key=kv_cache_memory_bytes kind=scalar ui=string reserved=false
+EXTRACT accept section=examples flags=--kv-offloading-backend key=kv_offloading_backend kind=enum ui=select default=native reserved=false
+EXTRACT accept section=examples flags=--kv-offloading-size key=kv_offloading_size kind=scalar ui=string reserved=false
+EXTRACT accept section=examples flags=--kv-sharing-fast-prefill,--no-kv-sharing-fast-prefill key=kv_sharing_fast_prefill kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=examples flags=--mamba-block-size key=mamba_block_size kind=scalar ui=string reserved=false
+EXTRACT accept section=examples flags=--mamba-cache-dtype key=mamba_cache_dtype kind=enum ui=select default=auto reserved=false
+EXTRACT accept section=examples flags=--mamba-cache-mode key=mamba_cache_mode kind=enum ui=select reserved=false
+EXTRACT accept section=examples flags=--mamba-ssm-cache-dtype key=mamba_ssm_cache_dtype kind=enum ui=select default=auto reserved=false
+EXTRACT accept section=examples flags=--num-gpu-blocks-override key=num_gpu_blocks_override kind=scalar ui=string reserved=false
+EXTRACT accept section=examples flags=--prefix-caching-hash-algo key=prefix_caching_hash_algo kind=enum ui=select default=sha256 reserved=false
+EXTRACT accept section=offloadconfig flags=--cpu-offload-gb key=cpu_offload_gb kind=scalar ui=int default=0 reserved=false
+EXTRACT accept section=offloadconfig flags=--cpu-offload-params key=cpu_offload_params kind=repeatable ui=list reserved=false
+EXTRACT accept section=offloadconfig flags=--offload-backend key=offload_backend kind=enum ui=select default=auto reserved=false
+EXTRACT accept section=offloadconfig flags=--offload-group-size key=offload_group_size kind=scalar ui=int default=0 reserved=false
+EXTRACT accept section=offloadconfig flags=--offload-num-in-group key=offload_num_in_group kind=scalar ui=int default=1 reserved=false
+EXTRACT accept section=offloadconfig flags=--offload-params key=offload_params kind=repeatable ui=list reserved=false
+EXTRACT accept section=offloadconfig flags=--offload-prefetch-step key=offload_prefetch_step kind=scalar ui=int default=1 reserved=false
+EXTRACT accept section=multimodalconfig flags=--enable-mm-embeds,--no-enable-mm-embeds key=enable_mm_embeds kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=multimodalconfig flags=--interleave-mm-strings,--no-interleave-mm-strings key=interleave_mm_strings kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=multimodalconfig flags=--language-model-only,--no-language-model-only key=language_model_only kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=multimodalconfig flags=--limit-mm-per-prompt key=limit_mm_per_prompt kind=json_object ui=json default={} reserved=false
+EXTRACT accept section=multimodalconfig flags=--media-io-kwargs key=media_io_kwargs kind=json_object ui=json default={} reserved=false
+EXTRACT accept section=multimodalconfig flags=--mm-encoder-attn-backend key=mm_encoder_attn_backend kind=scalar ui=string reserved=false
+EXTRACT accept section=multimodalconfig flags=--mm-encoder-attn-dtype key=mm_encoder_attn_dtype kind=enum ui=select reserved=false
+EXTRACT accept section=multimodalconfig flags=--mm-encoder-fp8-scale-path key=mm_encoder_fp8_scale_path kind=scalar ui=string reserved=false
+EXTRACT accept section=multimodalconfig flags=--mm-encoder-fp8-scale-save-margin key=mm_encoder_fp8_scale_save_margin kind=scalar ui=float default=1.5 reserved=false
+EXTRACT accept section=multimodalconfig flags=--mm-encoder-fp8-scale-save-path key=mm_encoder_fp8_scale_save_path kind=scalar ui=string reserved=false
+EXTRACT accept section=multimodalconfig flags=--mm-encoder-only,--no-mm-encoder-only key=mm_encoder_only kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=multimodalconfig flags=--mm-encoder-tp-mode key=mm_encoder_tp_mode kind=enum ui=select default=weights reserved=false
+EXTRACT accept section=multimodalconfig flags=--mm-processor-cache-gb key=mm_processor_cache_gb kind=scalar ui=int default=4 reserved=false
+EXTRACT accept section=multimodalconfig flags=--mm-processor-cache-type key=mm_processor_cache_type kind=enum ui=select default=lru reserved=false
+EXTRACT accept section=multimodalconfig flags=--mm-processor-kwargs key=mm_processor_kwargs kind=json_object ui=json reserved=false
+EXTRACT accept section=multimodalconfig flags=--mm-shm-cache-max-object-size-mb key=mm_shm_cache_max_object_size_mb kind=scalar ui=int default=128 reserved=false
+EXTRACT accept section=multimodalconfig flags=--mm-tensor-ipc key=mm_tensor_ipc kind=enum ui=select default=direct_rpc reserved=false
+EXTRACT accept section=multimodalconfig flags=--skip-mm-profiling,--no-skip-mm-profiling key=skip_mm_profiling kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=multimodalconfig flags=--video-pruning-rate key=video_pruning_rate kind=scalar ui=string reserved=false
+EXTRACT accept section=loraconfig flags=--default-mm-loras key=default_mm_loras kind=json_object ui=json reserved=false
+EXTRACT accept section=loraconfig flags=--enable-lora,--no-enable-lora key=enable_lora kind=flag ui=bool reserved=false
+EXTRACT accept section=loraconfig flags=--enable-mixed-moe-lora-format,--no-enable-mixed-moe-lora-format key=enable_mixed_moe_lora_format kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=loraconfig flags=--enable-tower-connector-lora,--no-enable-tower-connector-lora key=enable_tower_connector_lora kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=loraconfig flags=--fully-sharded-loras,--no-fully-sharded-loras key=fully_sharded_loras kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=loraconfig flags=--lora-dtype key=lora_dtype kind=enum ui=select default=auto reserved=false
+EXTRACT accept section=loraconfig flags=--lora-target-modules key=lora_target_modules kind=repeatable ui=list reserved=false
+EXTRACT accept section=loraconfig flags=--max-cpu-loras key=max_cpu_loras kind=scalar ui=string reserved=false
+EXTRACT accept section=loraconfig flags=--max-lora-rank key=max_lora_rank kind=enum ui=select default=16 reserved=false
+EXTRACT accept section=loraconfig flags=--max-loras key=max_loras kind=scalar ui=int default=1 reserved=false
+EXTRACT accept section=loraconfig flags=--specialize-active-lora,--no-specialize-active-lora key=specialize_active_lora kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=observabilityconfig flags=--collect-detailed-traces key=collect_detailed_traces kind=repeatable ui=list reserved=false
+EXTRACT accept section=observabilityconfig flags=--cudagraph-metrics,--no-cudagraph-metrics key=cudagraph_metrics kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=observabilityconfig flags=--enable-layerwise-nvtx-tracing,--no-enable-layerwise-nvtx-tracing key=enable_layerwise_nvtx_tracing kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=observabilityconfig flags=--enable-logging-iteration-details,--no-enable-logging-iteration-details key=enable_logging_iteration_details kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=observabilityconfig flags=--enable-mfu-metrics,--no-enable-mfu-metrics key=enable_mfu_metrics kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=observabilityconfig flags=--kv-cache-metrics,--no-kv-cache-metrics key=kv_cache_metrics kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=observabilityconfig flags=--kv-cache-metrics-sample key=kv_cache_metrics_sample kind=scalar ui=float default=0.01 reserved=false
+EXTRACT accept section=observabilityconfig flags=--otlp-traces-endpoint key=otlp_traces_endpoint kind=scalar ui=string reserved=false
+EXTRACT accept section=observabilityconfig flags=--show-hidden-metrics-for-version key=show_hidden_metrics_for_version kind=scalar ui=string reserved=false
+EXTRACT accept section=schedulerconfig flags=--async-scheduling,--no-async-scheduling key=async_scheduling kind=flag ui=bool reserved=false
+EXTRACT accept section=schedulerconfig flags=--disable-chunked-mm-input,--no-disable-chunked-mm-input key=disable_chunked_mm_input kind=flag ui=bool default=false reserved=false
+EXTRACT accept section=schedulerconfig flags=--disable-hybrid-kv-cache-manager,--no-disable-hybrid-kv-cache-manager key=disable_hybrid_kv_cache_manager kind=flag ui=bool reserved=false
+EXTRACT accept section=schedulerconfig flags=--enable-chunked-prefill,--no-enable-chunked-prefill key=enable_chunked_prefill kind=flag ui=bool reserved=false
+EXTRACT accept section=schedulerconfig flags=--long-prefill-token-threshold key=long_prefill_token_threshold kind=scalar ui=int default=0 reserved=false
+EXTRACT accept section=schedulerconfig flags=--max-long-partial-prefills key=max_long_partial_prefills kind=scalar ui=int default=1 reserved=false
+EXTRACT accept section=schedulerconfig flags=--max-num-batched-tokens key=max_num_batched_tokens kind=scalar ui=string reserved=false
+EXTRACT accept section=examples flags=--max-num-partial-prefills key=max_num_partial_prefills kind=scalar ui=int default=1 reserved=false
+EXTRACT accept section=examples flags=--max-num-seqs key=max_num_seqs kind=scalar ui=string reserved=false
+EXTRACT accept section=examples flags=--scheduler-cls key=scheduler_cls kind=scalar ui=string reserved=false
+EXTRACT accept section=examples flags=--scheduler-reserve-full-isl,--no-scheduler-reserve-full-isl key=scheduler_reserve_full_isl kind=flag ui=bool default=true reserved=false
+EXTRACT accept section=examples flags=--scheduling-policy key=scheduling_policy kind=enum ui=select default=fcfs reserved=false
+EXTRACT accept section=examples flags=--stream-interval key=stream_interval kind=scalar ui=int default=1 reserved=false
+EXTRACT accept section=compilationconfig flags=--cudagraph-capture-sizes key=cudagraph_capture_sizes kind=repeatable ui=list reserved=false
+EXTRACT accept section=compilationconfig flags=--max-cudagraph-capture-size key=max_cudagraph_capture_size kind=scalar ui=string reserved=false
+EXTRACT accept section=kernelconfig flags=--enable-flashinfer-autotune,--no-enable-flashinfer-autotune key=enable_flashinfer_autotune kind=flag ui=bool reserved=false
+EXTRACT accept section=kernelconfig flags=--ir-op-priority key=ir_op_priority kind=json_object ui=json default="IrOpPriorityConfig(rms_norm=[]" reserved=false
+EXTRACT accept section=kernelconfig flags=--linear-backend key=linear_backend kind=enum ui=select default=auto reserved=false
+EXTRACT accept section=kernelconfig flags=--moe-backend key=moe_backend kind=enum ui=select reserved=false
+EXTRACT accept section=vllmconfig flags=--additional-config key=additional_config kind=scalar ui=string default={} reserved=false
+EXTRACT accept section=vllmconfig flags=--attention-config key=attention_config kind=json_object ui=json default="AttentionConfig(backend=None" reserved=false
+EXTRACT accept section=vllmconfig flags=--compilation-config key=compilation_config kind=json_object ui=json default="{'mode': None, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': [], 'ir_enable_torch_wrap': None, 'splitting_ops': None, 'compile_mm_encoder': False, 'cudagraph_mm_encoder': False, 'encoder_cudagraph_token_budgets': [], 'encoder_cudagraph_max_vision_items_per_batch': 0, 'encoder_cudagraph_max_frames_per_batch': None, 'compile_sizes': None, 'compile_ranges_endpoints': None, 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'size_asserts': False, 'alignment_asserts': False, 'scalar_asserts': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': None, 'cudagraph_num_of_warmups': 0, 'cudagraph_capture_sizes': None, 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': None, 'pass_config': {}, 'max_cudagraph_capture_size': None, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False, 'assume_32_bit_indexing': False}, 'local_cache_dir': None, 'fast_moe_cold_start': None, 'static_all_moe_layers': []}" reserved=false
+EXTRACT accept section=vllmconfig flags=--ec-transfer-config key=ec_transfer_config kind=json_object ui=json reserved=false
+EXTRACT accept section=vllmconfig flags=--kernel-config key=kernel_config kind=json_object ui=json default="KernelConfig(ir_op_prio rity=IrOpPriorityConfig(rms_norm=[], fused_add_rms_norm=[]), enable_flashinfer_autotune=None, moe_backend='auto', linear_backend='auto'" reserved=false
+EXTRACT accept section=vllmconfig flags=--kv-events-config key=kv_events_config kind=json_object ui=json reserved=false
+EXTRACT accept section=vllmconfig flags=--kv-transfer-config key=kv_transfer_config kind=json_object ui=json reserved=false
+EXTRACT accept section=vllmconfig flags=--optimization-level key=optimization_level kind=scalar ui=int default=2 reserved=false
+EXTRACT accept section=vllmconfig flags=--performance-mode key=performance_mode kind=enum ui=select default=balanced reserved=false
+EXTRACT accept section=vllmconfig flags=--profiler-config key=profiler_config kind=json_object ui=json default="ProfilerConfig(profiler=None" reserved=false
+EXTRACT accept section=vllmconfig flags=--reasoning-config key=reasoning_config kind=json_object ui=json reserved=false
+===== CATALOG RESULT: engine catalog (262 params, 19 sections) =====
+binary_path: /app/data/1cat-vllm/20260831-065859-source/venv/bin/vllm
+scanned_at: 2026-09-18T21:24:31.209401Z
+--- section options (Options) · 11 params ---
+EXTRACT accept section=options flags=--gdn-prefill-backend key=gdn_prefill_backend kind=enum ui=select reserved=false options=flashinfer,triton,cutedsl,flashqla_sm70,None
+--- section frontend (Frontend) · 53 params ---
+EXTRACT accept section=frontend flags=--chat-template-content-format key=chat_template_content_format kind=enum ui=select reserved=false options=auto,openai,string
+EXTRACT accept section=frontend flags=--fingerprint-mode key=fingerprint_mode kind=enum ui=select reserved=false options=custom,full,hash,none
+EXTRACT accept section=frontend flags=--tool-call-parser key=tool_call_parser kind=enum ui=select reserved=false options=apertus,cohere_command3,cohere_command4,deepseek_v3,deepseek_v31,deepseek_v32,deepseek_v4,ernie45,functiongemma,gemma4,gigachat3,glm45,glm47,granite,granite-20b-fc,granite4,hermes,hunyuan_a13b,hy_v3,internlm,jamba,kimi_k2,lfm2,llama3_json,llama4_json,llama4_pythonic,longcat,mimo,minicpm5,minimax,minimax_m2,mistral,olmo3,openai,phi4_mini_json,poolside_v1,pythonic,qwen3_coder,qwen3_xml,seed_oss,step3,step3p5,xlam
+EXTRACT accept section=frontend flags=--uvicorn-log-level key=uvicorn_log_level kind=enum ui=select default=info reserved=false options=critical,debug,error,info,trace,warning
+--- section modelconfig (ModelConfig) · 23 params ---
+EXTRACT accept section=modelconfig flags=--config-format key=config_format kind=enum ui=select default=auto reserved=false options=auto,hf,mistral
+EXTRACT accept section=modelconfig flags=--convert key=convert kind=enum ui=select default=auto reserved=false options=auto,classify,embed,none
+EXTRACT accept section=modelconfig flags=--dtype key=dtype kind=enum ui=select default=auto reserved=false options=auto,bfloat16,float,float16,float32,half
+EXTRACT accept section=modelconfig flags=--logprobs-mode key=logprobs_mode kind=enum ui=select default=raw_logprobs reserved=false options=processed_logits,processed_logprobs,raw_logits,raw_logprobs
+--- section examples (Examples) · 35 params ---
+EXTRACT accept section=examples flags=--kv-offloading-backend key=kv_offloading_backend kind=enum ui=select default=native reserved=false options=lmcache,native
+EXTRACT accept section=examples flags=--mamba-cache-dtype key=mamba_cache_dtype kind=enum ui=select default=auto reserved=false options=auto,bfloat16,float16,float32
+EXTRACT accept section=examples flags=--mamba-cache-mode key=mamba_cache_mode kind=enum ui=select reserved=false options=align,all,none
+EXTRACT accept section=examples flags=--mamba-ssm-cache-dtype key=mamba_ssm_cache_dtype kind=enum ui=select default=auto reserved=false options=auto,bfloat16,float16,float32
+EXTRACT accept section=examples flags=--model-impl key=model_impl kind=enum ui=select default=auto reserved=false options=auto,terratorch,transformers,vllm
+EXTRACT accept section=examples flags=--prefix-caching-hash-algo key=prefix_caching_hash_algo kind=enum ui=select default=sha256 reserved=false options=sha256,sha256_cbor,xxhash,xxhash_cbor
+EXTRACT accept section=examples flags=--runner key=runner kind=enum ui=select default=auto reserved=false options=auto,draft,generate,pooling
+EXTRACT accept section=examples flags=--scheduling-policy key=scheduling_policy kind=enum ui=select default=fcfs reserved=false options=fcfs,priority
+EXTRACT accept section=examples flags=--tokenizer-mode key=tokenizer_mode kind=enum ui=select default=auto reserved=false options=auto,deepseek_v32,deepseek_v4,hf,mistral,slow
+--- section loadconfig (LoadConfig) · 7 params ---
+--- section attentionconfig (AttentionConfig) · 1 params ---
+--- section mambaconfig (MambaConfig) · 3 params ---
+--- section structuredoutputsconfig (StructuredOutputsConfig) · 2 params ---
+--- section parallelconfig (ParallelConfig) · 21 params ---
+EXTRACT accept section=parallelconfig flags=--all2all-backend key=all2all_backend kind=enum ui=select default=allgather_reducescatter reserved=false options=allgather_reducescatter,deepep_high_throughput,deepep_low_latency,flashinfer_all2allv,flashinfer_nvlink_one_sided,flashinfer_nvlink_two_sided,mori_high_throughput,mori_low_latency,naive,nixl_ep,pplx
+EXTRACT accept section=parallelconfig flags=--dcp-comm-backend key=dcp_comm_backend kind=enum ui=select default=ag_rs reserved=false options=a2a,ag_rs
+EXTRACT accept section=parallelconfig flags=--distributed-executor-backend key=distributed_executor_backend kind=enum ui=select reserved=false options=external_launcher,mp,ray,uni
+--- section note (Note) · 23 params ---
+EXTRACT accept section=note flags=--expert-placement-strategy key=expert_placement_strategy kind=enum ui=select default=linear reserved=false options=linear,round_robin
+EXTRACT accept section=vllmconfig flags=--spec-method key=spec_method kind=enum ui=select reserved=false
+EXTRACT accept section=vllmconfig flags=--spec-model key=spec_model kind=scalar ui=string reserved=false
+EXTRACT accept section=vllmconfig flags=--spec-tokens key=spec_tokens kind=scalar ui=string reserved=false
+EXTRACT accept section=vllmconfig flags=--speculative-config key=speculative_config kind=json_object ui=json reserved=false
+EXTRACT accept section=vllmconfig flags=--structured-outputs-config key=structured_outputs_config kind=json_object ui=json default="StructuredOutputsConfig(backend='auto'" reserved=false
+EXTRACT accept section=vllmconfig flags=--weight-transfer-config key=weight_transfer_config kind=json_object ui=json reserved=false
+parser: parse_vllm_serve_help
+===== FLAG COVERAGE help=342 parsed=331 missing=11 extra=0 =====
+coverage_missing_from_catalog (present in help, not parsed):
+MISSING --generation-
+MISSING --data-parallel-
+MISSING --physcpubind
+MISSING --cpunodebind
+MISSING --membind
+MISSING --limit-
+MISSING --data-
+MISSING --otlp-traces-
+MISSING --disable-log-
+MISSING --show-hidden-metrics-for-
+MISSING --json-arg
+coverage_extra_parsed: none
+===== END FLAG COVERAGE =====
+EXTRACT accept section=note flags=--numa-bind-cpus key=numa_bind_cpus kind=repeatable ui=list reserved=false options=0-3,4-7,8-11,12-15,None
+--- section cacheconfig (CacheConfig) · 7 params ---
+EXTRACT accept section=cacheconfig flags=--kv-cache-dtype key=kv_cache_dtype kind=enum ui=select default=auto reserved=false options=auto,bfloat16,float16,fp8,fp8_ds_mla,fp8_e4m3,fp8_e5m2,fp8_inc,fp8_per_token_head,int8_per_token_head,nvfp4,turboquant_3bit_nc,turboquant_4bit_nc,turboquant_k3v4_nc,turboquant_k8v4
+--- section offloadconfig (OffloadConfig) · 7 params ---
+EXTRACT accept section=offloadconfig flags=--offload-backend key=offload_backend kind=enum ui=select default=auto reserved=false options=auto,prefetch,uva
+--- section multimodalconfig (MultiModalConfig) · 19 params ---
+EXTRACT accept section=multimodalconfig flags=--mm-encoder-attn-dtype key=mm_encoder_attn_dtype kind=enum ui=select reserved=false options=fp8,None
+EXTRACT accept section=multimodalconfig flags=--mm-encoder-tp-mode key=mm_encoder_tp_mode kind=enum ui=select default=weights reserved=false options=data,weights
+EXTRACT accept section=multimodalconfig flags=--mm-processor-cache-type key=mm_processor_cache_type kind=enum ui=select default=lru reserved=false options=lru,shm
+EXTRACT accept section=multimodalconfig flags=--mm-tensor-ipc key=mm_tensor_ipc kind=enum ui=select default=direct_rpc reserved=false options=direct_rpc,torch_shm
+--- section loraconfig (LoRAConfig) · 11 params ---
+EXTRACT accept section=loraconfig flags=--lora-dtype key=lora_dtype kind=enum ui=select default=auto reserved=false options=auto,bfloat16,float16
+EXTRACT accept section=loraconfig flags=--lora-target-modules key=lora_target_modules kind=repeatable ui=list reserved=false options=o_proj,qkv_proj,None
+EXTRACT accept section=loraconfig flags=--max-lora-rank key=max_lora_rank kind=enum ui=select default=16 reserved=false options=1,8,16,32,64,128,256,320,512
+--- section observabilityconfig (ObservabilityConfig) · 9 params ---
+EXTRACT accept section=observabilityconfig flags=--collect-detailed-traces key=collect_detailed_traces kind=repeatable ui=list reserved=false options=all,model,worker,None
+--- section schedulerconfig (SchedulerConfig) · 7 params ---
+--- section compilationconfig (CompilationConfig) · 2 params ---
+--- section kernelconfig (KernelConfig) · 4 params ---
+EXTRACT accept section=kernelconfig flags=--linear-backend key=linear_backend kind=enum ui=select default=auto reserved=false options=aiter,auto,conch,cutlass,deep_gemm,emulation,exllama,fbgemm,flashinfer_cudnn,flashinfer_cutlass,flashinfer_trtllm,machete,marlin,torch,triton
+EXTRACT accept section=kernelconfig flags=--moe-backend key=moe_backend kind=enum ui=select reserved=false options=aiter,auto,cutlass,deep_gemm,deep_gemm_mega_moe,emulation,flashinfer_b12x,flashinfer_cutedsl,flashinfer_cutlass,flashinfer_trtllm,humming,marlin,triton,triton_unfused
+--- section vllmconfig (VllmConfig) · 17 params ---
+EXTRACT accept section=vllmconfig flags=--performance-mode key=performance_mode kind=enum ui=select default=balanced reserved=false options=balanced,interactivity,throughput
+EXTRACT accept section=vllmconfig flags=--spec-method key=spec_method kind=enum ui=select reserved=false options=custom_class,deepseek_mtp,dflash,dflash_ddtree,draft_model,dspark,eagle,eagle3,ernie_mtp,exaone4_5_mtp,exaone_moe_mtp,extract_hidden_states,gemma4_mtp,glm4_moe_lite_mtp,glm4_moe_mtp,glm_ocr_mtp,hy_v3_mtp,longcat_flash_mtp,medusa,mimo_mtp,mimo_v2_mtp,mlp_speculator,mtp,nemotron_h_mtp,ngram,ngram_gpu,pangu_ultra_moe_mtp,qwen3_5_mtp,qwen3_next_mtp,qwen4_exp_mtp,step3p5_mtp,suffix,None
+===== END CATALOG RESULT =====
+status: completed (Indexed 262 CLI options)

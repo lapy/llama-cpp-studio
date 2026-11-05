@@ -1,0 +1,1046 @@
+"""Launch manifest compiler, store, launcher, and selective apply."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
+
+import pytest
+
+from backend.engines.registry import VALID_ENGINE_IDS
+from backend.proxy.manifests import LaunchManifestStore, ManifestStoreError
+from backend.models.config import merge_model_config_put
+from backend.proxy.launch_spec import (
+    PORT_PLACEHOLDER,
+    LaunchCompileError,
+    LaunchSpec,
+    ProxyModelSpec,
+    compile_model_runtime,
+    compiler_engine_ids,
+    launch_revision,
+    manifest_document,
+    redact_env_map,
+)
+from backend.services.model_runtime_apply import (
+    ApplyRejected,
+    apply_model,
+    build_apply_plan,
+    reconcile_journals,
+)
+
+
+def test_launch_manifests_default_on(monkeypatch):
+    monkeypatch.delenv("LAUNCH_MANIFESTS_ENABLED", raising=False)
+    from backend.feature_flags import launch_manifests_enabled
+
+    assert launch_manifests_enabled() is True
+
+
+def test_compiler_covers_every_registered_engine():
+    assert compiler_engine_ids() == set(VALID_ENGINE_IDS)
+
+
+def test_empty_environment_values_survive_config_merge():
+    merged = merge_model_config_put(
+        {"engine": "llama_cpp", "engines": {"llama_cpp": {"runtime_env": {"KEEP": "1"}}}},
+        {
+            "runtime_env": {"EMPTY": "", "KEEP": "1"},
+            "runtime_env_unset": [],
+            "gpu_devices": ["GPU-2", "GPU-0"],
+        },
+    )
+    section = merged["engines"]["llama_cpp"]
+    assert section["runtime_env"]["EMPTY"] == ""
+    assert section["runtime_env"]["KEEP"] == "1"
+    assert section["runtime_env_unset"] == []
+    assert section["gpu_devices"] == ["GPU-2", "GPU-0"]
+
+
+def test_revision_preserves_argument_order_and_ignores_port_value(tmp_path):
+    binary = tmp_path / "llama-server"
+    binary.write_text("bin", encoding="utf-8")
+    spec = LaunchSpec(
+        model_id="model-a",
+        engine_id="llama_cpp",
+        engine_install_id="install",
+        executable=str(binary),
+        argv=["--stop", "", "--stop", "-x", "--port", dict(PORT_PLACEHOLDER)],
+        cwd=str(tmp_path),
+        env=__import__("backend.proxy.launch_spec", fromlist=["EnvSpec"]).EnvSpec(
+            set={"A": "1"}, unset=["B"]
+        ),
+        file_identities={
+            "executable": {"path": str(binary), "present": True, "size": 3, "mtime_ns": 1}
+        },
+    )
+    again = LaunchSpec(
+        model_id="model-a",
+        engine_id="llama_cpp",
+        engine_install_id="install",
+        executable=str(binary),
+        argv=["--stop", "-x", "--stop", "", "--port", dict(PORT_PLACEHOLDER)],
+        cwd=str(tmp_path),
+        env=spec.env,
+        file_identities=spec.file_identities,
+    )
+    assert launch_revision(spec) != launch_revision(again)
+    assert "--port" in spec.argv
+    assert spec.argv[-1] == {"runtime": "port"}
+
+
+def test_secret_values_are_redacted():
+    assert redact_env_map({"HF_TOKEN": "sekret", "FOO": "bar"}) == {
+        "HF_TOKEN": "***",
+        "FOO": "bar",
+    }
+
+
+def _install_tree(tmp_path: Path, engine: str) -> dict:
+    if engine in {"llama_cpp", "ik_llama", "unsloth_llama"}:
+        binary = tmp_path / engine / "llama-server"
+        binary.parent.mkdir(parents=True, exist_ok=True)
+        binary.write_text("#!/bin/sh\n", encoding="utf-8")
+        binary.chmod(0o755)
+        model = tmp_path / "model.gguf"
+        model.write_text("gguf", encoding="utf-8")
+        return {"binary": binary, "model": model, "cwd": binary.parent}
+    if engine == "lmdeploy":
+        binary = tmp_path / "lmdeploy-venv" / "bin" / "lmdeploy"
+    else:
+        binary = tmp_path / engine / "bin" / "python"
+    binary.parent.mkdir(parents=True, exist_ok=True)
+    binary.write_text("#!/bin/sh\n", encoding="utf-8")
+    binary.chmod(0o755)
+    toolkit = tmp_path / "cuda"
+    (toolkit / "bin").mkdir(parents=True, exist_ok=True)
+    return {"binary": binary, "cwd": binary.parent.parent, "toolkit": toolkit}
+
+
+def _patch_resolvers(monkeypatch, tmp_path: Path):
+    trees = {engine: _install_tree(tmp_path, engine) for engine in VALID_ENGINE_IDS}
+
+    class Store:
+        def get_active_engine_version(self, engine):
+            tree = trees[engine]
+            return {
+                "version": f"{engine}-1",
+                "source_commit": "abc123",
+                "binary_path": str(tree["binary"]),
+                "venv_path": str(tree["binary"].parents[1]),
+                "server_binary_path": str(tree["binary"]),
+                "build_config": {"backend": "cpu"},
+            }
+
+    monkeypatch.setattr("backend.data_store.get_store", lambda: Store())
+    monkeypatch.setattr(
+        "backend.engines.llama_cpp.resolve.get_active_binary_path_for_engine",
+        lambda store, engine: str(trees[engine]["binary"]),
+    )
+    monkeypatch.setattr(
+        "backend.proxy.commands.get_active_binary_path_for_engine",
+        lambda store, engine: str(trees[engine]["binary"]),
+    )
+    monkeypatch.setattr(
+        "backend.proxy.commands.resolve_llama_server_invocation_paths",
+        lambda path: (str(path), str(Path(path).parent)),
+    )
+    monkeypatch.setattr(
+        "backend.engines.llama_cpp.server_exec.resolve_llama_server_invocation_paths",
+        lambda path: (str(path), str(Path(path).parent)),
+    )
+    monkeypatch.setattr(
+        "backend.proxy.commands._resolve_cuda_library_path",
+        lambda build_dir: "/opt/engine/lib",
+    )
+    monkeypatch.setattr(
+        "backend.proxy.commands._active_engine_param_index",
+        lambda engine: {
+            "ctx_size": {"primary_flag": "--ctx-size", "value_kind": "scalar"},
+            "stop": {"primary_flag": "--stop", "value_kind": "repeatable"},
+        },
+    )
+    monkeypatch.setattr(
+        "backend.proxy.commands._resolve_lmdeploy_bin",
+        lambda: str(trees["lmdeploy"]["binary"]),
+    )
+    monkeypatch.setattr(
+        "backend.proxy.commands._resolve_onecat_vllm_bin",
+        lambda: str(trees["1cat_vllm"]["binary"]),
+    )
+    monkeypatch.setattr(
+        "backend.proxy.commands._resolve_sglang_bin",
+        lambda engine: str(trees[engine]["binary"]),
+    )
+    monkeypatch.setattr(
+        "backend.proxy.commands._resolve_sglang_cuda_env",
+        lambda engine: {
+            "CUDA_HOME": str(trees["sglang_v100"]["toolkit"]),
+            "PATH": str(trees["sglang_v100"]["toolkit"] / "bin"),
+            "LD_LIBRARY_PATH": "/opt/cuda/lib64",
+        },
+    )
+    monkeypatch.setattr(
+        "backend.proxy.commands.resolve_gguf_model_path",
+        lambda model: str(trees["llama_cpp"]["model"]),
+    )
+    monkeypatch.setattr(
+        "backend.models.hub.resolve_gguf_model_path",
+        lambda model: str(trees["llama_cpp"]["model"]),
+    )
+
+    def audio_runtime(store, model, config, stable_id):
+        binary = trees["audio_cpp"]["binary"]
+        return {
+            "cmd_argv": [str(binary), "--config", "${studio_audio_config}", "--port", "${PORT}"],
+            "cmd_cwd": str(binary.parent),
+            "env": ["FOO=bar"],
+            "macros": {"studio_audio_config": "/outside/server.json"},
+            "sidecar": {"models": [{"id": stable_id}]},
+            "use_model_name": stable_id,
+        }
+
+    monkeypatch.setattr(
+        "backend.engines.audio_cpp.runtime.build_audio_cpp_runtime",
+        audio_runtime,
+    )
+    monkeypatch.setattr(
+        "backend.services.model_metadata.get_startup_gpu_list",
+        lambda: {
+            "vendor": "nvidia",
+            "cpu_only_mode": False,
+            "gpus": [
+                {"index": 0, "uuid": "GPU-0", "name": "A"},
+                {"index": 1, "uuid": "GPU-2", "name": "B"},
+            ],
+        },
+    )
+    return trees
+
+
+def _model(engine: str, **section):
+    return {
+        "id": f"catalog-{engine}",
+        "proxy_name": f"model-{engine}",
+        "huggingface_id": f"org/{engine}",
+        "quantization": "Q4_K_M",
+        "files": ["model.gguf"],
+        "config": {"engine": engine, "engines": {engine: section}},
+    }
+
+
+@pytest.mark.parametrize("engine", sorted(VALID_ENGINE_IDS))
+def test_each_engine_compiles_structured_argv(monkeypatch, tmp_path, engine):
+    _patch_resolvers(monkeypatch, tmp_path)
+    section = {"ctx_size": 2048, "runtime_env": {"FOO": "bar baz", "EMPTY": ""}}
+    if engine == "sglang_v100":
+        section["runtime_env"] = {"FOO": "bar baz"}
+    compiled = compile_model_runtime(_model(engine, **section))
+    assert compiled.launch.engine_id == engine
+    assert compiled.launch.executable
+    assert PORT_PLACEHOLDER in compiled.launch.argv
+    assert compiled.launch.env.set["FOO"] == "bar baz"
+    assert "$HOME" not in compiled.engine_command
+    if engine == "audio_cpp":
+        assert {"artifact": "server.json"} in compiled.launch.argv
+        assert compiled.launch.artifacts["server.json"]["models"][0]["id"] == f"model-{engine}"
+    if engine in {"llama_cpp", "ik_llama", "unsloth_llama"}:
+        assert compiled.launch.argv[:2] == ["--model", str(tmp_path / "model.gguf")]
+        assert "--ctx-size" in compiled.launch.argv
+        assert compiled.proxy.capabilities == {
+            "in": ["text"],
+            "out": ["text"],
+            "context": 2048,
+        }
+    elif engine in {"vllm", "1cat_vllm"}:
+        assert compiled.proxy.capabilities == {"in": ["text"], "out": ["text"]}
+    elif engine == "audio_cpp":
+        assert compiled.proxy.capabilities == {"disableAuto": True}
+    else:
+        assert compiled.proxy.capabilities == {
+            "in": ["text"],
+            "out": ["text"],
+            "disableAuto": True,
+        }
+
+
+def test_environment_unset_empty_and_shell_literals(monkeypatch, tmp_path):
+    _patch_resolvers(monkeypatch, tmp_path)
+    monkeypatch.setenv("DEMO_INHERITED", "from-parent")
+    compiled = compile_model_runtime(
+        _model(
+            "llama_cpp",
+            runtime_env={"EMPTY": "", "QUOTED": "a b $HOME 'x';"},
+            runtime_env_unset=["DEMO_INHERITED"],
+        )
+    )
+    assert compiled.launch.env.set["EMPTY"] == ""
+    assert compiled.launch.env.set["QUOTED"] == "a b $HOME 'x';"
+    assert "DEMO_INHERITED" not in compiled.launch.env.set
+    assert "DEMO_INHERITED" in compiled.launch.env.unset
+
+
+def test_conflicting_set_and_unset_is_rejected(monkeypatch, tmp_path):
+    _patch_resolvers(monkeypatch, tmp_path)
+    with pytest.raises(LaunchCompileError, match="both set and unset"):
+        compile_model_runtime(
+            _model(
+                "llama_cpp",
+                runtime_env={"FOO": "1"},
+                runtime_env_unset=["FOO"],
+            )
+        )
+
+
+def test_inherit_keeps_user_env_and_does_not_pin_every_gpu(monkeypatch, tmp_path):
+    _patch_resolvers(monkeypatch, tmp_path)
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1")
+    compiled = compile_model_runtime(
+        _model(
+            "llama_cpp",
+            gpu_mode="inherit",
+            runtime_env={"FOO": "bar", "EMPTY": ""},
+            runtime_env_unset=["REMOVED_VAR"],
+        )
+    )
+    assert compiled.launch.env.set["FOO"] == "bar"
+    assert compiled.launch.env.set["EMPTY"] == ""
+    assert "REMOVED_VAR" not in compiled.launch.env.set
+    assert "REMOVED_VAR" in compiled.launch.env.unset
+    assert "CUDA_VISIBLE_DEVICES" not in compiled.launch.env.set
+
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
+    narrowed = compile_model_runtime(
+        _model("llama_cpp", gpu_mode="inherit", runtime_env={"FOO": "kept"})
+    )
+    assert narrowed.launch.env.set["FOO"] == "kept"
+    assert narrowed.launch.env.set["CUDA_VISIBLE_DEVICES"] == "0"
+
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "all")
+    unrestricted = compile_model_runtime(
+        _model("llama_cpp", gpu_mode="inherit", runtime_env={"FOO": "kept"})
+    )
+    assert unrestricted.launch.env.set["FOO"] == "kept"
+    assert "CUDA_VISIBLE_DEVICES" not in unrestricted.launch.env.set
+
+
+def test_gpu_order_is_preserved_and_cpu_mode_is_rejected_for_vllm(monkeypatch, tmp_path):
+    _patch_resolvers(monkeypatch, tmp_path)
+    compiled = compile_model_runtime(
+        _model(
+            "llama_cpp",
+            gpu_mode="selected",
+            gpu_devices=["GPU-2", "GPU-0"],
+        )
+    )
+    assert compiled.launch.env.set["CUDA_VISIBLE_DEVICES"] == "GPU-2,GPU-0"
+    with pytest.raises(LaunchCompileError, match="does not support CPU"):
+        compile_model_runtime(_model("vllm", gpu_mode="cpu"))
+    with pytest.raises(LaunchCompileError, match="not visible"):
+        compile_model_runtime(_model("llama_cpp", gpu_mode="selected", gpu_devices=["GPU-missing"]))
+
+
+def test_selected_gpu_mode_discards_stale_cuda_unset(monkeypatch, tmp_path):
+    _patch_resolvers(monkeypatch, tmp_path)
+    compiled = compile_model_runtime(
+        _model(
+            "llama_cpp",
+            gpu_mode="selected",
+            gpu_devices=["GPU-0"],
+            runtime_env_unset=["CUDA_VISIBLE_DEVICES", "REMOVED_VAR"],
+        )
+    )
+
+    assert compiled.launch.env.set["CUDA_VISIBLE_DEVICES"] == "GPU-0"
+    assert "CUDA_VISIBLE_DEVICES" not in compiled.launch.env.unset
+    assert "REMOVED_VAR" in compiled.launch.env.unset
+
+
+def test_sglang_v100_translates_selected_gpu_uuids_to_numeric_ids(monkeypatch, tmp_path):
+    _patch_resolvers(monkeypatch, tmp_path)
+    compiled = compile_model_runtime(
+        _model(
+            "sglang_v100",
+            gpu_mode="selected",
+            gpu_devices=["GPU-2", "GPU-0"],
+            runtime_env={
+                "CUDA_VISIBLE_DEVICES": "GPU-2,GPU-0",
+                "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+            },
+        )
+    )
+
+    assert compiled.launch.env.set["CUDA_VISIBLE_DEVICES"] == "1,0"
+    assert compiled.launch.env.set["CUDA_DEVICE_ORDER"] == "PCI_BUS_ID"
+    assert compiled.launch.env.set["PYTORCH_ALLOC_CONF"] == "expandable_segments:True"
+    assert "PYTORCH_CUDA_ALLOC_CONF" not in compiled.launch.env.set
+
+
+def test_repeated_flags_and_owned_port_flag(monkeypatch, tmp_path):
+    _patch_resolvers(monkeypatch, tmp_path)
+    compiled = compile_model_runtime(_model("llama_cpp", stop=["END", "END"]))
+    argv = compiled.launch.argv
+    assert argv.count("--stop") == 2
+    with pytest.raises(LaunchCompileError, match="Studio-owned"):
+        compile_model_runtime(_model("llama_cpp", custom_args="--port 1"))
+
+
+def test_store_is_atomic_and_retains_rollback_generation(tmp_path):
+    store = LaunchManifestStore(str(tmp_path / "models"))
+    first = _document("model-a", "one")
+    second = _document("model-a", "two")
+    third = _document("model-a", "three")
+    store.stage("model-a", first)
+    store.publish("model-a", first["revision"])
+    store.stage("model-a", second)
+    pointer = store.publish("model-a", second["revision"])
+    assert pointer.previous_revision == first["revision"]
+    store.stage("model-a", third)
+    removed = store.garbage_collect("model-a")
+    assert third["revision"] in removed
+    assert (tmp_path / "models").exists()
+    assert store.read_manifest("model-a", first["revision"])["executable"] == "/bin/one"
+    with pytest.raises(ManifestStoreError):
+        store.stage("model-a", {**second, "executable": "/bin/other"})
+    with pytest.raises(ManifestStoreError):
+        store.read_manifest("model-a", "../etc/passwd")
+
+
+def test_deletion_of_referenced_engine_is_refused(tmp_path, monkeypatch):
+    binary = tmp_path / "install" / "llama-server"
+    binary.parent.mkdir()
+    binary.write_text("bin", encoding="utf-8")
+    monkeypatch.setenv("STUDIO_DATA_DIR", str(tmp_path / "data"))
+    store = LaunchManifestStore()
+    document = _document("model-a", "bin", executable=str(binary))
+    store.stage("model-a", document)
+    store.publish("model-a", document["revision"])
+    from backend.utils.fs_ops import robust_rmtree
+
+    with pytest.raises(PermissionError, match="referenced"):
+        robust_rmtree(str(binary.parent))
+
+
+def test_confirmed_retirement_drops_the_generation_and_allows_deletion(tmp_path, monkeypatch):
+    binary = tmp_path / "install" / "llama-server"
+    binary.parent.mkdir()
+    binary.write_text("bin", encoding="utf-8")
+    monkeypatch.setenv("STUDIO_DATA_DIR", str(tmp_path / "data"))
+    store = LaunchManifestStore()
+    referenced = _document("model-a", "bin", executable=str(binary))
+    kept = _document("model-a", "kept", executable="/bin/kept")
+    store.stage("model-a", referenced)
+    store.publish("model-a", referenced["revision"])
+    store.stage("model-a", kept)
+    store.publish("model-a", kept["revision"])
+    from backend.routes.llama_versions import _launch_hold_refusal, _retire_launch_hold
+
+    refusal = _launch_hold_refusal(str(binary.parent), confirmed=False)
+    assert refusal["code"] == "RETAINED_LAUNCH_REFERENCE"
+    assert store.read_manifest("model-a", referenced["revision"])["executable"] == str(binary)
+
+    _retire_launch_hold(str(binary.parent), confirmed=True)
+    pointer = store.read_pointer("model-a")
+    assert pointer.revision == kept["revision"]
+    assert pointer.previous_revision is None
+    with pytest.raises(ManifestStoreError):
+        store.read_manifest("model-a", referenced["revision"])
+    from backend.utils.fs_ops import robust_rmtree
+
+    robust_rmtree(str(binary.parent))
+    assert not binary.exists()
+
+
+def test_confirmed_rmtree_retires_then_deletes(tmp_path, monkeypatch):
+    binary = tmp_path / "install" / "llama-server"
+    binary.parent.mkdir()
+    binary.write_text("bin", encoding="utf-8")
+    monkeypatch.setenv("STUDIO_DATA_DIR", str(tmp_path / "data"))
+    store = LaunchManifestStore()
+    document = _document("model-a", "bin", executable=str(binary))
+    store.stage("model-a", document)
+    store.publish("model-a", document["revision"])
+    from backend.utils.fs_ops import FilesystemRefusal, robust_rmtree
+
+    with pytest.raises(FilesystemRefusal) as refused:
+        robust_rmtree(str(binary.parent))
+    assert refused.value.detail["code"] == "RETAINED_LAUNCH_REFERENCE"
+    assert refused.value.before_side_effect is True
+    assert binary.exists()
+
+    robust_rmtree(str(binary.parent), retire_references=True)
+    assert not binary.exists()
+    with pytest.raises(ManifestStoreError):
+        store.read_manifest("model-a", document["revision"])
+
+
+def test_running_launch_reference_is_not_retired(tmp_path, monkeypatch):
+    binary = tmp_path / "install" / "llama-server"
+    binary.parent.mkdir()
+    binary.write_text("bin", encoding="utf-8")
+    monkeypatch.setenv("STUDIO_DATA_DIR", str(tmp_path / "data"))
+    store = LaunchManifestStore()
+    document = _document("model-a", "bin", executable=str(binary))
+    store.stage("model-a", document)
+    store.publish("model-a", document["revision"])
+    store.write_receipt(
+        "model-a",
+        revision=document["revision"],
+        launch_id="live",
+        pid=os.getpid(),
+        start_ticks=_ticks(os.getpid()),
+    )
+    from backend.routes.llama_versions import VersionDeletionRejected, _retire_launch_hold
+
+    with pytest.raises(VersionDeletionRejected, match="Stop model-a"):
+        _retire_launch_hold(str(binary.parent), confirmed=True)
+    assert store.read_manifest("model-a", document["revision"])["executable"] == str(binary)
+    assert binary.exists()
+
+
+def test_launcher_execs_engine_without_parent_environment(tmp_path):
+    engine = tmp_path / "engine.py"
+    outfile = tmp_path / "seen.json"
+    engine.write_text(
+        textwrap.dedent(
+            """
+            import json, os, sys
+            json.dump({"argv": sys.argv, "cwd": os.getcwd(), "env": dict(os.environ)}, open(sys.argv[-1], "w"))
+            """
+        ),
+        encoding="utf-8",
+    )
+    store = LaunchManifestStore(str(tmp_path / "models"))
+    document = _document(
+        "model-a",
+        "engine",
+        executable=sys.executable,
+        argv=[str(engine), "--port", {"runtime": "port"}, str(outfile)],
+        env={"set": {"FOO": "bar baz", "EMPTY": ""}, "unset": ["CUDA_VISIBLE_DEVICES"]},
+        cwd=str(tmp_path),
+    )
+    store.stage("model-a", document)
+    store.publish("model-a", document["revision"])
+    env = os.environ.copy()
+    env["CUDA_VISIBLE_DEVICES"] = "parent"
+    env["FOO"] = "parent"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).resolve().parents[1] / "proxy" / "launcher.py"),
+            "--manifest-root",
+            store.model_dir("model-a"),
+            "--port",
+            "4321",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    seen = json.loads(outfile.read_text(encoding="utf-8"))
+    assert seen["argv"][-3:] == ["--port", "4321", str(outfile)]
+    assert seen["env"].get("FOO") == "bar baz"
+    assert seen["env"].get("EMPTY") == ""
+    assert "CUDA_VISIBLE_DEVICES" not in seen["env"]
+    assert seen["cwd"] == str(tmp_path)
+    receipts = store.read_receipts("model-a")
+    assert receipts and receipts[0]["revision"] == document["revision"]
+
+
+def test_launcher_receipt_uses_the_pending_operation_id(tmp_path):
+    engine = tmp_path / "engine.py"
+    engine.write_text("raise SystemExit(0)\n", encoding="utf-8")
+    store = LaunchManifestStore(str(tmp_path / "models"))
+    document = _document("model-a", "engine", executable=sys.executable, argv=[str(engine)])
+    store.stage("model-a", document)
+    store.publish("model-a", document["revision"])
+    pending = Path(store.model_dir("model-a")) / "pending-launch.json"
+    pending.write_text(
+        json.dumps({"launch_id": "op-apply-1", "revision": document["revision"]}),
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).resolve().parents[1] / "proxy" / "launcher.py"),
+            "--manifest-root",
+            store.model_dir("model-a"),
+            "--port",
+            "4321",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    receipt = store.read_receipts("model-a")[0]
+    assert receipt["launch_id"] == "op-apply-1"
+    assert receipt["revision"] == document["revision"]
+
+
+def test_launcher_rejects_malformed_pointer_and_lock_timeout(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "active.json").write_text("{", encoding="utf-8")
+    launcher = str(Path(__file__).resolve().parents[1] / "proxy" / "launcher.py")
+    bad = subprocess.run(
+        [sys.executable, launcher, "--manifest-root", str(root), "--port", "1"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert bad.returncode == 3
+    store = LaunchManifestStore(str(tmp_path / "models"))
+    document = _document(
+        "model-a", "x", executable=sys.executable, argv=["--port", {"runtime": "port"}]
+    )
+    store.stage("model-a", document)
+    store.publish("model-a", document["revision"])
+    fd = store.acquire_gate("model-a", exclusive=True)
+    try:
+        blocked = subprocess.run(
+            [
+                sys.executable,
+                launcher,
+                "--manifest-root",
+                store.model_dir("model-a"),
+                "--port",
+                "1",
+                "--gate-timeout",
+                "0.1",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    finally:
+        store.release_gate(fd)
+    assert blocked.returncode == 4
+
+
+def test_native_plans_are_model_scoped_for_running_and_stopped_models(tmp_path, monkeypatch):
+    monkeypatch.setenv("LAUNCH_MANIFESTS_ENABLED", "1")
+    store = LaunchManifestStore(str(tmp_path / "models"))
+    compiled = _compiled("model-a")
+    monkeypatch.setattr(
+        "backend.services.model_runtime_apply.compile_model_runtime",
+        lambda model: compiled,
+    )
+    plan = build_apply_plan([_catalog_model()], states={"model-a": "running"}, store=store)
+    assert plan["models"][0]["action"] == "restart_now"
+    assert plan["requires_proxy_reload"] is False
+    assert plan["migration_required"] is False
+    stopped = build_apply_plan([_catalog_model()], states={}, store=store)
+    assert stopped["models"][0]["action"] == "publish_next_start"
+
+
+def test_selective_apply_restarts_only_the_selected_model(tmp_path, monkeypatch):
+    store = LaunchManifestStore(str(tmp_path / "models"))
+    old = _compiled("model-a", marker="old")
+    new = _compiled("model-a", marker="new")
+    store.stage(old.proxy.model_id, manifest_document(old.launch, old.revision))
+    store.publish(old.proxy.model_id, old.revision)
+    store.write_receipt(
+        "model-a",
+        revision=old.revision,
+        launch_id="live",
+        pid=os.getpid(),
+        start_ticks=_ticks(os.getpid()),
+    )
+    monkeypatch.setattr(
+        "backend.services.model_runtime_apply.compile_model_runtime",
+        lambda model: new,
+    )
+    gateway = _Gateway(store, ready_revision=new.revision, state="running")
+    result = asyncio.run(
+        apply_model(
+            _catalog_model(),
+            mode="restart_now",
+            expected_desired_revision=new.revision,
+            expected_published_revision=old.revision,
+            check_published_revision=True,
+            idempotency_key="apply-1",
+            gateway=gateway,
+            store=store,
+        )
+    )
+    assert result["status"] == "succeeded"
+    assert gateway.unloads == ["model-a"]
+    assert gateway.loads == ["model-a"]
+    assert not hasattr(gateway, "unload_all") or gateway.unload_all == []
+    assert store.read_pointer("model-a").revision == new.revision
+    again = asyncio.run(
+        apply_model(
+            _catalog_model(),
+            mode="restart_now",
+            expected_desired_revision=new.revision,
+            expected_published_revision=old.revision,
+            check_published_revision=True,
+            idempotency_key="apply-1",
+            gateway=gateway,
+            store=store,
+        )
+    )
+    assert again["operation_id"] == result["operation_id"]
+    assert gateway.unloads == ["model-a"]
+
+
+def test_apply_reports_acceptance_before_unload_and_cancel_skips_it(tmp_path, monkeypatch):
+    store = LaunchManifestStore(str(tmp_path / "models"))
+    old = _compiled("model-a", marker="old")
+    new = _compiled("model-a", marker="new")
+    store.stage(old.proxy.model_id, manifest_document(old.launch, old.revision))
+    store.publish(old.proxy.model_id, old.revision)
+    store.write_receipt(
+        "model-a",
+        revision=old.revision,
+        launch_id="live",
+        pid=os.getpid(),
+        start_ticks=_ticks(os.getpid()),
+    )
+    monkeypatch.setattr(
+        "backend.services.model_runtime_apply.compile_model_runtime",
+        lambda model: new,
+    )
+    gateway = _Gateway(store, ready_revision=new.revision, state="running")
+    seen = {}
+
+    def _accept(result):
+        seen["operation_id"] = result["operation_id"]
+        seen["unloads_at_accept"] = list(gateway.unloads)
+        from backend.services.model_runtime_apply import request_cancel
+
+        request_cancel(result["operation_id"], store)
+
+    result = asyncio.run(
+        apply_model(
+            _catalog_model(),
+            mode="restart_now",
+            expected_desired_revision=new.revision,
+            expected_published_revision=old.revision,
+            check_published_revision=True,
+            idempotency_key="apply-cancel",
+            gateway=gateway,
+            store=store,
+            after_accept=_accept,
+        )
+    )
+    assert seen["operation_id"]
+    assert seen["unloads_at_accept"] == []
+    assert gateway.unloads == []
+    assert result["status"] == "cancelled"
+    assert result["operation_id"] == seen["operation_id"]
+    from backend.services.model_runtime_apply import read_apply_operation
+
+    assert read_apply_operation(result["operation_id"], store)["status"] == "cancelled"
+
+
+def test_stopped_model_is_published_without_start(tmp_path, monkeypatch):
+    store = LaunchManifestStore(str(tmp_path / "models"))
+    compiled = _compiled("model-a")
+    monkeypatch.setattr(
+        "backend.services.model_runtime_apply.compile_model_runtime",
+        lambda model: compiled,
+    )
+    gateway = _Gateway(store, ready_revision=compiled.revision)
+    result = asyncio.run(
+        apply_model(
+            _catalog_model(),
+            mode="restart_now",
+            expected_desired_revision=compiled.revision,
+            expected_published_revision=None,
+            idempotency_key="stopped-1",
+            gateway=gateway,
+            store=store,
+        )
+    )
+    assert result["status"] == "succeeded"
+    assert "left stopped" in result["message"]
+    assert gateway.loads == []
+    assert gateway.unloads == []
+
+
+def test_effective_settings_keep_negative_values_and_omit_secret_flags():
+    from backend.services.model_runtime_apply import _effective_settings
+
+    settings = _effective_settings(
+        {
+            "engine_id": "llama_cpp",
+            "argv": [
+                "--n-gpu-layers",
+                "-1",
+                "--ctx-size=-2",
+                "--api-key",
+                "PLANTED_KEY",
+                "--api-key=PLANTED_INLINE",
+                "--flash-attn",
+            ],
+            "env": {"set": {"API_KEY": "PLANTED_ENV", "LOG_LEVEL": "info"}},
+        }
+    )
+    assert settings["n_gpu_layers"] == "-1"
+    assert settings["ctx_size"] == "-2"
+    assert settings["flash_attn"] == "true"
+    assert "1" not in settings
+    assert "api_key" not in settings
+    assert "env.API_KEY" not in settings
+    assert settings["env.LOG_LEVEL"] == "info"
+    rendered = " ".join(settings.values())
+    assert "PLANTED_KEY" not in rendered
+    assert "PLANTED_INLINE" not in rendered
+    assert "PLANTED_ENV" not in rendered
+
+
+def test_plan_diffs_effective_settings_without_authorizing_a_stale_revision(tmp_path, monkeypatch):
+    store = LaunchManifestStore(str(tmp_path / "models"))
+    published = _compiled_with_argv(
+        "model-a", ["--ctx-size", "4096", "--port", dict(PORT_PLACEHOLDER)]
+    )
+    saved = _compiled_with_argv("model-a", ["--ctx-size", "8192", "--port", dict(PORT_PLACEHOLDER)])
+    store.stage(published.proxy.model_id, manifest_document(published.launch, published.revision))
+    store.publish(published.proxy.model_id, published.revision)
+    monkeypatch.setattr(
+        "backend.services.model_runtime_apply.compile_model_runtime",
+        lambda model: saved,
+    )
+    plan = build_apply_plan(
+        [_catalog_model()],
+        states={},
+        store=store,
+    )
+    row = plan["models"][0]
+    assert row["action"] == "publish_next_start"
+    assert row["consequence"] == "Use on next start"
+    diff = {item["field"]: item for item in row["differences"]}
+    assert diff["ctx_size"] == {
+        "field": "ctx_size",
+        "saved": "8192",
+        "published": "4096",
+        "running": "unknown",
+    }
+    assert "engine" not in diff
+    gateway = _Gateway(store, ready_revision=saved.revision)
+    with pytest.raises(ApplyRejected) as caught:
+        asyncio.run(
+            apply_model(
+                _catalog_model(),
+                mode="next_start",
+                expected_desired_revision="0" * 64,
+                expected_published_revision=published.revision,
+                check_published_revision=True,
+                idempotency_key="stale-diff",
+                gateway=gateway,
+                store=store,
+            )
+        )
+    assert caught.value.detail["error"] == "revision_conflict"
+    assert store.read_pointer("model-a").revision == published.revision
+
+
+def _compiled_with_argv(model_id: str, argv: list):
+    compiled = _compiled(model_id, marker="same")
+    compiled.launch.argv = argv
+    compiled.revision = launch_revision(compiled.launch)
+    return compiled
+
+
+def test_stale_plan_does_not_restart(tmp_path, monkeypatch):
+    store = LaunchManifestStore(str(tmp_path / "models"))
+    compiled = _compiled("model-a")
+    monkeypatch.setattr(
+        "backend.services.model_runtime_apply.compile_model_runtime",
+        lambda model: compiled,
+    )
+    gateway = _Gateway(store, ready_revision=compiled.revision)
+    with pytest.raises(ApplyRejected) as caught:
+        asyncio.run(
+            apply_model(
+                _catalog_model(),
+                mode="restart_now",
+                expected_desired_revision="0" * 64,
+                expected_published_revision=None,
+                idempotency_key="stale",
+                gateway=gateway,
+                store=store,
+            )
+        )
+    assert caught.value.detail["error"] == "revision_conflict"
+    assert gateway.unloads == []
+
+
+def test_failed_readiness_restores_verified_revision(tmp_path, monkeypatch):
+    store = LaunchManifestStore(str(tmp_path / "models"))
+    old = _compiled("model-a", marker="old")
+    new = _compiled("model-a", marker="new")
+    store.stage(old.proxy.model_id, manifest_document(old.launch, old.revision))
+    store.publish(old.proxy.model_id, old.revision)
+    store.write_receipt(
+        "model-a",
+        revision=old.revision,
+        launch_id="live",
+        pid=os.getpid(),
+        start_ticks=_ticks(os.getpid()),
+    )
+    monkeypatch.setattr(
+        "backend.services.model_runtime_apply.compile_model_runtime",
+        lambda model: new,
+    )
+    gateway = _Gateway(store, ready_revision=None, state="running")
+    gateway.startup_timeout = 0.05
+    result = asyncio.run(
+        apply_model(
+            _catalog_model(),
+            mode="restart_now",
+            expected_desired_revision=new.revision,
+            expected_published_revision=old.revision,
+            check_published_revision=True,
+            idempotency_key="rollback",
+            gateway=gateway,
+            store=store,
+        )
+    )
+    assert result["status"] == "failed"
+    assert result["rollback"]["published_revision"] == old.revision
+    assert store.read_pointer("model-a").revision == old.revision
+    assert gateway.unloads == ["model-a", "model-a"]
+
+
+def test_interrupted_journal_is_not_replayed(tmp_path):
+    store = LaunchManifestStore(str(tmp_path / "models"))
+    ops = tmp_path / "operations"
+    ops.mkdir()
+    (ops / f"{'a' * 32}.json").write_text(
+        json.dumps(
+            {
+                "operation_id": "a" * 32,
+                "model_id": "model-a",
+                "phase": "stopping",
+                "desired_revision": "b" * 64,
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert reconcile_journals(store) == 1
+    journal = json.loads((ops / f"{'a' * 32}.json").read_text(encoding="utf-8"))
+    assert journal["phase"] == "unknown"
+    assert journal["recovery"]["retry"] == "withheld"
+    assert journal["recovery"]["replayed"] == 0
+    assert "not replayed" in journal["message"]
+
+
+class _Gateway:
+    def __init__(self, store, ready_revision, state="stopped"):
+        self.store = store
+        self.ready_revision = ready_revision
+        self._state = state
+        self.unloads = []
+        self.loads = []
+        self.unload_all = []
+        self.startup_timeout = 1.0
+
+    async def state(self, model_id):
+        return self._state
+
+    async def unload(self, model_id):
+        self.unloads.append(model_id)
+
+    async def load(self, model_id):
+        self.loads.append(model_id)
+        if self.ready_revision:
+            self.store.write_receipt(
+                model_id,
+                revision=self.ready_revision,
+                launch_id=f"load-{len(self.loads)}",
+                pid=os.getpid(),
+                start_ticks=_ticks(os.getpid()),
+            )
+
+
+def _ticks(pid: int) -> str:
+    with open(f"/proc/{pid}/stat", "r", encoding="utf-8") as handle:
+        stat = handle.read()
+    fields = stat[stat.rfind(")") + 2 :].split()
+    return fields[19]
+
+
+def _document(model_id, marker, **overrides):
+    from backend.proxy.launch_spec import EnvSpec
+
+    raw_env = overrides.get("env") or {}
+    spec = LaunchSpec(
+        model_id=model_id,
+        engine_id="llama_cpp",
+        engine_install_id=marker,
+        executable=overrides.get("executable", f"/bin/{marker}"),
+        argv=overrides.get(
+            "argv", ["--model", f"/models/{marker}.gguf", "--port", dict(PORT_PLACEHOLDER)]
+        ),
+        cwd=overrides.get("cwd"),
+        env=EnvSpec(
+            set=dict(raw_env.get("set") or {"FOO": marker}),
+            unset=list(raw_env.get("unset") or []),
+        ),
+    )
+    return manifest_document(spec, launch_revision(spec))
+
+
+def _compiled(model_id: str, marker: str = "marker"):
+    from backend.proxy.launch_spec import CompiledModel, EnvSpec
+
+    launch = LaunchSpec(
+        model_id=model_id,
+        engine_id="llama_cpp",
+        engine_install_id=marker,
+        executable=f"/bin/{marker}",
+        argv=["--model", f"/models/{marker}.gguf", "--port", dict(PORT_PLACEHOLDER)],
+        cwd=None,
+        env=EnvSpec(set={"FOO": marker}, unset=[]),
+    )
+    proxy = ProxyModelSpec(
+        model_id=model_id,
+        catalog_id="catalog-a",
+        engine_id="llama_cpp",
+        aliases=[],
+        filters=None,
+        use_model_name=None,
+    )
+    revision = launch_revision(launch)
+    return CompiledModel(
+        launch=launch,
+        proxy=proxy,
+        revision=revision,
+        engine_command="engine",
+        launcher_command="native-launcher",
+    )
+
+
+def _catalog_model():
+    return {
+        "id": "catalog-a",
+        "proxy_name": "model-a",
+        "huggingface_id": "org/model",
+        "config": {"engine": "llama_cpp", "engines": {"llama_cpp": {}}},
+    }
+
+
+@pytest.mark.parametrize("value", [["1", "2", "3"], "1 2 3"])
+@pytest.mark.parametrize(
+    "metadata", [{"value_kind": "space_list"}, {"type": "list"}, {"nargs": "+"}]
+)
+def test_imported_batch_size_lists_compile_as_separate_ordered_arguments(value, metadata):
+    from backend.proxy.commands import _emit_param_tokens
+
+    assert _emit_param_tokens(
+        "cuda_graph_bs_decode",
+        value,
+        {
+            "primary_flag": "--cuda-graph-bs-decode",
+            **metadata,
+        },
+    ) == ["--cuda-graph-bs-decode", "1", "2", "3"]

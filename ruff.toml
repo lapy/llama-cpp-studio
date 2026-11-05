@@ -1,0 +1,7 @@
+target-version = "py312"
+line-length = 100
+exclude = ["data", ".venv"]
+
+[lint]
+# Begin with correctness rules; formatting can be adopted without a repository-wide rewrite.
+select = ["E9", "F63", "F7", "F82"]

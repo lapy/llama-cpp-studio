@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  llama-cpp-studio:
+    build:
+      context: .
+      args:
+        BUILD_FRONTEND: "true"
+        VITE_PRIMEUI_LICENSE: ${VITE_PRIMEUI_LICENSE:-}
+    ports:
+      # Loopback on the host. Publish 0.0.0.0 only together with STUDIO_ACCESS_MODE=remote.
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:2000:2000"
+    volumes:
+      - ./data:/app/data
+      - ./backend:/app/backend
+    environment:
+      - CUDA_VISIBLE_DEVICES=""
+      - HF_HUB_ENABLE_HF_TRANSFER=1
+      - RELOAD=true
+      # Uncomment and set your HuggingFace API key to enable model search and download
+      # - HUGGINGFACE_API_KEY=
+    # Alternative: Use .env file for environment variables
+    # env_file:
+    #   - .env
+    # No `init: true` needed: the image bakes tini in as PID 1 (see
+    # Dockerfile ENTRYPOINT), so zombies are reaped and signals forwarded
+    # under plain `docker run` too.
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

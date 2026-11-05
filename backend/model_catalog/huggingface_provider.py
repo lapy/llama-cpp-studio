@@ -1,0 +1,202 @@
+"""Normalized wrapper around the existing Hugging Face search."""
+
+from __future__ import annotations
+
+import asyncio
+from typing import Any, Dict, List, Optional
+
+from backend.engines.registry import GGUF_ENGINE_IDS, HF_SNAPSHOT_ENGINE_IDS
+from backend.models.hub import search_models
+from backend.model_catalog.base import normalized_item
+from backend.models.schema import canonical_task, compatible_engines_for_record
+
+
+class HuggingFaceCatalogProvider:
+    id = "huggingface"
+
+    @staticmethod
+    def _formats(filters: dict) -> List[str]:
+        engine = str(filters.get("engine") or "")
+        requested = str(filters.get("artifact_format") or filters.get("format") or "")
+        if requested in {"gguf", "safetensors"}:
+            return [requested]
+        if engine in GGUF_ENGINE_IDS:
+            return ["gguf"]
+        if engine in HF_SNAPSHOT_ENGINE_IDS:
+            return ["safetensors"]
+        if engine == "audio_cpp":
+            # Arbitrary HF repos are deliberately never presented as verified
+            # audio.cpp packages.
+            return []
+        return ["gguf", "safetensors"]
+
+    @staticmethod
+    def _quant_filenames(metadata: Dict[str, Any]) -> List[str]:
+        """Resolve GGUF filenames from HF search quant metadata.
+
+        Hugging Face search emits ``files: [{filename, size}, ...]``. Older
+        shapes used ``filenames`` / ``filename``; accept all of them.
+        """
+        files = metadata.get("files")
+        if isinstance(files, list) and files:
+            names: List[str] = []
+            for item in files:
+                if isinstance(item, str) and item:
+                    names.append(item)
+                elif isinstance(item, dict):
+                    name = item.get("filename")
+                    if name:
+                        names.append(str(name))
+            if names:
+                return names
+
+        filenames = metadata.get("filenames")
+        if isinstance(filenames, list) and filenames:
+            return [str(item) for item in filenames if item]
+
+        filename = metadata.get("filename")
+        return [str(filename)] if filename else []
+
+    @staticmethod
+    def _quant_size_bytes(metadata: Dict[str, Any]) -> Optional[int]:
+        for key in ("total_size", "size", "file_size"):
+            value = metadata.get(key)
+            if value is None or value == "":
+                continue
+            try:
+                size = int(value)
+            except (TypeError, ValueError):
+                continue
+            if size > 0:
+                return size
+
+        files = metadata.get("files")
+        if not isinstance(files, list):
+            return None
+        total = 0
+        found = False
+        for item in files:
+            if not isinstance(item, dict):
+                continue
+            raw = item.get("size")
+            if raw is None or raw == "":
+                continue
+            try:
+                size = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if size > 0:
+                total += size
+                found = True
+        return total if found else None
+
+    @classmethod
+    def _install_variants(cls, raw: Dict[str, Any], model_format: str) -> List[dict]:
+        if model_format == "safetensors":
+            files = raw.get("repo_files") or raw.get("safetensors_files") or []
+            return [
+                {
+                    "id": "snapshot",
+                    "label": "Hugging Face snapshot",
+                    "method": "direct",
+                    "installable": bool(files),
+                    "files": files,
+                    "size_bytes": raw.get("total_size") or raw.get("size"),
+                }
+            ]
+
+        variants: List[dict] = []
+        for name, metadata in (raw.get("quantizations") or {}).items():
+            metadata = metadata if isinstance(metadata, dict) else {}
+            filenames = cls._quant_filenames(metadata)
+            variants.append(
+                {
+                    "id": name,
+                    "label": name,
+                    "method": "direct",
+                    "installable": bool(filenames),
+                    "files": filenames,
+                    "size_bytes": cls._quant_size_bytes(metadata),
+                    "sharded": len(filenames) > 1,
+                }
+            )
+        return variants
+
+    @classmethod
+    def _normalize(cls, raw: Dict[str, Any], model_format: str) -> dict:
+        repository_id = str(raw.get("id") or raw.get("model_id") or "")
+        pipeline_tag = canonical_task(raw.get("pipeline_tag"))
+        tasks = [pipeline_tag] if pipeline_tag else []
+        if raw.get("is_embedding_model") and "embeddings" not in tasks:
+            tasks.append("embeddings")
+        compatible = compatible_engines_for_record({"format": model_format})
+        variants = cls._install_variants(raw, model_format)
+        total_size = sum(
+            int(variant.get("size_bytes") or 0) for variant in variants
+        ) or None
+        return normalized_item(
+            provider="huggingface",
+            item_id=f"{repository_id}:{model_format}",
+            display_name=raw.get("name") or repository_id,
+            description=raw.get("description") or "",
+            source={
+                "provider": "huggingface",
+                "id": repository_id,
+                "revision": raw.get("sha"),
+            },
+            artifact_format=model_format,
+            package_kind=(
+                "single_file" if model_format == "gguf" else "hf_snapshot"
+            ),
+            tasks=tasks,
+            family=raw.get("architecture") or raw.get("model_type") or None,
+            languages=raw.get("language") or [],
+            features=[
+                "embedding" if raw.get("is_embedding_model") else "",
+                "multimodal" if raw.get("mmproj_files") else "",
+                "mtp" if raw.get("mtp_files") else "",
+                "dflash" if raw.get("dflash_files") else "",
+            ],
+            compatible_engines=compatible,
+            compatibility={
+                engine: {
+                    "verified": True,
+                    "evidence": [
+                        f"Hugging Face {model_format} repository metadata",
+                        "Studio artifact-format contract",
+                    ],
+                }
+                for engine in compatible
+            },
+            install_variants=variants,
+            size_bytes=total_size,
+            gated=bool(raw.get("gated")),
+            release_status="community",
+            metadata={
+                "downloads": raw.get("downloads"),
+                "likes": raw.get("likes"),
+                "last_modified": raw.get("last_modified") or raw.get("updated_at"),
+                "pipeline_tag": raw.get("pipeline_tag"),
+                "license": raw.get("license") or "",
+                "parameters": raw.get("parameters") or "",
+                "architecture": raw.get("architecture") or "",
+                "context_length": raw.get("context_length"),
+                "base_model": raw.get("base_model") or "",
+                "raw": raw,
+            },
+        )
+
+    async def search(self, query: str, limit: int, filters: dict) -> List[dict]:
+        formats = self._formats(filters)
+        if not formats:
+            return []
+        raw_groups = await asyncio.gather(
+            *(search_models(query, limit, model_format=fmt) for fmt in formats)
+        )
+        output: List[dict] = []
+        for model_format, rows in zip(formats, raw_groups):
+            for raw in rows or []:
+                if isinstance(raw, dict):
+                    output.append(self._normalize(raw, model_format))
+        return output
+

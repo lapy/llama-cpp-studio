@@ -1,0 +1,397 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*.*.*"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
+
+env:
+  IMAGE_NAME: llama-cpp-studio
+
+jobs:
+  dependency-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.lock
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Audit locked Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit==2.10.1
+          pip-audit -r requirements.lock
+      - name: Audit production frontend dependencies
+        run: npm audit --package-lock-only --omit=dev --audit-level=high
+
+  # Syntax and fixture-permission decisions only. This job does not start a
+  # container and its success is not container execution evidence.
+  shell-syntax:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check shell syntax and fixture permission logic
+        run: |
+          bash -n scripts/container-smoke.sh
+          bash -n scripts/measure-production-navigation.sh
+          bash -n scripts/container-fixture.sh
+          bash scripts/container-fixture-test.sh
+
+  backend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.lock
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.lock
+
+      - name: Static analysis and version contract
+        run: |
+          ruff check backend scripts
+          ruff format --check backend/config_history.py backend/routes/benchmarks.py backend/routes/config_history.py backend/services/model_benchmark.py backend/tests/test_config_history.py backend/tests/test_model_benchmark.py backend/tests/test_operation_state_machine.py backend/version.py scripts/check-version.py scripts/export-openapi.py
+          python scripts/check-version.py
+          python scripts/export-openapi.py --check
+
+      - name: Run pytest
+        env:
+          PROXY_CONFORMANCE_REPORT: test-results/proxy-conformance.json
+        run: python -m pytest backend/tests -q --tb=short
+
+      - name: Upload proxy conformance report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: proxy-conformance
+          path: test-results/proxy-conformance.json
+          if-no-files-found: warn
+
+      - name: audio.cpp live help fixtures
+        run: |
+          SERVER="${AUDIOCPP_SERVER:-data/audio-cpp/src/build/linux-cpu-release/bin/audiocpp_server}"
+          CLI="${AUDIOCPP_CLI:-data/audio-cpp/src/build/linux-cpu-release/bin/audiocpp_cli}"
+          if [ -x "$SERVER" ] && [ -x "$CLI" ]; then
+            AUDIOCPP_SERVER="$SERVER" AUDIOCPP_CLI="$CLI" AUDIOCPP_REQUIRE_LIVE_HELP=1 \
+              python -m pytest backend/tests/test_audio_cpp_help_audit.py -q --tb=short \
+              -k "test_server_help_fixture_matches_live_binary or test_cli_help_fixture_matches_live_binary"
+          else
+            echo "audiocpp_server is not present; live help fixture check skipped"
+          fi
+
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Require Node 24
+        run: node -e 'const major=process.versions.node.split(".")[0]; if (major!=="24") { console.error("Node "+process.versions.node+" is not 24"); process.exit(1) }'
+
+      - name: Install and test
+        run: |
+          npm ci
+          npm run lint:frontend
+          npm run typecheck:api
+          npm run style:check
+          npm run format:check
+          npm run test:frontend
+
+      # Secrets (including VITE_PRIMEUI_LICENSE) are unavailable to fork PRs
+      # and to Dependabot-authored PRs. Dependabot PRs report
+      # head.repo.fork == false, so the actor check is required separately.
+      - name: Skip production build on forks
+        if: github.event_name == 'pull_request' && (github.event.pull_request.head.repo.fork || github.actor == 'dependabot[bot]')
+        run: |
+          echo "Fork or Dependabot pull request: production build skipped because the license secret is unavailable"
+
+      - name: Production frontend build
+        if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.fork == false && github.actor != 'dependabot[bot]')
+        env:
+          VITE_PRIMEUI_LICENSE: ${{ secrets.VITE_PRIMEUI_LICENSE }}
+        run: |
+          if [ -z "${VITE_PRIMEUI_LICENSE:-}" ]; then
+            echo "VITE_PRIMEUI_LICENSE is required for the production build"
+            exit 1
+          fi
+          npm run build
+          node frontend/e2e/cold-models-budget.mjs
+
+      - name: Record Node runtime
+        if: always()
+        run: |
+          mkdir -p artifacts/node24
+          {
+            echo "node=$(node -v)"
+            echo "npm=$(npm -v)"
+            echo "job=frontend"
+          } > artifacts/node24/frontend.txt
+
+      - name: Upload Node runtime
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: node24-frontend
+          path: artifacts/node24/frontend.txt
+          if-no-files-found: error
+
+  browser:
+    # A prebuilt image avoids flaky hosted-runner browser installation.
+    # Clipboard and accessibility journeys also gate pull requests.
+    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      options: --ipc=host
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Require Node 24
+        run: node -e 'const major=process.versions.node.split(".")[0]; if (major!=="24") { console.error("Node "+process.versions.node+" is not 24"); process.exit(1) }'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Browser journeys
+        run: npm run test:browser
+
+      - name: Upload accessibility and browser evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-accessibility-and-browser-results
+          path: test-results/
+          if-no-files-found: warn
+
+      - name: Record Node runtime
+        if: always()
+        run: |
+          mkdir -p artifacts/node24
+          {
+            echo "node=$(node -v)"
+            echo "npm=$(npm -v)"
+            echo "job=browser"
+          } > artifacts/node24/browser.txt
+
+      - name: Upload Node runtime
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: node24-browser
+          path: artifacts/node24/browser.txt
+          if-no-files-found: error
+
+  # Every run builds and smokes the production image. Release tags and manual
+  # deep runs additionally require the browser job and navigation/release gates.
+  image:
+    needs: [dependency-audit, shell-syntax, backend, frontend, browser]
+    if: >-
+      ${{
+        always() &&
+        needs.dependency-audit.result == 'success' &&
+        needs.shell-syntax.result == 'success' &&
+        needs.backend.result == 'success' &&
+        needs.frontend.result == 'success' &&
+        (
+          (startsWith(github.ref, 'refs/tags/v') == false && github.event_name != 'workflow_dispatch') ||
+          needs.browser.result == 'success'
+        )
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      DEEP_CI: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build image
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.repository.created_at }}
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ github.ref_name }}
+            VITE_PRIMEUI_LICENSE=${{ secrets.VITE_PRIMEUI_LICENSE }}
+            SECURITY_REFRESH=${{ github.run_id }}
+
+      - name: Resolve the locally built image
+        id: local-image
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          image="$(printf '%s\n' "$IMAGE_TAGS" | head -n 1)"
+          test -n "$image"
+          mkdir -p artifacts/container-validation
+          echo "name=$image" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke the built image
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+          STUDIO_EVIDENCE_DIR: ${{ github.workspace }}/artifacts/container-validation
+        run: |
+          IMAGE="$(printf '%s\n' "$IMAGE_TAGS" | head -n 1)"
+          test -n "$IMAGE"
+          scripts/container-smoke.sh "$IMAGE"
+
+      - name: Set up Node for navigation measurement
+        if: env.DEEP_CI == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install navigation measurement dependencies
+        if: env.DEEP_CI == 'true'
+        run: npm ci
+
+      - name: Measure production navigation
+        if: env.DEEP_CI == 'true'
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+          STUDIO_EVIDENCE_DIR: ${{ github.workspace }}/artifacts/container-validation
+          PLAYWRIGHT_DOCKER_IMAGE: mcr.microsoft.com/playwright:v1.64.1-noble
+        run: |
+          IMAGE="$(printf '%s\n' "$IMAGE_TAGS" | head -n 1)"
+          test -n "$IMAGE"
+          scripts/measure-production-navigation.sh "$IMAGE"
+
+      # Documented exceptions live in .trivyignore.yaml. Other high and
+      # critical findings still fail this job before the image is pushed.
+      - name: Scan the tested image for high-severity vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ steps.local-image.outputs.name }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          trivyignores: .trivyignore.yaml
+
+      - name: Generate the tested image SBOM
+        if: env.DEEP_CI == 'true'
+        uses: anchore/sbom-action@v0.24.3
+        with:
+          image: ${{ steps.local-image.outputs.name }}
+          format: cyclonedx-json
+          output-file: artifacts/container-validation/sbom.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Push the smoked image
+        id: push
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          primary=""
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            docker push "$tag"
+            if [ -z "$primary" ]; then
+              primary="$tag"
+            fi
+          done <<< "$IMAGE_TAGS"
+          digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "$primary")"
+          digest="${digest##*@}"
+          case "$digest" in
+            sha256:*) ;;
+            *) echo "registry manifest digest was not recorded for $primary" >&2; exit 1 ;;
+          esac
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          mkdir -p artifacts/container-validation
+          echo "registry_digest=$digest" >> artifacts/container-validation/image-identity.txt
+
+      - name: Upload container validation evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: container-validation
+          path: artifacts/container-validation
+          if-no-files-found: warn
+
+      - name: Generate artifact attestation
+        if: env.DEEP_CI == 'true'
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+          show-summary: true
