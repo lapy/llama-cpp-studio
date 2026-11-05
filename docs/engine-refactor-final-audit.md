@@ -22,10 +22,11 @@ what is still transitional. It is a snapshot of the current uncommitted tree.
 - `backend/routes/lmdeploy_versions.py`, `vllm_versions.py`,
   `onecat_vllm_versions.py`, `sglang_versions.py`: thin
   `definition_compat_router` prefixes over the shared lifecycle record.
-- `LMDeployInstaller` and `OneCatVllmInstaller`: constructor-only shims that
-  bind a definition to `GenericVenvInstaller`; the architecture test asserts
-  they define no other methods.
-- `SglangManager`: constructor facade returning the shared host.
+- The per-engine venv modules (`lmdeploy`, `vllm`, `sglang`) and their
+  installer maps are deleted. Venv installers resolve through the definition's
+  lifecycle; old test-only constructors live under `backend/tests`.
+- Native host selection is declared as `native_host` (`cmake_source` or
+  `audio_cpp`). There is no engine-id host map.
 - `audio_cpp_versions.py`: declared audio extension surface, now mounted once
   per engine declaring `runtime_kind: audio_cpp` with request-scoped identity.
 - Native source orchestration runs through the shared
@@ -54,14 +55,14 @@ the privately maintained hardware verification record.
 
 ## Verification snapshot
 
-- Backend: 2156 passed, 8 skipped (full suite).
-- Frontend: gate CLEAN, 652 tests, no unhandled errors.
+- Backend: 2180 passed, 8 skipped (full suite).
+- Frontend: 660 tests passed, no unhandled errors.
 - Static: ruff, parity inventory, OpenAPI, build-defaults, legacy-route
   inventory, literal ratchet, version — all current.
 - The architecture audit test
   (`backend/tests/test_engine_refactor_dead_branches.py`) pins: no exporter
-  symbol/branch, constructor-only venv compatibility classes, thin
-  compatibility route modules, and removal of the legacy scan adapters.
+  symbol/branch, no venv engine-module/map, thin compatibility route modules,
+  and removal of the legacy scan adapters.
 
 ## Known flake (resolved)
 
