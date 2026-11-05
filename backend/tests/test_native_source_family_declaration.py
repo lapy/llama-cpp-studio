@@ -101,6 +101,17 @@ def test_nativecraft_policy_is_loaded_from_definition_data(tmp_path):
         "publish.finalize",
     }
 
+def test_native_gguf_profiles_declare_their_launch_args():
+    from backend.engines.definitions.loader import load_default_engine_definitions
+
+    definitions = load_default_engine_definitions().definitions
+    for engine_id in ("llama_cpp", "ik_llama", "unsloth_llama"):
+        profile = definitions[engine_id].profile()
+        assert profile["launch_args"]["model"] == "--model"
+        assert profile["launch_args"]["mmproj"] == "--mmproj"
+        assert profile["launch_args"]["draft"] == "--model-draft"
+
+
 def test_native_host_selection_comes_from_the_definition():
     from backend.engines.adapters import get_native_installer
     from backend.engines.audio_cpp.installer import AudioCppInstaller

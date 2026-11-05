@@ -32,6 +32,8 @@ what is still transitional. It is a snapshot of the committed engine tree after 
 - `LlamaManager`'s build/CUDA helper surface moved to
   `backend/engines/python/cmake_build.py`; the llama module is now a thin
   compatibility re-export and `CmakeSourceInstaller` no longer imports it.
+- Native GGUF profiles declare their model/HF/alias/mmproj/draft/spec flags
+  through `launch_args`; `gguf_launch.py` is a shared family mechanism.
 - `audio_cpp_versions.py`: declared audio extension surface, now mounted once
   per engine declaring `runtime_kind: audio_cpp` with request-scoped identity.
 - Native source orchestration runs through the shared
