@@ -1540,7 +1540,7 @@ async def retry_version_body(payload: dict = Body(...)):
     if engine == "unsloth_llama":
         from backend.engines.definitions.loader import load_default_engine_definitions
         from backend.engines.install_snapshots import retry_resolved_inputs
-        from backend.engines.unsloth_llama.installer import get_unsloth_llama_manager
+        from backend.engines.python.release_host import get_release_installer
 
         bind_action_confirmation(payload)
         version_name = str(version_entry.get("version") or "").strip()
@@ -1561,7 +1561,7 @@ async def retry_version_body(payload: dict = Body(...)):
             or frozen.get("release_tag")
             or frozen.get("requested_version")
         )
-        return await get_unsloth_llama_manager().install_release(
+        return await get_release_installer("unsloth_llama").install_release(
             tag_name=str(tag).strip() if tag else None
         )
 

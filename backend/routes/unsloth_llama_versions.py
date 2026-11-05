@@ -5,10 +5,9 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Body, HTTPException
 
 from backend.data_store import get_store
-from backend.engines.unsloth_llama.installer import (
-    ENGINE_ID,
-    get_unsloth_llama_manager,
-)
+from backend.engines.python.release_host import get_release_installer
+
+ENGINE_ID = "unsloth_llama"
 from backend.engines.unsloth_llama.prebuilt import is_behind
 from backend.routes.engine_versions import LIFECYCLE, EngineLifecycle
 
@@ -18,7 +17,7 @@ router = APIRouter()
 
 @router.get("/unsloth-llama/check-updates", operation_id="unsloth_llama_check_updates")
 async def check_updates() -> Dict[str, Any]:
-    manager = get_unsloth_llama_manager()
+    manager = get_release_installer(ENGINE_ID)
     active = get_store().get_active_engine_version(ENGINE_ID) or {}
     current = str(active.get("source_ref") or active.get("version") or "").strip() or None
     try:
@@ -50,7 +49,7 @@ async def install(request: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     bind_action_confirmation(payload)
     tag = payload.get("tag_name") or payload.get("version")
     try:
-        return await get_unsloth_llama_manager().install_release(
+        return await get_release_installer(ENGINE_ID).install_release(
             tag_name=str(tag).strip() if tag else None
         )
     except ActionAdmissionError as exc:
@@ -64,7 +63,7 @@ async def cancel(payload: dict = Body(...)) -> Dict[str, Any]:
     task_id = (payload or {}).get("task_id")
     if not task_id:
         raise HTTPException(status_code=400, detail="task_id is required")
-    return get_unsloth_llama_manager().cancel_task(str(task_id))
+    return get_release_installer(ENGINE_ID).cancel_task(str(task_id))
 
 
 # ── Generic lifecycle registry (Unsloth llama.cpp) ────────────────────
