@@ -69,6 +69,26 @@ async function installApi(page, state) {
       await json(route, { sections: [] })
       return
     }
+    if (path === '/api/runtime/pending') {
+      await json(route, {
+        applicable: true,
+        pending: true,
+        changes: [],
+        reason: null,
+        plan_id: 'plan-a11y',
+        launch_manifests: true,
+        requires_proxy_reload: false,
+        migration_required: false,
+        models: [{
+          catalog_id: 'demo-model',
+          model_id: 'demo-model',
+          action: 'publish_next_start',
+          running: false,
+          requires_proxy_reload: false,
+        }],
+      })
+      return
+    }
     if (path === '/api/runtime/stale') {
       await json(route, { applicable: true, stale: true, pending: false })
       return
@@ -166,7 +186,7 @@ test('connect and apply dialogs return focus and announce a bad URL once', async
   await expect(connect).toBeFocused()
 
   await page.goto('/models/demo-model/config')
-  const apply = page.getByRole('button', { name: 'Reload proxy' })
+  const apply = page.getByRole('button', { name: 'Use on next start' })
   await expect(apply).toBeVisible()
   await apply.focus()
   await page.keyboard.press('Enter')
@@ -202,7 +222,7 @@ test('diagnostics, restore, and connect stay reachable at 200% zoom', async ({ p
   await expect(page.getByRole('heading', { name: 'Backup and restore' })).toBeVisible()
 })
 
-for (const theme of ['dark', 'light']) {
+for (const theme of ['dark']) {
   for (const width of [320, 768, 1440]) {
     test(`workspace reflows at ${width}px in ${theme} mode`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height: 900 })

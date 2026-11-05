@@ -1,0 +1,297 @@
+# AUTHORITATIVE engine definition (hand-authored; NOT exported).
+#
+# vLLM is the second SHIPPED engine converted to definition-owned configuration
+# (docs/config-driven-engine-refactoring-plan.md, priority 1). The proven
+# LMDeploy pattern applies unchanged: the registry builds the typed EngineSpec
+# from this file at import, the shared venv installer runs these recipes, the
+# launch compiler reads `runtime_profiles`, and discovery scans the declared
+# probes. Editing this file changes production behavior directly.
+schema_version: 2
+id: vllm
+extends:
+- text_generation_tasks
+- python_venv_safetensors
+label: vLLM
+repository_source: vLLM
+runtime_kind: vllm
+scanner_kind: vllm_help
+input_modalities:
+- image
+- text
+- video
+output_modalities:
+- embedding
+- score
+- text
+supports_embeddings: true
+recipes:
+  release:
+  - id: resolve_version
+    uses: prereqs.resolve_version
+    with:
+      channel: pypi
+      package: vllm
+    produces:
+    - version
+  - id: create_venv
+    uses: venv.create
+    requires:
+    - input.engine_root
+    produces:
+    - venv
+  - id: install_package
+    uses: pip.install_package
+    requires:
+    - venv
+    - version
+    - input.force_reinstall
+    with:
+      package: vllm
+      version_from: version
+      stage: install
+      append: false
+      error: pip install failed with status {code}
+  - id: finalize
+    uses: publish.finalize
+    requires:
+    - venv
+  source:
+  - id: cuda_env
+    uses: env.compose
+    requires:
+    - input.engine_root
+    produces:
+    - build_env
+    - runtime_meta
+  - id: checkout
+    uses: vcs.workspace_checkout
+    requires:
+    - input.repo_url
+    - input.branch
+    - input.reuse_mode
+    produces:
+    - checkout
+  - id: bootstrap_pip
+    uses: pip.install_package
+    requires:
+    - checkout
+    with:
+      package: pip
+      stage: install_source
+      append: true
+      error: pip upgrade failed with status {code}
+  - id: assert_checkout
+    uses: fs.assert_dir
+    requires:
+    - checkout
+    with:
+      path_from: checkout
+      error: vLLM source package directory is unavailable
+  - id: install_checkout
+    uses: pip.install_package
+    requires:
+    - checkout
+    - build_env
+    with:
+      editable: true
+      package_from: checkout
+      cwd_from: checkout
+      env_from: build_env
+      env_ccache: true
+      stage: install_source
+      error: vLLM source install failed with status {code}
+  - id: seal_checkout
+    uses: vcs.seal_checkout
+    requires:
+    - checkout
+    with:
+      destination: source
+      workspace_from: workspace
+  - id: capture_commit
+    uses: vcs.capture_commit
+    requires:
+    - checkout
+    produces:
+    - source_commit
+    with:
+      path_from: checkout
+  - id: finalize
+    requires:
+    - checkout
+    - source_commit
+    uses: publish.finalize
+  sync:
+  - id: cuda_env
+    uses: env.compose
+    requires:
+    - input.engine_root
+    produces:
+    - build_env
+    - runtime_meta
+  - id: sync_checkout
+    uses: vcs.sync
+    requires:
+    - input.branch
+    produces:
+    - checkout
+  - id: bootstrap_pip
+    uses: pip.install_package
+    requires:
+    - checkout
+    with:
+      package: pip
+      stage: install_source
+      append: true
+      error: pip upgrade failed with status {code}
+  - id: assert_checkout
+    uses: fs.assert_dir
+    requires:
+    - checkout
+    with:
+      path_from: checkout
+      error: vLLM source package directory is unavailable
+  - id: install_checkout
+    uses: pip.install_package
+    requires:
+    - checkout
+    - build_env
+    with:
+      editable: true
+      package_from: checkout
+      cwd_from: checkout
+      env_from: build_env
+      env_ccache: true
+      stage: install_source
+      error: vLLM source install failed with status {code}
+  - id: capture_commit
+    uses: vcs.capture_commit
+    requires:
+    - checkout
+    produces:
+    - source_commit
+    with:
+      path_from: checkout
+  - id: finalize
+    uses: publish.finalize
+    requires:
+    - checkout
+    - source_commit
+    - runtime_meta
+  remove:
+  - id: remove_install_dir
+    uses: fs.remove_tree
+    requires:
+    - input.install_dir
+    - input.installs_root
+    - input.retire_references
+    with:
+      path_from: input.install_dir
+      require_parent_from: input.installs_root
+      retire_references_from: input.retire_references
+  - id: forget
+    uses: publish.forget
+    requires:
+    - input.version_name
+  remove_version:
+  - id: remove_install_dir
+    uses: fs.remove_tree
+    requires:
+    - input.delete_target
+    - input.retire_references
+    with:
+      path_from: input.delete_target
+      retire_references_from: input.retire_references
+  - id: forget_row
+    uses: publish.forget
+    requires:
+    - input.registered
+    - input.version_name
+lifecycle:
+  binary_name: vllm
+  distribution_names:
+  - vllm
+  root_name: vllm
+  log_name: vllm_install.log
+  default_repo_url: https://github.com/vllm-project/vllm.git
+  default_branch: main
+  version_setting_key: pip_version
+  update_source:
+    kind: pypi
+    package: vllm
+  python_min: '3.10'
+  python_max: '3.13'
+  build_env: cuda
+  forget_errors: raise
+  # Status projection (replaces the former per-engine status override).
+  status:
+    binary: venv_python
+    include_engine: true
+    include_removed_at: false
+    row_fields:
+    - source_commit
+    - cuda_version
+    - cuda_path
+    - python_version
+discovery:
+  parser: vllm_help
+  cwd: venv_root
+  # The probe imports CUDA extensions, so it needs the managed toolkit.
+  cuda_env: true
+  probe_variants:
+  # Prefer the console script; fall back to the venv interpreter module form.
+  - executable:
+      kind: venv_console_script
+      name: vllm
+    argv_prefix:
+    - serve
+    - --help=all
+  - executable:
+      kind: venv_python
+      name: python
+    argv_prefix:
+    - -m
+    - vllm
+    - serve
+    - --help=all
+runtime_profiles:
+  default:
+    default: true
+    description: vLLM OpenAI-compatible api_server (python -m)
+    executable:
+      kind: venv_python
+      name: python
+    argv_prefix:
+    - -m
+    - vllm.entrypoints.openai.api_server
+    model_binding:
+      mode: flag
+      flag: --model
+      source: huggingface_id
+    port_binding:
+      flag: --port
+    env:
+      cwd: venv_root
+      cuda: true
+launch_policy:
+  cpu_supported: false
+  # Current upstream vLLM wheels ship CUDA-13 torch builds with sm_75+ only.
+  # SM70 has a dedicated 1Cat-vLLM build; do not offer stock vLLM there.
+  gpu_archs:
+  - sm75
+  - sm80
+  - sm86
+  - sm89
+  - sm90
+  runtime_context_key: max_model_len
+  capcompat: true
+catalog:
+  providers:
+  - huggingface
+upstream:
+  repository_url: https://github.com/vllm-project/vllm.git
+settings_defaults:
+  source_repo: https://github.com/vllm-project/vllm.git
+  source_branch: main
+  pip_version: ''
+data_dirs:
+- vllm

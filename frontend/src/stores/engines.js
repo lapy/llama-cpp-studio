@@ -1,24 +1,36 @@
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import axios from 'axios'
+import {
+  applyServerDescriptors,
+  ENGINE_DESCRIPTORS,
+  NATIVE_GENERIC_VERBS,
+  SG_PANEL_ENGINE_IDS,
+  nativeGenericApiPath,
+  serverBackedApiPath,
+  serverBackedDescriptor,
+  serverBackedEngines,
+  venvApiPath,
+  venvDescriptor,
+  buildOptionsPath,
+} from '../engines/registry.js'
 
 export const useEnginesStore = defineStore('engines', () => {
   const engineDescriptors = ref([])
-  const llamaVersions = ref([])
-  const ikLlamaVersions = ref([])
-  const unslothLlamaVersions = ref([])
-  const lmdeployVersions = ref([])
-  const lmdeployStatus = ref({})
-  const onecatVllmVersions = ref([])
-  const onecatVllmStatus = ref({})
-  const sglangVersions = ref([])
-  const sglangStatus = ref({})
-  const sglangV100Versions = ref([])
-  const sglangV100Status = ref({})
-  const vllmVersions = ref([])
-  const vllmStatus = ref({})
-  const audioCppVersions = ref([])
-  const audioCppStatus = ref({})
+  /** YAML campaign S5: statuses/rows for SERVER-BACKED engines (YAML-only,
+   *  marked generic_lifecycle on GET /api/engines), keyed by engine id.
+   *  The named refs below stay exclusive to the nine local engines. */
+  const serverStatuses = ref({})
+  const serverVersions = ref({})
+  /** Version rows for the nine local engines, keyed by engine id (R89). The
+   *  historical per-engine names below are WRITABLE ALIASES into this map, so
+   *  existing consumers keep reading/assigning them while the store itself
+   *  carries one keyed map driven by the descriptors' `versionsKey`. */
+  const engineVersionsById = ref({})
+  /** Per-engine GET status, keyed by engine id (R81: one keyed map instead of
+   *  one named ref per engine; `nullSafeStatus` still decides whether a null
+   *  payload becomes `{}`). */
+  const engineStatusById = ref({})
   const cudaStatus = ref({})
   const gpuInfo = ref({})
   const systemStatus = ref({})
@@ -44,6 +56,10 @@ export const useEnginesStore = defineStore('engines', () => {
   async function fetchEngineDescriptors() {
     const { data } = await axios.get('/api/engines')
     engineDescriptors.value = Array.isArray(data?.engines) ? data.engines : []
+    // YAML campaign S5: refresh the label/cancel overlay so pure lookup
+    // helpers (toasts, delete dialogs, task-cancel routing) see
+    // YAML-onboarded engines without any local table entry.
+    applyServerDescriptors(engineDescriptors.value)
     return engineDescriptors.value
   }
 
@@ -59,55 +75,85 @@ export const useEnginesStore = defineStore('engines', () => {
     return data
   }
 
+  // Version rows carry a repository_source display name (the second engine
+  // identity system); the registry owns those names and this partitions the
+  // row list generically. llama.cpp also owns untagged rows.
+  //
+  // R84/R89: the descriptor's `versionsKey` is the only name → engine mapping;
+  // the store carries one keyed map and exposes writable computeds under the
+  // historic names so consumers (and tests that ASSIGN them) keep working.
+  const ENGINE_ID_BY_VERSIONS_KEY = Object.fromEntries(
+    Object.entries(ENGINE_DESCRIPTORS)
+      .filter(([, descriptor]) => descriptor.versionsKey)
+      .map(([engineId, descriptor]) => [descriptor.versionsKey, engineId]),
+  )
+
+  const versionAliases = {}
+  for (const [aliasKey, engineId] of Object.entries(ENGINE_ID_BY_VERSIONS_KEY)) {
+    versionAliases[aliasKey] = computed({
+      get: () => engineVersionsById.value[engineId] ?? [],
+      set: (value) => {
+        engineVersionsById.value[engineId] = value
+      },
+    })
+  }
+
   async function fetchLlamaVersions() {
     const { data } = await axios.get('/api/llama-versions')
     const all = Array.isArray(data) ? data : []
-    llamaVersions.value = all.filter(v => !v.repository_source || v.repository_source === 'llama.cpp')
-    ikLlamaVersions.value = all.filter(v => v.repository_source === 'ik_llama.cpp')
-    unslothLlamaVersions.value = all.filter(v => v.repository_source === 'Unsloth llama.cpp')
-    lmdeployVersions.value = all.filter(v => v.repository_source === 'LMDeploy')
-    onecatVllmVersions.value = all.filter(v => v.repository_source === '1Cat-vLLM')
-    sglangVersions.value = all.filter(v => v.repository_source === 'SGLang')
-    sglangV100Versions.value = all.filter(v => v.repository_source === 'SGLang-V100')
-    vllmVersions.value = all.filter(v => v.repository_source === 'vLLM')
-    audioCppVersions.value = all.filter(v => v.repository_source === 'audio.cpp')
+    for (const [engineId, descriptor] of Object.entries(ENGINE_DESCRIPTORS)) {
+      if (!descriptor.versionsKey) continue
+      engineVersionsById.value[engineId] = all.filter((v) =>
+        descriptor.untaggedSourceOwner
+          ? !v.repository_source || v.repository_source === descriptor.repoSource
+          : v.repository_source === descriptor.repoSource,
+      )
+    }
+    // YAML campaign S5: server-backed (YAML-onboarded) engines get their
+    // row partition from the server descriptor's repository_source —
+    // id-keyed dynamic map, no named refs, no local table entry.
+    const nextServerVersions = { ...serverVersions.value }
+    for (const descriptor of serverBackedEngines(engineDescriptors.value)) {
+      const source = descriptor.repository_source || descriptor.id
+      nextServerVersions[descriptor.id] = all.filter((v) => v.repository_source === source)
+    }
+    serverVersions.value = nextServerVersions
   }
 
   async function checkLlamaCppUpdates() {
-    const { data } = await axios.get('/api/llama-versions/check-updates')
+    const { data } = await axios.get(nativeGenericApiPath('llama_cpp', 'check-updates'))
     return data
   }
 
   async function checkIkLlamaUpdates() {
-    const { data } = await axios.get('/api/llama-versions/check-updates', {
-      params: { source: 'ik_llama' },
-    })
+    // Engine travels in the path; the legacy ?source= query is retired.
+    const { data } = await axios.get(nativeGenericApiPath('ik_llama', 'check-updates'))
     return data
   }
 
   async function checkUnslothLlamaUpdates() {
-    const { data } = await axios.get('/api/unsloth-llama/check-updates')
+    const { data } = await axios.get(nativeGenericApiPath('unsloth_llama', 'check-updates'))
     return data
   }
 
   async function installUnslothLlama(params = {}) {
-    const { data } = await axios.post('/api/unsloth-llama/install', params)
+    const { data } = await axios.post(nativeGenericApiPath('unsloth_llama', 'install'), params)
     return data
   }
 
   async function cancelUnslothLlama(taskId) {
-    const { data } = await axios.post('/api/unsloth-llama/cancel', { task_id: taskId })
+    const { data } = await axios.post(nativeGenericApiPath('unsloth_llama', 'cancel'), {
+      task_id: taskId,
+    })
     return data
   }
 
   async function checkLmdeployUpdates() {
-    const { data } = await axios.get('/api/lmdeploy/check-updates')
-    return data
+    return venvCheckUpdates('lmdeploy')
   }
 
   async function checkOnecatVllmUpdates() {
-    const { data } = await axios.get('/api/1cat-vllm/check-updates')
-    return data
+    return venvCheckUpdates('1cat_vllm')
   }
 
   async function checkAudioCppUpdates() {
@@ -117,8 +163,9 @@ export const useEnginesStore = defineStore('engines', () => {
 
   async function fetchAudioCppStatus() {
     const { data } = await axios.get('/api/audio-cpp/status')
-    audioCppStatus.value = data || {}
-    return audioCppStatus.value
+    const value = data || {}
+    engineStatusById.value = { ...engineStatusById.value, audio_cpp: value }
+    return value
   }
 
   async function fetchAudioCppBuildSettings() {
@@ -127,7 +174,14 @@ export const useEnginesStore = defineStore('engines', () => {
   }
 
   async function fetchAudioCppBuildOptions() {
-    const { data } = await axios.get('/api/audio-cpp/build-options')
+    return fetchBuildOptionsForEngine('audio_cpp')
+  }
+
+  /** R95: catalog fetch dispatched on the engine's DECLARED `buildOptionsPath`. */
+  async function fetchBuildOptionsForEngine(engineId) {
+    const path = buildOptionsPath(engineId)
+    if (!path) return fetchBuildOptions(engineId)
+    const { data } = await axios.get(path, { params: { engine: engineId } })
     return data
   }
 
@@ -146,12 +200,11 @@ export const useEnginesStore = defineStore('engines', () => {
     return data
   }
 
-  async function cancelAudioCppBuild(taskId) {
-    const { data } = await axios.post('/api/audio-cpp/cancel', { task_id: taskId })
-    return data
-  }
-
   async function fetchBuildSettings(engine) {
+    if (NATIVE_GENERIC_VERBS[engine]?.includes('build-settings')) {
+      const { data } = await axios.get(nativeGenericApiPath(engine, 'build-settings'))
+      return data
+    }
     const { data } = await axios.get('/api/llama-versions/build-settings', {
       params: { engine },
     })
@@ -166,14 +219,23 @@ export const useEnginesStore = defineStore('engines', () => {
   }
 
   async function saveBuildSettings(engine, settings) {
+    if (NATIVE_GENERIC_VERBS[engine]?.includes('build-settings')) {
+      const { data } = await axios.put(nativeGenericApiPath(engine, 'build-settings'), settings)
+      return data
+    }
     const { data } = await axios.put('/api/llama-versions/build-settings', settings, {
       params: { engine },
     })
     return data
   }
 
+  // Native install/build verbs ride the generic router (same implementations
+  // behind verb overrides; byte-equality pinned by
+  // backend/tests/test_native_engine_lifecycle.py). Bodies are unchanged —
+  // update_engine/build_source still read engine and repository_source from
+  // the payload, so the engine id in the path is routing, not data.
   async function updateEngine(engine, params = {}) {
-    const { data } = await axios.post('/api/llama-versions/update', {
+    const { data } = await axios.post(nativeGenericApiPath(engine, 'install'), {
       engine,
       ...params,
     })
@@ -181,13 +243,18 @@ export const useEnginesStore = defineStore('engines', () => {
     return data
   }
 
+  // repository_source ('llama.cpp' | 'ik_llama.cpp' | absent -> llama.cpp)
+  // selects the path's engine id; the payload keeps carrying the field.
   async function buildSource(params) {
-    const { data } = await axios.post('/api/llama-versions/build-source', params)
+    const engine = params.repository_source === 'ik_llama.cpp' ? 'ik_llama' : 'llama_cpp'
+    const { data } = await axios.post(nativeGenericApiPath(engine, 'install-source'), params)
     return data
   }
 
+  // llama.cpp and ik_llama builds share one BuildTaskManager and one cancel
+  // implementation; the engine id in the path is routing, not behavior.
   async function cancelSourceBuild(taskId) {
-    const { data } = await axios.post('/api/llama-versions/build-cancel', {
+    const { data } = await axios.post(nativeGenericApiPath('llama_cpp', 'cancel'), {
       task_id: taskId,
     })
     return data
@@ -225,8 +292,47 @@ export const useEnginesStore = defineStore('engines', () => {
     return data
   }
 
+  // Post-activate/post-delete status fan-out — ONE declarative copy of what
+  // used to be two hand-rolled if-chains. Byte-preserved: lmdeploy and 1Cat
+  // are independent containment checks; the SGLang panel family is
+  // exclusive-first-match (sglang_v100 must precede sglang); audio refreshes
+  // on activate only. The legacy quirk stays on purpose: 1Cat version ids
+  // contain "vllm", so they hit the exclusive chain's vllm branch too and
+  // refresh vLLM status as well. Every sequence is pinned in
+  // engines.venv.test.js ("version status refresh fan-out").
+  const STATUS_REFRESH_INDEPENDENT = [
+    { token: 'lmdeploy', fetch: () => fetchLmdeployStatus() },
+    { token: '1cat_vllm', fetch: () => fetchOnecatVllmStatus() },
+  ]
+  const STATUS_REFRESH_EXCLUSIVE = [
+    { token: 'sglang_v100', fetch: () => fetchSglangStatus('sglang_v100') },
+    { token: 'sglang', fetch: () => fetchSglangStatus('sglang') },
+    { token: 'vllm', fetch: () => fetchSglangStatus('vllm') },
+  ]
+  const STATUS_REFRESH_ACTIVATE_ONLY = [{ token: 'audio_cpp', fetch: () => fetchAudioCppStatus() }]
+
+  async function refreshStatusesForVersion(versionId, { audio = false } = {}) {
+    const text = String(versionId)
+    for (const rule of STATUS_REFRESH_INDEPENDENT) {
+      if (text.includes(rule.token)) await rule.fetch()
+    }
+    for (const rule of STATUS_REFRESH_EXCLUSIVE) {
+      if (text.includes(rule.token)) {
+        await rule.fetch()
+        break
+      }
+    }
+    if (audio) {
+      for (const rule of STATUS_REFRESH_ACTIVATE_ONLY) {
+        if (text.includes(rule.token)) await rule.fetch()
+      }
+    }
+  }
+
   async function activateVersion(versionId, { onStage } = {}) {
-    const { data } = await axios.post('/api/llama-versions/versions/activate', { version_id: versionId })
+    const { data } = await axios.post('/api/llama-versions/versions/activate', {
+      version_id: versionId,
+    })
     if (data?.background && data?.operation_id) {
       // audio.cpp activation re-probes binaries in the background; the active
       // switch is already applied. Wait for the scan/refresh to finish so the
@@ -245,44 +351,19 @@ export const useEnginesStore = defineStore('engines', () => {
       }
     }
     await fetchLlamaVersions()
-    if (String(versionId).includes('lmdeploy')) {
-      await fetchLmdeployStatus()
-    }
-    if (String(versionId).includes('1cat_vllm')) {
-      await fetchOnecatVllmStatus()
-    }
-    if (String(versionId).includes('sglang_v100')) {
-      await fetchSglangStatus('sglang_v100')
-    } else if (String(versionId).includes('sglang')) {
-      await fetchSglangStatus('sglang')
-    } else if (String(versionId).includes('vllm')) {
-      await fetchSglangStatus('vllm')
-    }
-    if (String(versionId).includes('audio_cpp')) {
-      await fetchAudioCppStatus()
-    }
+    await refreshStatusesForVersion(versionId, { audio: true })
     fetchRuntimePlanState()
   }
 
   async function deleteVersion(versionId, params = {}) {
     const query = Object.fromEntries(
-      Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== ''),
+      Object.entries(params).filter(
+        ([, value]) => value !== undefined && value !== null && value !== '',
+      ),
     )
     await axios.delete(`/api/llama-versions/${encodeURIComponent(versionId)}`, { params: query })
     await fetchLlamaVersions()
-    if (String(versionId).includes('lmdeploy')) {
-      await fetchLmdeployStatus()
-    }
-    if (String(versionId).includes('1cat_vllm')) {
-      await fetchOnecatVllmStatus()
-    }
-    if (String(versionId).includes('sglang_v100')) {
-      await fetchSglangStatus('sglang_v100')
-    } else if (String(versionId).includes('sglang')) {
-      await fetchSglangStatus('sglang')
-    } else if (String(versionId).includes('vllm')) {
-      await fetchSglangStatus('vllm')
-    }
+    await refreshStatusesForVersion(versionId)
     fetchRuntimePlanState()
   }
 
@@ -305,122 +386,175 @@ export const useEnginesStore = defineStore('engines', () => {
     return data
   }
 
-  async function fetchCudaLogs() {
-    const { data } = await axios.get('/api/llama-versions/cuda-logs')
+  // --- venv lifecycle (registry-driven) -----------------------------------
+  // The historical per-engine export names below are thin wrappers over
+  // these one-implementation helpers; engines/registry.js decides the URL
+  // segment and the per-family null-handling divergence.
+
+  /** Generic keyed reads (R82): new consumers take an engine id, not a ref. */
+  function versionsForEngine(engineId) {
+    return engineVersionsById.value[engineId] ?? []
+  }
+
+  function statusForEngine(engineId) {
+    return engineStatusById.value[engineId] ?? {}
+  }
+
+  async function venvCheckUpdates(engine) {
+    const { data } = await axios.get(venvApiPathFor(engine, 'check-updates'))
+    return data
+  }
+
+  /** URL decision for the shared venv helpers: server-backed (YAML)
+   *  engines route through the generic router ONLY; the nine keep their
+   *  exact legacy paths (byte-pinned by engines.v3.test.js). Unsupported
+   *  verbs 405 server-side — the client mirrors that trust boundary. */
+  function venvApiPathFor(engine, verb) {
+    if (serverBackedDescriptor(engine, engineDescriptors.value)) {
+      return serverBackedApiPath(engine, verb)
+    }
+    return venvApiPath(engine, verb)
+  }
+
+  async function venvFetchStatus(engine) {
+    const serverDescriptor = serverBackedDescriptor(engine, engineDescriptors.value)
+    if (serverDescriptor) {
+      // Server-backed engine: generic router only, dynamic map only.
+      const { data } = await axios.get(serverBackedApiPath(engine, 'status'))
+      serverStatuses.value = { ...serverStatuses.value, [engine]: data || {} }
+      return data || {}
+    }
+    const descriptor = venvDescriptor(engine)
+    const { data } = await axios.get(venvApiPath(engine, 'status'))
+    const value = descriptor.nullSafeStatus ? data || {} : data
+    // R81: one keyed map (engine id) instead of a per-engine named ref.
+    engineStatusById.value = { ...engineStatusById.value, [engine]: value }
+    return value
+  }
+
+  /** Poll every server-backed engine whose lifecycle serves `status`
+   *  (YAML campaign S5: the generic refresh loop is payload-driven). */
+  async function fetchServerBackedStatuses() {
+    for (const descriptor of serverBackedEngines(engineDescriptors.value)) {
+      if (!(descriptor.generic_verbs || []).includes('status')) continue
+      try {
+        await venvFetchStatus(descriptor.id)
+      } catch (error) {
+        console.error(`Failed to fetch ${descriptor.id} engine status:`, error)
+      }
+    }
+  }
+
+  async function venvGetBuildSettings(engine) {
+    const { data } = await axios.get(venvApiPathFor(engine, 'build-settings'))
+    return data
+  }
+
+  async function venvSaveBuildSettings(engine, settings) {
+    const { data } = await axios.put(venvApiPathFor(engine, 'build-settings'), settings)
+    return data
+  }
+
+  async function venvInstall(engine, params) {
+    const { data } = await axios.post(venvApiPathFor(engine, 'install'), params)
+    return data
+  }
+
+  async function venvInstallFromSource(engine, params) {
+    const { data } = await axios.post(venvApiPathFor(engine, 'install-source'), params)
+    return data
+  }
+
+  async function venvRemove(engine, params) {
+    await axios.post(venvApiPathFor(engine, 'remove'), params)
+    await venvFetchStatus(engine)
+    await fetchLlamaVersions()
+  }
+
+  /** Cancel a running venv/generic operation (server-backed aware). */
+  async function venvCancel(engine, taskId) {
+    const { data } = await axios.post(venvApiPathFor(engine, 'cancel'), {
+      task_id: taskId,
+    })
     return data
   }
 
   // --- LMDeploy ---
 
   async function fetchLmdeployStatus() {
-    const { data } = await axios.get('/api/lmdeploy/status')
-    lmdeployStatus.value = data
-    return data
+    return venvFetchStatus('lmdeploy')
   }
 
   async function fetchLmdeployBuildSettings() {
-    const { data } = await axios.get('/api/lmdeploy/build-settings')
-    return data
+    return venvGetBuildSettings('lmdeploy')
   }
 
   async function saveLmdeployBuildSettings(settings) {
-    const { data } = await axios.put('/api/lmdeploy/build-settings', settings)
-    return data
+    return venvSaveBuildSettings('lmdeploy', settings)
   }
 
   async function installLmdeploy(params = {}) {
-    const { data } = await axios.post('/api/lmdeploy/install', params)
-    return data
+    return venvInstall('lmdeploy', params)
   }
 
   async function installLmdeployFromSource(params) {
-    const { data } = await axios.post('/api/lmdeploy/install-source', params)
-    return data
+    return venvInstallFromSource('lmdeploy', params)
   }
 
   async function removeLmdeploy(params = {}) {
-    await axios.post('/api/lmdeploy/remove', params)
-    await fetchLmdeployStatus()
-    await fetchLlamaVersions()
+    await venvRemove('lmdeploy', params)
   }
 
   // --- 1Cat-vLLM ---
 
   async function fetchOnecatVllmStatus() {
-    const { data } = await axios.get('/api/1cat-vllm/status')
-    onecatVllmStatus.value = data
-    return data
+    return venvFetchStatus('1cat_vllm')
   }
 
   async function fetchOnecatVllmBuildSettings() {
-    const { data } = await axios.get('/api/1cat-vllm/build-settings')
-    return data
+    return venvGetBuildSettings('1cat_vllm')
   }
 
   async function saveOnecatVllmBuildSettings(settings) {
-    const { data } = await axios.put('/api/1cat-vllm/build-settings', settings)
-    return data
+    return venvSaveBuildSettings('1cat_vllm', settings)
   }
 
   async function installOnecatVllm(params = {}) {
-    const { data } = await axios.post('/api/1cat-vllm/install', params)
-    return data
+    return venvInstall('1cat_vllm', params)
   }
 
   async function installOnecatVllmFromSource(params) {
-    const { data } = await axios.post('/api/1cat-vllm/install-source', params)
-    return data
+    return venvInstallFromSource('1cat_vllm', params)
   }
 
   async function removeOnecatVllm(params = {}) {
-    await axios.post('/api/1cat-vllm/remove', params)
-    await fetchOnecatVllmStatus()
-    await fetchLlamaVersions()
+    await venvRemove('1cat_vllm', params)
   }
 
-  // --- SGLang / SGLang V100 ---
-
-  function sglangSlug(engine) {
-    if (engine === 'sglang_v100') return 'sglang-v100'
-    return engine === 'vllm' ? 'vllm' : 'sglang'
-  }
+  // --- SGLang / SGLang V100 / vLLM (one installer family, three engines) ---
 
   async function fetchSglangStatus(engine = 'sglang') {
-    const { data } = await axios.get(`/api/${sglangSlug(engine)}/status`)
-    if (engine === 'sglang_v100') sglangV100Status.value = data || {}
-    else if (engine === 'vllm') vllmStatus.value = data || {}
-    else sglangStatus.value = data || {}
-    return data || {}
+    return venvFetchStatus(engine)
   }
 
   async function checkSglangUpdates(engine = 'sglang') {
-    const { data } = await axios.get(`/api/${sglangSlug(engine)}/check-updates`)
-    return data
+    return venvCheckUpdates(engine)
   }
 
   async function fetchSglangBuildSettings(engine = 'sglang') {
-    const { data } = await axios.get(`/api/${sglangSlug(engine)}/build-settings`)
-    return data
+    return venvGetBuildSettings(engine)
   }
 
   async function saveSglangBuildSettings(engine = 'sglang', settings = {}) {
-    const { data } = await axios.put(`/api/${sglangSlug(engine)}/build-settings`, settings)
-    return data
+    return venvSaveBuildSettings(engine, settings)
   }
 
   async function installSglang(engine = 'sglang', params = {}) {
-    const { data } = await axios.post(`/api/${sglangSlug(engine)}/install`, params)
-    return data
+    return venvInstall(engine, params)
   }
 
   async function installSglangFromSource(engine = 'sglang', params = {}) {
-    const { data } = await axios.post(`/api/${sglangSlug(engine)}/install-source`, params)
-    return data
-  }
-
-  async function cancelSglang(engine = 'sglang', taskId) {
-    const { data } = await axios.post(`/api/${sglangSlug(engine)}/cancel`, { task_id: taskId })
-    return data
+    return venvInstallFromSource(engine, params)
   }
 
   // --- GPU / System ---
@@ -461,13 +595,6 @@ export const useEnginesStore = defineStore('engines', () => {
     } finally {
       loading.value = false
     }
-  }
-
-  async function applyLaunchChanges(payload) {
-    const { data } = await axios.post('/api/runtime/apply-launch', payload)
-    await fetchRuntimePlan()
-    await fetchRuntimePlanState()
-    return data
   }
 
   async function fetchRuntimePlan() {
@@ -524,16 +651,6 @@ export const useEnginesStore = defineStore('engines', () => {
     }
   }
 
-  function clearRuntimePlanState() {
-    runtimePlanStateEpoch += 1
-    runtimePlanStateRequest = null
-    runtimePlanState.value = {
-      applicable: true,
-      stale: false,
-    }
-  }
-
-
   async function fetchAll() {
     await Promise.allSettled([
       fetchEngineDescriptors(),
@@ -541,33 +658,43 @@ export const useEnginesStore = defineStore('engines', () => {
       fetchCudaStatus(),
       fetchLmdeployStatus(),
       fetchOnecatVllmStatus(),
-      fetchSglangStatus('sglang'),
-      fetchSglangStatus('sglang_v100'),
-      fetchSglangStatus('vllm'),
+      ...SG_PANEL_ENGINE_IDS.map((engine) => fetchSglangStatus(engine)),
       fetchAudioCppStatus(),
       fetchSystemStatus(),
       fetchRuntimePlanState(),
     ])
+    // YAML campaign S5: payload-driven follow-up — server-backed
+    // (YAML-onboarded) engines are polled from the descriptor list, not a
+    // hardcoded id list, so onboarding one needs zero frontend edits.
+    // (Descriptors must have arrived first; row partitioning re-runs over
+    // the shared /api/llama-versions list.)
+    if (serverBackedEngines(engineDescriptors.value).length) {
+      await Promise.allSettled([fetchLlamaVersions(), fetchServerBackedStatuses()])
+    }
   }
 
   return {
     engineDescriptors,
     fetchEngineDescriptors,
-    llamaVersions,
-    ikLlamaVersions,
-    unslothLlamaVersions,
-    lmdeployVersions,
-    lmdeployStatus,
-    onecatVllmVersions,
-    onecatVllmStatus,
-    sglangVersions,
-    sglangStatus,
-    sglangV100Versions,
-    sglangV100Status,
-    vllmVersions,
-    vllmStatus,
-    audioCppVersions,
-    audioCppStatus,
+    serverStatuses,
+    serverVersions,
+    fetchServerBackedStatuses,
+    // Generic verb surface, server-backing aware (YAML campaign S5): these
+    // drive BOTH the nine and YAML-onboarded engines via one code path.
+    venvCheckUpdates,
+    venvFetchStatus,
+    venvGetBuildSettings,
+    venvSaveBuildSettings,
+    venvInstall,
+    venvInstallFromSource,
+    venvRemove,
+    venvCancel,
+    // R82: keyed reads for generic consumers (views/panels take an engine id).
+    versionsForEngine,
+    statusForEngine,
+    engineVersionsById,
+    ...versionAliases,
+    engineStatusById,
     cudaStatus,
     gpuInfo,
     systemStatus,
@@ -588,6 +715,7 @@ export const useEnginesStore = defineStore('engines', () => {
     checkAudioCppUpdates,
     fetchBuildSettings,
     fetchBuildOptions,
+    fetchBuildOptionsForEngine,
     saveBuildSettings,
     updateEngine,
     buildSource,
@@ -602,7 +730,6 @@ export const useEnginesStore = defineStore('engines', () => {
     fetchCudaStatus,
     installCuda,
     uninstallCuda,
-    fetchCudaLogs,
 
     fetchLmdeployStatus,
     fetchLmdeployBuildSettings,
@@ -624,7 +751,6 @@ export const useEnginesStore = defineStore('engines', () => {
     saveSglangBuildSettings,
     installSglang,
     installSglangFromSource,
-    cancelSglang,
 
     fetchAudioCppStatus,
     fetchAudioCppBuildSettings,
@@ -632,16 +758,12 @@ export const useEnginesStore = defineStore('engines', () => {
     saveAudioCppBuildSettings,
     buildAudioCppSource,
     updateAudioCpp,
-    cancelAudioCppBuild,
 
-    fetchGpuInfo,
     fetchGpuList,
     fetchSystemStatus,
-    applyLaunchChanges,
     fetchRuntimePlan,
     fetchRuntimePlanState,
     invalidateRuntimePlan,
-    clearRuntimePlanState,
     fetchAll,
   }
 })

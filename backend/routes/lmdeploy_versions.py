@@ -1,19 +1,14 @@
-from backend.engines.lmdeploy import get_lmdeploy_manager
-from backend.routes.engine_versions import pypi_updates, python_engine_router
+"""Compatibility URLs for a definition-owned engine.
 
+Every installer/update/status fact comes from the engine's authoritative
+definition in ``backend/engines/definitions/``. This module keeps the historic
+per-engine URL prefix alive as a thin delegate over the SAME lifecycle record
+the generic ``/api/engines/{engine_id}/...`` surface serves, so no business
+logic is duplicated behind the old routes.
+"""
 
-def _installer():
-    return get_lmdeploy_manager()
+from backend.routes.engine_versions import definition_compat_router
 
+_ENGINE_ID = "lmdeploy"
 
-router = python_engine_router(
-    engine_id="lmdeploy",
-    url_prefix="/lmdeploy",
-    get_installer=_installer,
-    update_source=pypi_updates("lmdeploy", timeout=10.0, error_status=500),
-    status_fallback={
-        "installed_at": None,
-        "removed_at": None,
-        "log_path": None,
-    },
-)
+router = definition_compat_router(_ENGINE_ID, "/lmdeploy")

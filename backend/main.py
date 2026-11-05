@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 import asyncio
 
 from backend.data_store import get_store
+from backend.engines.audio_cpp.identity import audio_engine_ids
 from backend.routes import (
     audio_cpp_versions,
     audio_openai_proxy,
@@ -22,6 +23,7 @@ from backend.routes import (
     config_history,
     benchmarks,
     engines,
+    engine_lifecycle,
     model_catalog,
     model_config_templates,
     models,
@@ -57,23 +59,16 @@ logger = get_logger(__name__)
 def ensure_data_directories():
     """Ensure data directories exist and are writable"""
     from backend.data_store import studio_data_dir
+    from backend.engines.registry import ENGINE_REGISTRY
 
     data_dir = studio_data_dir()
 
-    subdirs = [
-        "config",
-        "logs",
-        "llama-cpp",
-        "audio-cpp",
-        "models/audio-cpp",
-        "lmdeploy",
-        "1cat-vllm",
-        "sglang",
-        "sglang-v100",
-        "vllm",
-        "unsloth-llama",
-        "temp",
-    ]
+    # Shared studio folders plus every engine's DECLARED data directories
+    # (schema-v2 ``data_dirs``): a YAML-onboarded engine gets its folders too.
+    subdirs = ["config", "logs", "temp"]
+    for spec in ENGINE_REGISTRY.values():
+        subdirs.extend(spec.data_dirs)
+    subdirs = list(dict.fromkeys(subdirs))
 
     try:
         # Ensure main data directory exists
@@ -89,26 +84,16 @@ def ensure_data_directories():
             try:
                 os.chmod(
                     subdir_path,
-                    stat.S_IRWXU
-                    | stat.S_IRGRP
-                    | stat.S_IXGRP
-                    | stat.S_IROTH
-                    | stat.S_IXOTH,
+                    stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
                 )
             except Exception as perm_error:
-                logger.warning(
-                    f"Could not set permissions on {subdir_path}: {perm_error}"
-                )
+                logger.warning(f"Could not set permissions on {subdir_path}: {perm_error}")
 
         # Ensure the data directory itself is writable
         try:
             os.chmod(
                 data_dir,
-                stat.S_IRWXU
-                | stat.S_IRGRP
-                | stat.S_IXGRP
-                | stat.S_IROTH
-                | stat.S_IXOTH,
+                stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
             )
         except Exception as perm_error:
             logger.warning(f"Could not set permissions on {data_dir}: {perm_error}")
@@ -130,15 +115,11 @@ def ensure_data_directories():
             try:
                 import stat
 
-                os.chmod(
-                    data_dir, stat.S_IRWXU | stat.S_IRWXG | stat.S_IROTH | stat.S_IXOTH
-                )
+                os.chmod(data_dir, stat.S_IRWXU | stat.S_IRWXG | stat.S_IROTH | stat.S_IXOTH)
                 logger.info("Fixed data directory permissions")
             except Exception as perm_error:
                 logger.warning(f"Could not fix permissions automatically: {perm_error}")
-                logger.warning(
-                    "You may need to fix permissions manually on the host volume"
-                )
+                logger.warning("You may need to fix permissions manually on the host volume")
 
     except Exception as e:
         logger.error(f"Failed to ensure data directories: {e}")
@@ -174,6 +155,26 @@ async def lifespan(app: FastAPI):
                 )
     finally:
         release_configuration_writes()
+
+    # Config-driven engine refactoring: definitions are loaded, validated and
+    # tier-checked at startup — generated YAML must equal the Python registry
+    # and authoritative YAML is registered into it — a broken or drifted
+    # definition file refuses startup.
+    from backend.engines.definitions.startup_check import verify_engine_definitions
+
+    verify_engine_definitions()
+
+    # YAML campaign S3: authoritative (YAML-only) engines get their generic
+    # lifecycle from their definition's lifecycle section (empty in the
+    # shipped tree until a YAML-onboarded engine is added).
+    from backend.routes.engine_versions import register_definition_lifecycles
+
+    onboarded = register_definition_lifecycles()
+    if onboarded:
+        logger.info("Registered YAML-onboarded engines: %s", ", ".join(onboarded))
+        # R75: the registration added engines (and their declared data_dirs)
+        # after the initial directory pass — idempotently create those too.
+        ensure_data_directories()
 
     from backend.services.model_metadata import warm_gpu_list_cache
 
@@ -229,6 +230,7 @@ async def lifespan(app: FastAPI):
 
     proxy_backend = configured_proxy_backend()
     from backend.proxy.studio.manager import get_studio_proxy_manager
+
     proxy_manager = get_studio_proxy_manager()
 
     from backend.proxy.commands import any_active_runtime_in_db
@@ -295,6 +297,17 @@ app = FastAPI(
 )
 
 
+@app.middleware("http")
+async def audio_engine_extension_context(request: Request, call_next):
+    """Resolve which declared audio engine owns an extension request."""
+    engine_id = audio_cpp_versions.engine_for_path(request.url.path)
+    token = audio_cpp_versions.set_engine_context(engine_id)
+    try:
+        return await call_next(request)
+    finally:
+        audio_cpp_versions.reset_engine_context(token)
+
+
 @app.exception_handler(HTTPException)
 async def logged_http_exception(request: Request, exc: HTTPException):
     log_api_error(logger, request, exc)
@@ -354,6 +367,7 @@ async def logged_unhandled_exception(request: Request, exc: Exception):
     log_api_error(logger, request, exc)
     return JSONResponse(status_code=500, content={"detail": describe_error(exc)})
 
+
 # CORS middleware
 # CORS configuration via environment variables (safer defaults)
 # BACKEND_CORS_ORIGINS: comma-separated list of origins. Example: "http://localhost:5173,http://localhost:8080"
@@ -371,9 +385,7 @@ allow_origins = [o.strip() for o in cors_origins_env.split(",") if o.strip()] or
     "http://127.0.0.1:5173",
 ]
 
-allow_credentials_env = (
-    os.getenv("BACKEND_CORS_ALLOW_CREDENTIALS", "false").lower() == "true"
-)
+allow_credentials_env = os.getenv("BACKEND_CORS_ALLOW_CREDENTIALS", "false").lower() == "true"
 # If wildcard origin is used, do not allow credentials per browser security model
 if len(allow_origins) == 1 and allow_origins[0] == "*":
     allow_credentials_env = False
@@ -417,11 +429,14 @@ async def redirect_collection_trailing_slash(request: Request, call_next):
 
 # Include routers
 app.include_router(engines.router, prefix="/api/engines", tags=["engines"])
-app.include_router(
-    audio_cpp_versions.router,
-    prefix="/api/audio-cpp",
-    tags=["audio.cpp"],
-)
+app.include_router(engine_lifecycle.router, prefix="/api/engines", tags=["engine-lifecycle"])
+
+for _audio_engine_id in audio_engine_ids():
+    app.include_router(
+        audio_cpp_versions.router,
+        prefix=f"/api/{audio_cpp_versions.segment_for_engine(_audio_engine_id)}",
+        tags=["audio.cpp"],
+    )
 app.include_router(
     model_catalog.router,
     prefix="/api/model-catalog",
@@ -433,23 +448,17 @@ app.include_router(
     prefix="/api/model-config-templates",
     tags=["model-config-templates"],
 )
-app.include_router(
-    llama_versions.router, prefix="/api/llama-versions", tags=["llama-versions"]
-)
+app.include_router(llama_versions.router, prefix="/api/llama-versions", tags=["llama-versions"])
 app.include_router(status.router, prefix="/api", tags=["status"])
 app.include_router(config_backup.router, prefix="/api", tags=["config-backup"])
 app.include_router(config_history.router, prefix="/api", tags=["config-history"])
 app.include_router(benchmarks.router, prefix="/api", tags=["benchmarks"])
 app.include_router(gpu_info.router, prefix="/api", tags=["gpu"])
 app.include_router(lmdeploy_versions.router, prefix="/api", tags=["lmdeploy"])
-app.include_router(
-    onecat_vllm_versions.router, prefix="/api", tags=["1cat-vllm"]
-)
+app.include_router(onecat_vllm_versions.router, prefix="/api", tags=["1cat-vllm"])
 app.include_router(vllm_versions.router, prefix="/api", tags=["vllm"])
 app.include_router(sglang_versions.router, prefix="/api", tags=["sglang"])
-app.include_router(
-    unsloth_llama_versions.router, prefix="/api", tags=["unsloth-llama"]
-)
+app.include_router(unsloth_llama_versions.router, prefix="/api", tags=["unsloth-llama"])
 app.include_router(runtime.router, prefix="/api/runtime", tags=["runtime"])
 app.include_router(runtime.compatibility_router, prefix="/api", tags=["runtime"])
 app.include_router(
@@ -463,12 +472,8 @@ app.include_router(
     prefix="/v1/audio",
     tags=["audio-openai-proxy"],
 )
-app.include_router(
-    audio_openai_proxy.tasks_router, prefix="/v1", tags=["audio-tasks-proxy"]
-)
-app.include_router(
-    audio_openai_proxy.batches_router, prefix="/v1", tags=["audio-batches-proxy"]
-)
+app.include_router(audio_openai_proxy.tasks_router, prefix="/v1", tags=["audio-tasks-proxy"])
+app.include_router(audio_openai_proxy.batches_router, prefix="/v1", tags=["audio-batches-proxy"])
 
 from backend.access_policy import access_status, establish_session
 from backend.schemas.tasks import SessionLogin
@@ -572,10 +577,7 @@ if os.path.exists("frontend/dist"):
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
         # If it's an API or OpenAI audio proxy route, let it pass through
-        if (
-            full_path.startswith("api/")
-            or full_path.startswith("v1/")
-        ):
+        if full_path.startswith("api/") or full_path.startswith("v1/"):
             from fastapi.responses import JSONResponse
 
             return JSONResponse({"error": "Not found"}, status_code=404)
@@ -586,9 +588,7 @@ if os.path.exists("frontend/dist"):
                 index_path,
                 headers={"Cache-Control": "no-cache"},
             )
-        logger.warning(
-            "frontend/dist/index.html not found, serving simple fallback page"
-        )
+        logger.warning("frontend/dist/index.html not found, serving simple fallback page")
         return HTMLResponse(
             """<!DOCTYPE html>
 <html>
@@ -628,9 +628,11 @@ if __name__ == "__main__":
 
     # Auto-reload in development: on by default when not in Docker; set RELOAD=false to disable
     in_docker = os.path.exists("/app/data")
-    enable_reload = os.getenv(
-        "RELOAD", "true" if not in_docker else "false"
-    ).lower() in ("true", "1", "yes")
+    enable_reload = os.getenv("RELOAD", "true" if not in_docker else "false").lower() in (
+        "true",
+        "1",
+        "yes",
+    )
     # Watch the backend package directory (works when run from repo root with --app-dir backend)
     backend_dir = os.path.abspath(os.path.dirname(__file__))
     reload_dirs = [backend_dir] if enable_reload else None

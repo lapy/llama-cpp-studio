@@ -10,6 +10,8 @@ built from source and registered as the same release version.
 
 from __future__ import annotations
 
+from backend.engines.audio_cpp.identity import default_audio_engine_id
+
 import asyncio
 import re
 from typing import Any, Dict, Optional, Tuple
@@ -69,11 +71,7 @@ def merge_settings(
     existing: Optional[dict] = None,
 ) -> Dict[str, Any]:
     existing_tracking, existing_cmake = split_settings(existing)
-    cmake = (
-        coerce_build_settings(build_config)
-        if build_config is not None
-        else existing_cmake
-    )
+    cmake = coerce_build_settings(build_config) if build_config is not None else existing_cmake
     return {
         **cmake,
         "tracking_ref": (
@@ -84,8 +82,7 @@ def merge_settings(
         "repository_url": (
             str(repository_url).strip()
             if repository_url is not None
-            else existing_tracking["repository_url"]
-            or AUDIO_CPP_REPOSITORY
+            else existing_tracking["repository_url"] or AUDIO_CPP_REPOSITORY
         ),
     }
 
@@ -116,8 +113,7 @@ def resolve_latest_github_release() -> Optional[Dict[str, Any]]:
                 "name": str(body.get("name") or "").strip() or tag,
                 "html_url": str(body.get("html_url") or "").strip() or None,
                 "published_at": body.get("published_at"),
-                "target_commitish": str(body.get("target_commitish") or "").strip()
-                or None,
+                "target_commitish": str(body.get("target_commitish") or "").strip() or None,
                 "prerelease": bool(body.get("prerelease")),
             }
         except Exception as exc:
@@ -163,7 +159,7 @@ def resolve_bootstrap_tracking_ref() -> str:
 async def ensure_tracking_settings(store=None) -> Dict[str, Any]:
     """Return settings with tracking_ref/repository_url populated and persisted if missing."""
     store = store or get_store()
-    raw = store.get_engine_build_settings("audio_cpp") or {}
+    raw = store.get_engine_build_settings(default_audio_engine_id()) or {}
     tracking, cmake = split_settings(raw)
     changed = False
     if not tracking["repository_url"]:
@@ -174,14 +170,14 @@ async def ensure_tracking_settings(store=None) -> Dict[str, Any]:
         changed = True
     merged = {**cmake, **tracking}
     if changed or set(raw.keys()) & _TRACKING_KEYS != _TRACKING_KEYS:
-        store.update_engine_build_settings("audio_cpp", merged)
+        store.update_engine_build_settings(default_audio_engine_id(), merged)
     return merged
 
 
 def get_tracking_and_build(store=None) -> Tuple[str, str, AudioCppBuildConfig]:
     """Synchronous read of tracking ref, repo URL, and build config (no bootstrap)."""
     store = store or get_store()
-    tracking, cmake = split_settings(store.get_engine_build_settings("audio_cpp"))
+    tracking, cmake = split_settings(store.get_engine_build_settings(default_audio_engine_id()))
     return (
         tracking["tracking_ref"] or "main",
         tracking["repository_url"] or AUDIO_CPP_REPOSITORY,

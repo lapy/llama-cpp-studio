@@ -4,236 +4,37 @@ The registry intentionally contains data only.  Engine-specific installers, scan
 and runtime adapters remain in their own modules and are selected by the string keys
 stored here.  This keeps model/config validation independent from heavyweight manager
 imports and avoids circular dependencies with the YAML data store.
+
+One deliberate mutation exists: definition-owned engines are validated and
+loaded from ``backend/engines/definitions/*.yaml`` at import (see the bootstrap
+at the end of this module), so the registry is a DERIVED VIEW of the validated
+YAML definitions.  The derived id-sets are SHARED
+mutable objects precisely so that startup registrations (fixture personas) and
+the import-time bootstrap are observed by ``from ... import VALID_ENGINE_IDS``
+holders.
 """
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Tuple
+from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Set, Tuple
+
+from backend.engines.spec import EngineSpec
 
 
-@dataclass(frozen=True)
-class EngineSpec:
-    id: str
-    label: str
-    repository_source: str
-    install_kind: str
-    runtime_kind: str
-    scanner_kind: str
-    active_path_fields: Tuple[str, ...]
-    artifact_formats: FrozenSet[str]
-    package_kinds: FrozenSet[str]
-    tasks: FrozenSet[str]
-    input_modalities: FrozenSet[str]
-    output_modalities: FrozenSet[str]
-    supports_embeddings: bool = False
-    experimental: bool = False
-    # Per-surface maturity labels (e.g. speech_asr=stable). When set, ``experimental``
-    # is only a coarse UI hint — prefer maturity_surfaces for honesty.
-    maturity_surfaces: Tuple[Tuple[str, str], ...] = ()
+ENGINE_REGISTRY: Dict[str, EngineSpec] = {}
 
-    def to_api_dict(self) -> Dict[str, Any]:
-        payload = asdict(self)
-        for key in (
-            "artifact_formats",
-            "package_kinds",
-            "tasks",
-            "input_modalities",
-            "output_modalities",
-        ):
-            payload[key] = sorted(payload[key])
-        payload["active_path_fields"] = list(self.active_path_fields)
-        payload["maturity_surfaces"] = {
-            key: value for key, value in self.maturity_surfaces
-        }
-        return payload
-
-
-_TEXT_GENERATION_TASKS = frozenset(
-    {
-        "text-generation",
-        "text2text-generation",
-        "embeddings",
-        "reranking",
-    }
-)
-
-_AUDIO_TASKS = frozenset(
-    {
-        "vad",
-        "asr",
-        "diar",
-        "sep",
-        "gen",
-        "tts",
-        "clon",
-        "vc",
-        "s2s",
-        "align",
-        "vdes",
-        "spk",
-        "svc",
-        "pipeline",
-    }
-)
-
-
-ENGINE_REGISTRY: Dict[str, EngineSpec] = {
-    "llama_cpp": EngineSpec(
-        id="llama_cpp",
-        label="llama.cpp",
-        repository_source="llama.cpp",
-        install_kind="cmake",
-        runtime_kind="llama_server",
-        scanner_kind="llama_help",
-        active_path_fields=("binary_path",),
-        artifact_formats=frozenset({"gguf"}),
-        package_kinds=frozenset({"single_file", "sharded_bundle"}),
-        tasks=_TEXT_GENERATION_TASKS,
-        input_modalities=frozenset({"text", "image"}),
-        output_modalities=frozenset({"text", "embedding", "score"}),
-        supports_embeddings=True,
-    ),
-    "ik_llama": EngineSpec(
-        id="ik_llama",
-        label="ik_llama.cpp",
-        repository_source="ik_llama.cpp",
-        install_kind="cmake",
-        runtime_kind="llama_server",
-        scanner_kind="llama_help",
-        active_path_fields=("binary_path",),
-        artifact_formats=frozenset({"gguf"}),
-        package_kinds=frozenset({"single_file", "sharded_bundle"}),
-        tasks=_TEXT_GENERATION_TASKS,
-        input_modalities=frozenset({"text", "image"}),
-        output_modalities=frozenset({"text", "embedding", "score"}),
-        supports_embeddings=True,
-    ),
-    "unsloth_llama": EngineSpec(
-        id="unsloth_llama",
-        label="Unsloth llama.cpp",
-        repository_source="Unsloth llama.cpp",
-        install_kind="prebuilt",
-        runtime_kind="llama_server",
-        scanner_kind="llama_help",
-        active_path_fields=("binary_path",),
-        artifact_formats=frozenset({"gguf"}),
-        package_kinds=frozenset({"single_file", "sharded_bundle"}),
-        tasks=_TEXT_GENERATION_TASKS,
-        input_modalities=frozenset({"text", "image"}),
-        output_modalities=frozenset({"text", "embedding", "score"}),
-        supports_embeddings=True,
-    ),
-    "lmdeploy": EngineSpec(
-        id="lmdeploy",
-        label="LMDeploy",
-        repository_source="LMDeploy",
-        install_kind="python_venv",
-        runtime_kind="lmdeploy",
-        scanner_kind="lmdeploy_help",
-        active_path_fields=("venv_path",),
-        artifact_formats=frozenset({"safetensors"}),
-        package_kinds=frozenset({"hf_snapshot"}),
-        tasks=_TEXT_GENERATION_TASKS,
-        input_modalities=frozenset({"text", "image"}),
-        output_modalities=frozenset({"text", "embedding"}),
-    ),
-    "1cat_vllm": EngineSpec(
-        id="1cat_vllm",
-        label="1Cat-vLLM",
-        repository_source="1Cat-vLLM",
-        install_kind="python_venv",
-        runtime_kind="onecat_vllm",
-        scanner_kind="vllm_help",
-        active_path_fields=("venv_path",),
-        artifact_formats=frozenset({"safetensors"}),
-        package_kinds=frozenset({"hf_snapshot"}),
-        tasks=_TEXT_GENERATION_TASKS,
-        input_modalities=frozenset({"text", "image"}),
-        output_modalities=frozenset({"text", "embedding"}),
-    ),
-    "vllm": EngineSpec(
-        id="vllm",
-        label="vLLM",
-        repository_source="vLLM",
-        install_kind="python_venv",
-        runtime_kind="vllm",
-        scanner_kind="vllm_help",
-        active_path_fields=("venv_path",),
-        artifact_formats=frozenset({"safetensors"}),
-        package_kinds=frozenset({"hf_snapshot"}),
-        tasks=_TEXT_GENERATION_TASKS,
-        input_modalities=frozenset({"text", "image", "video"}),
-        output_modalities=frozenset({"text", "embedding", "score"}),
-        supports_embeddings=True,
-    ),
-    "sglang": EngineSpec(
-        id="sglang",
-        label="SGLang",
-        repository_source="SGLang",
-        install_kind="python_venv",
-        runtime_kind="sglang",
-        scanner_kind="sglang_help",
-        active_path_fields=("venv_path",),
-        artifact_formats=frozenset({"safetensors"}),
-        package_kinds=frozenset({"hf_snapshot"}),
-        tasks=_TEXT_GENERATION_TASKS,
-        input_modalities=frozenset({"text", "image", "video"}),
-        output_modalities=frozenset({"text", "embedding", "score"}),
-        supports_embeddings=True,
-    ),
-    "sglang_v100": EngineSpec(
-        id="sglang_v100",
-        label="SGLang V100",
-        repository_source="SGLang-V100",
-        install_kind="python_venv",
-        runtime_kind="sglang",
-        scanner_kind="sglang_help",
-        active_path_fields=("venv_path",),
-        artifact_formats=frozenset({"safetensors"}),
-        package_kinds=frozenset({"hf_snapshot"}),
-        tasks=_TEXT_GENERATION_TASKS,
-        input_modalities=frozenset({"text", "image", "video"}),
-        output_modalities=frozenset({"text", "embedding", "score"}),
-        supports_embeddings=True,
-        experimental=True,
-        maturity_surfaces=(("nvidia_sm70", "specialized"),),
-    ),
-    "audio_cpp": EngineSpec(
-        id="audio_cpp",
-        label="audio.cpp",
-        repository_source="audio.cpp",
-        install_kind="cmake",
-        runtime_kind="audio_cpp",
-        scanner_kind="audio_cpp",
-        active_path_fields=("server_binary_path", "cli_binary_path"),
-        artifact_formats=frozenset({"mixed", "safetensors", "original", "builtin"}),
-        package_kinds=frozenset({"prepared_bundle", "hf_snapshot", "builtin"}),
-        tasks=_AUDIO_TASKS,
-        input_modalities=frozenset({"text", "audio"}),
-        output_modalities=frozenset({"text", "audio", "segments", "events"}),
-        # Speech/ASR and generic tasks are first-class Studio proxy paths.
-        experimental=False,
-        maturity_surfaces=(
-            ("speech_asr", "stable"),
-            ("generic_tasks", "stable"),
-            ("catalog_json", "stable"),
-            ("heuristic_discovery", "experimental"),
-        ),
-    ),
-}
-
-
-VALID_ENGINE_IDS: FrozenSet[str] = frozenset(ENGINE_REGISTRY)
-EMBEDDINGS_ENGINE_IDS: FrozenSet[str] = frozenset(
+# SHARED mutable id-sets (see module docstring): startup registrations
+# update these objects IN PLACE — never rebind them.
+VALID_ENGINE_IDS: Set[str] = set(ENGINE_REGISTRY)
+EMBEDDINGS_ENGINE_IDS: Set[str] = {
     key for key, spec in ENGINE_REGISTRY.items() if spec.supports_embeddings
-)
-NATIVE_ENGINE_IDS: FrozenSet[str] = frozenset(
+}
+NATIVE_ENGINE_IDS: Set[str] = {
     key for key, spec in ENGINE_REGISTRY.items() if spec.install_kind == "cmake"
-)
-GGUF_ENGINE_IDS: FrozenSet[str] = frozenset(
+}
+GGUF_ENGINE_IDS: Set[str] = {
     key for key, spec in ENGINE_REGISTRY.items() if "gguf" in spec.artifact_formats
-)
+}
 
 
 def inferred_engines_for_artifact_format(artifact_format: Optional[str]) -> List[str]:
@@ -246,15 +47,47 @@ def inferred_engines_for_artifact_format(artifact_format: Optional[str]) -> List
     if not fmt:
         return []
     return [
-        spec.id
-        for spec in ENGINE_REGISTRY.values()
-        if spec.artifact_formats == frozenset({fmt})
+        spec.id for spec in ENGINE_REGISTRY.values() if spec.artifact_formats == frozenset({fmt})
     ]
 
 
-HF_SNAPSHOT_ENGINE_IDS: FrozenSet[str] = frozenset(
-    inferred_engines_for_artifact_format("safetensors")
-)
+HF_SNAPSHOT_ENGINE_IDS: Set[str] = set(inferred_engines_for_artifact_format("safetensors"))
+
+
+def _refresh_derived_engine_id_sets() -> None:
+    """Recompute the SHARED id-sets IN PLACE after a registration."""
+    VALID_ENGINE_IDS.update(ENGINE_REGISTRY)
+    EMBEDDINGS_ENGINE_IDS.update(
+        key for key, spec in ENGINE_REGISTRY.items() if spec.supports_embeddings
+    )
+    NATIVE_ENGINE_IDS.update(
+        key for key, spec in ENGINE_REGISTRY.items() if spec.install_kind == "cmake"
+    )
+    GGUF_ENGINE_IDS.update(
+        key for key, spec in ENGINE_REGISTRY.items() if "gguf" in spec.artifact_formats
+    )
+    HF_SNAPSHOT_ENGINE_IDS.update(inferred_engines_for_artifact_format("safetensors"))
+
+
+def register_engine_spec(spec: EngineSpec) -> bool:
+    """Register an authoritative engine spec at startup (YAML campaign S2).
+
+    Idempotent when an existing entry agrees exactly (same ``to_api_dict``);
+    any disagreement REFUSES rather than overwriting — generated engines are
+    never passed here, their equality is enforced by startup drift checks.
+    Returns True when the registry grew.
+    """
+    existing = ENGINE_REGISTRY.get(spec.id)
+    if existing is not None:
+        if existing.to_api_dict() == spec.to_api_dict():
+            return False
+        raise RuntimeError(
+            f"Engine spec conflict for {spec.id!r}: authoritative definition "
+            "disagrees with the existing registry entry"
+        )
+    ENGINE_REGISTRY[spec.id] = spec
+    _refresh_derived_engine_id_sets()
+    return True
 
 
 def get_engine_spec(engine_id: Optional[str]) -> Optional[EngineSpec]:
@@ -263,6 +96,53 @@ def get_engine_spec(engine_id: Optional[str]) -> Optional[EngineSpec]:
 
 def engine_specs() -> Iterable[EngineSpec]:
     return ENGINE_REGISTRY.values()
+
+
+def engine_ids_with_install_kind(kind: str) -> Tuple[str, ...]:
+    """Engine ids whose declared ``install_kind`` matches (registry-derived).
+
+    Replaces hardcoded per-family id tuples (venv retry/orphan discovery, cmake
+    build-editability): the capability follows the declaration, so a YAML engine
+    that declares the same install kind gets the same behavior with no code edit.
+    """
+    return tuple(
+        sorted(
+            engine_id
+            for engine_id, spec in ENGINE_REGISTRY.items()
+            if spec.install_kind == str(kind)
+        )
+    )
+
+
+def native_source_engine_ids() -> Tuple[str, ...]:
+    """Native source-build engines: ``install_kind=cmake`` + ``runtime_kind=
+    llama_server`` (R105).
+
+    Replaces the ``("llama_cpp", "ik_llama")`` tuples in the llama-versions
+    routes: audio.cpp is cmake but runtime ``audio_cpp``; unsloth is prebuilt.
+    """
+    return tuple(
+        sorted(
+            engine_id
+            for engine_id, spec in ENGINE_REGISTRY.items()
+            if spec.install_kind == "cmake" and spec.runtime_kind == "llama_server"
+        )
+    )
+
+
+def llama_server_engine_ids() -> Tuple[str, ...]:
+    """Every engine whose runtime is ``llama_server`` (R106).
+
+    This is the llama-family scan/help family: llama.cpp, ik_llama and the
+    prebuilt unsloth build. audio.cpp has its own runtime and is excluded.
+    """
+    return tuple(
+        sorted(
+            engine_id
+            for engine_id, spec in ENGINE_REGISTRY.items()
+            if spec.runtime_kind == "llama_server"
+        )
+    )
 
 
 def engine_registry_payload() -> Dict[str, Any]:
@@ -288,3 +168,45 @@ def active_engine_row_is_runnable(engine_id: str, row: Optional[dict]) -> bool:
     if status and status != "ready":
         return False
     return all(bool(row.get(field)) for field in required_active_path_fields(engine_id, row))
+
+
+# ---------------------------------------------------------------------------
+# Definition-owned engines: YAML is the source of truth
+# ---------------------------------------------------------------------------
+# An engine whose definition is CONVERTED (hand-authored, not exported from the
+# literal map above) is validated and loaded here, at import, into the SAME
+# typed registry. That keeps every import-time consumer (valid-id sets, model
+# compatibility, launch/discovery dispatch, API descriptors) identical for
+# converted and generated engines, so a YAML edit changes production behavior
+# with no Python edit and no regeneration step.
+#
+# Fixture definitions (``fixture_only``) are deliberately NOT registered here:
+# the startup gate accepts them exactly as before, keeping the process-wide
+# registry identical to production for the harnesses that opt in.
+DEFINITION_ENGINE_IDS: Set[str] = set()
+
+
+def _bootstrap_definition_engines() -> None:
+    from backend.engines.definitions.loader import load_default_engine_definitions
+
+    try:
+        registry = load_default_engine_definitions()
+    except Exception as exc:  # DefinitionError and friends
+        raise RuntimeError(
+            f"Engine definitions invalid; refusing to build the engine registry: {exc}"
+        ) from exc
+    for engine_id, definition in sorted(registry.definitions.items()):
+        if definition.fixture_only or engine_id in ENGINE_REGISTRY:
+            continue
+        ENGINE_REGISTRY[engine_id] = definition.to_spec()
+        DEFINITION_ENGINE_IDS.add(engine_id)
+    if DEFINITION_ENGINE_IDS:
+        _refresh_derived_engine_id_sets()
+
+
+_bootstrap_definition_engines()
+
+# Every production engine the application ships (generated + definition-owned),
+# captured after the bootstrap. Import-time consumers that mean "the shipped
+# engines" (rather than "the exporter-generated tier") should use this.
+SHIPPED_ENGINE_IDS: FrozenSet[str] = frozenset(ENGINE_REGISTRY)

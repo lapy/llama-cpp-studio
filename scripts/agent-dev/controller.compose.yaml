@@ -1,0 +1,46 @@
+# Containerized devcontrol host. This is a separate Compose project from the
+# application development stack it manages.
+#
+#   docker compose --env-file /srv/llama-cpp-studio-dev/controller.env \
+#     -f /srv/llama-cpp-studio-dev/repo/scripts/agent-dev/controller.compose.yaml \
+#     up -d --build
+#
+# The host root is mounted at the same path inside the controller. Nested
+# Compose binds are resolved by the host Docker daemon, so a path rewritten to
+# /workspace would point at nothing on the host.
+name: ${STUDIO_DEVCONTROL_PROJECT:-llama-cpp-studio-devcontrol}
+
+services:
+  devcontrol:
+    build:
+      context: .
+      dockerfile: controller.Dockerfile
+      args:
+        DOCKER_VERSION: ${STUDIO_DOCKER_VERSION:-27.5.1}
+        COMPOSE_VERSION: ${STUDIO_COMPOSE_VERSION:-2.32.4}
+    image: ${STUDIO_DEVCONTROL_IMAGE:-llama-cpp-studio:devcontrol}
+    container_name: studio-devcontrol
+    restart: unless-stopped
+    user: "0:0"
+    # The app stack publishes its ports on host loopback. Host networking lets
+    # devcontrol's health/log checks reach them as 127.0.0.1:<port>.
+    network_mode: host
+    # Start at the mounted root so the container can start before the checkout
+    # exists. PYTHONPATH points at the checkout once it is cloned.
+    working_dir: ${STUDIO_DEV_ROOT:-/srv/llama-cpp-studio-dev}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${STUDIO_DEV_ROOT:-/srv/llama-cpp-studio-dev}:${STUDIO_DEV_ROOT:-/srv/llama-cpp-studio-dev}
+      - ${STUDIO_SHARED_MODELS:-/srv/llama-cpp-studio-models}:${STUDIO_SHARED_MODELS:-/srv/llama-cpp-studio-models}:ro
+    environment:
+      DEV_CONTROL_HOME: ${STUDIO_DEV_ROOT:-/srv/llama-cpp-studio-dev}/state
+      DEV_REPO: ${STUDIO_DEV_ROOT:-/srv/llama-cpp-studio-dev}/repo
+      DEV_DATA: ${STUDIO_DEV_ROOT:-/srv/llama-cpp-studio-dev}/data
+      DEV_WORKTREES: ${STUDIO_DEV_ROOT:-/srv/llama-cpp-studio-dev}/worktrees
+      DEV_SHARED_MODELS: ${STUDIO_SHARED_MODELS:-/srv/llama-cpp-studio-models}
+      DEV_UID: ${STUDIO_DEV_UID:-99}
+      DEV_GID: ${STUDIO_DEV_GID:-100}
+      DEV_COMPOSE_PROJECT: ${STUDIO_DEV_COMPOSE_PROJECT:-llama-cpp-studio-dev}
+      PYTHONPATH: ${STUDIO_DEV_ROOT:-/srv/llama-cpp-studio-dev}/repo
+      VITE_PRIMEUI_LICENSE: ${VITE_PRIMEUI_LICENSE:-}
+    command: ["sleep", "infinity"]

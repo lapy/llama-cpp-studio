@@ -1,0 +1,161 @@
+# AUTHORITATIVE engine definition (hand-authored; NOT exported).
+#
+# Unsloth llama.cpp is a prebuilt GGUF runtime. Identity, the release/archive
+# recipe and the catalogue policy live here; the host-aware asset selection and
+# safe extraction mechanism stays Python (it computes from the host and the
+# published assets, which is code, not per-engine data). Launch remains the
+# native GGUF compiler by decision (recorded departure).
+schema_version: 2
+id: unsloth_llama
+extends:
+- text_generation_tasks
+- gguf_llama_server
+label: Unsloth llama.cpp
+repository_source: Unsloth llama.cpp
+install_kind: prebuilt
+discovery:
+  # Native invocation/LD-path resolution is a shared llama-family mechanism.
+  mode: adapter
+recipes:
+  release:
+  - id: resolve_release
+    uses: prereqs.resolve_release_assets
+    requires:
+    - input.tag_name
+    produces:
+    - resolution
+    - current
+    - install_dir
+    - checksum_path
+    - checksum_url
+    - archive_path
+    - archive_url
+    - archive_download_label
+  - id: clear_dir
+    uses: fs.remove_tree
+    requires:
+    - install_dir
+    with:
+      path_from: install_dir
+  - id: ensure_dir
+    uses: fs.ensure_dir
+    requires:
+    - install_dir
+  - id: fetch_checksum
+    uses: archive.download
+    requires:
+    - checksum_url
+    - checksum_path
+    with:
+      url_from: checksum_url
+      path_from: checksum_path
+      progress: 20
+      progress_message: Downloading checksum manifest
+  - id: read_checksum
+    uses: artifact.read_checksum
+    requires:
+    - resolution
+    - checksum_path
+    produces:
+    - expected_sha256
+  - id: download_archive
+    uses: archive.download
+    requires:
+    - archive_url
+    - archive_path
+    - archive_download_label
+    with:
+      url_from: archive_url
+      path_from: archive_path
+      progress: 40
+      progress_message_from: archive_download_label
+  - id: verify_archive
+    uses: archive.verify_sha256
+    requires:
+    - archive_path
+    - expected_sha256
+    with:
+      path_from: archive_path
+      expected_from: expected_sha256
+      progress: 72
+      progress_message: Verifying archive checksum
+  - id: extract_archive
+    uses: archive.extract_tar
+    requires:
+    - archive_path
+    - install_dir
+    with:
+      archive_from: archive_path
+      dest_from: install_dir
+      delete_after: true
+      progress: 82
+      progress_message: Extracting llama-server
+  - id: locate_binary
+    uses: artifact.locate
+    requires:
+    - install_dir
+    with:
+      root_from: install_dir
+      filename: llama-server
+      chmod: '0755'
+      error: llama-server was not found in the Unsloth archive
+    produces:
+    - binary
+  - id: publish_install
+    uses: publish.install
+    requires:
+    - resolution
+    - binary
+    - current
+    - install_dir
+    with:
+      binary_path_from: binary
+  remove_version:
+  - id: remove_install_dir
+    uses: fs.remove_tree
+    requires:
+    - input.delete_target
+    - input.retire_references
+    with:
+      path_from: input.delete_target
+      retire_references_from: input.retire_references
+  - id: remove_binary_file
+    uses: fs.remove_file
+    requires:
+    - input.file_target
+    - input.retire_references
+    when:
+      exists:
+        field: input.file_target
+    with:
+      path_from: input.file_target
+      release_hold_from: input.retire_references
+      optional: true
+  - id: forget_row
+    uses: publish.forget
+    requires:
+    - input.registered
+    - input.version_name
+release_assets:
+  repository: unslothai/llama.cpp
+  repository_url: https://github.com/unslothai/llama.cpp.git
+  manifest_asset: llama-prebuilt-manifest.json
+  checksum_asset: llama-prebuilt-sha256.json
+  max_walkback: 8
+runtime_profiles:
+  default:
+    default: true
+    description: llama-server GGUF (native family)
+    launch_family: gguf_llama_server
+    port_binding:
+      flag: --port
+launch_policy:
+  runtime_context_key: ctx_size
+  capcompat: true
+catalog:
+  providers:
+  - huggingface
+upstream:
+  repository_url: https://github.com/unslothai/llama.cpp.git
+data_dirs:
+- unsloth-llama

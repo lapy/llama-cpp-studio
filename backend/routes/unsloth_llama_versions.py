@@ -10,6 +10,7 @@ from backend.engines.unsloth_llama.installer import (
     get_unsloth_llama_manager,
 )
 from backend.engines.unsloth_llama.prebuilt import is_behind
+from backend.routes.engine_versions import LIFECYCLE, EngineLifecycle
 
 
 router = APIRouter()
@@ -64,3 +65,20 @@ async def cancel(payload: dict = Body(...)) -> Dict[str, Any]:
     if not task_id:
         raise HTTPException(status_code=400, detail="task_id is required")
     return get_unsloth_llama_manager().cancel_task(str(task_id))
+
+
+# ── Generic lifecycle registry (Unsloth llama.cpp) ────────────────────
+# Unsloth ships release installs only: no build-settings dialog, no source
+# build, no per-engine status (versions ride the shared version list), and
+# deletion is version-scoped. Those verbs answer 405 on the generic
+# surface; the three implemented ones delegate to the route functions
+# above so both surfaces are identical by construction.
+LIFECYCLE[ENGINE_ID] = EngineLifecycle(
+    engine_id=ENGINE_ID,
+    url_prefix="/api/unsloth-llama",
+    verbs={
+        "check_updates": lambda: check_updates(),
+        "install": lambda request: install(request),
+        "cancel": lambda payload: cancel(payload),
+    },
+)

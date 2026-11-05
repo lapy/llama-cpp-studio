@@ -6,18 +6,16 @@ import re
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
-# Canonical upstream remotes (owner is what defines “not a fork”).
-CANONICAL_REPOSITORY_URLS: Dict[str, str] = {
-    "llama_cpp": "https://github.com/ggerganov/llama.cpp.git",
-    "ik_llama": "https://github.com/ikawrakow/ik_llama.cpp.git",
-    "unsloth_llama": "https://github.com/unslothai/llama.cpp.git",
-    "audio_cpp": "https://github.com/0xShug0/audio.cpp.git",
-    "lmdeploy": "https://github.com/InternLM/lmdeploy.git",
-    "1cat_vllm": "https://github.com/1CatAI/1Cat-vLLM.git",
-    "sglang": "https://github.com/sgl-project/sglang.git",
-    "sglang_v100": "https://github.com/haohervchb/sglang-V100.git",
-    "vllm": "https://github.com/vllm-project/vllm.git",
-}
+
+def canonical_repository_url(engine_id: str) -> str:
+    """The canonical upstream URL the engine's spec declares ("" when none)."""
+    from backend.engines.registry import get_engine_spec
+
+    spec = get_engine_spec(str(engine_id or ""))
+    if spec is None:
+        return ""
+    return str(dict(spec.upstream).get("repository_url") or "")
+
 
 _GITHUB_SSH = re.compile(
     r"^git@github\.com:(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?$",
@@ -79,7 +77,7 @@ def is_github_fork(repository_url: str, canonical_url: str) -> bool:
 
 
 def is_github_fork_for_engine(engine_id: str, repository_url: str) -> bool:
-    canonical = CANONICAL_REPOSITORY_URLS.get(str(engine_id or ""))
+    canonical = canonical_repository_url(engine_id)
     if not canonical:
         return False
     return is_github_fork(repository_url, canonical)
@@ -117,5 +115,5 @@ def source_build_type_labels_for_engine(
     *,
     patches: bool = False,
 ) -> Dict[str, Any]:
-    canonical = CANONICAL_REPOSITORY_URLS.get(str(engine_id or ""), "")
+    canonical = canonical_repository_url(engine_id)
     return source_build_type_labels(repository_url, canonical, patches=patches)

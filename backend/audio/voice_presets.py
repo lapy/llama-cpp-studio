@@ -213,11 +213,7 @@ def resolve_session_voice_default(
         if voice_ref:
             inline["voice_ref"] = str(voice_ref)
         return inline
-    usable = [
-        name
-        for name, preset in presets.items()
-        if _preset_has_session_voice(preset)
-    ]
+    usable = [name for name, preset in presets.items() if _preset_has_session_voice(preset)]
     if len(usable) == 1:
         return usable[0]
     return None
@@ -395,7 +391,9 @@ def audio_request_defaults_to_request_params(
 
     Studio proxy injects these into JSON request bodies before they reach audio.cpp.
     """
-    if str(config.get("engine") or "") != "audio_cpp":
+    from backend.engines.audio_cpp.identity import is_audio_engine_id
+
+    if not is_audio_engine_id(str(config.get("engine") or "")):
         return {}
     from backend.audio.request_defaults import normalize_request_defaults
     from backend.audio.task_profiles import request_defaults_key_for
@@ -419,44 +417,27 @@ def audio_request_defaults_to_request_params(
 def normalize_speech_defaults(value: Any) -> Dict[str, Any]:
     if not isinstance(value, dict):
         return {}
+    from backend.engines.audio_cpp.request_vocab import request_defaults_vocab
+
+    vocab = request_defaults_vocab("speech")
+    bool_keys = set(vocab.get("bool_keys") or ())
+    int_keys = set(vocab.get("int_keys") or ())
+    float_keys = set(vocab.get("float_keys") or ())
     out: Dict[str, Any] = {}
-    for key in (
-        "voice",
-        "voice_id",
-        "voice_ref",
-        "reference_text",
-        "instructions",
-        "language",
-        "seed",
-        "temperature",
-        "top_p",
-        "top_k",
-        "max_tokens",
-        "guidance_scale",
-        "num_inference_steps",
-        "repetition_penalty",
-        "stream",
-        "stream_format",
-        "return_text",
-    ):
+    for key in vocab.get("keys") or ():
         if key not in value:
             continue
         raw = value.get(key)
         if raw is None or raw == "":
             continue
-        if key in {"stream", "return_text"}:
+        if key in bool_keys:
             out[key] = bool(raw)
-        elif key in {"seed", "top_k", "max_tokens", "num_inference_steps"}:
+        elif key in int_keys:
             try:
                 out[key] = int(raw)
             except (TypeError, ValueError):
                 continue
-        elif key in {
-            "temperature",
-            "top_p",
-            "guidance_scale",
-            "repetition_penalty",
-        }:
+        elif key in float_keys:
             try:
                 out[key] = float(raw)
             except (TypeError, ValueError):
@@ -527,9 +508,7 @@ def validate_voice_presets(
     for name, preset in presets.items():
         raw_preset = raw_presets.get(name)
         raw_voice_ref = (
-            raw_preset.get("voice_ref")
-            if isinstance(raw_preset, dict)
-            else preset.get("voice_ref")
+            raw_preset.get("voice_ref") if isinstance(raw_preset, dict) else preset.get("voice_ref")
         )
         _validate_voice_ref_path(
             label=f"voice_presets.{name}.voice_ref",

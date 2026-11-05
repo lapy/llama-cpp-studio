@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+
+# Self-contained image defaults. The image has no Docker socket and no host
+# user; everything below lives in this container.
+export DEV_RUNTIME=local
+export DEV_CONTROL_HOME=/state
+export DEV_REPO=/workspace/repo
+export DEV_DATA=/data
+export DEV_WORKTREES=/workspace/worktrees
+export DEV_BACKEND_PORT=8081
+export DEV_FRONTEND_PORT=5173
+export DEV_PROXY_PORT=2000
+export DEV_SHARED_MODELS=/models
+export DEV_UID=1002
+export DEV_GID=1002
+export HOME=/workspace
+export PATH=/opt/venv/bin:/usr/local/bin:/usr/bin:/bin
+
+cd /workspace/active || exit 1
+exec /opt/venv/bin/python -m devcontrol "$@"

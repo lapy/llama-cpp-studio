@@ -6,10 +6,20 @@ import os
 import time
 import re
 from datetime import datetime
+from types import SimpleNamespace
 
 from backend.data_store import get_store
+from backend.routes.engine_versions import LIFECYCLE, EngineLifecycle
+from backend.engines.adapters import get_native_installer
+from backend.engines.definitions import (
+    execute_plan,
+    load_default_engine_definitions,
+    make_engine_runner,
+    materialize_plan,
+)
+from backend.engines.definitions.executor import EXECUTION_COMPLETED
 from backend.models.config import collect_engine_model_references
-from backend.engines.registry import VALID_ENGINE_IDS
+from backend.engines.registry import ENGINE_REGISTRY, VALID_ENGINE_IDS
 from backend.engines.llama_cpp.manager import LlamaManager, BuildConfig
 from backend.engines.llama_cpp.build_options import (
     catalog_for_ui,
@@ -43,7 +53,6 @@ from backend.utils.fs_ops import (
     FilesystemRefusal,
     launch_hold_detail,
     release_launch_hold,
-    robust_rmtree,
     running_model_ids,
 )
 from backend.engines.lifecycle import (
@@ -54,7 +63,6 @@ from backend.engines.lifecycle import (
     find_disk_version,
     mark_engine_version_building,
     mark_engine_version_failed,
-    mark_engine_version_ready,
     normalize_engine_version_status,
     repair_stale_building_versions,
     resolve_install_dir,
@@ -66,9 +74,7 @@ logger = get_logger(__name__)
 
 _BUILD_CONFIG_FIELD_NAMES = {f.name for f in fields(BuildConfig)}
 _COMMIT_REF_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
-_LIKELY_RELEASE_TAG_RE = re.compile(
-    r"^(?:v?\d+(?:\.\d+){1,}(?:[-+][0-9A-Za-z._-]+)?|b\d+)$"
-)
+_LIKELY_RELEASE_TAG_RE = re.compile(r"^(?:v?\d+(?:\.\d+){1,}(?:[-+][0-9A-Za-z._-]+)?|b\d+)$")
 
 
 def _utcnow() -> str:
@@ -97,11 +103,11 @@ def _infer_source_ref_type(source_ref: str, explicit: Optional[str] = None) -> s
 
 def _is_syncable_source_install(version_entry: dict) -> bool:
     """Source / fork / patched git installs can be branch-synced."""
-    install_type = str(
-        (version_entry or {}).get("install_type")
-        or (version_entry or {}).get("type")
-        or ""
-    ).strip().lower()
+    install_type = (
+        str((version_entry or {}).get("install_type") or (version_entry or {}).get("type") or "")
+        .strip()
+        .lower()
+    )
     return install_type in {"source", "fork", "patched", "local"}
 
 
@@ -198,9 +204,7 @@ async def list_llama_versions():
     """List installed versions for every registered runtime engine."""
     store = get_store()
     try:
-        repair_stale_building_versions(
-            store, get_task=get_progress_manager().get_task
-        )
+        repair_stale_building_versions(store, get_task=get_progress_manager().get_task)
     except Exception as exc:
         logger.debug("Stale building-version repair skipped: %s", exc)
     result = []
@@ -212,9 +216,7 @@ async def list_llama_versions():
         active = store.get_active_engine_version(engine)
         active_version = active.get("version") if active else None
         for v in store.get_engine_versions(engine):
-            result.append(
-                _serialize_listed_version(engine, v, repo_label, active_version)
-            )
+            result.append(_serialize_listed_version(engine, v, repo_label, active_version))
     for engine, repo_label, default_inst in [
         ("lmdeploy", "LMDeploy", "pip"),
         ("1cat_vllm", "1Cat-vLLM", "release"),
@@ -246,13 +248,50 @@ async def list_llama_versions():
                     if annotated.get("type") in {"fork", "patched", "source"}
                     else annotated.get("type", "source")
                 ),
-                "is_fork": bool(annotated.get("is_fork"))
-                or annotated.get("type") == "fork",
+                "is_fork": bool(annotated.get("is_fork")) or annotated.get("type") == "fork",
                 "is_active": annotated.get("version") == active_audio_version,
                 "repository_source": "audio.cpp",
                 "cmake_editable": True,
             }
         )
+    # Definition-registered engines beyond the hardcoded set above (YAML-only
+    # engines) must surface their installed versions too; otherwise the frontend
+    # cards show nothing after a successful install.
+    handled_engines = {
+        "llama_cpp",
+        "ik_llama",
+        "unsloth_llama",
+        "lmdeploy",
+        "1cat_vllm",
+        "sglang",
+        "sglang_v100",
+        "vllm",
+        "audio_cpp",
+    }
+    definitions = load_default_engine_definitions()
+    for engine_id in sorted(definitions.ids()):
+        if engine_id in handled_engines:
+            continue
+        definition = definitions.get(engine_id)
+        rows = store.get_engine_versions(engine_id)
+        if not rows:
+            continue
+        active_row = store.get_active_engine_version(engine_id)
+        active_version = active_row.get("version") if active_row else None
+        for row in rows:
+            annotated = annotate_version_row(engine_id, row)
+            result.append(
+                {
+                    **annotated,
+                    "id": f"{engine_id}:{annotated.get('version')}",
+                    "version": annotated.get("version"),
+                    "type": annotated.get("type", "pip"),
+                    "install_type": annotated.get("install_type") or annotated.get("type", "pip"),
+                    "is_active": annotated.get("version") == active_version,
+                    "repository_source": definition.repository_source,
+                }
+            )
+
     registered_ids = {row.get("id") for row in result}
     for orphan in collect_orphan_engine_rows(store):
         engine = str(orphan.get("engine") or "").strip()
@@ -273,7 +312,11 @@ async def list_llama_versions():
     return result
 
 
-_CMAKE_BUILD_ENGINES = frozenset({"llama_cpp", "ik_llama", "audio_cpp"})
+def _cmake_build_engines() -> frozenset:
+    """Engines whose spec declares a cmake build (R74: declaration, not ids)."""
+    from backend.engines.registry import engine_ids_with_install_kind
+
+    return frozenset(engine_ids_with_install_kind("cmake"))
 
 
 def _status_fields(engine: str, row: dict) -> dict:
@@ -285,7 +328,7 @@ def _status_fields(engine: str, row: dict) -> dict:
         "retryable": annotated.get("retryable"),
         "install_dir": annotated.get("install_dir"),
         "orphan": orphan,
-        "cmake_editable": engine in _CMAKE_BUILD_ENGINES and not orphan,
+        "cmake_editable": engine in _cmake_build_engines() and not orphan,
     }
 
 
@@ -293,7 +336,7 @@ def _listed_cmake_config(engine: str, raw) -> Optional[dict]:
     """Return UI-shaped cmake settings for listed llama/ik versions."""
     if not isinstance(raw, dict):
         return raw
-    if engine not in ("llama_cpp", "ik_llama"):
+    if not _is_native_source_engine(engine):
         return raw
     settings = stored_config_to_settings(raw)
     settings = _apply_engine_specific_build_defaults(engine, settings)
@@ -342,9 +385,7 @@ def _serialize_listed_venv_version(
 ) -> dict:
     version_str = v.get("version")
     display_type = v.get("type") or v.get("install_type") or default_inst
-    install_type = v.get("install_type") or (
-        "source" if display_type == "fork" else display_type
-    )
+    install_type = v.get("install_type") or ("source" if display_type == "fork" else display_type)
     return {
         "id": f"{engine}:{version_str}",
         "version": version_str,
@@ -394,16 +435,12 @@ def _build_config_from_any(config: Optional[dict]) -> BuildConfig:
     return _build_config_from_settings(config)
 
 
-def _build_config_for_source_sync(
-    engine: str, version_entry: dict, store
-) -> BuildConfig:
+def _build_config_for_source_sync(engine: str, version_entry: dict, store) -> BuildConfig:
     raw = (version_entry or {}).get("build_config")
     if isinstance(raw, dict):
         config = _build_config_from_any(raw)
     else:
-        config = _build_config_from_settings(
-            store.get_engine_build_settings(engine) or {}
-        )
+        config = _build_config_from_settings(store.get_engine_build_settings(engine) or {})
     if engine == "ik_llama":
         config.build_examples = True
     return config
@@ -416,29 +453,77 @@ def _source_ref_slug(source_ref: str) -> str:
     return value[:32] or "source"
 
 
-def _resolve_engine_build_target(engine: str) -> tuple[str, str]:
-    if engine == "ik_llama":
-        repository_source = "ik_llama.cpp"
-    elif engine == "llama_cpp":
-        repository_source = "llama.cpp"
-    else:
-        raise HTTPException(
-            status_code=400, detail="engine must be 'llama_cpp' or 'ik_llama'"
-        )
+def _spec_repository_source(engine: str) -> str:
+    """The engine's declared ``repository_source`` display name (R96)."""
+    from backend.engines.registry import get_engine_spec
 
-    repository_url = llama_manager.REPOSITORY_SOURCES.get(repository_source)
+    spec = get_engine_spec(str(engine or ""))
+    return str(spec.repository_source) if spec is not None else ""
+
+
+def _is_native_source_engine(engine: str) -> bool:
+    """R105: the native source-build family declared on the specs.
+
+    Replaces the ``("llama_cpp", "ik_llama")`` tuples: audio.cpp is cmake but its
+    runtime is ``audio_cpp``, unsloth is prebuilt - the declaration decides.
+    """
+    from backend.engines.registry import native_source_engine_ids
+
+    return str(engine or "") in native_source_engine_ids()
+
+
+def _declared_source_repo(engine: str, repository_source: str = "") -> str:
+    """Upstream URL declared by the engine behind a ``repository_source`` name.
+
+    R96: the display name → URL mapping is DECLARED on the spec
+    (``repository_source`` + ``upstream.repository_url``); the manager's
+    ``REPOSITORY_SOURCES`` table is no longer consulted here. An empty result
+    means the name does not belong to this engine (callers keep their 400s).
+    """
+    from backend.engines.registry import get_engine_spec
+
+    spec = get_engine_spec(str(engine or ""))
+    if spec is None:
+        return ""
+    name = str(repository_source or "").strip()
+    if name and spec.repository_source != name:
+        return ""
+    return str(dict(spec.upstream).get("repository_url") or "")
+
+
+def _resolve_engine_build_target(engine: str) -> tuple[str, str]:
+    """Repository identity for a native source build (R93: declared data).
+
+    Native llma-family engines are the ones declaring ``install_kind: cmake``
+    and ``runtime_kind: llama_server``; their ``repository_source`` and upstream
+    URL come from the spec (``upstream.repository_url``), never from an id map.
+    """
+    from backend.engines.registry import get_engine_spec
+
+    spec = get_engine_spec(str(engine or ""))
+    if spec is None or spec.install_kind != "cmake" or spec.runtime_kind != "llama_server":
+        raise HTTPException(status_code=400, detail="engine must be 'llama_cpp' or 'ik_llama'")
+
+    repository_url = str(dict(spec.upstream).get("repository_url") or "")
     if not repository_url:
         raise HTTPException(
-            status_code=400, detail=f"Unknown repository source: {repository_source}"
+            status_code=400, detail=f"Unknown repository source: {spec.repository_source}"
         )
-    return repository_source, repository_url
+    return spec.repository_source, repository_url
 
 
 def _apply_engine_specific_build_defaults(engine: str, settings: dict) -> dict:
-    """Apply engine-specific build defaults. ik_llama.cpp requires LLAMA_BUILD_EXAMPLES=ON (server in examples)."""
+    """Layer the engine's DECLARED build defaults over the catalog defaults.
+
+    R92: the ik_llama ``build_examples`` requirement is engine data
+    (``EngineSpec.build_defaults``), not an id branch here.
+    """
+    from backend.engines.registry import get_engine_spec
+
     out = dict(settings)
-    if engine == "ik_llama":
-        out["build_examples"] = True
+    spec = get_engine_spec(str(engine or ""))
+    declared = dict(spec.build_defaults) if spec is not None else {}
+    out.update(declared)
     return out
 
 
@@ -454,11 +539,7 @@ _BUILD_META_KEYS = frozenset({"tracking_ref", "repository_url"})
 def _peel_build_meta(settings: Optional[dict]) -> tuple[dict, dict]:
     """Split cmake option keys from tracking/repo meta fields."""
     raw = settings if isinstance(settings, dict) else {}
-    meta = {
-        key: str(raw.get(key) or "").strip()
-        for key in _BUILD_META_KEYS
-        if key in raw
-    }
+    meta = {key: str(raw.get(key) or "").strip() for key in _BUILD_META_KEYS if key in raw}
     cmake = {k: v for k, v in raw.items() if k not in _BUILD_META_KEYS}
     return cmake, meta
 
@@ -478,10 +559,8 @@ def _attach_build_meta(payload: dict, stored: Optional[dict]) -> dict:
 @router.get("/build-settings")
 async def get_build_settings(engine: str = "llama_cpp"):
     """Get persisted build settings for an engine ('llama_cpp' or 'ik_llama')."""
-    if engine not in ("llama_cpp", "ik_llama"):
-        raise HTTPException(
-            status_code=400, detail="engine must be 'llama_cpp' or 'ik_llama'"
-        )
+    if not _is_native_source_engine(engine):
+        raise HTTPException(status_code=400, detail="engine must be 'llama_cpp' or 'ik_llama'")
     store = get_store()
     settings = store.get_engine_build_settings(engine) or {}
     cmake, _meta = _peel_build_meta(settings)
@@ -495,10 +574,8 @@ async def get_build_settings(engine: str = "llama_cpp"):
 @router.put("/build-settings")
 async def update_build_settings(engine: str = "llama_cpp", settings: dict = Body(...)):
     """Persist build settings for an engine ('llama_cpp' or 'ik_llama')."""
-    if engine not in ("llama_cpp", "ik_llama"):
-        raise HTTPException(
-            status_code=400, detail="engine must be 'llama_cpp' or 'ik_llama'"
-        )
+    if not _is_native_source_engine(engine):
+        raise HTTPException(status_code=400, detail="engine must be 'llama_cpp' or 'ik_llama'")
     if not isinstance(settings, dict):
         raise HTTPException(status_code=400, detail="settings must be an object")
     store = get_store()
@@ -569,6 +646,12 @@ def _upstream_http_error(exc: UpstreamRequestError) -> HTTPException:
 @router.get("/check-updates", response_model=UpdateCheckResponse)
 async def check_updates(source: str | None = None):
     """Check upstream versions: llama.cpp = stable ``vX.Y.Z`` plus default-branch tip; ik_llama.cpp = ``main`` tip only."""
+    return await check_updates_surface(source)
+
+
+async def check_updates_surface(source: str | None = None) -> dict:
+    """Body of the check-updates route, shared with the native lifecycle
+    override so both router surfaces run the SAME implementation."""
     try:
         return await check_engine_updates(source)
     except UpstreamRequestError as exc:
@@ -614,9 +697,7 @@ async def build_source(request: dict):
 
         if not commit_sha:
             raise HTTPException(status_code=400, detail="commit_sha is required")
-        source_ref_type = _infer_source_ref_type(
-            commit_sha, request.get("source_ref_type")
-        )
+        source_ref_type = _infer_source_ref_type(commit_sha, request.get("source_ref_type"))
 
         if repository_source == "ik_llama.cpp":
             _, repository_url = _resolve_engine_build_target("ik_llama")
@@ -680,22 +761,6 @@ async def cuda_cancel(payload: dict = Body(...)):
     return get_cuda_installer().cancel_task(str(task_id))
 
 
-async def _llama_checkout_commit(version_name: str) -> Optional[str]:
-    clone_dir = os.path.join(llama_manager.llama_dir, version_name, "llama.cpp")
-    if not os.path.isdir(clone_dir):
-        return None
-    try:
-        proc = await llama_manager._run_command(
-            "git", "rev-parse", "HEAD", cwd=clone_dir, timeout=15
-        )
-        if proc.returncode != 0:
-            return None
-        return (proc.stdout or b"").decode("utf-8", errors="replace").strip() or None
-    except Exception as exc:
-        logger.debug("Could not read source commit for %s: %s", version_name, exc)
-        return None
-
-
 @router.post("/versions/sync")
 async def sync_version_body(payload: dict = Body(...)):
     """Sync a branch-based source install in-place and rebuild incrementally."""
@@ -715,16 +780,15 @@ async def sync_version_body(payload: dict = Body(...)):
             detail="Only source installs that track a branch can be synced.",
         )
 
-    if engine in ("llama_cpp", "ik_llama"):
-        repository_source = (
-            version_entry.get("repository_source")
-            or ("ik_llama.cpp" if engine == "ik_llama" else "llama.cpp")
+    if _is_native_source_engine(engine):
+        repository_source = str(
+            version_entry.get("repository_source") or _spec_repository_source(engine) or ""
         )
-        if repository_source not in ("llama.cpp", "ik_llama.cpp"):
+        repository_url = str(
+            version_entry.get("source_repo") or _declared_source_repo(engine, repository_source)
+        ).strip()
+        if not repository_url:
             raise HTTPException(status_code=400, detail="Unsupported source engine")
-        repository_url = version_entry.get("source_repo") or llama_manager.REPOSITORY_SOURCES[
-            repository_source
-        ]
         build_config = _build_config_for_source_sync(engine, version_entry, store)
         bind_action_confirmation(payload)
         return await _schedule_source_sync(
@@ -791,7 +855,7 @@ async def update_version_build_config(payload: dict = Body(...)):
     version_entry, engine = _find_version_entry(store, str(version_id))
     if not version_entry or not engine:
         raise HTTPException(status_code=404, detail="Version not found")
-    if engine not in _CMAKE_BUILD_ENGINES:
+    if engine not in _cmake_build_engines():
         raise HTTPException(
             status_code=400,
             detail="This engine does not store a per-build CMake config",
@@ -801,7 +865,7 @@ async def update_version_build_config(payload: dict = Body(...)):
     if not version_name:
         raise HTTPException(status_code=400, detail="Version is missing a name")
 
-    if engine in ("llama_cpp", "ik_llama"):
+    if _is_native_source_engine(engine):
         cmake_in, _meta = _peel_build_meta(raw_config)
         settings = stored_config_to_settings(cmake_in)
         settings = _apply_engine_specific_build_defaults(engine, settings)
@@ -827,9 +891,7 @@ async def update_version_build_config(payload: dict = Body(...)):
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         stored = asdict(config)
 
-    updated = store.update_engine_version(
-        engine, version_name, {"build_config": stored}
-    )
+    updated = store.update_engine_version(engine, version_name, {"build_config": stored})
     if updated is None:
         raise HTTPException(status_code=404, detail="Version not found")
     return {
@@ -864,7 +926,12 @@ async def build_source_task(
         store = get_store()
         engine = "ik_llama" if repository_source == "ik_llama.cpp" else "llama_cpp"
 
-        binary_path = await llama_manager.build_source(
+        # Phase 7: the definition's `source` recipe runs on the native host
+        # (CmakeSourceInstaller owns checkout/configure/build/publication); the
+        # route keeps task/activation/messaging and failure bookkeeping.
+        from backend.engines.python.cmake_source import CmakeSourceInstaller
+
+        await CmakeSourceInstaller(engine, manager=llama_manager).run_source(
             commit_sha,
             patches,
             build_config,
@@ -873,46 +940,18 @@ async def build_source_task(
             repository_url=repository_url,
             version_name=version_name,
             use_workspace=use_workspace,
+            source_ref_type=source_ref_type,
+            repository_source=repository_source,
+            store=store,
+            publish_row=True,
         )
-
-        build_config_dict = None
-        if build_config:
-            build_config_dict = asdict(build_config)
-            build_config_dict["repository_source"] = repository_source
-
-        actual_commit = await _llama_checkout_commit(version_name)
-        source_branch = commit_sha if source_ref_type == "branch" else None
-        type_labels = source_build_type_labels_for_engine(
-            engine,
-            repository_url,
-            patches=bool(patches),
-        )
-        version_data = {
-            "version": version_name,
-            "type": type_labels["type"],
-            "install_type": type_labels["install_type"],
-            "is_fork": type_labels["is_fork"],
-            "binary_path": binary_path,
-            "source_commit": actual_commit or commit_sha,
-            "source_ref": commit_sha,
-            "source_ref_type": source_ref_type,
-            "source_branch": source_branch,
-            "source_repo": repository_url,
-            "build_config": build_config_dict,
-            "repository_source": repository_source,
-            "install_dir": os.path.join(llama_manager.llama_dir, version_name),
-            "installed_at": _utcnow(),
-        }
-        mark_engine_version_ready(store, engine, version_data)
 
         mark_runtime_changed()
 
         if auto_activate:
             try:
                 # Reuse the existing activation flow (includes Studio proxy handling).
-                await _do_activate_version(
-                    f"{engine}:{version_name}", covered_by=task_id
-                )
+                await _do_activate_version(f"{engine}:{version_name}", covered_by=task_id)
             except HTTPException as e:
                 logger.error(
                     "Auto-activation failed for %s:%s: %s",
@@ -921,9 +960,7 @@ async def build_source_task(
                     e.detail,
                 )
             except Exception as e:
-                logger.exception(
-                    "Auto-activation failed for %s:%s: %s", engine, version_name, e
-                )
+                logger.exception("Auto-activation failed for %s:%s: %s", engine, version_name, e)
 
         if progress_manager:
             if task_id:
@@ -1019,7 +1056,12 @@ async def sync_source_build_task(
     )
     try:
         store = get_store()
-        binary_path = await llama_manager.build_source(
+        # Phase 7: the same `source` recipe runs on the native host with the
+        # recorded checkout reused; its `publish.finalize` step merges the
+        # rebuilt row (installed_at preserved, updated_at moved).
+        from backend.engines.python.cmake_source import CmakeSourceInstaller
+
+        await CmakeSourceInstaller(engine, manager=llama_manager).run_source(
             branch,
             [],
             build_config,
@@ -1029,33 +1071,19 @@ async def sync_source_build_task(
             version_name=version_name,
             reuse_existing_checkout=True,
             source_branch=branch,
+            source_ref_type="branch",
+            repository_source=repository_source,
+            store=store,
+            publish_row="update",
         )
-        actual_commit = await _llama_checkout_commit(version_name)
-        build_config_dict = asdict(build_config) if build_config else None
-        if build_config_dict is not None:
-            build_config_dict["repository_source"] = repository_source
-
-        type_labels = source_build_type_labels_for_engine(engine, repository_url)
-        updated = store.update_engine_version(
-            engine,
-            version_name,
-            {
-                "type": type_labels["type"],
-                "install_type": type_labels["install_type"],
-                "is_fork": type_labels["is_fork"],
-                "binary_path": binary_path,
-                "source_commit": actual_commit or branch,
-                "source_ref": branch,
-                "source_ref_type": "branch",
-                "source_branch": branch,
-                "source_repo": repository_url,
-                "build_config": build_config_dict,
-                "repository_source": repository_source,
-                "updated_at": _utcnow(),
-            },
+        updated = next(
+            (
+                item
+                for item in store.get_engine_versions(engine)
+                if str(item.get("version")) == str(version_name)
+            ),
+            None,
         )
-        if not updated:
-            raise RuntimeError(f"Version '{version_name}' disappeared during sync")
 
         try:
             from backend.engines.scan.scanner import scan_engine_version
@@ -1140,11 +1168,7 @@ def _find_version_entry(store, version_id: str):
         eng, version_str = parts[0], parts[1]
         if eng in VALID_ENGINE_IDS:
             version_entry = next(
-                (
-                    v
-                    for v in store.get_engine_versions(eng)
-                    if str(v.get("version")) == version_str
-                ),
+                (v for v in store.get_engine_versions(eng) if str(v.get("version")) == version_str),
                 None,
             )
             if version_entry:
@@ -1213,18 +1237,12 @@ async def _schedule_source_build(
         version_name = f"source-{ref_slug}-{timestamp}"
 
     existing_versions = store.get_engine_versions(engine)
-    existing = next(
-        (v for v in existing_versions if v.get("version") == version_name), None
-    )
+    existing = next((v for v in existing_versions if v.get("version") == version_name), None)
     if existing:
-        raise HTTPException(
-            status_code=400, detail=f"Version '{version_name}' already installed"
-        )
+        raise HTTPException(status_code=400, detail=f"Version '{version_name}' already installed")
 
     task_id = f"build_{version_name}_{int(time.time())}"
-    type_labels = source_build_type_labels_for_engine(
-        engine, repository_url, patches=bool(patches)
-    )
+    type_labels = source_build_type_labels_for_engine(engine, repository_url, patches=bool(patches))
     build_config_dict = asdict(build_config) if build_config else None
     if build_config_dict is not None:
         build_config_dict["repository_source"] = repository_source
@@ -1292,7 +1310,7 @@ async def _schedule_source_build(
             task_id,
             auto_activate=auto_activate,
             source_ref_type=source_ref_type,
-        )
+        ),
     )
     return {
         "message": f"Building from source {ref_slug}",
@@ -1322,24 +1340,23 @@ async def _schedule_source_sync(
     task_id = f"build_sync_{_source_ref_slug(version_name)}_{int(time.time())}"
     pm = get_progress_manager()
     install_dir = str(
-        version_entry.get("install_dir")
-        or os.path.join(llama_manager.llama_dir, version_name)
+        version_entry.get("install_dir") or os.path.join(llama_manager.llama_dir, version_name)
     )
     _guard_build_admission(
         lambda: pm.create_task(
-        "sync_source",
-        f"Sync {repository_source} {branch_slug}",
-        {
-            "version_name": version_name,
-            "engine": engine,
-            "repository_source": repository_source,
-            "source_ref": branch,
-            "source_ref_type": "branch",
-            "sync": True,
-            "resource_key": engine_installation_key(engine, install_dir),
-            "depends_on": CUDA_TOOLKIT_KEY,
-        },
-        task_id=task_id,
+            "sync_source",
+            f"Sync {repository_source} {branch_slug}",
+            {
+                "version_name": version_name,
+                "engine": engine,
+                "repository_source": repository_source,
+                "source_ref": branch,
+                "source_ref_type": "branch",
+                "sync": True,
+                "resource_key": engine_installation_key(engine, install_dir),
+                "depends_on": CUDA_TOOLKIT_KEY,
+            },
+            task_id=task_id,
         )
     )
     await _fence_build(task_id)
@@ -1354,7 +1371,7 @@ async def _schedule_source_sync(
             repository_url=repository_url,
             progress_manager=pm,
             task_id=task_id,
-        )
+        ),
     )
     return {
         "message": f"Syncing {version_name} from {branch}",
@@ -1372,10 +1389,28 @@ async def _schedule_native_rebuild(version_entry: dict, engine: str) -> dict:
     """Rebuild an existing (failed/broken) native version in place."""
     store = get_store()
     version_name = str(version_entry.get("version") or "").strip()
+    # Snapshot-backed retry (shared with the venv host): refuse a changed
+    # definition and prefer the frozen source identity over the live row.
+    from backend.engines.definitions.loader import load_default_engine_definitions
+    from backend.engines.install_snapshots import retry_resolved_inputs
+
+    definition = load_default_engine_definitions().get(engine)
+    try:
+        frozen = retry_resolved_inputs(
+            store,
+            engine,
+            version_name,
+            current_digest=str(getattr(definition, "definition_digest", "") or ""),
+            label=str(getattr(definition, "label", engine) or engine),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     source_ref = str(
         version_entry.get("source_ref")
         or version_entry.get("source_branch")
         or version_entry.get("source_commit")
+        or frozen.get("source_ref")
+        or frozen.get("branch")
         or ""
     ).strip()
     if not version_name or not source_ref:
@@ -1384,22 +1419,19 @@ async def _schedule_native_rebuild(version_entry: dict, engine: str) -> dict:
             detail="This version does not have enough metadata to retry",
         )
     repository_source = str(
-        version_entry.get("repository_source")
-        or ("ik_llama.cpp" if engine == "ik_llama" else "llama.cpp")
+        version_entry.get("repository_source") or _spec_repository_source(engine) or ""
     )
     repository_url = str(
         version_entry.get("source_repo")
-        or llama_manager.REPOSITORY_SOURCES.get(repository_source)
-        or ""
+        or frozen.get("source_repo")
+        or _declared_source_repo(engine, repository_source)
     ).strip()
     if not repository_url:
         raise HTTPException(
             status_code=400,
             detail="This version is missing a source repository URL",
         )
-    source_ref_type = _infer_source_ref_type(
-        source_ref, version_entry.get("source_ref_type")
-    )
+    source_ref_type = _infer_source_ref_type(source_ref, version_entry.get("source_ref_type"))
     build_config = _build_config_for_source_sync(engine, version_entry, store)
     task_id = f"build_retry_{_source_ref_slug(version_name)}_{int(time.time())}"
     type_labels = source_build_type_labels_for_engine(engine, repository_url)
@@ -1407,8 +1439,7 @@ async def _schedule_native_rebuild(version_entry: dict, engine: str) -> dict:
     if build_config_dict is not None:
         build_config_dict["repository_source"] = repository_source
     install_dir = str(
-        version_entry.get("install_dir")
-        or os.path.join(llama_manager.llama_dir, version_name)
+        version_entry.get("install_dir") or os.path.join(llama_manager.llama_dir, version_name)
     )
     pm = get_progress_manager()
     _guard_build_admission(
@@ -1436,8 +1467,7 @@ async def _schedule_native_rebuild(version_entry: dict, engine: str) -> dict:
             **{k: v for k, v in version_entry.items() if k != "orphan"},
             "version": version_name,
             "type": version_entry.get("type") or type_labels["type"],
-            "install_type": version_entry.get("install_type")
-            or type_labels["install_type"],
+            "install_type": version_entry.get("install_type") or type_labels["install_type"],
             "is_fork": version_entry.get("is_fork", type_labels["is_fork"]),
             "source_ref": source_ref,
             "source_ref_type": source_ref_type,
@@ -1463,7 +1493,7 @@ async def _schedule_native_rebuild(version_entry: dict, engine: str) -> dict:
             auto_activate=False,
             source_ref_type=source_ref_type,
             use_workspace=False,
-        )
+        ),
     )
     return {
         "message": f"Retrying {version_name}",
@@ -1503,17 +1533,33 @@ async def retry_version_body(payload: dict = Body(...)):
             detail="This version does not have enough metadata to retry",
         )
 
-    if engine in ("llama_cpp", "ik_llama"):
+    if _is_native_source_engine(engine):
         bind_action_confirmation(payload)
         return await _schedule_native_rebuild(version_entry, engine)
 
     if engine == "unsloth_llama":
+        from backend.engines.definitions.loader import load_default_engine_definitions
+        from backend.engines.install_snapshots import retry_resolved_inputs
         from backend.engines.unsloth_llama.installer import get_unsloth_llama_manager
 
         bind_action_confirmation(payload)
+        version_name = str(version_entry.get("version") or "").strip()
+        definition = load_default_engine_definitions().get(engine)
+        try:
+            frozen = retry_resolved_inputs(
+                get_store(),
+                engine,
+                version_name,
+                current_digest=str(getattr(definition, "definition_digest", "") or ""),
+                label=str(getattr(definition, "label", "Unsloth llama.cpp")),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         tag = (
             (version_entry.get("build_config") or {}).get("tag_name")
             or version_entry.get("source_ref")
+            or frozen.get("release_tag")
+            or frozen.get("requested_version")
         )
         return await get_unsloth_llama_manager().install_release(
             tag_name=str(tag).strip() if tag else None
@@ -1632,9 +1678,7 @@ def _launch_hold_refusal(path: Optional[str], *, confirmed: bool) -> Optional[di
     elif detail["code"] == "LAUNCH_REFERENCE_RUNNING":
         detail = {
             **detail,
-            "message": detail["message"].replace(
-                "deleting this path", "deleting this version", 1
-            ),
+            "message": detail["message"].replace("deleting this path", "deleting this version", 1),
         }
     return detail
 
@@ -1745,65 +1789,35 @@ async def _remove_engine_version(
 ):
     install_dir = resolve_install_dir(engine, version_entry)
 
-    def delete_tree(path: Optional[str]) -> None:
-        if not path:
-            return
-        try:
-            robust_rmtree(path, retire_references=retire_references)
-        except FilesystemRefusal as exc:
-            raise VersionDeletionRejected(exc.detail) from exc
+    # One removal flow for every engine: the delete target is resolved
+    # BEFORE the plan exactly as legacy did per family (install_dir, else
+    # the version root derived from venv_path, else the llama-root safety
+    # walk — which may instead yield a lone server binary), and the
+    # definition's "remove_version" recipe decides which steps run against
+    # it. Step names are looked up in the handler pack below, so the YAML
+    # — not an engine-ID branch — selects behavior. Pinned by
+    # tests/test_engine_version_removal_characterization.py.
+    definition = load_default_engine_definitions().get(engine)
+    if definition is None or not any(
+        name == "remove_version" for name, _steps in definition.recipes
+    ):
+        # Every registry engine ships a remove_version recipe; discovery
+        # only ever yields registry engines, so this is a guard rail.
+        raise RuntimeError(f"No remove_version recipe for engine {engine}")
 
-    if engine in ("lmdeploy", "1cat_vllm", "sglang", "sglang_v100", "vllm"):
-        try:
-            if install_dir:
-                delete_tree(install_dir)
-            else:
-                venv_path = version_entry.get("venv_path") or ""
-                if venv_path:
-                    if not os.path.isabs(venv_path):
-                        if os.path.exists("/app/data"):
-                            venv_path = os.path.normpath(os.path.join("/app", venv_path))
-                        else:
-                            venv_path = os.path.normpath(
-                                os.path.join(os.getcwd(), venv_path)
-                            )
-                    version_root = os.path.dirname(venv_path)
-                    if version_root and os.path.isdir(version_root):
-                        delete_tree(version_root)
-            if registered:
-                store.delete_engine_version(engine, version_str)
-            logger.info("Deleted %s version: %s", engine, version_str)
-            mark_runtime_changed()
-            return {"message": f"Deleted version {version_str}"}
-        except (VersionDeletionRejected, FilesystemRefusal):
-            raise
-        except Exception as e:
-            raise HTTPException(
-                status_code=500, detail=f"Failed to delete version: {e}"
-            ) from e
-    if engine == "audio_cpp":
-        try:
-            from backend.engines.audio_cpp.manager import get_audio_cpp_manager
-
-            delete_tree(install_dir)
-            get_audio_cpp_manager().delete_version_files(
-                version_entry, retire_references=retire_references
-            )
-            if registered:
-                store.delete_engine_version(engine, version_str)
-            mark_runtime_changed()
-            return {"message": f"Deleted version {version_str}"}
-        except (VersionDeletionRejected, FilesystemRefusal):
-            raise
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        except Exception as e:
-            raise HTTPException(
-                status_code=500, detail=f"Failed to delete version: {e}"
-            ) from e
-    try:
-        if install_dir:
-            delete_tree(install_dir)
+    delete_target = install_dir
+    file_target = ""
+    if not delete_target:
+        venv_path = version_entry.get("venv_path") or ""
+        if venv_path:
+            if not os.path.isabs(venv_path):
+                if os.path.exists("/app/data"):
+                    venv_path = os.path.normpath(os.path.join("/app", venv_path))
+                else:
+                    venv_path = os.path.normpath(os.path.join(os.getcwd(), venv_path))
+            version_root = os.path.dirname(venv_path)
+            if version_root and os.path.isdir(version_root):
+                delete_target = version_root
         else:
             binary_path = _resolve_binary_path(version_entry.get("binary_path") or "")
             if binary_path and os.path.exists(binary_path):
@@ -1841,24 +1855,74 @@ async def _remove_engine_version(
                         version_dir = candidate
 
                 if version_dir and os.path.exists(version_dir):
-                    delete_tree(version_dir)
+                    delete_target = version_dir
                 elif binary_real and os.path.exists(binary_real):
-                    release_launch_hold(binary_real, retire_references=retire_references)
-                    try:
-                        os.remove(binary_real)
-                    except OSError:
-                        pass
-        if registered:
+                    file_target = binary_real
+
+    async def forget_row(step, requirements, context):
+        if requirements.get("input.registered"):
             store.delete_engine_version(engine, version_str)
-        logger.info(f"Deleted version: {version_str}")
+            delete_snapshots = getattr(store, "delete_install_snapshots", None)
+            if callable(delete_snapshots):
+                delete_snapshots(engine, version_str)
+        logger.info("Deleted %s version: %s", engine, version_str)
         mark_runtime_changed()
+        return {}
+
+    context = {
+        "input.delete_target": delete_target,
+        "input.file_target": file_target,
+        "input.retire_references": bool(retire_references),
+        "input.registered": bool(registered),
+        "input.version_name": version_str,
+        # The row itself: engines whose host resolves its bundle from the
+        # recorded layout (audio.cpp) need it without a second store read.
+        "input.version_entry": dict(version_entry or {}),
+    }
+    # Engines with a definition-driven native host run the SAME recipe on it:
+    # the host owns the install-dir lifecycle primitives (audio.cpp's
+    # manager-tracked bundle; its refusals are ValueError -> HTTP 400). The
+    # legacy handler pack stays for engines without a host until their own
+    # gated cutover.
+    native_host = get_native_installer(engine)
+    try:
+        if native_host is not None:
+            execution = await native_host.execute_operation(
+                "remove_version",
+                task_id="",
+                context=context,
+                store=store,
+            )
+        else:
+            execution = await execute_plan(
+                materialize_plan(definition, "remove_version"),
+                run_primitive=make_engine_runner(
+                    SimpleNamespace(engine_id=engine),
+                    {"publish.forget": forget_row},
+                ),
+                context=context,
+            )
+        if execution.status != EXECUTION_COMPLETED:
+            failure = execution.failed_step
+            raise RuntimeError(
+                (failure.error if failure else "") or "version removal did not complete"
+            )
         return {"message": f"Deleted version {version_str}"}
-    except (VersionDeletionRejected, FilesystemRefusal):
+    except HTTPException:
+        # Bundle refusals arrive already mapped (400); nothing else here
+        # raised one before the legacy 500 catch-all.
         raise
+    except VersionDeletionRejected:
+        raise
+    except FilesystemRefusal as exc:
+        # Legacy delete_tree wrapped refusals before re-raising.
+        raise VersionDeletionRejected(exc.detail) from exc
+    except ValueError as e:
+        # The host's bundle refusals keep the legacy 400 mapping (they were
+        # the audio.cpp handler's contract before the cutover).
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to delete version: {e}"
-        ) from e
+        raise HTTPException(status_code=500, detail=f"Failed to delete version: {e}") from e
 
 
 # CUDA Installer endpoints
@@ -1925,9 +1989,7 @@ async def get_cuda_logs():
 async def uninstall_cuda(request: dict):
     """Uninstall CUDA Toolkit"""
     try:
-        version = request.get(
-            "version"
-        )  # Optional - if not provided, uninstalls current
+        version = request.get("version")  # Optional - if not provided, uninstalls current
         installer = get_cuda_installer()
 
         if installer.is_operation_running():
@@ -1951,3 +2013,102 @@ async def uninstall_cuda(request: dict):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# ── Generic lifecycle registry (native llama family) ──────────────────
+# llama.cpp and ik_llama.cpp share the generic /api/engines/{id} route
+# SPACE through verb overrides that delegate to the route functions above,
+# so the generic surface runs the SAME implementations byte-for-byte.
+# Verbs they genuinely lack answer 405 (see EngineLifecycle docstring):
+# there is no per-engine status (versions ride the shared version list)
+# and deletion is version-scoped on this shared router, not engine-wide.
+def _require_json_body(payload):
+    """Mirror the legacy routes' required-body 422 on the generic surface,
+    whose install/build routes accept an optional body envelope."""
+    if payload is None:
+        raise HTTPException(
+            status_code=422,
+            detail=[
+                {
+                    "type": "missing",
+                    "loc": ["body"],
+                    "msg": "Field required",
+                    "input": None,
+                }
+            ],
+        )
+    return payload
+
+
+def _engine_identity_conflict(engine: str, field: str, value: object) -> HTTPException:
+    return HTTPException(
+        status_code=400,
+        detail=(
+            f"Engine identity conflict: path engine '{engine}' "
+            f"does not accept body {field} '{value}'"
+        ),
+    )
+
+
+def _native_install_body(request: dict, engine: str) -> dict:
+    """The generic surface derives the target engine from the URL PATH.
+    A conflicting ``engine`` body field is rejected with 400; an absent or
+    agreeing field is normalized to the path engine, so the legacy default
+    quirk (absent -> llama.cpp) never applies here. Legacy routes keep it."""
+    value = request.get("engine")
+    if value is not None and value != engine:
+        raise _engine_identity_conflict(engine, "engine", value)
+    return {**request, "engine": engine}
+
+
+def _native_source_body(request: dict, engine: str) -> dict:
+    """Same PATH-wins contract for ``repository_source`` on install-source."""
+    expected_source, _ = _resolve_engine_build_target(engine)
+    value = request.get("repository_source")
+    if value is not None and value != expected_source:
+        raise _engine_identity_conflict(engine, "repository_source", value)
+    return {**request, "repository_source": expected_source}
+
+
+async def _native_check_updates(source: str | None):
+    """Apply the legacy route's ``response_model`` filtering so the generic
+    surface serializes check-updates exactly like ``/check-updates``."""
+    from fastapi.encoders import jsonable_encoder
+
+    raw = await check_updates_surface(source)
+    return jsonable_encoder(UpdateCheckResponse.model_validate(raw))
+
+
+def _native_llama_verbs(engine: str) -> dict:
+    return {
+        "check_updates": lambda: _native_check_updates(None if engine == "llama_cpp" else engine),
+        "get_build_settings": lambda: get_build_settings(engine),
+        "save_build_settings": lambda settings: update_build_settings(
+            engine, _require_json_body(settings)
+        ),
+        # Generic "install" = build the latest upstream (the legacy /update
+        # flow with auto-activate); "install-source" = the shared
+        # build-source route. BOTH derive the build target from the URL
+        # PATH (2026-11-02 review): a conflicting "engine"/"repository_source"
+        # body field answers 400, and an absent one no longer falls through
+        # to the legacy llama.cpp default on this surface. The legacy
+        # routes keep their compatibility behavior byte-for-byte.
+        "install": lambda request: update_engine(
+            _native_install_body(_require_json_body(request), engine)
+        ),
+        "install_source": lambda request: build_source(
+            _native_source_body(_require_json_body(request), engine)
+        ),
+        "cancel": lambda payload: build_cancel(payload),
+    }
+
+
+from backend.engines.registry import native_source_engine_ids
+
+for _native_engine_id in native_source_engine_ids():
+    LIFECYCLE[_native_engine_id] = EngineLifecycle(
+        engine_id=_native_engine_id,
+        url_prefix="/api/llama-versions",
+        verbs=_native_llama_verbs(_native_engine_id),
+    )
+del _native_engine_id

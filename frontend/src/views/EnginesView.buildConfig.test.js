@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import EnginesView from './EnginesView.vue'
+import { engineStoreAccessors } from '@/test-fixtures/engineStoreAccessors'
 
 const toastAdd = vi.fn()
 const fetchAll = vi.fn().mockResolvedValue(undefined)
@@ -48,21 +49,22 @@ vi.mock('@/stores/engines', () => ({
 }))
 
 const enginesStore = reactive({
+  ...engineStoreAccessors(),
   llamaVersions: [],
   ikLlamaVersions: [],
   unslothLlamaVersions: [],
   lmdeployVersions: [],
   onecatVllmVersions: [],
   audioCppVersions: [],
-  audioCppStatus: {
-    supported_build_backends: ['cpu', 'cuda'],
-    tracking_ref: 'main',
-    active: null,
+  engineStatusById: {
+    audio_cpp: {
+      supported_build_backends: ['cpu', 'cuda'],
+      tracking_ref: 'main',
+      active: null,
+    },
   },
   engineDescriptors: [{ id: 'audio_cpp', enabled: true, maturity_surfaces: {} }],
   cudaStatus: {},
-  lmdeployStatus: {},
-  onecatVllmStatus: {},
   systemStatus: {},
   loading: false,
   fetchAll,

@@ -10,21 +10,24 @@ import time
 from typing import Any, Dict, List, Tuple
 
 from backend.data_store import get_store
-from backend.engines.registry import GGUF_ENGINE_IDS, HF_SNAPSHOT_ENGINE_IDS
+from backend.engines.audio_cpp.identity import audio_engine_ids, default_audio_engine_id
+from backend.engines.registry import get_engine_spec
 from backend.model_catalog.audio_cpp_provider import AudioCppCatalogProvider
 from backend.model_catalog.base import item_matches_filters, unique_strings
 from backend.model_catalog.huggingface_provider import HuggingFaceCatalogProvider
 
 
-SORTS = frozenset({
-    "relevance",
-    "downloads_desc",
-    "downloads_asc",
-    "likes_desc",
-    "likes_asc",
-    "name_asc",
-    "name_desc",
-})
+SORTS = frozenset(
+    {
+        "relevance",
+        "downloads_desc",
+        "downloads_asc",
+        "likes_desc",
+        "likes_asc",
+        "name_asc",
+        "name_desc",
+    }
+)
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 
@@ -64,9 +67,7 @@ def relevance_band(query: str, item: dict) -> int:
         return 0
     if any(name.startswith(raw) or name.endswith("/" + raw) for name in short_names if name):
         return 1
-    hay = " ".join(
-        names + [str(item.get("description") or "").lower()]
-    )
+    hay = " ".join(names + [str(item.get("description") or "").lower()])
     tokens = _query_tokens(raw)
     if not tokens:
         return 4
@@ -99,11 +100,7 @@ def sort_catalog_items(
     def key(item: dict):
         name = str(item.get("display_name") or "").lower()
         item_id = str(item.get("id") or "")
-        engine_rank = (
-            0
-            if engine and engine in (item.get("compatible_engines") or [])
-            else 1
-        )
+        engine_rank = 0 if engine and engine in (item.get("compatible_engines") or []) else 1
         available = 0 if item.get("unavailable_reason") is None else 1
         downloads = _metric(item, "downloads")
         likes = _metric(item, "likes")
@@ -141,26 +138,26 @@ class ModelCatalogService:
         every scan and used to invalidate the catalog cache constantly, making
         every browse re-run the whole provider probe pipeline).
         """
-        active_audio = self.store.get_active_engine_version("audio_cpp") or {}
-        token: Dict[str, Any] = {
-            "audio_cpp": active_audio.get("source_commit")
-            or active_audio.get("version"),
-        }
+        active_audio = {}
+        token: Dict[str, Any] = {}
+        for engine_id in audio_engine_ids():
+            active = self.store.get_active_engine_version(engine_id) or {}
+            token[engine_id] = active.get("source_commit") or active.get("version")
+            if active:
+                active_audio = active
         version = str(active_audio.get("version") or "")
         if version:
             try:
                 from backend.engines.params import get_version_entry
 
-                entry = get_version_entry(self.store, "audio_cpp", version) or {}
+                entry = get_version_entry(self.store, default_audio_engine_id(), version) or {}
                 token["contract_fingerprint"] = entry.get("contract_fingerprint")
                 token["scanned_at"] = entry.get("scanned_at")
             except Exception:
                 pass
         return token
 
-    def _cache_key(
-        self, query: str, filters: dict, page: int, page_size: int, sort: str
-    ) -> str:
+    def _cache_key(self, query: str, filters: dict, page: int, page_size: int, sort: str) -> str:
         payload = {
             "query": str(query or "").strip().lower(),
             "filters": filters,
@@ -176,43 +173,34 @@ class ModelCatalogService:
     @staticmethod
     def _provider_ids(filters: dict) -> List[str]:
         requested = str(filters.get("provider") or filters.get("source") or "")
-        if requested in {"huggingface", "audio_cpp"}:
+        if requested in {*audio_engine_ids(), "huggingface"}:
             return [requested]
         engine = str(filters.get("engine") or "")
-        if engine == "audio_cpp":
-            return ["audio_cpp"]
-        if engine in GGUF_ENGINE_IDS or engine in HF_SNAPSHOT_ENGINE_IDS:
-            return ["huggingface"]
-        return ["audio_cpp", "huggingface"]
+        # R71: the engine's catalog surface declares which providers serve it.
+        spec = get_engine_spec(engine) if engine else None
+        declared = list(dict(spec.catalog).get("providers") or ()) if spec is not None else []
+        if declared:
+            return declared
+        return [default_audio_engine_id(), "huggingface"]
 
     @staticmethod
     def _facets(items: List[dict]) -> dict:
         return {
             "engines": unique_strings(
-                engine
-                for item in items
-                for engine in item.get("compatible_engines") or []
+                engine for item in items for engine in item.get("compatible_engines") or []
             ),
-            "tasks": unique_strings(
-                task for item in items for task in item.get("tasks") or []
-            ),
+            "tasks": unique_strings(task for item in items for task in item.get("tasks") or []),
             "input_modalities": unique_strings(
-                modality
-                for item in items
-                for modality in item.get("input_modalities") or []
+                modality for item in items for modality in item.get("input_modalities") or []
             ),
             "output_modalities": unique_strings(
-                modality
-                for item in items
-                for modality in item.get("output_modalities") or []
+                modality for item in items for modality in item.get("output_modalities") or []
             ),
             "features": unique_strings(
                 feature for item in items for feature in item.get("features") or []
             ),
             "providers": unique_strings(item.get("provider") for item in items),
-            "package_kinds": unique_strings(
-                item.get("package_kind") for item in items
-            ),
+            "package_kinds": unique_strings(item.get("package_kind") for item in items),
             "install_methods": unique_strings(
                 variant.get("method")
                 for item in items
@@ -239,17 +227,15 @@ class ModelCatalogService:
         sort = normalize_catalog_sort(sort, query)
         cache_key = self._cache_key(query, filters, page, page_size, sort)
         cached = self._cache.get(cache_key)
-        if (
-            not force_refresh
-            and cached
-            and time.monotonic() - cached[0] < self.cache_ttl
-        ):
+        if not force_refresh and cached and time.monotonic() - cached[0] < self.cache_ttl:
             return cached[1]
 
         provider_ids = self._provider_ids(filters)
         providers: Dict[str, Any] = {}
-        if "audio_cpp" in provider_ids:
-            providers["audio_cpp"] = AudioCppCatalogProvider(self.store)
+        audio_ids = set(audio_engine_ids())
+        for provider_id in provider_ids:
+            if provider_id in audio_ids:
+                providers[provider_id] = AudioCppCatalogProvider(self.store, engine_id=provider_id)
         if "huggingface" in provider_ids:
             providers["huggingface"] = HuggingFaceCatalogProvider()
 
@@ -259,9 +245,7 @@ class ModelCatalogService:
 
         async def _run(provider_id: str, provider: Any):
             try:
-                return provider_id, await provider.search(
-                    query, requested_limit, filters
-                ), None
+                return provider_id, await provider.search(query, requested_limit, filters), None
             except Exception as exc:
                 return provider_id, [], str(exc)
 
@@ -278,9 +262,7 @@ class ModelCatalogService:
             elif "available" not in status:
                 status["available"] = True
             provider_status[provider_id] = status
-            all_items.extend(
-                item for item in items if item_matches_filters(item, filters)
-            )
+            all_items.extend(item for item in items if item_matches_filters(item, filters))
 
         engine_filter = str(filters.get("engine") or "")
         all_items = sort_catalog_items(
@@ -308,4 +290,3 @@ class ModelCatalogService:
         }
         self._cache[cache_key] = (time.monotonic(), payload)
         return payload
-

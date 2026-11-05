@@ -2,27 +2,9 @@
 
 import json
 
-import pytest
 
-from backend.audio.families.asr import (
-    asr_profile_for_family,
-    is_asr_task,
-    transcription_request_field_groups,
-)
 from backend.audio.transcription_defaults import normalize_transcription_defaults
-from backend.tests.audio_profile_fixtures import (
-    ASR_FAMILIES,
-    assert_field_groups_shape,
-    assert_profile_shape,
-)
 
-@pytest.mark.parametrize("family", ASR_FAMILIES)
-def test_asr_profile_exists_for_documented_family(family):
-    assert asr_profile_for_family(family) is None
-
-@pytest.mark.parametrize("family", ASR_FAMILIES)
-def test_transcription_field_groups_are_well_formed(family):
-    assert transcription_request_field_groups(family) == []
 
 def test_qwen3_asr_sidecar_session_fields_come_from_model_spec(tmp_path):
     from backend.audio.task_profiles import sidecar_session_fields_for
@@ -72,6 +54,7 @@ def test_qwen3_asr_sidecar_session_fields_come_from_model_spec(tmp_path):
     assert "qwen3_asr.vad_path" in keys
     assert all(field.get("scope") == "session_option" for field in fields)
 
+
 def test_normalize_transcription_defaults_maps_prompt_and_options():
     defaults = normalize_transcription_defaults(
         {
@@ -90,17 +73,7 @@ def test_normalize_transcription_defaults_maps_prompt_and_options():
     assert defaults["options"]["lookahead_tokens"] == "4"
     assert defaults["options"]["keep_language_tags"] is False
 
+
 def test_normalize_transcription_defaults_ignores_invalid_ints():
     out = normalize_transcription_defaults({"max_tokens": "many"})
     assert "max_tokens" not in out
-
-@pytest.mark.parametrize(
-    ("task", "expected"),
-    [
-        ("asr", True),
-        ("tts", False),
-        ("align", False),
-    ],
-)
-def test_is_asr_task(task, expected):
-    assert is_asr_task(task) is expected

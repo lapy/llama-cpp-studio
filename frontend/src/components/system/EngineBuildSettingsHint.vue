@@ -23,25 +23,7 @@
 <script setup>
 import { computed, ref, onMounted } from 'vue'
 import Button from 'primevue/button'
-
-const HINT_COPY = {
-  llama_cpp:
-    'Choose CUDA or CPU, server binary artifacts, and other CMake options before you install or build. Reopen Build settings from the dialog header anytime.',
-  ik_llama:
-    'Choose CUDA or CPU, IQK options, and other CMake flags before you build. ik_llama.cpp tracks the tip of main (no release tags). Reopen Build settings from the dialog header anytime.',
-  audio_cpp:
-    'Choose CUDA or CPU, model set, and other CMake options before you install or build. Reopen Build settings from the dialog header anytime.',
-  lmdeploy:
-    'Set default PyPI version and source repo/branch before installing. Reopen Build settings from the dialog header anytime.',
-  '1cat_vllm':
-    'Set default release version and source repo/branch before installing or building. Reopen Build settings from the dialog header anytime.',
-  sglang:
-    'Set the default PyPI version and source repo/branch before installing. Upstream SGLang currently requires a CUDA 13-capable environment.',
-  sglang_v100:
-    'Set the V100 fork repo and branch. Install Studio-managed CUDA 12.8 first; the fork then builds only its SM70-specific dependencies.',
-  vllm:
-    'Set the default PyPI version and source repo/branch. Source builds use the active Studio-managed CUDA toolkit.',
-}
+import { engineBuildHint } from '../../engines/registry.js'
 
 const props = defineProps({
   /** localStorage slot / engine id */
@@ -65,7 +47,7 @@ const visible = ref(true)
 const description = computed(
   () =>
     props.description
-    || HINT_COPY[props.engineKey]
+    || engineBuildHint(props.engineKey)
     || 'Configure build or install defaults before you proceed. Reopen Build settings from the dialog header anytime.',
 )
 

@@ -1,23 +1,10 @@
-"""Param registry contract across every documented audio.cpp family."""
+"""Param registry contracts for supported audio tasks and installed model specs."""
 
 import pytest
 
 from backend.models.config import normalize_model_config
 from backend.routes.models import _build_param_registry_payload
-from backend.tests.audio_profile_fixtures import DOC_PROFILED_FAMILIES
-
-# Full inspect task sets for multi-route families (matches loader capabilities).
-_FAMILY_INSPECT_TASKS = {
-    "chatterbox": ["clon", "vc"],
-    "chatterbox_turbo": ["clon", "vc"],
-    "vevo2": ["tts", "vc", "s2s", "svc"],
-    "seed_vc": ["vc", "svc"],
-    "miocodec": ["vc", "s2s"],
-    "personaplex": ["s2s"],
-    "rvc": ["vc"],
-    "meanvc2": ["vc"],
-    "audiosr": ["s2s"],
-}
+from backend.tests.audio_profile_fixtures import AUDIO_TASK_CONTRACTS
 
 
 class _Store:
@@ -54,24 +41,15 @@ def _audio_model(model_id, family, task, **audio_config):
         "tasks": [task],
         "compatible_engines": ["audio_cpp"],
         "artifact": {"path": "/tmp/model"},
-        "config": normalize_model_config(
-            {"engine": "audio_cpp", "engines": {"audio_cpp": config}}
-        ),
+        "config": normalize_model_config({"engine": "audio_cpp", "engines": {"audio_cpp": config}}),
     }
-
-
-def _inspection_tasks_for(family: str, task: str) -> list[dict]:
-    tasks = list(_FAMILY_INSPECT_TASKS.get(family) or [task])
-    if task not in tasks:
-        tasks.insert(0, task)
-    return [{"task": name, "modes": ["offline"]} for name in tasks]
 
 
 @pytest.mark.parametrize(
     ("task", "family", "defaults_key", "endpoint"),
-    DOC_PROFILED_FAMILIES,
+    AUDIO_TASK_CONTRACTS,
 )
-def test_param_registry_payload_for_every_documented_family(
+def test_param_registry_payload_for_each_audio_task(
     monkeypatch, task, family, defaults_key, endpoint
 ):
     model = _audio_model(f"audio-{family}-{task}", family, task)
@@ -86,7 +64,7 @@ def test_param_registry_payload_for_every_documented_family(
             "sections": [],
             "inspection": {
                 "family": family,
-                "tasks": _inspection_tasks_for(family, task),
+                "tasks": [{"task": task, "modes": ["offline"]}],
             },
         },
     )

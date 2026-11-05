@@ -5,34 +5,32 @@ from types import SimpleNamespace
 
 import pytest
 
+from backend.engines.llama_cpp.installer import LlamaNativeInstaller
 from backend.engines.llama_cpp.manager import BuildConfig, LlamaManager
-from backend.engines.llama_cpp.source_build import (
-    cleanup_partial_build,
-    run_checked_command,
-    run_source_build,
-)
+from backend.engines.python.native import cleanup_partial_build, run_checked_command
 from backend.task_cancel_registry import TaskCancelledError
 
 
 def test_manager_delegates_the_build_configuration(monkeypatch):
     seen = {}
 
-    async def fake_run(host, **kwargs):
-        seen["host"] = host
-        seen["config"] = kwargs["build_config"]
+    async def fake_run(self, commit_sha, *args, **kwargs):
+        seen["manager"] = self.manager
+        seen["engine"] = self.engine_id
+        seen["commit_sha"] = commit_sha
+        seen["config"] = args[1]
         return "/tmp/llama-server"
 
-    monkeypatch.setattr(
-        "backend.engines.llama_cpp.source_build.run_source_build",
-        fake_run,
-    )
+    monkeypatch.setattr(LlamaNativeInstaller, "run_source", fake_run)
     config = BuildConfig()
     manager = LlamaManager()
     result = asyncio.run(
         manager.build_source("abc123", build_config=config, version_name="source-test")
     )
     assert result == "/tmp/llama-server"
-    assert seen["host"] is manager
+    assert seen["manager"] is manager
+    assert seen["engine"] == "llama_cpp"
+    assert seen["commit_sha"] == "abc123"
     assert seen["config"] is config
 
 
@@ -108,8 +106,7 @@ def test_source_build_cleans_a_failed_clone_and_a_cancellation(tmp_path, monkeyp
     host.fail = "clone"
     with pytest.raises(Exception, match="Git clone failed"):
         asyncio.run(
-            run_source_build(
-                host,
+            LlamaNativeInstaller("llama_cpp", manager=host).run_source(
                 "abc12345",
                 version_name="partial-clone",
                 repository_url=host.LLAMA_CPP_REPO,
@@ -120,8 +117,7 @@ def test_source_build_cleans_a_failed_clone_and_a_cancellation(tmp_path, monkeyp
     host.fail = "cancel"
     with pytest.raises(TaskCancelledError):
         asyncio.run(
-            run_source_build(
-                host,
+            LlamaNativeInstaller("llama_cpp", manager=host).run_source(
                 "abc12345",
                 version_name="partial-cancel",
                 repository_url=host.LLAMA_CPP_REPO,
@@ -221,3 +217,98 @@ def test_failed_cpu_configure_removes_the_partial_checkout(tmp_path, monkeypatch
     assert "-DGGML_CUDA=OFF" in configure
     checkout = tmp_path / "data" / "llama-cpp" / "cpu-failed" / "llama.cpp"
     assert not checkout.exists()
+
+
+class _FakeProgress:
+    """Progress manager surface used by the route's build tasks."""
+
+    def __init__(self):
+        self.completed = []
+        self.failures = []
+        self.notifications = []
+
+    def complete_task(self, task_id, message=""):
+        self.completed.append((task_id, message))
+
+    def fail_task(self, task_id, message=""):
+        self.failures.append((task_id, message))
+
+    async def send_notification(self, **kwargs):
+        self.notifications.append(kwargs)
+
+
+def test_build_source_task_runs_the_source_recipe_on_the_native_host(monkeypatch, tmp_path):
+    """Phase 7 cutover: the route task delegates to the native host's recipe."""
+    from backend.routes import llama_versions as routes
+
+    seen = {}
+
+    async def fake_run(self, commit_sha, *args, **kwargs):
+        seen.update(kwargs)
+        seen["engine"] = self.engine_id
+        seen["manager"] = self.manager
+        seen["commit_sha"] = commit_sha
+        return "/tmp/llama-server"
+
+    monkeypatch.setattr(LlamaNativeInstaller, "run_source", fake_run)
+    monkeypatch.setattr(routes, "mark_runtime_changed", lambda: None)
+    monkeypatch.setattr(routes.llama_manager, "llama_dir", str(tmp_path / "llama-cpp"))
+    pm = _FakeProgress()
+
+    asyncio.run(
+        routes.build_source_task(
+            "main",
+            [],
+            BuildConfig(),
+            "source-main-test",
+            "ik_llama.cpp",
+            "https://github.com/ikawrakow/ik_llama.cpp.git",
+            pm,
+            "task-1",
+            auto_activate=False,
+            source_ref_type="branch",
+        )
+    )
+
+    assert seen["engine"] == "ik_llama"
+    assert seen["manager"] is routes.llama_manager
+    assert seen["commit_sha"] == "main"
+    assert seen["publish_row"] is True
+    assert seen["repository_source"] == "ik_llama.cpp"
+    assert seen["version_name"] == "source-main-test"
+    assert pm.completed == [("task-1", "Built source-main-test")]
+
+
+def test_sync_source_build_task_merges_the_row_through_the_host(monkeypatch, tmp_path):
+    from backend.routes import llama_versions as routes
+
+    seen = {}
+
+    async def fake_run(self, *args, **kwargs):
+        seen.update(kwargs)
+        seen["engine"] = self.engine_id
+        return "/tmp/llama-server"
+
+    monkeypatch.setattr(LlamaNativeInstaller, "run_source", fake_run)
+    monkeypatch.setattr(routes, "mark_runtime_changed", lambda: None)
+    monkeypatch.setattr(routes.llama_manager, "llama_dir", str(tmp_path / "llama-cpp"))
+    pm = _FakeProgress()
+
+    asyncio.run(
+        routes.sync_source_build_task(
+            branch="main",
+            build_config=BuildConfig(),
+            version_name="source-main-test",
+            engine="llama_cpp",
+            repository_source="llama.cpp",
+            repository_url="https://github.com/ggerganov/llama.cpp.git",
+            progress_manager=pm,
+            task_id="task-2",
+        )
+    )
+
+    assert seen["engine"] == "llama_cpp"
+    assert seen["reuse_existing_checkout"] is True
+    assert seen["source_branch"] == "main"
+    assert seen["publish_row"] == "update"
+    assert pm.completed == [("task-2", "Synced source-main-test")]

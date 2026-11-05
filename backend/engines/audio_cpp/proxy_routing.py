@@ -7,6 +7,8 @@ only concrete Studio audio models and their ordinary aliases are accepted.
 
 from __future__ import annotations
 
+from backend.engines.audio_cpp.identity import is_audio_engine_id
+
 from dataclasses import dataclass
 from urllib.parse import quote
 
@@ -41,7 +43,7 @@ def resolve_audio_upstream_target(
         config = effective_model_config_from_raw(record.get("config"))
         if name not in data_store.collect_model_names(record, config):
             continue
-        if config.get("engine") != "audio_cpp":
+        if not is_audio_engine_id(config.get("engine")):
             break
         stable_id = data_store.resolve_model_id(record)
         ordinary = {

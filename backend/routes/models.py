@@ -16,6 +16,7 @@ from backend.data_store import (
     resolve_routing_name,
 )
 from backend.engines.registry import VALID_ENGINE_IDS, active_engine_row_is_runnable
+from backend.engines.audio_cpp.identity import is_audio_engine_id
 from backend.models.config import (
     config_api_response,
     config_was_reviewed,
@@ -214,7 +215,8 @@ async def _remove_model_from_disk(store, model: dict, *, retire_references: bool
     package_kind = str(artifact.get("package_kind") or model.get("package_kind") or "")
     compatible = set(model.get("compatible_engines") or [])
     if package_kind == "prepared_bundle" and (
-        "audio_cpp" in compatible or str(source.get("provider") or "") == "audio_cpp"
+        any(is_audio_engine_id(item) for item in compatible)
+        or is_audio_engine_id(str(source.get("provider") or ""))
     ):
         from backend.engines.audio_cpp.manager import get_audio_cpp_manager
         from backend.utils.fs_ops import robust_rmtree
@@ -412,7 +414,7 @@ def _param_registry_cache_key(
         except OSError:
             pass
     model_fingerprint = ""
-    if engine == "audio_cpp" and model_id and active:
+    if is_audio_engine_id(engine) and model_id and active:
         model = store.get_model(str(model_id))
         if model:
             try:
@@ -451,7 +453,7 @@ def _build_param_registry_payload(
     warnings: List[str] = []
     if active and active.get("version"):
         entry = get_version_entry(store, engine, active["version"])
-        if engine == "audio_cpp" and model_id:
+        if is_audio_engine_id(engine) and model_id:
             model = store.get_model(str(model_id))
             if not model:
                 warnings.append("Model context was not found.")
@@ -463,7 +465,7 @@ def _build_param_registry_payload(
                     warnings.append(str(profile["scan_error"]))
 
                 config = normalize_model_config(model.get("config"))
-                audio_config = (config.get("engines") or {}).get("audio_cpp") or {}
+                audio_config = (config.get("engines") or {}).get(engine) or {}
                 known: Dict[str, set] = {}
                 for section in (profile or {}).get("sections") or []:
                     for param in section.get("params") or []:
@@ -489,15 +491,15 @@ def _build_param_registry_payload(
         profile=profile,
         compatibility_warnings=warnings,
     )
-    if engine == "audio_cpp":
+    if is_audio_engine_id(engine):
         from backend.engines.audio_cpp.build_capabilities import constrain_ui_params
 
         payload["sections"] = constrain_ui_params(payload["sections"], active)
-    if engine == "audio_cpp" and model_id:
+    if is_audio_engine_id(engine) and model_id:
         model = store.get_model(str(model_id))
         if model:
             config = normalize_model_config(model.get("config"))
-            audio_config = (config.get("engines") or {}).get("audio_cpp") or {}
+            audio_config = (config.get("engines") or {}).get(engine) or {}
             family = str(
                 draft_family or audio_config.get("family") or model.get("family") or ""
             ).strip()
@@ -1761,7 +1763,7 @@ def _validate_model_runtime_config(store, model: dict, normalized: dict) -> None
         seen.add(suffix)
         if any(str(key).rstrip("?").split(".")[0] == "model" for key in item["params"]):
             raise HTTPException(status_code=422, detail="The model parameter is managed by Studio")
-    if effective_model_config(normalized).get("engine") != "audio_cpp":
+    if not is_audio_engine_id(effective_model_config(normalized).get("engine")):
         return
     from backend.audio.model_config import validate_audio_model_config
 
@@ -1784,7 +1786,7 @@ def _audio_model_bundle_root_or_400(model: dict) -> str:
 
     compatible = set(model.get("compatible_engines") or [])
     fmt = str(model.get("format") or "").lower()
-    if "audio_cpp" not in compatible and fmt != "audio_cpp":
+    if not any(is_audio_engine_id(item) for item in compatible) and not is_audio_engine_id(fmt):
         raise HTTPException(
             status_code=400,
             detail="Reference audio is only supported for audio.cpp models",
@@ -2211,7 +2213,7 @@ def _connect_test_payload(model: dict) -> tuple[str, dict]:
     config = model.get("config")
     if isinstance(config, dict):
         engine = str(config.get("engine") or "")
-    if fmt == "audio_cpp" or engine == "audio_cpp":
+    if is_audio_engine_id(fmt) or is_audio_engine_id(engine):
         raise HTTPException(
             status_code=400,
             detail="Audio models are tested from the Audio page.",

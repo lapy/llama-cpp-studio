@@ -164,26 +164,19 @@ def _patch_resolvers(monkeypatch, tmp_path: Path):
             "stop": {"primary_flag": "--stop", "value_kind": "repeatable"},
         },
     )
-    monkeypatch.setattr(
-        "backend.proxy.commands._resolve_lmdeploy_bin",
-        lambda: str(trees["lmdeploy"]["binary"]),
-    )
-    monkeypatch.setattr(
-        "backend.proxy.commands._resolve_onecat_vllm_bin",
-        lambda: str(trees["1cat_vllm"]["binary"]),
-    )
-    monkeypatch.setattr(
-        "backend.proxy.commands._resolve_sglang_bin",
-        lambda engine: str(trees[engine]["binary"]),
-    )
-    monkeypatch.setattr(
-        "backend.proxy.commands._resolve_sglang_cuda_env",
-        lambda engine: {
-            "CUDA_HOME": str(trees["sglang_v100"]["toolkit"]),
-            "PATH": str(trees["sglang_v100"]["toolkit"] / "bin"),
-            "LD_LIBRARY_PATH": "/opt/cuda/lib64",
-        },
-    )
+    import backend.cuda_installer as cuda_installer
+
+    class _Cuda:
+        def get_cuda_env(self, version):
+            # Phase 6: profile-driven launches resolve the managed CUDA env
+            # through the installer, mirroring the legacy resolver above.
+            return {
+                "CUDA_HOME": str(trees["sglang_v100"]["toolkit"]),
+                "PATH": str(trees["sglang_v100"]["toolkit"] / "bin"),
+                "LD_LIBRARY_PATH": "/opt/cuda/lib64",
+            }
+
+    monkeypatch.setattr(cuda_installer, "get_cuda_installer", lambda: _Cuda())
     monkeypatch.setattr(
         "backend.proxy.commands.resolve_gguf_model_path",
         lambda model: str(trees["llama_cpp"]["model"]),
@@ -1044,3 +1037,28 @@ def test_imported_batch_size_lists_compile_as_separate_ordered_arguments(value, 
             **metadata,
         },
     ) == ["--cuda-graph-bs-decode", "1", "2", "3"]
+
+
+def test_audio_sidecar_macro_resolution_is_declaration_driven(monkeypatch):
+    """R88: any declared sidecar macro name resolves, not just the historic one.
+
+    The audio runtime builds ``${<config_macro>}`` from the definition
+    (``protocol.launch.config_macro``); the manifest compiler must bind that
+    token to the sidecar artifact by looking at the manifest's ``macros`` map.
+    """
+    from backend.proxy import launch_spec
+
+    def audio_runtime(store, model, config, stable_id):
+        return {
+            "cmd_argv": ["/bin/server", "--config", "${audio_cfg}", "--port", "${PORT}"],
+            "cmd_cwd": "/tmp",
+            "env": [],
+            "macros": {"audio_cfg": "/tmp/server.json"},
+            "sidecar": {"models": [{"id": stable_id}]},
+            "use_model_name": stable_id,
+        }
+
+    monkeypatch.setattr("backend.engines.audio_cpp.runtime.build_audio_cpp_runtime", audio_runtime)
+    spec = launch_spec._compile_audio({"id": "m"}, {"engine": "audio_cpp"}, "m")
+    assert {"artifact": "server.json"} in spec.argv
+    assert all(token != "${audio_cfg}" for token in spec.argv)

@@ -296,9 +296,7 @@ def _coerce_nonneg_int(value: Any) -> Any:
         return int(value)
     if isinstance(value, str):
         stripped = value.strip()
-        if stripped.isdigit() or (
-            stripped.startswith("-") and stripped[1:].isdigit()
-        ):
+        if stripped.isdigit() or (stripped.startswith("-") and stripped[1:].isdigit()):
             return int(stripped)
     return value
 
@@ -338,37 +336,38 @@ def validate_audio_model_config(
     """
 
     engines = normalized_config.get("engines")
-    if isinstance(engines, dict) and isinstance(engines.get("audio_cpp"), dict):
-        engines["audio_cpp"] = sanitize_audio_engine_section(engines["audio_cpp"])
-
     effective = effective_model_config(normalized_config)
-    if effective.get("engine") != "audio_cpp":
+    from backend.engines.audio_cpp.identity import is_audio_engine_id
+
+    engine_id = str(effective.get("engine") or "")
+    if not is_audio_engine_id(engine_id):
         return {"errors": [], "warnings": []}
+    if isinstance(engines, dict) and isinstance(engines.get(engine_id), dict):
+        engines[engine_id] = sanitize_audio_engine_section(engines[engine_id])
+
     if not audio_cpp_enabled():
-        raise ValueError(
-            "The audio.cpp integration is disabled by AUDIO_CPP_ENABLED"
-        )
+        raise ValueError("The audio.cpp integration is disabled by AUDIO_CPP_ENABLED")
 
     errors: List[str] = []
     warnings: List[str] = []
     compatible = set(model.get("compatible_engines") or [])
-    if compatible and "audio_cpp" not in compatible:
+    if compatible and engine_id not in compatible:
         errors.append("This model is not verified compatible with audio.cpp")
 
-    active = store.get_active_engine_version("audio_cpp")
+    active = store.get_active_engine_version(engine_id)
     from backend.engines.audio_cpp.build_capabilities import server_ui_available
 
     if not server_ui_available(active):
         effective.update(ui=False, ui_management=False)
-        if isinstance(engines, dict) and isinstance(engines.get("audio_cpp"), dict):
-            engines["audio_cpp"].update(ui=False, ui_management=False)
-    if not active_engine_row_is_runnable("audio_cpp", active):
+        if isinstance(engines, dict) and isinstance(engines.get(engine_id), dict):
+            engines[engine_id].update(ui=False, ui_management=False)
+    if not active_engine_row_is_runnable(engine_id, active):
         errors.append("No runnable audio.cpp version is active")
         active = None
 
-    source_path = str(
-        effective.get("model_spec_override") or (active or {}).get("source_path") or ""
-    ) or None
+    source_path = (
+        str(effective.get("model_spec_override") or (active or {}).get("source_path") or "") or None
+    )
 
     model_path = resolve_audio_model_path(model)
     model_path_ok = audio_model_ready(model)
@@ -385,7 +384,7 @@ def validate_audio_model_config(
             profile = (
                 get_model_profile_entry(
                     store,
-                    "audio_cpp",
+                    engine_id,
                     str(active.get("version") or ""),
                     fingerprint,
                 )
@@ -410,17 +409,13 @@ def validate_audio_model_config(
     elif not isinstance(family, str):
         errors.append("family must be string")
     elif inspected_family and family != inspected_family:
-        errors.append(
-            f"family '{family}' does not match inspected family '{inspected_family}'"
-        )
+        errors.append(f"family '{family}' does not match inspected family '{inspected_family}'")
 
     task = effective.get("task")
-    task_rows = [
-        row for row in inspection.get("tasks") or [] if isinstance(row, dict)
-    ]
-    task_names = {
-        str(row.get("task")) for row in task_rows if row.get("task")
-    } or set(model.get("tasks") or [])
+    task_rows = [row for row in inspection.get("tasks") or [] if isinstance(row, dict)]
+    task_names = {str(row.get("task")) for row in task_rows if row.get("task")} or set(
+        model.get("tasks") or []
+    )
     if not task:
         errors.append("task is required")
     elif not isinstance(task, str):
@@ -439,18 +434,12 @@ def validate_audio_model_config(
     elif not isinstance(mode, str):
         errors.append("mode must be string")
     elif allowed_modes and mode not in allowed_modes:
-        errors.append(
-            f"mode '{mode}' is not supported for task '{task}'"
-        )
+        errors.append(f"mode '{mode}' is not supported for task '{task}'")
 
     raw_backend = effective.get("backend")
     selected_backend_value = "cpu" if raw_backend in (None, "") else raw_backend
-    selected_backend = (
-        selected_backend_value if isinstance(selected_backend_value, str) else ""
-    )
-    if selected_backend_value is not None and not isinstance(
-        selected_backend_value, str
-    ):
+    selected_backend = selected_backend_value if isinstance(selected_backend_value, str) else ""
+    if selected_backend_value is not None and not isinstance(selected_backend_value, str):
         errors.append("backend must be string")
     build_config = active.get("build_config") if isinstance(active, dict) else {}
     built_backend = str((build_config or {}).get("backend") or "cpu")
@@ -463,7 +452,7 @@ def validate_audio_model_config(
 
     _validate_core_runtime_options(effective, errors)
     audio_section = (
-        normalized_config.get("engines", {}).get("audio_cpp")
+        normalized_config.get("engines", {}).get(engine_id)
         if isinstance(normalized_config.get("engines"), dict)
         else None
     )
@@ -478,7 +467,9 @@ def validate_audio_model_config(
             "request_options are request-time capabilities and cannot be saved as server configuration"
         )
 
-    model_root = "" if audio_builtin_model_id(model) else resolve_audio_bundle_root(model) or model_path
+    model_root = (
+        "" if audio_builtin_model_id(model) else resolve_audio_bundle_root(model) or model_path
+    )
     reference_root = reference_audio_storage_root(model_root, storage_key=model.get("id"))
     if is_tts_task(task):
         if family_requires_session_voice(
@@ -528,7 +519,8 @@ def validate_audio_model_config(
             errors=errors,
         )
         if family_requires_session_voice(
-            family, source_path,
+            family,
+            source_path,
         ) and not resolve_session_voice_default(
             effective,
             model_root=model_root,
@@ -550,11 +542,12 @@ def validate_audio_model_config(
             effective.get("speech_defaults"), dict
         ):
             errors.append("speech_defaults must be an object")
-        elif isinstance(effective.get("speech_defaults"), dict) and effective[
-            "speech_defaults"
-        ].get("stream") and effective.get("mode") and str(
-            effective.get("mode")
-        ) != "streaming":
+        elif (
+            isinstance(effective.get("speech_defaults"), dict)
+            and effective["speech_defaults"].get("stream")
+            and effective.get("mode")
+            and str(effective.get("mode")) != "streaming"
+        ):
             # audio.cpp refuses stream requests unless the server runs the
             # model with mode=streaming; catch the mismatch at save time.
             errors.append(

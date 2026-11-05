@@ -1,0 +1,71 @@
+# Engine refactor final audit (2026-11-04)
+
+This audit accompanies `docs/engine-refactor-requirement-matrix.md` and records
+what is definition-owned, what compatibility wiring deliberately remains, and
+what is still transitional. It is a snapshot of the current uncommitted tree.
+
+## Definition ownership
+
+- All nine shipped engines are loaded from authoritative YAML at import:
+  `1cat_vllm`, `audio_cpp`, `ik_llama`, `llama_cpp`, `lmdeploy`, `sglang`,
+  `sglang_v100`, `unsloth_llama`, `vllm`.
+- `backend/engines/registry.py` contains no `EngineSpec` literal or exporter
+  data map. It bootstraps the registry from the validated definitions.
+- The exporter (`scripts/export-engine-definitions.py`), the exporter tier
+  (`GENERATED_ENGINE_IDS`) and all exporter registration branches are gone.
+- Identity, recipes, lifecycle facts, launch profiles, discovery, policies,
+  settings defaults, catalog/extension surfaces and artifact formats live in
+  YAML. Python supplies mechanisms (hosts, primitives) and domain algorithms.
+
+## Compatibility wiring that deliberately remains
+
+- `backend/routes/lmdeploy_versions.py`, `vllm_versions.py`,
+  `onecat_vllm_versions.py`, `sglang_versions.py`: thin
+  `definition_compat_router` prefixes over the shared lifecycle record.
+- `LMDeployInstaller` and `OneCatVllmInstaller`: constructor-only shims that
+  bind a definition to `GenericVenvInstaller`; the architecture test asserts
+  they define no other methods.
+- `SglangManager`: constructor facade returning the shared host.
+- `audio_cpp_versions.py`: declared audio extension surface, now mounted once
+  per engine declaring `runtime_kind: audio_cpp` with request-scoped identity.
+- Native source orchestration runs through the shared
+  `CmakeSourceInstaller` in `backend/engines/python/cmake_source.py`;
+  `source_build.py` is deleted and `llama_versions.py` calls the shared host.
+  Repository/artifact/build-policy differences come from the `source_build`
+  definition section. The `nativecraft` fixture is the third-fork proof that a
+  new CMake source engine needs data, not a new installer subclass.
+- Unsloth installs use the shared `start_release_install`/`publish.install`
+  flow. The compatibility delegate `LlamaManager.build_source` remains for
+  existing callers.
+
+## Transitional requirements (not counted as complete)
+
+- Requirement 9: the SGLang runtime selector copy and audio-package branches
+  still carry engine-specific UI; catalog search/library options/defaults,
+  ModelConfig engine marks, cards, panels and install/build dialogs are
+  descriptor-driven.
+
+## Hardware verification
+
+Native llama.cpp source builds (through `LlamaNativeInstaller`) and GGUF
+launch/inference (through `gguf_launch`) were exercised on a remote V100 with
+CUDA 12.8; details and remaining family coverage are in
+the privately maintained hardware verification record.
+
+## Verification snapshot
+
+- Backend: 2156 passed, 8 skipped (full suite).
+- Frontend: gate CLEAN, 652 tests, no unhandled errors.
+- Static: ruff, parity inventory, OpenAPI, build-defaults, legacy-route
+  inventory, literal ratchet, version — all current.
+- The architecture audit test
+  (`backend/tests/test_engine_refactor_dead_branches.py`) pins: no exporter
+  symbol/branch, constructor-only venv compatibility classes, thin
+  compatibility route modules, and removal of the legacy scan adapters.
+
+## Known flake (resolved)
+
+`test_action_recovery.py::test_an_unknown_fence_does_not_authorize_a_start`
+occasionally read the operation row before the supervisor's queued terminal
+write landed. The test now waits for the terminal status; 15 stress runs and a
+full suite pass.

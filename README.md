@@ -6,6 +6,8 @@ Studio is a browser-based workspace for acquiring models, managing inference eng
 
 | Guide                                                        | Contents                                                                                                                                                |
 | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Delivery map](docs/delivery-map.md)                         | Review/ship entry point for the config-driven engine definitions release: gains, architecture, compatibility, changes, verification limits, remaining work. |
+| [Change inventory](docs/change-inventory.md)                 | Dependent commit series, file boundaries, deletions and their replacements, test placement.                                                              |
 | [Feature guide](docs/features.md)                            | Complete workspace guide: engines, acquisition, configuration, aliases, runtime state, audio, access policies, System, backup, history, and benchmarks. |
 | [API reference](docs/api-reference.md)                       | Management endpoint catalog, request/response schemas, inference interfaces, examples, authorization, and error semantics.                              |
 | [Proxy operations](docs/proxy-operations.md)                 | Routing, request observation, keys, budgets, queues, timeouts, process supervision, and accounting storage.                                             |
@@ -145,6 +147,49 @@ python backend/main.py
 ```
 
 The FastAPI service serves `frontend/dist`. The default persistent data root is `./data` on the host and `/app/data` in the container. `STUDIO_DATA_DIR` selects an explicit data root.
+
+#### Linux dev container
+
+For development on the repository itself inside Linux, run the repo-mounted long-lived dev container built from the runtime stage of the `Dockerfile`:
+
+```bash
+docker compose -f docker-compose.dev.yml up -d --build
+docker compose -f docker-compose.dev.yml exec studio-dev bash
+```
+
+The repository is mounted at `/app`. Each container start installs `requirements-dev.lock` into the image venv; `npm ci` runs once into a named volume so a host `node_modules` is never used inside. In the container the commands above work as written: `npm run dev:all`, `npm run test`, `python -m pytest backend/tests -q`, lint, and `npm run openapi:check`. Ports `5173`, `8080`, `8081`, and `2000` are published to host loopback, and `.devcontainer/` attaches VS Code Dev Containers to the same service.
+
+Two caveats when testing in the dev container: run the backend suite as the image's unprivileged user (`exec --user appuser studio-dev`), because a root shell bypasses the permission bits that the rustup-home relocation tests exercise; and build the frontend once (`npm run build`) before `test_performance_budgets.py`, which inspects the production bundle.
+
+#### Remote development stack for agents
+
+For work against the actual GPU host without touching the live instance, use the
+separate checkout/state/ports stack described in
+[Remote development stack for agents](docs/agent-dev-stack.md):
+
+```bash
+sudo bash scripts/agent-dev/provision-host.sh --user studioagent --ssh-key-file agent.pub --repo-url <clone-url>
+ssh studioagent@dev-host 'agent-dev stack build && agent-dev stack up'
+ssh studioagent@dev-host 'agent-dev inspect-instance --json'
+```
+
+It mounts a separate checkout into a dev container with Uvicorn reload and Vite
+HMR, exposes a JSON CLI and an MCP stdio transport over SSH, and provides guarded
+patch, test, log, reload, diagnostics, and rollback operations with an operation
+ID and revision on every result. It is independent of the local
+`docker-compose.dev.yml` container and is not included in production images. For a completely host-free option, use the
+[self-contained development image](docs/agent-dev-standalone.md): one container,
+named volumes, SSH/MCP, and no Docker socket.
+
+```bash
+scripts/agent-dev/build-standalone.sh
+docker compose -f scripts/agent-dev/standalone.compose.yaml up -d
+docker cp agent.pub studio-dev:/state/authorized_keys
+ssh -p 2222 agent@dev-host
+```
+
+The host-assisted controller path is optional; the standalone image is the
+Docker-socket-free option.
 
 ## First model workflow
 

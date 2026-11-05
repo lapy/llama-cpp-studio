@@ -6,6 +6,7 @@ import {
   audioTaskDefaultsKey,
   audioTaskEndpoint,
 } from '@/composables/useAudioContract'
+import { isAudioEngineId } from '@/engines/registry'
 
 export const AUDIO_NESTED_SCOPE_KEYS = {
   load_option: 'load_options',
@@ -981,7 +982,7 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, stableM
     }
     if (param.key === 'backend') {
       const descriptor = (enginesStore?.engineDescriptors || [])
-        .find((item) => item.id === 'audio_cpp')
+        .find((item) => isAudioEngineId(item.id))
       const available = descriptor?.available_runtime_backends
       if (Array.isArray(available) && available.length) {
         return available.map((backend) => ({ value: backend, label: backend }))

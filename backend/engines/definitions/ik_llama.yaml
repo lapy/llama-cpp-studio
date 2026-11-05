@@ -1,0 +1,1178 @@
+# AUTHORITATIVE engine definition (hand-authored; NOT exported).
+#
+# ik_llama.cpp is definition-owned: identity, the native source-build recipe,
+# build-option catalog and catalogue policy live here. Native GGUF launch stays
+# the legacy family compiler (recorded departure).
+schema_version: 2
+id: ik_llama
+extends:
+- text_generation_tasks
+- gguf_llama_server
+label: ik_llama.cpp
+repository_source: ik_llama.cpp
+install_kind: cmake
+discovery:
+  # Native invocation/LD-path resolution is a shared llama-family mechanism.
+  mode: adapter
+recipes:
+  source:
+  - id: prepare_checkout
+    uses: vcs.workspace_checkout
+    produces:
+    - checkout
+  - id: apply_patches
+    uses: vcs.apply_patch
+    requires:
+    - checkout
+    when:
+      exists:
+        field: input.patches
+    produces:
+    - patched
+  - id: configure
+    uses: cmake.configure
+    requires:
+    - checkout
+    produces:
+    - build_dir
+  - id: compile
+    uses: cmake.build
+    requires:
+    - build_dir
+    produces:
+    - compiled
+  - id: locate_binary
+    uses: artifact.locate
+    requires:
+    - compiled
+    produces:
+    - server_path
+  - id: finalize
+    uses: publish.finalize
+    requires:
+    - server_path
+    produces:
+    - binary
+  remove_version:
+  - id: remove_install_dir
+    uses: fs.remove_tree
+    requires:
+    - input.delete_target
+    - input.retire_references
+    with:
+      path_from: input.delete_target
+      retire_references_from: input.retire_references
+  - id: remove_binary_file
+    uses: fs.remove_file
+    requires:
+    - input.file_target
+    - input.retire_references
+    when:
+      exists:
+        field: input.file_target
+    with:
+      path_from: input.file_target
+      release_hold_from: input.retire_references
+      optional: true
+  - id: forget_row
+    uses: publish.forget
+    requires:
+    - input.registered
+    - input.version_name
+runtime_profiles:
+  default:
+    default: true
+    description: llama-server GGUF (native family)
+    launch_family: gguf_llama_server
+    port_binding:
+      flag: --port
+source_build:
+  repository_name: ik_llama.cpp
+  source_dir: llama.cpp
+  binary_name: llama-server
+  build_examples_required: true
+  stable_release_versions: false
+  blas_supported: false
+launch_policy:
+  runtime_context_key: ctx_size
+  capcompat: true
+build_options:
+  build_types:
+  - Debug
+  - Release
+  - RelWithDebInfo
+  - MinSizeRel
+  build_type_default: Release
+  primary_keys:
+  - blas
+  - cuda
+  categories:
+  - id: backends
+    label: GPU & compute backends
+    collapsed: false
+  - id: iqk
+    label: IQK optimizations (ik_llama)
+    collapsed: true
+    engines:
+    - ik_llama
+  - id: cuda
+    label: CUDA options
+    collapsed: true
+  - id: cpu_accel
+    label: CPU / BLAS acceleration
+    collapsed: true
+  - id: artifacts
+    label: Build artifacts
+    collapsed: true
+  - id: ggml
+    label: GGML general
+    collapsed: true
+  - id: cpu_isa
+    label: CPU instruction sets
+    collapsed: true
+  - id: debug
+    label: Debug & sanitizers
+    collapsed: true
+  - id: advanced
+    label: Advanced strings
+    collapsed: true
+  options:
+  - key: cuda
+    field: enable_cuda
+    kind: bool
+    default: false
+    label: CUDA
+    desc: "GGML_CUDA \u2014 NVIDIA GPU"
+    category: backends
+    cmake: GGML_CUDA
+    special: cuda
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: blas
+    field: enable_blas
+    kind: bool
+    default: false
+    label: BLAS
+    desc: "GGML_BLAS \u2014 CPU BLAS (llama.cpp)"
+    category: backends
+    cmake: GGML_BLAS
+    special: blas
+    engines:
+    - llama_cpp
+  - key: iqk_mul_mat
+    field: enable_iqk_mul_mat
+    kind: bool
+    default: true
+    label: IQK matmul
+    desc: "GGML_IQK_MUL_MAT \u2014 optimized IQK matrix multiplies"
+    category: iqk
+    cmake: GGML_IQK_MUL_MAT
+    engines:
+    - ik_llama
+  - key: iqk_flash_attention
+    field: enable_iqk_flash_attention
+    kind: bool
+    default: true
+    label: IQK FlashAttention
+    desc: "GGML_IQK_FLASH_ATTENTION \u2014 CPU FA kernels"
+    category: iqk
+    cmake: GGML_IQK_FLASH_ATTENTION
+    engines:
+    - ik_llama
+  - key: iqk_fa_all_quants
+    field: enable_iqk_fa_all_quants
+    kind: bool
+    default: true
+    label: IQK FA all quants
+    desc: "GGML_IQK_FA_ALL_QUANTS \u2014 larger binary / longer compile"
+    category: iqk
+    cmake: GGML_IQK_FA_ALL_QUANTS
+    engines:
+    - ik_llama
+  - key: expert_chunking
+    field: enable_expert_chunking
+    kind: bool
+    default: true
+    label: Expert chunking
+    desc: "GGML_EXPERT_CHUNKING \u2014 MoE chunking"
+    category: iqk
+    cmake: GGML_EXPERT_CHUNKING
+    engines:
+    - ik_llama
+  - key: nccl
+    field: enable_nccl
+    kind: bool
+    default: true
+    label: NCCL
+    desc: GGML_NCCL (ik_llama top-level)
+    category: iqk
+    cmake: GGML_NCCL
+    engines:
+    - ik_llama
+  - key: max_contexts
+    field: max_contexts
+    kind: str
+    default: ''
+    label: Max contexts
+    desc: GGML_MAX_CONTEXTS (blank = upstream default)
+    category: iqk
+    cmake: GGML_MAX_CONTEXTS
+    engines:
+    - ik_llama
+  - key: cuda_fa
+    field: enable_cuda_fa
+    kind: bool
+    default: true
+    label: FlashAttention kernels
+    desc: GGML_CUDA_FA
+    category: cuda
+    cmake: GGML_CUDA_FA
+    requires: cuda
+    engines:
+    - llama_cpp
+  - key: flash_attention
+    field: enable_flash_attention
+    kind: bool
+    default: false
+    label: FA all quants
+    desc: GGML_CUDA_FA_ALL_QUANTS (larger binary)
+    category: cuda
+    cmake: GGML_CUDA_FA_ALL_QUANTS
+    requires: cuda
+    special: cuda_fa_all
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: cuda_graphs
+    field: enable_cuda_graphs
+    kind: bool
+    default: true
+    label: CUDA graphs
+    desc: GGML_CUDA_GRAPHS / GGML_CUDA_USE_GRAPHS
+    category: cuda
+    requires: cuda
+    special: cuda_graphs
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: cuda_force_mmq
+    field: enable_cuda_force_mmq
+    kind: bool
+    default: false
+    label: Force MMQ
+    desc: "GGML_CUDA_FORCE_MMQ \u2014 prefer mmq over cuBLAS"
+    category: cuda
+    cmake: GGML_CUDA_FORCE_MMQ
+    requires: cuda
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: cuda_force_cublas
+    field: enable_cuda_force_cublas
+    kind: bool
+    default: false
+    label: Force cuBLAS
+    desc: GGML_CUDA_FORCE_CUBLAS
+    category: cuda
+    cmake: GGML_CUDA_FORCE_CUBLAS
+    requires: cuda
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: cuda_force_dmmv
+    field: enable_cuda_force_dmmv
+    kind: bool
+    default: false
+    label: Force DMMV
+    desc: GGML_CUDA_FORCE_DMMV (ik_llama)
+    category: cuda
+    cmake: GGML_CUDA_FORCE_DMMV
+    requires: cuda
+    engines:
+    - ik_llama
+  - key: cuda_iqk_force_bf16
+    field: enable_cuda_iqk_force_bf16
+    kind: bool
+    default: false
+    label: IQK force BF16
+    desc: "GGML_CUDA_IQK_FORCE_BF16 \u2014 bf16 cuBLAS fallback"
+    category: cuda
+    cmake: GGML_CUDA_IQK_FORCE_BF16
+    requires: cuda
+    engines:
+    - ik_llama
+  - key: cuda_f16
+    field: enable_cuda_f16
+    kind: bool
+    default: false
+    label: CUDA FP16 math
+    desc: GGML_CUDA_F16 (ik_llama)
+    category: cuda
+    cmake: GGML_CUDA_F16
+    requires: cuda
+    engines:
+    - ik_llama
+  - key: cuda_no_peer_copy
+    field: enable_cuda_no_peer_copy
+    kind: bool
+    default: false
+    label: Disable P2P copies
+    desc: GGML_CUDA_NO_PEER_COPY
+    category: cuda
+    cmake: GGML_CUDA_NO_PEER_COPY
+    requires: cuda
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: cuda_no_vmm
+    field: enable_cuda_no_vmm
+    kind: bool
+    default: false
+    label: Disable CUDA VMM
+    desc: GGML_CUDA_NO_VMM
+    category: cuda
+    cmake: GGML_CUDA_NO_VMM
+    requires: cuda
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: cuda_nccl
+    field: enable_cuda_nccl
+    kind: bool
+    default: true
+    label: CUDA NCCL
+    desc: "GGML_CUDA_NCCL \u2014 NVIDIA Collective Comm."
+    category: cuda
+    cmake: GGML_CUDA_NCCL
+    requires: cuda
+    engines:
+    - llama_cpp
+  - key: cuda_architectures
+    field: cuda_architectures
+    kind: str
+    default: ''
+    label: CUDA architectures
+    desc: CMAKE_CUDA_ARCHITECTURES (blank = auto)
+    category: cuda
+    requires: cuda
+    special: cuda_arch
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: cuda_fa_quants
+    field: cuda_fa_quants
+    kind: str
+    default: q4_0-q4_0;q8_0-q8_0;f16-f16;bf16-bf16
+    label: FlashAttention K-V quants
+    desc: "GGML_CUDA_FA_QUANTS \u2014 combinations to compile, or \"all\""
+    category: cuda
+    cmake: GGML_CUDA_FA_QUANTS
+    requires: cuda
+    engines:
+    - llama_cpp
+  - key: cuda_peer_max_batch_size
+    field: cuda_peer_max_batch_size
+    kind: str
+    default: '128'
+    label: Peer max batch size
+    desc: GGML_CUDA_PEER_MAX_BATCH_SIZE (ik_llama)
+    category: cuda
+    cmake: GGML_CUDA_PEER_MAX_BATCH_SIZE
+    requires: cuda
+    engines:
+    - ik_llama
+  - key: cuda_min_batch_offload
+    field: cuda_min_batch_offload
+    kind: str
+    default: '32'
+    label: Min batch offload
+    desc: GGML_CUDA_MIN_BATCH_OFFLOAD (ik_llama)
+    category: cuda
+    cmake: GGML_CUDA_MIN_BATCH_OFFLOAD
+    requires: cuda
+    engines:
+    - ik_llama
+  - key: cuda_dmmv_x
+    field: cuda_dmmv_x
+    kind: str
+    default: '32'
+    label: DMMV X stride
+    desc: GGML_CUDA_DMMV_X (ik_llama)
+    category: cuda
+    cmake: GGML_CUDA_DMMV_X
+    requires: cuda
+    engines:
+    - ik_llama
+  - key: cuda_mmv_y
+    field: cuda_mmv_y
+    kind: str
+    default: '1'
+    label: MMV Y block
+    desc: GGML_CUDA_MMV_Y (ik_llama)
+    category: cuda
+    cmake: GGML_CUDA_MMV_Y
+    requires: cuda
+    engines:
+    - ik_llama
+  - key: cuda_kquants_iter
+    field: cuda_kquants_iter
+    kind: str
+    default: '2'
+    label: K-quants iters
+    desc: GGML_CUDA_KQUANTS_ITER (ik_llama)
+    category: cuda
+    cmake: GGML_CUDA_KQUANTS_ITER
+    requires: cuda
+    engines:
+    - ik_llama
+  - key: cuda_fusion
+    field: cuda_fusion
+    kind: str
+    default: '1'
+    label: CUDA fusion
+    desc: GGML_CUDA_FUSION (ik_llama)
+    category: cuda
+    cmake: GGML_CUDA_FUSION
+    requires: cuda
+    engines:
+    - ik_llama
+  - key: cuda_compression_mode
+    field: cuda_compression_mode
+    kind: enum
+    default: size
+    label: CUDA compression mode
+    desc: GGML_CUDA_COMPRESSION_MODE (CUDA 12.8+)
+    category: cuda
+    cmake: GGML_CUDA_COMPRESSION_MODE
+    requires: cuda
+    enum_values:
+    - none
+    - speed
+    - balance
+    - size
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: cpu
+    field: enable_cpu
+    kind: bool
+    default: true
+    label: CPU backend
+    desc: GGML_CPU
+    category: cpu_accel
+    cmake: GGML_CPU
+    engines:
+    - llama_cpp
+  - key: openmp
+    field: enable_openmp
+    kind: bool
+    default: true
+    label: OpenMP
+    desc: GGML_OPENMP
+    category: cpu_accel
+    cmake: GGML_OPENMP
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: openmp_fetch
+    field: enable_openmp_fetch
+    kind: bool
+    default: false
+    label: Fetch LLVM OpenMP
+    desc: GGML_OPENMP_FETCH
+    category: cpu_accel
+    cmake: GGML_OPENMP_FETCH
+    engines:
+    - llama_cpp
+  - key: accelerate
+    field: enable_accelerate
+    kind: bool
+    default: true
+    label: Accelerate
+    desc: "GGML_ACCELERATE \u2014 Apple Accelerate"
+    category: cpu_accel
+    cmake: GGML_ACCELERATE
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: llamafile
+    field: enable_llamafile
+    kind: bool
+    default: true
+    label: llamafile
+    desc: GGML_LLAMAFILE
+    category: cpu_accel
+    cmake: GGML_LLAMAFILE
+    engines:
+    - llama_cpp
+  - key: cpu_hbm
+    field: enable_cpu_hbm
+    kind: bool
+    default: false
+    label: CPU HBM
+    desc: "GGML_CPU_HBM \u2014 memkind"
+    category: cpu_accel
+    cmake: GGML_CPU_HBM
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: cpu_repack
+    field: enable_cpu_repack
+    kind: bool
+    default: true
+    label: CPU repack
+    desc: "GGML_CPU_REPACK \u2014 Q4_0\u2192Q4_X_X at runtime"
+    category: cpu_accel
+    cmake: GGML_CPU_REPACK
+    engines:
+    - llama_cpp
+  - key: cpu_kleidiai
+    field: enable_cpu_kleidiai
+    kind: bool
+    default: false
+    label: KleidiAI
+    desc: "GGML_CPU_KLEIDIAI \u2014 Arm optimized kernels"
+    category: cpu_accel
+    cmake: GGML_CPU_KLEIDIAI
+    engines:
+    - llama_cpp
+  - key: blas_vendor
+    field: blas_vendor
+    kind: str
+    default: OpenBLAS
+    label: BLAS vendor
+    desc: GGML_BLAS_VENDOR
+    category: cpu_accel
+    requires: blas
+    special: blas_vendor
+    engines:
+    - llama_cpp
+  - key: build_common
+    field: build_common
+    kind: bool
+    default: true
+    label: Common lib
+    desc: LLAMA_BUILD_COMMON
+    category: artifacts
+    cmake: LLAMA_BUILD_COMMON
+    engines:
+    - llama_cpp
+  - key: build_tests
+    field: build_tests
+    kind: bool
+    default: true
+    label: Tests
+    desc: LLAMA_BUILD_TESTS
+    category: artifacts
+    cmake: LLAMA_BUILD_TESTS
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: build_tools
+    field: build_tools
+    kind: bool
+    default: true
+    label: Tools
+    desc: LLAMA_BUILD_TOOLS
+    category: artifacts
+    cmake: LLAMA_BUILD_TOOLS
+    engines:
+    - llama_cpp
+  - key: build_examples
+    field: build_examples
+    kind: bool
+    default: true
+    label: Examples
+    desc: LLAMA_BUILD_EXAMPLES
+    category: artifacts
+    cmake: LLAMA_BUILD_EXAMPLES
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: build_server
+    field: build_server
+    kind: bool
+    default: true
+    label: Server
+    desc: LLAMA_BUILD_SERVER (required for serving)
+    category: artifacts
+    cmake: LLAMA_BUILD_SERVER
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: build_app
+    field: build_app
+    kind: bool
+    default: true
+    label: Unified app
+    desc: LLAMA_BUILD_APP
+    category: artifacts
+    cmake: LLAMA_BUILD_APP
+    engines:
+    - llama_cpp
+  - key: build_ui
+    field: build_ui
+    kind: bool
+    default: false
+    label: Embedded Web UI
+    desc: "LLAMA_BUILD_UI \u2014 opt-in; default off upstream"
+    category: artifacts
+    cmake: LLAMA_BUILD_UI
+    engines:
+    - llama_cpp
+  - key: use_prebuilt_ui
+    field: use_prebuilt_ui
+    kind: bool
+    default: true
+    label: Prebuilt UI
+    desc: LLAMA_USE_PREBUILT_UI
+    category: artifacts
+    cmake: LLAMA_USE_PREBUILT_UI
+    engines:
+    - llama_cpp
+  - key: build_mtmd
+    field: build_mtmd
+    kind: bool
+    default: false
+    label: Standalone mtmd
+    desc: "LLAMA_BUILD_MTMD \u2014 multimodal lib without full tools"
+    category: artifacts
+    cmake: LLAMA_BUILD_MTMD
+    engines:
+    - llama_cpp
+  - key: install_tools
+    field: install_tools
+    kind: bool
+    default: true
+    label: Install tools
+    desc: LLAMA_TOOLS_INSTALL
+    category: artifacts
+    cmake: LLAMA_TOOLS_INSTALL
+    engines:
+    - llama_cpp
+  - key: install_tests
+    field: install_tests
+    kind: bool
+    default: true
+    label: Install tests
+    desc: LLAMA_TESTS_INSTALL
+    category: artifacts
+    cmake: LLAMA_TESTS_INSTALL
+    engines:
+    - llama_cpp
+  - key: openssl
+    field: enable_openssl
+    kind: bool
+    default: true
+    label: OpenSSL
+    desc: "LLAMA_OPENSSL \u2014 HTTPS support"
+    category: artifacts
+    cmake: LLAMA_OPENSSL
+    engines:
+    - llama_cpp
+  - key: subprocess
+    field: enable_subprocess
+    kind: bool
+    default: true
+    label: Subprocess
+    desc: "LLAMA_SUBPROCESS \u2014 server tools / router"
+    category: artifacts
+    cmake: LLAMA_SUBPROCESS
+    engines:
+    - llama_cpp
+  - key: llguidance
+    field: enable_llguidance
+    kind: bool
+    default: false
+    label: LLGuidance
+    desc: "LLAMA_LLGUIDANCE \u2014 structured output"
+    category: artifacts
+    cmake: LLAMA_LLGUIDANCE
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: native
+    field: enable_native
+    kind: bool
+    default: true
+    label: Native CPU
+    desc: "GGML_NATIVE \u2014 optimize for this host"
+    category: ggml
+    cmake: GGML_NATIVE
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: backend_dl
+    field: enable_backend_dl
+    kind: bool
+    default: false
+    label: Backend DL
+    desc: "GGML_BACKEND_DL \u2014 backends as shared libs"
+    category: ggml
+    cmake: GGML_BACKEND_DL
+    engines:
+    - llama_cpp
+  - key: cpu_all_variants
+    field: enable_cpu_all_variants
+    kind: bool
+    default: false
+    label: CPU all variants
+    desc: GGML_CPU_ALL_VARIANTS (requires Backend DL)
+    category: ggml
+    cmake: GGML_CPU_ALL_VARIANTS
+    engines:
+    - llama_cpp
+  - key: lto
+    field: enable_lto
+    kind: bool
+    default: false
+    label: LTO
+    desc: "GGML_LTO \u2014 link-time optimization"
+    category: ggml
+    cmake: GGML_LTO
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: ccache
+    field: enable_ccache
+    kind: bool
+    default: true
+    label: ccache
+    desc: GGML_CCACHE
+    category: ggml
+    cmake: GGML_CCACHE
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: static
+    field: enable_static
+    kind: bool
+    default: false
+    label: Static link
+    desc: GGML_STATIC
+    category: ggml
+    cmake: GGML_STATIC
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: sched_no_realloc
+    field: enable_sched_no_realloc
+    kind: bool
+    default: false
+    label: No realloc
+    desc: GGML_SCHED_NO_REALLOC (debug)
+    category: ggml
+    cmake: GGML_SCHED_NO_REALLOC
+    engines:
+    - llama_cpp
+  - key: backend_dir
+    field: backend_dir
+    kind: str
+    default: ''
+    label: Backend DL directory
+    desc: GGML_BACKEND_DIR
+    category: ggml
+    cmake: GGML_BACKEND_DIR
+    engines:
+    - llama_cpp
+  - key: sched_max_copies
+    field: sched_max_copies
+    kind: str
+    default: ''
+    label: Sched max copies
+    desc: GGML_SCHED_MAX_COPIES (blank = upstream default)
+    category: ggml
+    cmake: GGML_SCHED_MAX_COPIES
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: cpu_arm_arch
+    field: cpu_arm_arch
+    kind: str
+    default: ''
+    label: ARM CPU arch
+    desc: GGML_CPU_ARM_ARCH
+    category: ggml
+    cmake: GGML_CPU_ARM_ARCH
+    engines:
+    - llama_cpp
+  - key: cpu_powerpc_cputype
+    field: cpu_powerpc_cputype
+    kind: str
+    default: ''
+    label: PowerPC CPU type
+    desc: GGML_CPU_POWERPC_CPUTYPE
+    category: ggml
+    cmake: GGML_CPU_POWERPC_CPUTYPE
+    engines:
+    - llama_cpp
+  - key: sse42
+    field: enable_sse42
+    kind: bool
+    default: false
+    label: SSE 4.2
+    desc: GGML_SSE42
+    category: cpu_isa
+    cmake: GGML_SSE42
+    engines:
+    - llama_cpp
+  - key: avx
+    field: enable_avx
+    kind: bool
+    default: false
+    label: AVX
+    desc: GGML_AVX
+    category: cpu_isa
+    cmake: GGML_AVX
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: avx_vnni
+    field: enable_avx_vnni
+    kind: bool
+    default: false
+    label: AVX-VNNI
+    desc: GGML_AVX_VNNI / GGML_AVXVNNI
+    category: cpu_isa
+    special: avx_vnni
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: avx2
+    field: enable_avx2
+    kind: bool
+    default: false
+    label: AVX2
+    desc: GGML_AVX2
+    category: cpu_isa
+    cmake: GGML_AVX2
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: bmi2
+    field: enable_bmi2
+    kind: bool
+    default: false
+    label: BMI2
+    desc: GGML_BMI2
+    category: cpu_isa
+    cmake: GGML_BMI2
+    engines:
+    - llama_cpp
+  - key: fma
+    field: enable_fma
+    kind: bool
+    default: false
+    label: FMA
+    desc: GGML_FMA
+    category: cpu_isa
+    cmake: GGML_FMA
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: f16c
+    field: enable_f16c
+    kind: bool
+    default: false
+    label: F16C
+    desc: GGML_F16C
+    category: cpu_isa
+    cmake: GGML_F16C
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: avx512
+    field: enable_avx512
+    kind: bool
+    default: false
+    label: AVX512F
+    desc: GGML_AVX512
+    category: cpu_isa
+    cmake: GGML_AVX512
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: avx512_vbmi
+    field: enable_avx512_vbmi
+    kind: bool
+    default: false
+    label: AVX512-VBMI
+    desc: GGML_AVX512_VBMI
+    category: cpu_isa
+    cmake: GGML_AVX512_VBMI
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: avx512_vnni
+    field: enable_avx512_vnni
+    kind: bool
+    default: false
+    label: AVX512-VNNI
+    desc: GGML_AVX512_VNNI
+    category: cpu_isa
+    cmake: GGML_AVX512_VNNI
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: avx512_bf16
+    field: enable_avx512_bf16
+    kind: bool
+    default: false
+    label: AVX512-BF16
+    desc: GGML_AVX512_BF16
+    category: cpu_isa
+    cmake: GGML_AVX512_BF16
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: amx_tile
+    field: enable_amx_tile
+    kind: bool
+    default: false
+    label: AMX-TILE
+    desc: GGML_AMX_TILE
+    category: cpu_isa
+    cmake: GGML_AMX_TILE
+    engines:
+    - llama_cpp
+  - key: amx_int8
+    field: enable_amx_int8
+    kind: bool
+    default: false
+    label: AMX-INT8
+    desc: GGML_AMX_INT8
+    category: cpu_isa
+    cmake: GGML_AMX_INT8
+    engines:
+    - llama_cpp
+  - key: amx_bf16
+    field: enable_amx_bf16
+    kind: bool
+    default: false
+    label: AMX-BF16
+    desc: GGML_AMX_BF16
+    category: cpu_isa
+    cmake: GGML_AMX_BF16
+    engines:
+    - llama_cpp
+  - key: sve
+    field: enable_sve
+    kind: bool
+    default: false
+    label: SVE
+    desc: "GGML_SVE \u2014 Arm SVE (ik_llama)"
+    category: cpu_isa
+    cmake: GGML_SVE
+    engines:
+    - ik_llama
+  - key: lasx
+    field: enable_lasx
+    kind: bool
+    default: true
+    label: LASX
+    desc: "GGML_LASX \u2014 LoongArch"
+    category: cpu_isa
+    cmake: GGML_LASX
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: lsx
+    field: enable_lsx
+    kind: bool
+    default: true
+    label: LSX
+    desc: "GGML_LSX \u2014 LoongArch"
+    category: cpu_isa
+    cmake: GGML_LSX
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: rvv
+    field: enable_rvv
+    kind: bool
+    default: true
+    label: RVV
+    desc: "GGML_RVV \u2014 RISC-V"
+    category: cpu_isa
+    cmake: GGML_RVV
+    engines:
+    - llama_cpp
+  - key: rv_zfh
+    field: enable_rv_zfh
+    kind: bool
+    default: true
+    label: RISC-V Zfh
+    desc: GGML_RV_ZFH
+    category: cpu_isa
+    cmake: GGML_RV_ZFH
+    engines:
+    - llama_cpp
+  - key: rv_zvfh
+    field: enable_rv_zvfh
+    kind: bool
+    default: true
+    label: RISC-V Zvfh
+    desc: GGML_RV_ZVFH
+    category: cpu_isa
+    cmake: GGML_RV_ZVFH
+    engines:
+    - llama_cpp
+  - key: rv_zicbop
+    field: enable_rv_zicbop
+    kind: bool
+    default: true
+    label: RISC-V Zicbop
+    desc: GGML_RV_ZICBOP
+    category: cpu_isa
+    cmake: GGML_RV_ZICBOP
+    engines:
+    - llama_cpp
+  - key: rv_zihintpause
+    field: enable_rv_zihintpause
+    kind: bool
+    default: true
+    label: RISC-V Zihintpause
+    desc: GGML_RV_ZIHINTPAUSE
+    category: cpu_isa
+    cmake: GGML_RV_ZIHINTPAUSE
+    engines:
+    - llama_cpp
+  - key: rv_zvfbfwma
+    field: enable_rv_zvfbfwma
+    kind: bool
+    default: false
+    label: RISC-V Zvfbfwma
+    desc: GGML_RV_ZVFBFWMA
+    category: cpu_isa
+    cmake: GGML_RV_ZVFBFWMA
+    engines:
+    - llama_cpp
+  - key: xtheadvector
+    field: enable_xtheadvector
+    kind: bool
+    default: false
+    label: XTheadVector
+    desc: GGML_XTHEADVECTOR
+    category: cpu_isa
+    cmake: GGML_XTHEADVECTOR
+    engines:
+    - llama_cpp
+  - key: vxe
+    field: enable_vxe
+    kind: bool
+    default: false
+    label: VXE
+    desc: "GGML_VXE \u2014 IBM Z"
+    category: cpu_isa
+    cmake: GGML_VXE
+    engines:
+    - llama_cpp
+  - key: all_warnings
+    field: enable_all_warnings
+    kind: bool
+    default: true
+    label: All warnings
+    desc: LLAMA_ALL_WARNINGS / GGML_ALL_WARNINGS
+    category: debug
+    cmake: LLAMA_ALL_WARNINGS
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: fatal_warnings
+    field: enable_fatal_warnings
+    kind: bool
+    default: false
+    label: Fatal warnings
+    desc: LLAMA_FATAL_WARNINGS (-Werror)
+    category: debug
+    cmake: LLAMA_FATAL_WARNINGS
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: sanitize_thread
+    field: enable_sanitize_thread
+    kind: bool
+    default: false
+    label: Thread sanitizer
+    desc: LLAMA_SANITIZE_THREAD
+    category: debug
+    cmake: LLAMA_SANITIZE_THREAD
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: sanitize_address
+    field: enable_sanitize_address
+    kind: bool
+    default: false
+    label: Address sanitizer
+    desc: LLAMA_SANITIZE_ADDRESS
+    category: debug
+    cmake: LLAMA_SANITIZE_ADDRESS
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: sanitize_undefined
+    field: enable_sanitize_undefined
+    kind: bool
+    default: false
+    label: Undefined sanitizer
+    desc: LLAMA_SANITIZE_UNDEFINED
+    category: debug
+    cmake: LLAMA_SANITIZE_UNDEFINED
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: gprof
+    field: enable_gprof
+    kind: bool
+    default: false
+    label: gprof
+    desc: GGML_GPROF
+    category: debug
+    cmake: GGML_GPROF
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: custom_cmake_args
+    field: custom_cmake_args
+    kind: str
+    default: ''
+    label: Custom CMake args
+    desc: Extra args appended to cmake (shlex)
+    category: advanced
+    special: custom_cmake
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: cflags
+    field: cflags
+    kind: str
+    default: ''
+    label: CFLAGS
+    desc: Passed via CFLAGS env
+    category: advanced
+    special: cflags
+    engines:
+    - ik_llama
+    - llama_cpp
+  - key: cxxflags
+    field: cxxflags
+    kind: str
+    default: ''
+    label: CXXFLAGS
+    desc: Passed via CXXFLAGS env
+    category: advanced
+    special: cxxflags
+    engines:
+    - ik_llama
+    - llama_cpp
+catalog:
+  providers:
+  - huggingface
+upstream:
+  repository_url: https://github.com/ikawrakow/ik_llama.cpp.git
+data_dirs:
+- llama-cpp
+build_defaults:
+  build_examples: true

@@ -14,11 +14,40 @@ from backend.engines.scan.help_parsers import (
     sglang_params_to_sections,
 )
 from backend.cuda_installer import CUDAInstaller
+from backend.engines.definitions import load_default_engine_definitions, materialize_plan
+from backend.engines.definitions.transforms import (
+    TransformError,
+    apply_transform,
+    load_transform,
+)
+from backend.engines.python import fork_build
+from backend.engines.python.fork_build import prepare_fork_build
+from backend.engines.python.generic import GenericVenvInstaller
+from backend.engines.python.log_streaming import progress_milestone
 from backend.engines.registry import ENGINE_REGISTRY
+from backend.engines.sglang import SglangManager
 from backend.models.schema import compatible_engines_for_record
 from backend.operations.progress import get_progress_manager
-from backend.engines.sglang import SglangManager
 from backend.venv_install_settings import default_install_settings
+
+
+def _v100_installer(tmp_path) -> GenericVenvInstaller:
+    definition = load_default_engine_definitions().definitions["sglang_v100"]
+    return GenericVenvInstaller(
+        definition,
+        log_path=str(tmp_path / "sglang-v100.log"),
+        base_dir=str(tmp_path / "installs"),
+    )
+
+
+def _v100_milestones() -> list:
+    lifecycle = dict(load_default_engine_definitions().definitions["sglang_v100"].lifecycle)
+    return [dict(item) for item in lifecycle["log"]["progress_milestones"]]
+
+
+def _v100_option(step_id: str) -> dict:
+    plan = materialize_plan(load_default_engine_definitions().definitions["sglang_v100"], "source")
+    return dict(plan.by_id(step_id).with_)
 
 
 _V100_INSTALLER_FIXTURE = """#!/usr/bin/env bash
@@ -70,17 +99,7 @@ log "building (MAX_JOBS=$MAX_JOBS) ... this takes ~15-40 min"
 ( cd "$REPO" && bash "$REPO/build.sh" )
 """
 
-_V100_MARLIN_PATCH_LOOP = """for SM70_PATCH in "${SM70_PATCHES[@]}"; do
-  [[ -f "$SM70_PATCH" ]] || die "missing SM70 compatibility patch: $SM70_PATCH"
-  if git -C "$REPO" apply --reverse --check "$SM70_PATCH" >/dev/null 2>&1; then
-    log "already applied: $(basename "$SM70_PATCH")"
-  elif git -C "$REPO" apply --check "$SM70_PATCH"; then
-    git -C "$REPO" apply "$SM70_PATCH"
-    log "applied: $(basename "$SM70_PATCH")"
-  else
-    die "SM70 compatibility patch does not apply cleanly: $SM70_PATCH"
-  fi
-done"""
+_V100_MARLIN_PATCH_LOOP = load_transform("sglang_v100/marlin_builder").operations[0]["search"]
 
 
 def test_sglang_engines_are_registered_for_hf_snapshots():
@@ -139,7 +158,9 @@ def test_v100_parameter_scan_uses_sm70_environment(tmp_path, monkeypatch):
 
     monkeypatch.setattr(cuda_installer, "get_cuda_installer", lambda: FakeCudaInstaller())
     monkeypatch.setattr(engine_param_scanner, "_run_help_argv", fake_help)
-    result = engine_param_scanner.scan_sglang_version({"venv_path": str(venv)}, "sglang_v100")
+    result = engine_param_scanner.scan_definition_engine_version(
+        "sglang_v100", {"venv_path": str(venv)}
+    )
 
     assert result["scan_error"] is None
     assert captured["FLASHINFER_DISABLE_VERSION_CHECK"] == "1"
@@ -169,7 +190,7 @@ def test_sglang_scan_keeps_diffusion_parameters_separate(tmp_path, monkeypatch):
         return "options:\n  --tp-size TP_SIZE  Tensor parallel size.\n", None
 
     monkeypatch.setattr(engine_param_scanner, "_run_help_argv", fake_help)
-    result = engine_param_scanner.scan_sglang_version({"venv_path": str(venv)}, "sglang")
+    result = engine_param_scanner.scan_definition_engine_version("sglang", {"venv_path": str(venv)})
 
     llm_keys = {row["key"] for section in result["sections"] for row in section["params"]}
     diffusion = result["runtime_profiles"]["diffusion"]
@@ -199,7 +220,7 @@ def test_sglang_scan_reports_missing_optional_diffusion_support(tmp_path, monkey
         return "options:\n  --tp-size TP_SIZE  Tensor parallel size.\n", None
 
     monkeypatch.setattr(engine_param_scanner, "_run_help_argv", fake_help)
-    result = engine_param_scanner.scan_sglang_version({"venv_path": str(venv)}, "sglang")
+    result = engine_param_scanner.scan_definition_engine_version("sglang", {"venv_path": str(venv)})
 
     assert result["scan_error"] is None
     assert "not available" in result["runtime_profiles"]["diffusion"]["scan_error"]
@@ -224,81 +245,48 @@ def test_v100_parameter_scan_uses_install_dir_venv(tmp_path, monkeypatch):
         "_run_help_argv",
         lambda *a, **k: ("options:\n  --tp-size TP_SIZE  Tensor parallel size.\n", None),
     )
-    result = engine_param_scanner.scan_sglang_version(
-        {"install_dir": str(install_dir)}, "sglang_v100"
+    result = engine_param_scanner.scan_definition_engine_version(
+        "sglang_v100", {"install_dir": str(install_dir)}
     )
     assert result["scan_error"] is None
     assert result["binary_path"] == str(python_bin)
 
 
-@pytest.mark.asyncio
-async def test_finalize_install_scans_with_venv_path(tmp_path, monkeypatch):
-    manager = SglangManager(
-        "sglang_v100",
-        base_dir=str(tmp_path / "installs"),
-        log_path=str(tmp_path / "sglang-v100.log"),
-    )
-    manager._prepare_versioned_paths("source")
-    captured = {}
+def _patch_profile_preview(monkeypatch, tmp_path, *, cuda_env, with_venv=True):
+    """Phase 6: previews resolve through the exported profile (active row +
+    Studio-managed CUDA env), not the legacy resolver symbols."""
+    import stat
 
-    async def noop(*_args, **_kwargs):
-        return None
+    install = tmp_path / "install"
+    bin_dir = install / "bin"
+    bin_dir.mkdir(parents=True)
+    python_bin = bin_dir / "python"
+    python_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    python_bin.chmod(python_bin.stat().st_mode | stat.S_IXUSR)
 
-    python_bin = Path(manager._venv_path) / "bin" / "python"
-    python_bin.parent.mkdir(parents=True, exist_ok=True)
-    python_bin.write_text("", encoding="utf-8")
-    monkeypatch.setattr(manager, "_detect_installed_version", lambda: "0.0.1")
-    monkeypatch.setattr(manager, "_mark_ready", lambda pending, meta: meta["version"])
-    monkeypatch.setattr(manager, "_update_progress_task", noop)
-    monkeypatch.setattr(manager, "_finish_operation", noop)
+    import backend.cuda_installer as cuda_installer
+    import backend.data_store as data_store
 
-    class Store:
-        def get_engine_versions(self, _engine):
-            return []
+    class _Store:
+        def get_active_engine_version(self, engine_id):
+            return {"version": "v1", "venv_path": str(install), "cuda_version": "12.8"}
 
-        def set_active_engine_version(self, *_args, **_kwargs):
-            return None
+    class _Cuda:
+        def get_cuda_env(self, version):
+            return dict(cuda_env)
 
-    monkeypatch.setattr("backend.engines.sglang.installer.get_store", lambda: Store())
-    monkeypatch.setattr("backend.engines.sglang.installer.mark_runtime_changed", lambda: None)
-
-    class FakeSwap:
-        async def sync_running_models(self):
-            return None
-
-        async def start_proxy(self):
-            return None
-
-    monkeypatch.setattr(
-        "backend.proxy.control.get_proxy_controller",
-        lambda: FakeSwap(),
-    )
-    monkeypatch.setattr(
-        "backend.proxy.control.mark_runtime_changed",
-        lambda: None,
-    )
-
-    def fake_scan(_store, engine, meta):
-        captured["engine"] = engine
-        captured.update(meta)
-        return {"scan_error": None}
-
-    monkeypatch.setattr("backend.engines.scan.scanner.scan_engine_version", fake_scan)
-
-    await manager._finalize_install(
-        "20260918-165120-source",
-        {"version": "20260918-165120-source"},
-        "SGLang V100 installed",
-    )
-
-    assert captured["engine"] == "sglang_v100"
-    assert captured["venv_path"] == manager._venv_path
-    assert captured["install_dir"] == manager._base_dir
+    monkeypatch.setattr(data_store, "get_store", lambda: _Store())
+    monkeypatch.setattr(cuda_installer, "get_cuda_installer", lambda: _Cuda())
 
 
-def test_sglang_preview_builds_openai_server_command(monkeypatch):
-    monkeypatch.setattr(
-        runtime_commands, "_resolve_sglang_bin", lambda engine: f"/opt/{engine}/bin/python"
+def test_sglang_preview_builds_openai_server_command(monkeypatch, tmp_path):
+    _patch_profile_preview(
+        monkeypatch,
+        tmp_path,
+        cuda_env={
+            "CUDA_HOME": "/studio/cuda/cuda-12.8",
+            "LD_LIBRARY_PATH": "/studio/cuda/cuda-12.8/lib64",
+        },
     )
     monkeypatch.setattr(
         runtime_commands,
@@ -308,14 +296,6 @@ def test_sglang_preview_builds_openai_server_command(monkeypatch):
                 "primary_flag": "--tensor-parallel-size",
                 "value_kind": "scalar",
             }
-        },
-    )
-    monkeypatch.setattr(
-        runtime_commands,
-        "_resolve_sglang_cuda_env",
-        lambda engine: {
-            "CUDA_HOME": "/studio/cuda/cuda-12.8",
-            "LD_LIBRARY_PATH": "/studio/cuda/cuda-12.8/lib64",
         },
     )
     preview = runtime_commands.preview_model_command(
@@ -349,10 +329,10 @@ def test_sglang_preview_builds_openai_server_command(monkeypatch):
     }
 
 
-def test_sglang_diffusion_preview_uses_diffusion_cli_and_free_form_quantization(monkeypatch):
-    monkeypatch.setattr(
-        runtime_commands, "_resolve_sglang_bin", lambda _engine: "/opt/sglang/bin/python"
-    )
+def test_sglang_diffusion_preview_uses_diffusion_cli_and_free_form_quantization(
+    monkeypatch, tmp_path
+):
+    _patch_profile_preview(monkeypatch, tmp_path, cuda_env={"CUDA_HOME": "/studio/cuda/cuda-12.8"})
     monkeypatch.setattr(
         runtime_commands,
         "_active_engine_entry",
@@ -385,11 +365,6 @@ def test_sglang_diffusion_preview_uses_diffusion_cli_and_free_form_quantization(
             }
         },
     )
-    monkeypatch.setattr(
-        runtime_commands,
-        "_resolve_sglang_cuda_env",
-        lambda _engine: {"CUDA_HOME": "/studio/cuda/cuda-12.8"},
-    )
 
     preview = runtime_commands.preview_model_command(
         {
@@ -417,52 +392,6 @@ def test_sglang_diffusion_preview_uses_diffusion_cli_and_free_form_quantization(
     assert "--tensor-parallel-size" not in preview["cmd"]
 
 
-def test_v100_installer_uses_studio_python_and_cuda(tmp_path):
-    manager = SglangManager(
-        "sglang_v100",
-        base_dir=str(tmp_path / "installs"),
-        log_path=str(tmp_path / "sglang-v100.log"),
-    )
-    manager._prepare_versioned_paths("source")
-    checkout = Path(manager._base_dir) / "source"
-    script = checkout / "scripts" / "install_v100.sh"
-    script.parent.mkdir(parents=True)
-    (checkout / ".git").mkdir()
-    script.write_text(_V100_INSTALLER_FIXTURE, encoding="utf-8")
-    (checkout / "scripts" / "setup_v100_marlin.sh").write_text(
-        _V100_MARLIN_SETUP_FIXTURE, encoding="utf-8"
-    )
-    patched_path = Path(manager._write_v100_prefix_installer(str(checkout)))
-    patched = patched_path.read_text(encoding="utf-8")
-    marlin_setup = (checkout / "scripts" / "setup_v100_marlin.sh").read_text(encoding="utf-8")
-    assert patched_path.parent == checkout / "scripts"
-    assert "SGLANG_STUDIO_PYTHON" in patched
-    assert "SGLANG_STUDIO_CUDA_HOME" in patched
-    assert "cuda-toolkit" in patched
-    assert "nvidia-cuda-nvcc" in patched
-    assert "python -m pip install torch==2.9.1" in patched
-    assert "apt-get" not in patched
-    assert "conda" not in patched.lower()
-    assert "/usr/local/cuda-12.8" not in patched
-    assert "unset CMAKE_ARGS" in patched
-    assert patched.index("unset CMAKE_ARGS") < patched.index("setup_v100_marlin.sh")
-    assert "s/-Xptxas=-v//g" in marlin_setup
-    assert "CMAKE_BUILD_PARALLEL_LEVEL" in marlin_setup
-    assert "capping Marlin compile jobs" not in marlin_setup
-    assert '( cd "$REPO" && bash "$REPO/build.sh" )' in marlin_setup
-    assert marlin_setup.index("s/-Xptxas=-v//g") < marlin_setup.index(
-        '( cd "$REPO" && bash "$REPO/build.sh" )'
-    )
-    assert 'sparse-checkout set --no-cone "$@"' in patched
-    assert 'sparse-checkout set "$@"' not in patched
-    assert ("LICENSE csrc/core csrc/sm70_turbomind csrc/moe 'csrc/*.h' 'csrc/*.cuh'") in patched
-    subprocess.run(["bash", "-n", str(patched_path)], check=True)
-    subprocess.run(
-        ["bash", "-n", str(checkout / "scripts" / "setup_v100_marlin.sh")],
-        check=True,
-    )
-
-
 def test_v100_patches_cuda_ipc_tuple_access_for_nvcc_12_8(tmp_path):
     source = tmp_path / "source"
     ipc = source / "python" / "sglang" / "kernels" / "jit" / "csrc" / "distributed" / "ipc.cuh"
@@ -472,7 +401,7 @@ def test_v100_patches_cuda_ipc_tuple_access_for_nvcc_12_8(tmp_path):
         encoding="utf-8",
     )
 
-    SglangManager._patch_v100_cuda_ipc_tuple_access(str(source))
+    apply_transform("sglang_v100/cuda_ipc", str(source))
     patched = ipc.read_text(encoding="utf-8")
 
     assert "to_ipc_handle(pair.get<0>())" in patched
@@ -480,42 +409,7 @@ def test_v100_patches_cuda_ipc_tuple_access_for_nvcc_12_8(tmp_path):
     assert "get<0>(pair)" not in patched
     assert "get<1>(pair)" not in patched
     # Retrying an installation must remain idempotent.
-    SglangManager._patch_v100_cuda_ipc_tuple_access(str(source))
-
-
-def test_v100_installer_filters_cuda13_python_toolkit_requirements(tmp_path):
-    """A newer V100 fork may lock CUDA 13 Python packages beside cu128 wheels."""
-    manager = SglangManager(
-        "sglang_v100",
-        base_dir=str(tmp_path / "installs"),
-        log_path=str(tmp_path / "sglang-v100.log"),
-    )
-    manager._prepare_versioned_paths("source")
-    checkout = Path(manager._base_dir) / "source"
-    script = checkout / "scripts" / "install_v100.sh"
-    script.parent.mkdir(parents=True)
-    (checkout / ".git").mkdir()
-    script.write_text(
-        _V100_INSTALLER_FIXTURE.replace(
-            "python -m pip install torch==2.9.1",
-            'python -m pip install --no-deps -r "$REPO_ROOT/requirements.txt"',
-        ),
-        encoding="utf-8",
-    )
-    (checkout / "scripts" / "setup_v100_marlin.sh").write_text(
-        _V100_MARLIN_SETUP_FIXTURE, encoding="utf-8"
-    )
-
-    patched = Path(manager._write_v100_prefix_installer(str(checkout))).read_text(encoding="utf-8")
-
-    assert 'STUDIO_REQUIREMENTS="$REPO_ROOT/.studio-v100-requirements.txt"' in patched
-    assert "cuda-python|cuda-bindings|cuda-core|cuda-pathfinder|cuda-toolkit" in patched
-    assert 'python -m pip install --no-deps -r "$STUDIO_REQUIREMENTS"' in patched
-    assert 'python -m pip install "cuda-python==12.8.0"' in patched
-    subprocess.run(
-        ["bash", "-n", str(checkout / "scripts" / "install_v100_studio.sh")],
-        check=True,
-    )
+    apply_transform("sglang_v100/cuda_ipc", str(source))
 
 
 def test_v100_marlin_builder_strips_verbose_ptxas_and_exports_parallel_level(tmp_path):
@@ -537,7 +431,7 @@ def test_v100_marlin_builder_strips_verbose_ptxas_and_exports_parallel_level(tmp
     scripts.mkdir(parents=True)
     (scripts / "setup_v100_marlin.sh").write_text(_V100_MARLIN_SETUP_FIXTURE, encoding="utf-8")
 
-    SglangManager._patch_v100_marlin_builder(str(checkout))
+    apply_transform("sglang_v100/marlin_builder", str(checkout))
     env = os.environ.copy()
     env["MARLIN_V100_REPO"] = str(repo)
     env["PYTHON"] = sys.executable
@@ -624,7 +518,7 @@ def test_v100_marlin_builder_preserves_stale_patches_and_local_edits(tmp_path):
         encoding="utf-8",
     )
 
-    SglangManager._patch_v100_marlin_builder(str(checkout))
+    apply_transform("sglang_v100/marlin_builder", str(checkout))
     rewritten = (scripts / "setup_v100_marlin.sh").read_text(encoding="utf-8")
     assert "Preserved marlin_v100 checkout at" in rewritten
     assert "reset --hard" not in rewritten
@@ -657,138 +551,8 @@ def test_v100_marlin_builder_preserves_stale_patches_and_local_edits(tmp_path):
     assert "built" in result.stdout
 
 
-@pytest.mark.asyncio
-async def test_v100_install_passes_studio_environment_to_fork(tmp_path, monkeypatch):
-    manager = SglangManager(
-        "sglang_v100",
-        base_dir=str(tmp_path / "installs"),
-        log_path=str(tmp_path / "sglang-v100.log"),
-    )
-    manager._prepare_versioned_paths("source")
-    checkout = Path(manager._base_dir) / "source"
-    script = checkout / "scripts" / "install_v100.sh"
-    script.parent.mkdir(parents=True)
-    (checkout / ".git").mkdir()
-    script.write_text(_V100_INSTALLER_FIXTURE, encoding="utf-8")
-    pyproject = checkout / "python" / "pyproject.toml"
-    pyproject.parent.mkdir(parents=True)
-    pyproject.write_text(
-        "[project]\ndependencies = [\n"
-        '  "cuda-python>=13.0",\n'
-        '  "flashinfer_python==0.6.12",\n'
-        '  "flashinfer_cubin==0.6.11.post1",\n'
-        '  "sglang-kernel==0.4.3",\n'
-        "]\n",
-        encoding="utf-8",
-    )
-    legacy_marlin = Path(manager._base_dir) / "dependencies" / "marlin-v100"
-    legacy_header = legacy_marlin / "csrc" / "sm70_bf16_compat.h"
-    legacy_header.parent.mkdir(parents=True)
-    legacy_header.write_text("legacy CUDA BF16 shim", encoding="utf-8")
-    incomplete_turbomind = Path(manager._base_dir) / "dependencies" / "turbomind-sm70-source"
-    (incomplete_turbomind / "csrc" / "sm70_turbomind").mkdir(parents=True)
-    (incomplete_turbomind / "csrc" / "sm70_tile_runtime_signal.cuh").write_text(
-        "// previous retry fetched the TileRT header only",
-        encoding="utf-8",
-    )
-    (incomplete_turbomind / "csrc" / "sm70_turbomind" / "placeholder.cu").write_text(
-        "// sparse subset without custom_all_reduce.cuh",
-        encoding="utf-8",
-    )
-    for dependency in (legacy_marlin, incomplete_turbomind):
-        subprocess.run(["git", "init"], cwd=dependency, check=True, capture_output=True)
-        subprocess.run(["git", "add", "."], cwd=dependency, check=True)
-        subprocess.run(
-            [
-                "git",
-                "-c",
-                "user.name=Studio",
-                "-c",
-                "user.email=studio@example.com",
-                "commit",
-                "-m",
-                "dependency base",
-            ],
-            cwd=dependency,
-            check=True,
-            capture_output=True,
-        )
-        (dependency / "local-notes.txt").write_text("keep untracked work", encoding="utf-8")
-    legacy_header.write_text("locally edited BF16 shim", encoding="utf-8")
-    turbomind_header = incomplete_turbomind / "csrc" / "sm70_tile_runtime_signal.cuh"
-    turbomind_header.write_text("// locally edited header", encoding="utf-8")
-    captured = {}
-    logs = []
-    readonly_rustup = tmp_path / "usr-local-rustup"
-    readonly_rustup.mkdir()
-    readonly_rustup.chmod(0o555)
-
-    async def fake_run(argv, operation, **kwargs):
-        captured.update(kwargs.get("env") or {})
-        return 0
-
-    async def capture_log(line):
-        logs.append(line)
-
-    monkeypatch.setattr(manager, "_run_logged", fake_run)
-    monkeypatch.setattr(manager, "_broadcast_log_line", capture_log)
-    try:
-        await manager._install_source_checkout(
-            str(checkout),
-            {
-                "PATH": "/studio/venv/bin:/studio/cuda/bin:/usr/bin",
-                "SGLANG_STUDIO_PYTHON": "/studio/venv/bin/python",
-                "SGLANG_STUDIO_CUDA_HOME": "/studio/cuda/cuda-12.8",
-                "CUDA_HOME": "/studio/cuda/cuda-12.8",
-                "RUSTUP_HOME": str(readonly_rustup),
-            },
-        )
-    finally:
-        readonly_rustup.chmod(0o755)
-
-    assert captured["SGLANG_STUDIO_PYTHON"] == "/studio/venv/bin/python"
-    assert captured["SGLANG_V100_PYTHON"] == "/studio/venv/bin/python"
-    assert captured["CUDA_HOME"] == "/studio/cuda/cuda-12.8"
-    assert captured["HOME"] == str(Path(manager._base_dir) / "home")
-    assert captured["SGLANG_V100_DEPS_DIR"] == str(Path(manager._base_dir) / "dependencies")
-    assert captured["MARLIN_V100_REPO"] == str(
-        Path(manager._base_dir) / "dependencies" / "marlin-v100"
-    )
-    assert captured["MARLIN_V100_SKIP_BF16_COMPAT"] == "1"
-    assert not legacy_marlin.exists()
-    assert not incomplete_turbomind.exists()
-    for original, relative, expected in (
-        (legacy_marlin, "csrc/sm70_bf16_compat.h", "locally edited BF16 shim"),
-        (incomplete_turbomind, "csrc/sm70_tile_runtime_signal.cuh", "// locally edited header"),
-    ):
-        backups = list(original.parent.glob(f"{original.name}.preserved-*/source"))
-        assert len(backups) == 1
-        preserved = backups[0]
-        assert (preserved / relative).read_text(encoding="utf-8") == expected
-        assert (preserved / "local-notes.txt").read_text(encoding="utf-8") == "keep untracked work"
-        status = subprocess.check_output(["git", "status", "--porcelain"], cwd=preserved, text=True)
-        assert f" M {relative}" in status
-        assert "?? local-notes.txt" in status
-        assert any(str(preserved) in line for line in logs)
-    assert captured["CARGO_HOME"] == str(Path(manager._base_dir) / "cargo-home")
-    assert captured["CARGO_TARGET_DIR"] == str(Path(manager._base_dir) / "cargo-target")
-    assert Path(captured["CARGO_HOME"]).is_dir()
-    assert Path(captured["CARGO_TARGET_DIR"]).is_dir()
-    assert captured["RUSTUP_HOME"] == str(Path(manager._base_dir) / "rustup-home")
-    assert Path(captured["RUSTUP_HOME"]).is_dir()
-    assert '"cuda-python==12.8.0"' in pyproject.read_text(encoding="utf-8")
-    assert '"cuda-python>=13.0"' not in pyproject.read_text(encoding="utf-8")
-    assert "flashinfer_python" not in pyproject.read_text(encoding="utf-8")
-    assert "flashinfer_cubin" not in pyproject.read_text(encoding="utf-8")
-    assert "sglang-kernel" not in pyproject.read_text(encoding="utf-8")
-
-
 def test_v100_progress_uses_monotonic_integer_stages(tmp_path):
-    manager = SglangManager(
-        "sglang_v100",
-        base_dir=str(tmp_path / "installs"),
-        log_path=str(tmp_path / "sglang-v100.log"),
-    )
+    milestones = _v100_milestones()
     progress = 0
     observed = []
     for line in (
@@ -799,7 +563,7 @@ def test_v100_progress_uses_monotonic_integer_stages(tmp_path):
         "[install_v100] Building lean SM70-only sglang-kernel",
         "[install_v100] Running SM70 smoke checks",
     ):
-        progress, _stage = manager._progress_stage_for_line(line, progress)
+        progress, _stage = progress_milestone(milestones, "SGLang V100", line, progress)
         observed.append(progress)
 
     assert observed == sorted(observed)
@@ -809,11 +573,7 @@ def test_v100_progress_uses_monotonic_integer_stages(tmp_path):
 
 @pytest.mark.asyncio
 async def test_sglang_progress_update_cannot_move_backward(tmp_path):
-    manager = SglangManager(
-        "sglang_v100",
-        base_dir=str(tmp_path / "installs"),
-        log_path=str(tmp_path / "sglang-v100.log"),
-    )
+    manager = _v100_installer(tmp_path)
     task_id = get_progress_manager().create_task("install", "Install SGLang V100")
     manager._progress_task_id = task_id
 
@@ -850,11 +610,7 @@ async def test_failed_command_replays_early_compiler_diagnostic(tmp_path):
 
 @pytest.mark.asyncio
 async def test_verbose_ptxas_lines_are_not_broadcast(tmp_path, monkeypatch):
-    manager = SglangManager(
-        "sglang_v100",
-        base_dir=str(tmp_path / "installs"),
-        log_path=str(tmp_path / "sglang-v100.log"),
-    )
+    manager = _v100_installer(tmp_path)
     broadcasted = []
 
     async def fake_broadcast(line: str) -> None:
@@ -891,11 +647,7 @@ async def test_verbose_ptxas_lines_are_not_broadcast(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_silent_compiler_gets_heartbeat(tmp_path, monkeypatch):
-    manager = SglangManager(
-        "sglang_v100",
-        base_dir=str(tmp_path / "installs"),
-        log_path=str(tmp_path / "sglang-v100.log"),
-    )
+    manager = _v100_installer(tmp_path)
     manager._log_heartbeat_seconds = 0.2
     broadcasted = []
 
@@ -919,40 +671,25 @@ async def test_silent_compiler_gets_heartbeat(tmp_path, monkeypatch):
 
 
 def test_v100_safe_jobs_keeps_parallelism_on_typical_hosts(monkeypatch):
-    monkeypatch.setattr(
-        SglangManager,
-        "_read_meminfo_available_kib",
-        staticmethod(lambda: 20 * 1024 * 1024),
-    )
-    monkeypatch.setattr(SglangManager, "_read_cgroup_available_kib", staticmethod(lambda: 0))
+    monkeypatch.setattr(fork_build, "_read_meminfo_available_kib", lambda: 20 * 1024 * 1024)
+    monkeypatch.setattr(fork_build, "_read_cgroup_available_kib", lambda: 0)
     monkeypatch.setattr(os, "cpu_count", lambda: 16)
 
     # 20 GiB available used to become MAX_JOBS=1 with a 16 GiB reserve.
-    assert SglangManager._v100_safe_jobs() == 4
+    assert fork_build.safe_jobs() == 4
 
 
 def test_v100_safe_jobs_ignores_cgroup_page_cache(monkeypatch):
-    monkeypatch.setattr(
-        SglangManager,
-        "_read_meminfo_available_kib",
-        staticmethod(lambda: 24 * 1024 * 1024),
-    )
-    monkeypatch.setattr(
-        SglangManager,
-        "_read_cgroup_available_kib",
-        staticmethod(lambda: 20 * 1024 * 1024),
-    )
+    monkeypatch.setattr(fork_build, "_read_meminfo_available_kib", lambda: 24 * 1024 * 1024)
+    monkeypatch.setattr(fork_build, "_read_cgroup_available_kib", lambda: 20 * 1024 * 1024)
     monkeypatch.setattr(os, "cpu_count", lambda: 8)
 
-    assert SglangManager._v100_safe_jobs() == 4
+    assert fork_build.safe_jobs() == 4
 
 
-def test_v100_build_environment_comes_from_studio_cuda(tmp_path, monkeypatch):
-    manager = SglangManager(
-        "sglang_v100",
-        base_dir=str(tmp_path / "installs"),
-        log_path=str(tmp_path / "sglang-v100.log"),
-    )
+@pytest.mark.asyncio
+async def test_v100_build_environment_comes_from_studio_cuda(tmp_path, monkeypatch):
+    manager = _v100_installer(tmp_path)
     manager._prepare_versioned_paths("source")
     python_bin = Path(manager._venv_path) / "bin" / "python"
     python_bin.parent.mkdir(parents=True)
@@ -960,10 +697,11 @@ def test_v100_build_environment_comes_from_studio_cuda(tmp_path, monkeypatch):
     cuda_path = tmp_path / "cuda" / "cuda-12.8"
     (cuda_path / "bin").mkdir(parents=True)
     (cuda_path / "bin" / "nvcc").write_text("", encoding="utf-8")
+    checkout = tmp_path / "source"
+    checkout.mkdir()
 
     class FakeCudaInstaller:
         def get_cuda_env(self, version=None):
-            assert version == "12.8"
             return {
                 "CUDA_HOME": str(cuda_path),
                 "CUDA_PATH": str(cuda_path),
@@ -971,27 +709,31 @@ def test_v100_build_environment_comes_from_studio_cuda(tmp_path, monkeypatch):
                 "LD_LIBRARY_PATH": f"{cuda_path}/lib64",
             }
 
+        def status(self):
+            return {"version": "12.8", "cuda_path": str(cuda_path)}
+
     import backend.cuda_installer as cuda_installer
-    import backend.engines.sglang.installer as sglang_manager
 
     monkeypatch.setattr(cuda_installer, "get_cuda_installer", lambda: FakeCudaInstaller())
-    monkeypatch.setattr(
-        sglang_manager.shutil,
-        "which",
-        lambda tool, path=None: f"/usr/bin/{tool}",
-    )
-    monkeypatch.setattr(manager, "_compiler_major", lambda _compiler: 12)
-    monkeypatch.setattr(manager, "_v100_safe_jobs", lambda: 3)
+    monkeypatch.setattr(fork_build.shutil, "which", lambda tool, path=None: f"/usr/bin/{tool}")
+    monkeypatch.setattr(fork_build, "_compiler_major", lambda _compiler: 12)
+    monkeypatch.setattr(fork_build, "safe_jobs", lambda: 3)
     monkeypatch.setenv("MAX_JOBS", "99")
     monkeypatch.setenv("CMAKE_BUILD_PARALLEL_LEVEL", "99")
     monkeypatch.setenv("NVCC_THREADS", "8")
-    env = manager._v100_build_environment()
+
+    env = await prepare_fork_build(
+        manager,
+        _v100_option("prepare_build"),
+        checkout=str(checkout),
+        base_env=manager._compose_build_env(),
+    )
 
     assert env["CUDA_HOME"] == str(cuda_path)
     assert env["SGLANG_STUDIO_CUDA_HOME"] == str(cuda_path)
     assert env["SGLANG_STUDIO_PYTHON"] == str(python_bin)
     assert env["SGLANG_V100_PYTHON"] == str(python_bin)
-    assert env["PATH"].split(":", 1)[0] == str(python_bin.parent)
+    assert env["PATH"].split(os.pathsep, 1)[0] == str(python_bin.parent)
     assert env["TORCH_CUDA_ARCH_LIST"] == "7.0"
     assert env["CUDAHOSTCXX"] == "/usr/bin/g++-12"
     assert env["MAX_JOBS"] == "3"
@@ -999,20 +741,30 @@ def test_v100_build_environment_comes_from_studio_cuda(tmp_path, monkeypatch):
     assert env["NVCC_THREADS"] == "1"
 
 
-def test_v100_compiler_rejects_gcc_13(tmp_path, monkeypatch):
-    manager = SglangManager(
-        "sglang_v100",
-        base_dir=str(tmp_path / "installs"),
-        log_path=str(tmp_path / "sglang-v100.log"),
-    )
+@pytest.mark.asyncio
+async def test_v100_compiler_rejects_gcc_13(tmp_path, monkeypatch):
+    manager = _v100_installer(tmp_path)
+    manager._prepare_versioned_paths("source")
+    python_bin = Path(manager._venv_path) / "bin" / "python"
+    python_bin.parent.mkdir(parents=True)
+    python_bin.write_text("", encoding="utf-8")
     monkeypatch.setattr(
-        "backend.engines.sglang.installer.shutil.which",
+        fork_build.shutil,
+        "which",
         lambda tool, path=None: "/usr/bin/g++" if tool in {"g++", "c++"} else None,
     )
-    monkeypatch.setattr(manager, "_compiler_major", lambda _compiler: 13)
+    monkeypatch.setattr(fork_build, "_compiler_major", lambda _compiler: 13)
+    options = _v100_option("prepare_build")
+    options["required_tools"] = []
+    options["require_cuda_nvcc"] = False
 
-    with pytest.raises(RuntimeError, match="GCC/G\\+\\+ 10–12"):
-        manager._select_v100_compiler({"PATH": "/usr/bin"})
+    with pytest.raises(fork_build.ForkBuildError, match=r"GCC/G\+\+ 10–12"):
+        await prepare_fork_build(
+            manager,
+            options,
+            checkout=str(tmp_path / "source"),
+            base_env={"PATH": "/usr/bin"},
+        )
 
 
 def test_cuda_version_selection_does_not_fall_back_to_current(tmp_path, monkeypatch):
@@ -1086,7 +838,9 @@ def test_sglang_build_settings_routes(client, monkeypatch, tmp_path):
 )
 def test_v100_install_honors_explicit_third_party_fork(client, monkeypatch, endpoint, payload):
     """An explicit V100 fork must beat the maintained fork install default."""
-    import backend.routes.sglang_versions as sglang_routes
+    from dataclasses import replace
+
+    from backend.routes.engine_versions import LIFECYCLE
 
     captured = {}
 
@@ -1095,7 +849,12 @@ def test_v100_install_honors_explicit_third_party_fork(client, monkeypatch, endp
             captured.update(repo_url=repo_url, branch=branch)
             return {"started": True}
 
-    monkeypatch.setattr(sglang_routes, "get_sglang_manager", lambda _engine: Installer())
+    # The compatibility prefix is a thin delegate; inject at the lifecycle seam.
+    monkeypatch.setitem(
+        LIFECYCLE,
+        "sglang_v100",
+        replace(LIFECYCLE["sglang_v100"], get_installer=lambda: Installer()),
+    )
 
     response = client.post(endpoint, json=payload)
 

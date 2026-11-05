@@ -1,7 +1,5 @@
 # Git
 .git
-.gitignore
-.gitattributes
 
 # Python
 __pycache__
@@ -11,6 +9,7 @@ __pycache__
 .Python
 env/
 venv/
+.venv/
 ENV/
 *.egg-info/
 dist/
@@ -31,6 +30,13 @@ yarn-error.log*
 *.swo
 *~
 
+# Tool caches
+.pytest_cache/
+.ruff_cache/
+.pytest-devcontrol-tmp/
+.tmp/
+test-results/
+
 # Data and logs
 data/
 logs/
@@ -40,20 +46,16 @@ logs/
 frontend/dist/
 
 # Documentation
+# Private environment records must never enter an image build context.
+docs/private/
+# The standalone dev image keeps the docs tree because repository tests read
+# generated inventory files under docs/. Production stages do not copy it.
 README.md
 LICENSE
-*.md
 
 # Docker
 Dockerfile
 docker-compose*.yml
-
-# Tests
-tests/
-test_*.py
-*_test.py
-pytest.ini
-.pytest_cache/
 
 # Coverage
 .coverage
@@ -63,5 +65,3 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-# Private deployment and verification records
-/docs/private/

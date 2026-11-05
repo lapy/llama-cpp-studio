@@ -24,6 +24,7 @@ Studio runs a modular Python management service, Vue workspace, native inference
 | Audio integration contract and inspection                | `backend/engines/audio_cpp/integration/`, `backend/audio/`                |
 | Workspace views and feature components                   | `frontend/src/views/`, `frontend/src/components/`                         |
 | Shared API contracts and generated schema                | `frontend/src/api/`                                                       |
+| Isolated agent development control                       | `devcontrol/`, `scripts/agent-dev/` (not in production images)            |
 
 ## Configuration persistence
 

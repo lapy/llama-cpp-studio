@@ -239,7 +239,11 @@ async def apply_model(
             store, journal, compiled, idempotency_key, fingerprint, before_stop=True
         )
 
-    document = manifest_document(compiled.launch, compiled.revision)
+    document = manifest_document(
+        compiled.launch,
+        compiled.revision,
+        profile_digest=compiled.profile_digest,
+    )
     try:
         store.stage(compiled.proxy.model_id, document)
     except ManifestStoreError as exc:

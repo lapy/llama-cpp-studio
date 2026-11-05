@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from backend.engines.registry import EMBEDDINGS_ENGINE_IDS, VALID_ENGINE_IDS
+from backend.engines.registry import EMBEDDINGS_ENGINE_IDS, VALID_ENGINE_IDS, get_engine_spec
 from backend.engines.params import (
     embedding_mode_config_key_from_entry,
     get_version_entry,
@@ -204,9 +204,16 @@ def collect_engine_model_references(models: Any) -> Dict[str, Any]:
 
 
 def default_engine_for_format(model_format: Optional[str]) -> str:
-    if (model_format or "").lower() == "safetensors":
-        return "lmdeploy"
-    return "llama_cpp"
+    """Default engine for an artifact format (R76: declared, not branched)."""
+    from backend.engines.registry import ENGINE_REGISTRY
+
+    wanted = str(model_format or "").strip().lower()
+    if wanted:
+        for engine_id, spec in ENGINE_REGISTRY.items():
+            declared = dict(spec.model_compat).get("default_for_formats") or ()
+            if wanted in {str(item).lower() for item in declared}:
+                return engine_id
+    return DEFAULT_ENGINE
 
 
 def set_embedding_flag(

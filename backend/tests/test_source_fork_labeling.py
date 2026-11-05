@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from backend.repo_identity import CANONICAL_REPOSITORY_URLS
+from backend.repo_identity import canonical_repository_url
 
 
 def _install_temp_store(monkeypatch, tmp_path):
@@ -90,7 +90,7 @@ def test_list_upstream_source_is_not_fork(client, store):
             "type": "source",
             "install_type": "source",
             "is_fork": False,
-            "source_repo": CANONICAL_REPOSITORY_URLS["llama_cpp"],
+            "source_repo": canonical_repository_url("llama_cpp"),
             "source_ref": "master",
             "source_ref_type": "branch",
             "source_branch": "master",
@@ -172,105 +172,44 @@ def test_sync_accepts_fork_install(client, store, monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_llama_build_source_task_persists_fork(monkeypatch, tmp_path):
-    store = _install_temp_store(monkeypatch, tmp_path)
-
-    from backend.routes import llama_versions as llama_routes
-    from backend.operations.progress import get_progress_manager
-
-    async def fake_build(*_args, **_kwargs):
-        return str(tmp_path / "bin" / "llama-server")
-
-    async def fake_checkout(_version_name):
-        return "abcdef1234567890"
-
-    monkeypatch.setattr(llama_routes.llama_manager, "build_source", fake_build)
-    monkeypatch.setattr(llama_routes, "_llama_checkout_commit", fake_checkout)
-    monkeypatch.setattr(llama_routes, "mark_runtime_changed", lambda: None)
-
-    pm = get_progress_manager()
-    task_id = "build_fork_test_1"
-    pm.create_task("build", "fork test", {"engine": "llama_cpp"}, task_id=task_id)
-
-    await llama_routes.build_source_task(
-        "main",
-        [],
-        llama_routes.BuildConfig(),
-        "source-main-forktest",
-        "llama.cpp",
-        "https://github.com/alice/llama.cpp.git",
-        pm,
-        task_id,
-        auto_activate=False,
-        source_ref_type="branch",
-    )
-
-    saved = store.get_engine_versions("llama_cpp")
-    assert len(saved) == 1
-    assert saved[0]["type"] == "fork"
-    assert saved[0]["install_type"] == "source"
-    assert saved[0]["is_fork"] is True
-    assert saved[0]["source_repo"] == "https://github.com/alice/llama.cpp.git"
-
-
-@pytest.mark.asyncio
-async def test_llama_build_source_task_upstream_stays_source(monkeypatch, tmp_path):
-    store = _install_temp_store(monkeypatch, tmp_path)
-
-    from backend.routes import llama_versions as llama_routes
-    from backend.operations.progress import get_progress_manager
-
-    async def fake_build(*_args, **_kwargs):
-        return str(tmp_path / "bin" / "llama-server")
-
-    async def fake_checkout(_version_name):
-        return "abcdef1234567890"
-
-    monkeypatch.setattr(llama_routes.llama_manager, "build_source", fake_build)
-    monkeypatch.setattr(llama_routes, "_llama_checkout_commit", fake_checkout)
-    monkeypatch.setattr(llama_routes, "mark_runtime_changed", lambda: None)
-
-    pm = get_progress_manager()
-    task_id = "build_upstream_test_1"
-    pm.create_task("build", "upstream test", {"engine": "llama_cpp"}, task_id=task_id)
-
-    await llama_routes.build_source_task(
-        "master",
-        [],
-        llama_routes.BuildConfig(),
-        "source-master-upstream",
-        "llama.cpp",
-        CANONICAL_REPOSITORY_URLS["llama_cpp"],
-        pm,
-        task_id,
-        auto_activate=False,
-        source_ref_type="branch",
-    )
-
-    saved = store.get_engine_versions("llama_cpp")[0]
-    assert saved["type"] == "source"
-    assert saved["is_fork"] is False
-
-
-@pytest.mark.asyncio
 async def test_audio_build_task_persists_fork(monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
 
     from backend.routes import audio_cpp_versions as audio_routes
+    from backend.engines.audio_cpp import manager as audio_manager_module
+    from backend.engines.audio_cpp.installer import AudioCppInstaller
     from backend.engines.audio_cpp.manager import AudioCppBuildConfig
     from backend.operations.progress import get_progress_manager
 
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    build_dir = tmp_path / "build"
+    build_dir.mkdir()
+    from backend.tests.audio_profile_fixtures import fake_audio_binaries
+
+    fake_audio_binaries(build_dir)
+
     class FakeManager:
-        async def build_source(self, **kwargs):
-            return {
-                "version": kwargs["version_name"],
-                "source_ref": kwargs["source_ref"],
-                "source_repo": kwargs["repository_url"],
-                "build_config": {"backend": "cpu"},
-            }
+        builds_dir = str(tmp_path / "builds")
+
+    async def fake_checkout(self, step, requirements, context):
+        return {"checkout_work": str(source_dir), "build_work": str(build_dir)}
+
+    async def fake_configure(self, step, requirements, context):
+        return {"build_env": {}}
+
+    async def fake_build(self, step, requirements, context):
+        return {}
+
+    async def fake_validate(self, step, requirements, context):
+        return {}
 
     monkeypatch.setattr(audio_routes, "get_audio_cpp_manager", lambda: FakeManager())
-    monkeypatch.setattr(audio_routes, "_activate", lambda *_a, **_k: asyncio.sleep(0))
+    monkeypatch.setattr(audio_manager_module, "get_audio_cpp_manager", lambda: FakeManager())
+    monkeypatch.setattr(AudioCppInstaller, "_checkout_source", fake_checkout)
+    monkeypatch.setattr(AudioCppInstaller, "_configure_source", fake_configure)
+    monkeypatch.setattr(AudioCppInstaller, "_build_source_tree", fake_build)
+    monkeypatch.setattr(AudioCppInstaller, "_validate_binary", fake_validate)
 
     pm = get_progress_manager()
     task_id = "build_audio_fork_1"

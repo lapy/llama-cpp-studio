@@ -402,13 +402,16 @@ def test_model_list_expands_stale_safetensors_compatible_engines(
     assert r.status_code == 200
     quant = r.json()[0]["quantizations"][0]
     assert quant["format"] == "safetensors"
-    assert quant["compatible_engines"] == [
+    # The stored prefix is preserved; newly declared registry engines are
+    # appended in registry order (definition-owned engines load last).
+    assert quant["compatible_engines"][:2] == ["lmdeploy", "1cat_vllm"]
+    assert set(quant["compatible_engines"]) == {
         "lmdeploy",
         "1cat_vllm",
         "vllm",
         "sglang",
         "sglang_v100",
-    ]
+    }
 
 
 def test_search_route_preserves_validation_errors(client):
@@ -590,13 +593,14 @@ def test_model_config_save_persists_updated_safetensors_compatible_engines(
         json={"engine": "lmdeploy", "engines": {"lmdeploy": {}}},
     )
     assert updated.status_code == 200
-    assert store.get_model("org--repo")["compatible_engines"] == [
+    assert store.get_model("org--repo")["compatible_engines"][:2] == ["lmdeploy", "1cat_vllm"]
+    assert set(store.get_model("org--repo")["compatible_engines"]) == {
         "lmdeploy",
         "1cat_vllm",
         "vllm",
         "sglang",
         "sglang_v100",
-    ]
+    }
 
 
 def test_model_config_routes_round_trip_and_mark_stale(client, monkeypatch, tmp_path):
@@ -1193,3 +1197,29 @@ def test_activate_version_scans_when_catalog_missing(client, monkeypatch, tmp_pa
     assert r.status_code == 200
     assert scanned["called"] is True
     assert scanned["engine"] == "llama_cpp"
+
+
+def test_removed_native_audio_ui_is_not_exposed(client):
+    from backend.main import app
+
+    assert not any(
+        str(getattr(route, "path", "")).startswith("/audio-cpp-ui") for route in app.routes
+    )
+    response = client.get(
+        "/audio-cpp-ui/audio-cpp-pocket_tts_english_q8_0/", follow_redirects=False
+    )
+    assert response.status_code != 307
+    assert "/upstream/" not in response.headers.get("location", "")
+
+
+def test_api_routes_have_unique_method_and_path():
+    from fastapi.routing import APIRoute
+    from backend.main import app
+
+    endpoints = [
+        (method, route.path)
+        for route in app.routes
+        if isinstance(route, APIRoute)
+        for method in route.methods
+    ]
+    assert len(endpoints) == len(set(endpoints))

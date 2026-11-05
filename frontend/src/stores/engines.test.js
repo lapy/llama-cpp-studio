@@ -57,12 +57,12 @@ describe('engines store', () => {
       branch: 'main',
     })
 
-    expect(axios.get).toHaveBeenCalledWith('/api/sglang-v100/status')
-    expect(axios.post).toHaveBeenCalledWith('/api/sglang-v100/install-source', {
+    expect(axios.get).toHaveBeenCalledWith('/api/engines/sglang_v100/status')
+    expect(axios.post).toHaveBeenCalledWith('/api/engines/sglang_v100/install-source', {
       repo_url: 'https://github.com/haohervchb/sglang-V100.git',
       branch: 'main',
     })
-    expect(store.sglangV100Status).toEqual({ installed: true })
+    expect(store.engineStatusById.sglang_v100).toEqual({ installed: true })
   })
 
   it('uses the vanilla vLLM endpoints', async () => {
@@ -73,9 +73,9 @@ describe('engines store', () => {
     await store.fetchSglangStatus('vllm')
     await store.installSglang('vllm', { version: '0.17.0' })
 
-    expect(axios.get).toHaveBeenCalledWith('/api/vllm/status')
-    expect(axios.post).toHaveBeenCalledWith('/api/vllm/install', { version: '0.17.0' })
-    expect(store.vllmStatus).toEqual({ installed: true })
+    expect(axios.get).toHaveBeenCalledWith('/api/engines/vllm/status')
+    expect(axios.post).toHaveBeenCalledWith('/api/engines/vllm/install', { version: '0.17.0' })
+    expect(store.engineStatusById.vllm).toEqual({ installed: true })
   })
 
   it('retryVersion posts version id and refreshes', async () => {
@@ -93,7 +93,9 @@ describe('engines store', () => {
     vi.mocked(axios.post).mockResolvedValue({ data: { ok: true } })
     const store = useEnginesStore()
     await store.cancelSourceBuild('task-xyz')
-    expect(axios.post).toHaveBeenCalledWith('/api/llama-versions/build-cancel', {
+    // Deliberate flip: generic cancel route (shared BuildTaskManager, so
+    // the engine id is routing only); payload bytes unchanged.
+    expect(axios.post).toHaveBeenCalledWith('/api/engines/llama_cpp/cancel', {
       task_id: 'task-xyz',
     })
   })
@@ -184,7 +186,7 @@ describe('engines store', () => {
       if (url === '/api/llama-versions') {
         return Promise.resolve({ data: [] })
       }
-      if (url === '/api/lmdeploy/status') {
+      if (url === '/api/engines/lmdeploy/status') {
         return Promise.resolve({ data: { installed: true } })
       }
       if (url === '/api/runtime/stale') {
@@ -199,8 +201,8 @@ describe('engines store', () => {
     expect(axios.post).toHaveBeenCalledWith('/api/llama-versions/versions/activate', {
       version_id: 'lmdeploy-v1',
     })
-    expect(axios.get).toHaveBeenCalledWith('/api/lmdeploy/status')
-    expect(store.lmdeployStatus).toEqual({ installed: true })
+    expect(axios.get).toHaveBeenCalledWith('/api/engines/lmdeploy/status')
+    expect(store.engineStatusById.lmdeploy).toEqual({ installed: true })
   })
 
   it('fetchSystemStatus rethrows failures and clears loading', async () => {
@@ -245,7 +247,7 @@ describe('engines store', () => {
       if (url === '/api/llama-versions/cuda-status') {
         return Promise.reject(new Error('cuda down'))
       }
-      if (url === '/api/lmdeploy/status') {
+      if (url === '/api/engines/lmdeploy/status') {
         return Promise.resolve({ data: { installed: false } })
       }
       if (url === '/api/status') {

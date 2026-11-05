@@ -71,6 +71,22 @@ def reset_runtime_observation():
 
 
 @pytest.fixture(autouse=True)
+def reset_store_persistence_events():
+    """Store-IO failure history is process-global and must not leak.
+
+    Store-write fault-injection tests record a durability failure in the
+    in-memory ring; a later test that asserts a clean persistence status (the
+    launchcraft journey) sees it as its own. Clearing around every test keeps
+    that assertion order- and worker-independent.
+    """
+    from backend.store_io import clear_persistence_events
+
+    clear_persistence_events()
+    yield
+    clear_persistence_events()
+
+
+@pytest.fixture(autouse=True)
 def reset_operation_supervisor():
     """Resource locks are in-process and must not leak between tests."""
     from backend.operations import supervisor as operation_supervisor

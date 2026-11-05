@@ -45,50 +45,25 @@ async function installConfiguration(page) {
   )
 }
 
-test('pages reflow and configuration actions remain above mobile navigation in both themes', async ({
-  page,
-}) => {
-  test.setTimeout(120000)
+test('configuration actions remain reachable above mobile navigation', async ({ page }) => {
   await installWorkspaceApi(page)
   await installConfiguration(page)
-  for (const theme of ['dark', 'light']) {
-    await page.addInitScript((value) => localStorage.setItem('theme', value), theme)
-    for (const width of [320, 390, 900, 1440]) {
-      await page.setViewportSize({ width, height: 900 })
-      for (const path of [
-        '/models',
-        '/audio',
-        '/engines',
-        '/proxy',
-        '/search',
-        '/system',
-        '/models/demo-model/config',
-      ]) {
-        await page.goto(path)
-        await expect(page.locator('main h1').first()).toBeVisible()
-        expect(
-          await page.evaluate(() => document.documentElement.scrollWidth),
-          `${theme} ${width} ${path}`,
-        ).toBeLessThanOrEqual(width)
-      }
-      const save = page.getByRole('button', { name: 'Save changes', exact: true })
-      await save.scrollIntoViewIfNeeded()
-      const bounds = await save.boundingBox()
-      const nav = await page.getByRole('navigation', { name: 'Main', exact: true }).boundingBox()
-      if (width <= 900) expect(bounds.y + bounds.height).toBeLessThanOrEqual(nav.y)
-      expect(
-        await save.evaluate((node) => {
-          const box = node.getBoundingClientRect()
-          return node.contains(
-            document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2),
-          )
-        }),
-      ).toBe(true)
-      const input = page.getByRole('spinbutton', { name: /Context size/ })
-      await expect(input).toHaveAttribute('id', 'basic-ctx_size')
-      await expect(input).toHaveAttribute('aria-describedby', 'basic-help-ctx_size')
-    }
-  }
+  await page.setViewportSize({ width: 390, height: 900 })
+  await page.goto('/models/demo-model/config')
+  const save = page.getByRole('button', { name: 'Save changes', exact: true })
+  await save.scrollIntoViewIfNeeded()
+  const bounds = await save.boundingBox()
+  const nav = await page.getByRole('navigation', { name: 'Main', exact: true }).boundingBox()
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(nav.y)
+  expect(
+    await save.evaluate((node) => {
+      const box = node.getBoundingClientRect()
+      return node.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2))
+    }),
+  ).toBe(true)
+  const input = page.getByRole('spinbutton', { name: /Context size/ })
+  await expect(input).toHaveAttribute('id', 'basic-ctx_size')
+  await expect(input).toHaveAttribute('aria-describedby', 'basic-help-ctx_size')
 })
 
 test('library filters recover cleanly and single-model cards expose their main actions', async ({

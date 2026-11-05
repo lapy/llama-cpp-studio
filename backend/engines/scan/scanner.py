@@ -8,6 +8,8 @@ import json
 import subprocess
 from typing import Any, List, Optional, Tuple
 
+from backend.engines.registry import llama_server_engine_ids
+
 from backend.engines.scan.help_parsers import (
     lmdeploy_params_to_sections,
     parse_audio_cpp_help_to_sections,
@@ -57,9 +59,7 @@ def _help_subprocess_failure_message(
     """Human-readable scan failure (126/127 often mean exec/loader/shebang issues)."""
     exe = argv0 or "(unknown)"
     tail = (
-        " (no stdout from --help; output may be missing or only on stderr)"
-        if empty_stdout
-        else ""
+        " (no stdout from --help; output may be missing or only on stderr)" if empty_stdout else ""
     )
     if returncode == 127:
         head = (
@@ -70,7 +70,7 @@ def _help_subprocess_failure_message(
             return head + (
                 "For LMDeploy: `lmdeploy` is usually a script; fix the venv shebang Python or a stale `venv_path`."
             )
-        if scan_engine in ("llama_cpp", "ik_llama", "unsloth_llama"):
+        if scan_engine in llama_server_engine_ids():
             return head + (
                 "For llama.cpp / ik_llama / Unsloth llama.cpp: wrong arch or libc (e.g. glibc binary on musl), missing shared "
                 "libraries (CUDA/GGML — `.so` search path), bad `binary_path`, or a wrapper with a broken "
@@ -135,9 +135,7 @@ def _run_help_argv(
 ) -> Tuple[str, Optional[str]]:
     session = get_param_scan_session()
     if session is not None:
-        session.log_command(
-            argv, cwd=cwd, extra_env=extra_env, scan_engine=scan_engine
-        )
+        session.log_command(argv, cwd=cwd, extra_env=extra_env, scan_engine=scan_engine)
     env = os.environ.copy()
     if extra_env:
         env.update(extra_env)
@@ -159,8 +157,7 @@ def _run_help_argv(
         elapsed = time.monotonic() - started
         if session is not None:
             session.log(
-                f"probe_time: {label or _probe_label(argv)} {elapsed:.2f}s"
-                f" rc={r.returncode}"
+                f"probe_time: {label or _probe_label(argv)} {elapsed:.2f}s rc={r.returncode}"
             )
         if not text.strip():
             if r.returncode != 0:
@@ -254,230 +251,6 @@ def scan_llama_engine_version(engine: str, version_row: dict) -> dict:
     }
 
 
-def scan_lmdeploy_version(version_row: dict) -> dict:
-    venv = _venv_path_from_row(version_row)
-    if not venv:
-        return _error_entry("", "missing venv_path")
-    vdir = _abs_path(venv)
-    if not os.path.isdir(vdir):
-        return _error_entry(vdir, f"venv not found: {vdir}")
-    lmdeploy_bin = os.path.join(vdir, "bin", "lmdeploy")
-    if not os.path.isfile(lmdeploy_bin) or not os.access(lmdeploy_bin, os.X_OK):
-        return _error_entry(lmdeploy_bin, "lmdeploy binary missing or not executable")
-
-    _scan_stage("help", 22, "Running lmdeploy serve api_server --help")
-    text, run_err = _run_help_argv(
-        [lmdeploy_bin, "serve", "api_server", "--help"],
-        cwd=vdir,
-        extra_env={
-            "VIRTUAL_ENV": vdir,
-            "PATH": f"{os.path.join(vdir, 'bin')}:{os.environ.get('PATH', '')}",
-        },
-        scan_engine="lmdeploy",
-    )
-    if not text.strip():
-        return _error_entry(lmdeploy_bin, run_err or "empty help output")
-    try:
-        _scan_stage("parse", 55, "Extracting LMDeploy flags from --help")
-        raw = parse_lmdeploy_api_server_help(text)
-        sections = lmdeploy_params_to_sections(raw)
-    except Exception as e:
-        logger.exception("lmdeploy help parse failed")
-        return _error_entry(lmdeploy_bin, f"parse error: {e}")
-
-    n_params = sum(len(s.get("params") or []) for s in sections)
-    if n_params == 0:
-        msg = run_err or "No CLI flags parsed from lmdeploy serve api_server --help."
-        return _error_entry(lmdeploy_bin, msg)
-
-    _scan_after_parse(text, sections, parser="parse_lmdeploy_api_server_help")
-    return {
-        "binary_path": lmdeploy_bin,
-        "scanned_at": iso_now(),
-        "scan_error": None,
-        "sections": sections,
-    }
-
-
-def scan_onecat_vllm_version(version_row: dict, engine: str = "1cat_vllm") -> dict:
-    """Scan ``vllm serve --help=all`` for a vLLM-family environment."""
-    venv = _venv_path_from_row(version_row)
-    if not venv:
-        return _error_entry("", "missing venv_path")
-    vdir = _abs_path(venv)
-    if not os.path.isdir(vdir):
-        return _error_entry(vdir, f"venv not found: {vdir}")
-    python_bin = os.path.join(vdir, "bin", "python")
-    if not os.path.isfile(python_bin) or not os.access(python_bin, os.X_OK):
-        return _error_entry(python_bin, "venv python missing or not executable")
-
-    vllm_bin = os.path.join(vdir, "bin", "vllm")
-    if os.path.isfile(vllm_bin) and os.access(vllm_bin, os.X_OK):
-        help_argv = [vllm_bin, "serve", "--help=all"]
-        scan_binary = vllm_bin
-    else:
-        help_argv = [python_bin, "-m", "vllm", "serve", "--help=all"]
-        scan_binary = python_bin
-
-    scan_env = {
-        "VIRTUAL_ENV": vdir,
-        "PATH": f"{os.path.join(vdir, 'bin')}:{os.environ.get('PATH', '')}",
-    }
-    if engine == "vllm":
-        try:
-            from backend.cuda_installer import get_cuda_installer
-
-            version = version_row.get("cuda_version")
-            scan_env.update(
-                get_cuda_installer().get_cuda_env(str(version) if version else None)
-            )
-            scan_env["PATH"] = (
-                f"{os.path.join(vdir, 'bin')}{os.pathsep}{scan_env.get('PATH', '')}"
-            )
-        except Exception as exc:
-            logger.debug("Could not resolve Studio CUDA for vLLM scan: %s", exc)
-
-    _scan_stage("help", 22, f"Running {engine} vllm serve --help=all")
-    text, run_err = _run_help_argv(
-        help_argv,
-        # Run from the venv (not a source checkout) so the installed package + its
-        # CUDA extensions are imported, per the 1Cat-vLLM runtime notes.
-        cwd=vdir,
-        extra_env=scan_env,
-        scan_engine=engine,
-    )
-    if not text.strip():
-        return _error_entry(scan_binary, run_err or "empty help output")
-    try:
-        _scan_stage("parse", 55, f"Extracting {engine} flags from --help=all")
-        raw = parse_vllm_serve_help(text)
-        sections = vllm_params_to_sections(raw)
-    except Exception as e:
-        logger.exception("%s help parse failed", engine)
-        return _error_entry(scan_binary, f"parse error: {e}")
-
-    n_params = sum(len(s.get("params") or []) for s in sections)
-    if n_params == 0:
-        msg = run_err or "No CLI flags parsed from vllm serve --help=all."
-        return _error_entry(scan_binary, msg)
-
-    _scan_after_parse(text, sections, parser="parse_vllm_serve_help")
-    return {
-        "binary_path": scan_binary,
-        "scanned_at": iso_now(),
-        "scan_error": None,
-        "sections": sections,
-    }
-
-
-def _venv_path_from_row(version_row: dict) -> str:
-    venv = str((version_row or {}).get("venv_path") or "").strip()
-    if venv:
-        return venv
-    install_dir = str((version_row or {}).get("install_dir") or "").strip()
-    if install_dir:
-        return os.path.join(install_dir, "venv")
-    return ""
-
-
-def scan_sglang_version(version_row: dict, engine: str = "sglang") -> dict:
-    """Scan SGLang's language server and optional diffusion server separately."""
-    venv = _venv_path_from_row(version_row)
-    if not venv:
-        return _error_entry("", "missing venv_path")
-    vdir = _abs_path(venv)
-    if not os.path.isdir(vdir):
-        return _error_entry(vdir, f"venv not found: {vdir}")
-    subdir = "Scripts" if os.name == "nt" else "bin"
-    python_name = "python.exe" if os.name == "nt" else "python"
-    python_bin = os.path.join(vdir, subdir, python_name)
-    if not os.path.isfile(python_bin) or not os.access(python_bin, os.X_OK):
-        return _error_entry(python_bin, "environment python missing or not executable")
-
-    scan_env = {
-        "VIRTUAL_ENV": vdir,
-        "PATH": f"{os.path.join(vdir, subdir)}{os.pathsep}{os.environ.get('PATH', '')}",
-    }
-    try:
-        from backend.cuda_installer import get_cuda_installer
-
-        cuda_version = version_row.get("cuda_version")
-        if engine == "sglang_v100":
-            cuda_version = cuda_version or "12.8"
-        scan_env.update(
-            get_cuda_installer().get_cuda_env(
-                str(cuda_version) if cuda_version else None
-            )
-        )
-    except Exception as exc:
-        logger.debug("Could not resolve Studio CUDA for %s scan: %s", engine, exc)
-    venv_bin = os.path.join(vdir, subdir)
-    path_parts = [part for part in scan_env.get("PATH", "").split(os.pathsep) if part]
-    if venv_bin not in path_parts:
-        scan_env["PATH"] = os.pathsep.join([venv_bin, *path_parts])
-    if engine == "sglang_v100":
-        if not scan_env.get("CUDA_HOME"):
-            return _error_entry(
-                python_bin, "Studio-managed CUDA 12.8 is unavailable"
-            )
-        scan_env.update(
-            {
-                "FLASHINFER_DISABLE_VERSION_CHECK": "1",
-                "TORCH_CUDA_ARCH_LIST": "7.0",
-            }
-        )
-
-    entry = _scan_sglang_runtime(python_bin, vdir, scan_env, engine, "llm")
-    entry["runtime_profiles"] = {
-        "diffusion": _scan_sglang_runtime(
-            python_bin, vdir, scan_env, engine, "diffusion"
-        ),
-    }
-    return entry
-
-
-def _scan_sglang_runtime(
-    python_bin: str, vdir: str, scan_env: dict, engine: str, runtime: str
-) -> dict:
-    from backend.engines.sglang.runtime import sglang_server_argv
-
-    def failure(message: str) -> dict:
-        return {**_error_entry(python_bin, message), "runtime": runtime}
-
-    _scan_stage("help", 22, f"Running {engine} {runtime} server --help")
-    text, run_err = _run_help_argv(
-        [*sglang_server_argv(python_bin, runtime), "--help"],
-        cwd=vdir,
-        extra_env=scan_env,
-        scan_engine=engine,
-    )
-    if not text.strip():
-        return failure(run_err or "empty help output")
-    if runtime == "diffusion" and "Diffusion model support is not available" in text:
-        return failure("Diffusion model support is not available in this environment")
-    parser = (
-        parse_sglang_diffusion_help
-        if runtime == "diffusion"
-        else parse_sglang_launch_server_help
-    )
-    try:
-        _scan_stage("parse", 55, f"Extracting {engine} {runtime} flags from --help")
-        sections = sglang_params_to_sections(parser(text))
-    except Exception as exc:
-        logger.exception("SGLang help parse failed")
-        return failure(f"parse error: {exc}")
-    if not sum(len(section.get("params") or []) for section in sections):
-        return failure(f"No CLI flags parsed from SGLang {runtime} --help.")
-    _scan_after_parse(text, sections, parser=parser.__name__)
-    return {
-        "binary_path": python_bin,
-        "scanned_at": iso_now(),
-        "scan_error": None,
-        "sections": sections,
-        "runtime": runtime,
-    }
-
-
 def _prefix_sections(sections: list, prefix: str) -> list:
     out = []
     for section in sections:
@@ -493,9 +266,7 @@ def _audio_env(binary_path: str, *, source_path: str = "") -> dict:
     return audio_cpp_inspect_env(binary_path, source_path=source_path)
 
 
-def _audio_cpp_source_root(
-    version_row: Optional[dict], cli_path: str
-) -> Optional[str]:
+def _audio_cpp_source_root(version_row: Optional[dict], cli_path: str) -> Optional[str]:
     """Locate the audio.cpp checkout that contains ``model_specs/``.
 
     Non-deployment builds resolve package specs relative to the source tree, not
@@ -533,9 +304,7 @@ def _audio_cpp_workdir(version_row: Optional[dict], cli_path: str) -> str:
     return os.path.dirname(os.path.abspath(cli_path or "")) or "."
 
 
-def _audio_cpp_model_spec_override(
-    version_row: Optional[dict], cli_path: str
-) -> Optional[str]:
+def _audio_cpp_model_spec_override(version_row: Optional[dict], cli_path: str) -> Optional[str]:
     root = _audio_cpp_source_root(version_row, cli_path)
     if not root:
         return None
@@ -572,9 +341,7 @@ def _probe_catalog_contract(version_row: dict) -> dict:
     if not python_bin:
         from backend.engines.audio_cpp.manager import _data_root
 
-        default_venv = os.path.join(
-            _data_root(), "audio-cpp", "tools", "model-manager-venv"
-        )
+        default_venv = os.path.join(_data_root(), "audio-cpp", "tools", "model-manager-venv")
         candidate = os.path.join(default_venv, python_subdir, python_name)
         if os.path.isfile(candidate):
             python_bin = candidate
@@ -603,8 +370,7 @@ def _probe_catalog_contract(version_row: dict) -> dict:
             "catalog_source": "ast_fallback_needed",
             "catalog_identity": False,
             "catalog_package_count": 0,
-            "warning": (process.stderr or "").strip()[-400:]
-            or "model manager list --json failed",
+            "warning": (process.stderr or "").strip()[-400:] or "model manager list --json failed",
         }
     try:
         payload = json.loads(process.stdout)
@@ -636,9 +402,7 @@ def _probe_catalog_contract(version_row: dict) -> dict:
     }
 
 
-def compute_audio_cpp_capability_delta(
-    previous: Optional[dict], current: Optional[dict]
-) -> dict:
+def compute_audio_cpp_capability_delta(previous: Optional[dict], current: Optional[dict]) -> dict:
     prev_caps = (previous or {}).get("capabilities") or {}
     curr_caps = (current or {}).get("capabilities") or {}
     prev_families = set(prev_caps.get("families") or [])
@@ -646,9 +410,7 @@ def compute_audio_cpp_capability_delta(
     prev_tasks = set(prev_caps.get("tasks") or [])
     curr_tasks = set(curr_caps.get("tasks") or [])
     curr_family_tasks = (
-        curr_caps.get("family_tasks")
-        if isinstance(curr_caps.get("family_tasks"), dict)
-        else {}
+        curr_caps.get("family_tasks") if isinstance(curr_caps.get("family_tasks"), dict) else {}
     )
     empty_task_families = sorted(
         family
@@ -766,15 +528,12 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
     if loaders_payload is None:
         return _error_entry(
             cli_path,
-            loaders_error
-            or "audio.cpp does not provide --list-loaders --json; update audio.cpp",
+            loaders_error or "audio.cpp does not provide --list-loaders --json; update audio.cpp",
         )
 
     try:
         _scan_stage("parse", 55, "Extracting audio.cpp server/CLI options")
-        server_sections = parse_audio_cpp_help_to_sections(
-            server_text, source="server"
-        )
+        server_sections = parse_audio_cpp_help_to_sections(server_text, source="server")
         cli_sections = parse_audio_cpp_help_to_sections(cli_text, source="cli")
         loaders_meta = parse_audio_cpp_loaders_json(loaders_payload)
         families = loaders_meta["families"]
@@ -828,9 +587,7 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
     )
 
     source_root = _audio_cpp_source_root(version_row, cli_path)
-    family_contracts = (
-        load_family_contracts(source_root, families=families) if source_root else {}
-    )
+    family_contracts = load_family_contracts(source_root, families=families) if source_root else {}
     family_dependencies = family_dependencies_map(family_contracts)
     family_contract_tasks = {
         family: list(contract.get("tasks") or [])
@@ -847,11 +604,7 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
     }
 
     catalog_probe = _probe_catalog_contract(version_row)
-    contract_warnings = [
-        message
-        for message in (catalog_probe.get("warning"),)
-        if message
-    ]
+    contract_warnings = [message for message in (catalog_probe.get("warning"),) if message]
     fingerprint = hashlib.sha256(
         (
             server_text
@@ -864,9 +617,7 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
     previous_fp = str(version_row.get("contract_fingerprint") or "").strip()
     contract_fp = contracts_fingerprint(family_contracts) if family_contracts else ""
     if contract_fp:
-        fingerprint = hashlib.sha256(
-            (fingerprint + "\n" + contract_fp).encode("utf-8")
-        ).hexdigest()
+        fingerprint = hashlib.sha256((fingerprint + "\n" + contract_fp).encode("utf-8")).hexdigest()
     contract_changed = bool(previous_fp and previous_fp != fingerprint)
     capabilities = {
         "families": families,
@@ -900,10 +651,7 @@ def scan_audio_cpp_version(version_row: dict) -> dict:
 
     descriptor = compose_version_contract(capabilities, source_path=source_root)
     capabilities["endpoints"] = sorted(
-        {
-            operation["native_path"]
-            for operation in descriptor["operations"]
-        }
+        {operation["native_path"] for operation in descriptor["operations"]}
     )
     capabilities["contract_schema"] = descriptor["schema"]
     contract_warnings = [
@@ -947,11 +695,7 @@ def audio_cpp_model_profile_fingerprint(version_row: dict, model: dict) -> str:
 
     artifact = model.get("artifact") if isinstance(model.get("artifact"), dict) else {}
     builtin_id = audio_builtin_model_id(model)
-    path = (
-        artifact.get("path")
-        or model.get("local_path")
-        or ""
-    )
+    path = artifact.get("path") or model.get("local_path") or ""
     resolved = _abs_audio_path(str(path)) if path and not builtin_id else ""
     stat_payload: dict = {}
     try:
@@ -964,7 +708,9 @@ def audio_cpp_model_profile_fingerprint(version_row: dict, model: dict) -> str:
         pass
     manifest = model.get("manifest") if isinstance(model.get("manifest"), dict) else {}
     from backend.engines.audio_cpp.contracts import (
-        contracts_fingerprint, load_family_contract, load_family_contracts,
+        contracts_fingerprint,
+        load_family_contract,
+        load_family_contracts,
     )
 
     cli_path = str(version_row.get("cli_binary_path") or "")
@@ -974,8 +720,10 @@ def audio_cpp_model_profile_fingerprint(version_row: dict, model: dict) -> str:
     engine_config = (config.get("engines") or {}).get("audio_cpp") or {}
     spec_source = engine_config.get("model_spec_override") or source_root
     contract = load_family_contract(spec_source, family) if family else None
-    contracts = {family: contract} if contract else (
-        load_family_contracts(source_root) if not family else {}
+    contracts = (
+        {family: contract}
+        if contract
+        else (load_family_contracts(source_root) if not family else {})
     )
     binary_stat = {}
     try:
@@ -1061,7 +809,8 @@ def _audio_profile_identity_section(inspection: dict, model: dict) -> dict:
             "value_kind": "enum",
             "scalar_type": "string",
             "options": [{"value": mode, "label": mode} for mode in modes],
-            "default": model.get("mode") or ("offline" if "offline" in modes else (modes[0] if modes else None)),
+            "default": model.get("mode")
+            or ("offline" if "offline" in modes else (modes[0] if modes else None)),
             "scope": "model",
             "transport": "server_config",
             "emission": {"transport": "server_config", "key": "mode"},
@@ -1115,9 +864,7 @@ def scan_audio_cpp_model_profile(
     version = str(version_row.get("version") or "")
     fingerprint = audio_cpp_model_profile_fingerprint(version_row, model)
     if not force:
-        cached = get_model_profile_entry(
-            store, "audio_cpp", version, fingerprint
-        )
+        cached = get_model_profile_entry(store, "audio_cpp", version, fingerprint)
         # Failed scans are persisted for UI visibility but must not stick forever —
         # retry on the next lazy load so a flaky install-time inspect can recover.
         if cached and not cached.get("scan_error"):
@@ -1129,7 +876,9 @@ def scan_audio_cpp_model_profile(
                     inspection,
                     cached.get("model_path") or _audio_model_path(model),
                     family=inspection.get("family") or model.get("family"),
-                    source_path=cached.get("model_spec_source") or str(version_row.get("source_path") or "") or None,
+                    source_path=cached.get("model_spec_source")
+                    or str(version_row.get("source_path") or "")
+                    or None,
                 )
             return cached
 
@@ -1162,7 +911,9 @@ def scan_audio_cpp_model_profile(
         # Prefer explicit override so scans work even when cwd is wrong.
         base_argv.extend(["--model-spec-override", spec_override])
     config = model.get("config") if isinstance(model.get("config"), dict) else {}
-    engine_config = ((config.get("engines") or {}).get("audio_cpp") or {}) if isinstance(config, dict) else {}
+    engine_config = (
+        ((config.get("engines") or {}).get("audio_cpp") or {}) if isinstance(config, dict) else {}
+    )
     for key, value in (engine_config.get("load_options") or {}).items():
         if value is not None and str(value) != "":
             base_argv.extend(["--load-option", f"{key}={value}"])
@@ -1187,9 +938,7 @@ def scan_audio_cpp_model_profile(
             **_error_entry(cli_path, inspect_error or "empty audio.cpp inspection"),
             "fingerprint": fingerprint,
         }
-        upsert_model_profile_entry(
-            store, "audio_cpp", version, fingerprint, profile
-        )
+        upsert_model_profile_entry(store, "audio_cpp", version, fingerprint, profile)
         return profile
 
     help_text, help_error = _run_help_argv(
@@ -1203,18 +952,14 @@ def scan_audio_cpp_model_profile(
             **_error_entry(cli_path, help_error or "empty model-aware help"),
             "fingerprint": fingerprint,
         }
-        upsert_model_profile_entry(
-            store, "audio_cpp", version, fingerprint, profile
-        )
+        upsert_model_profile_entry(store, "audio_cpp", version, fingerprint, profile)
         return profile
 
     try:
         _scan_stage("parse", 60, "Extracting model-aware audio.cpp options")
         inspection = parse_audio_cpp_inspection(inspect_text)
         sections = parse_audio_cpp_help_to_sections(help_text, source="cli")
-        family_name = str(
-            inspection.get("family") or family or model.get("family") or ""
-        ).strip()
+        family_name = str(inspection.get("family") or family or model.get("family") or "").strip()
         from backend.engines.audio_cpp.voices import attach_packaged_voices
 
         attach_packaged_voices(
@@ -1243,8 +988,7 @@ def scan_audio_cpp_model_profile(
             "families": [inspection.get("family")] if inspection.get("family") else [],
             "tasks": inspection.get("task_names") or [],
             "modes": {
-                task.get("task"): task.get("modes") or []
-                for task in inspection.get("tasks") or []
+                task.get("task"): task.get("modes") or [] for task in inspection.get("tasks") or []
             },
         }
         for section in sections:
@@ -1264,9 +1008,7 @@ def scan_audio_cpp_model_profile(
             "discovery_source_root": discovery_root,
             "model_spec_source": config_spec or discovery_root,
         }
-        _scan_after_parse(
-            help_text, sections, parser="parse_audio_cpp_help_to_sections[model]"
-        )
+        _scan_after_parse(help_text, sections, parser="parse_audio_cpp_help_to_sections[model]")
     except Exception as exc:
         logger.exception("audio.cpp model profile parse failed")
         profile = {
@@ -1305,27 +1047,7 @@ def _scan_llama_help(store: Any, engine: str, version_row: dict, session: Any, v
     return scan_llama_engine_version(engine, row)
 
 
-def _scan_lmdeploy_help(
-    store: Any, engine: str, version_row: dict, session: Any, ver: str
-) -> dict:
-    return scan_lmdeploy_version(version_row)
-
-
-def _scan_vllm_help(
-    store: Any, engine: str, version_row: dict, session: Any, ver: str
-) -> dict:
-    return scan_onecat_vllm_version(version_row, engine)
-
-
-def _scan_sglang_help(
-    store: Any, engine: str, version_row: dict, session: Any, ver: str
-) -> dict:
-    return scan_sglang_version(version_row, engine)
-
-
-def _scan_audio_cpp(
-    store: Any, engine: str, version_row: dict, session: Any, ver: str
-) -> dict:
+def _scan_audio_cpp(store: Any, engine: str, version_row: dict, session: Any, ver: str) -> dict:
     previous = get_version_entry(store, engine, str(ver)) or {}
     row = dict(version_row)
     if previous.get("contract_fingerprint"):
@@ -1338,11 +1060,254 @@ def _scan_audio_cpp(
 
 SCANNER_KIND_DISPATCH = {
     "llama_help": _scan_llama_help,
-    "lmdeploy_help": _scan_lmdeploy_help,
-    "vllm_help": _scan_vllm_help,
-    "sglang_help": _scan_sglang_help,
     "audio_cpp": _scan_audio_cpp,
 }
+
+
+# Parse-only counterparts for scanner kinds a YAML definition may declare.
+# The legacy adapters above keep owning the nine generated engines' probes
+# (binary resolution, argv, venv env); these functions ONLY turn help text
+# into catalog sections, reusing the same parsers so the catalog shape is
+# identical. A new scanner kind still requires an explicit entry — the
+# dispatch vocabulary does not grow by accident.
+DEFINITION_HELP_PARSERS = {
+    "llama_help": parse_llama_help_to_sections,
+    "lmdeploy_help": lambda text, engine: lmdeploy_params_to_sections(
+        parse_lmdeploy_api_server_help(text)
+    ),
+    "vllm_help": lambda text, engine: vllm_params_to_sections(parse_vllm_serve_help(text)),
+    "sglang_help": lambda text, engine: sglang_params_to_sections(
+        parse_sglang_launch_server_help(text)
+    ),
+    "sglang_diffusion_help": lambda text, engine: sglang_params_to_sections(
+        parse_sglang_diffusion_help(text)
+    ),
+}
+
+
+def scan_definition_engine_version(engine: str, version_row: dict) -> dict:
+    """Scan ``--help`` using the engine definition's YAML ``discovery`` block.
+
+    Definition-backed engines only. The executable comes from the runtime
+    profile (the same resolver the launch uses), while the probe argv and
+    the parser name come from the definition — nothing about the probe is
+    Python-owned. Generated engines never reach this path.
+    """
+    from backend.proxy.profile_launch import (
+        profile_executable,
+        profile_scan_contract,
+        profile_variant_executable,
+    )
+
+    contract = profile_scan_contract(engine) or {}
+    if str(contract.get("mode") or "probes") == "adapter":
+        return _error_entry(
+            "",
+            f"{engine} definition delegates discovery to its scanner-kind adapter",
+        )
+    parser = str(contract.get("parser") or "")
+    prefix = [str(item) for item in (contract.get("probe_argv_prefix") or [])]
+    variants = [dict(item) for item in (contract.get("probe_variants") or ())]
+    if not parser or (not prefix and not variants):
+        return _error_entry(
+            "",
+            f"{engine} definition must declare discovery.parser and discovery.probe_argv_prefix",
+        )
+    parse = DEFINITION_HELP_PARSERS.get(parser)
+    if parse is None:
+        return _error_entry("", f"{engine} discovery parser {parser!r} has no parse-only adapter")
+
+    # Ordered probe variants: use the first executable the row can supply.
+    # A variant without its own executable resolves through the launch profile.
+    selected = None
+    last_error: Optional[Exception] = None
+    for variant in variants or [{"argv_prefix": prefix}]:
+        try:
+            if variant.get("executable"):
+                executable = profile_variant_executable(
+                    variant["executable"], engine, version_row
+                )
+            else:
+                executable = profile_executable(engine, version_row)
+        except Exception as exc:  # noqa: BLE001 — try the next declared variant
+            last_error = exc
+            continue
+        selected = (
+            executable,
+            [str(item) for item in (variant.get("argv_prefix") or prefix)],
+            str(variant.get("cwd") or contract.get("cwd") or "bin_dir"),
+        )
+        break
+    if selected is None:
+        return _error_entry(
+            str((version_row or {}).get("venv_path") or ""),
+            str(last_error or f"{engine} executable unavailable"),
+        )
+    executable, prefix, cwd_mode = selected
+
+    bin_dir = os.path.dirname(executable)
+    venv_root = os.path.dirname(bin_dir)
+    venv_bin = bin_dir if os.path.basename(bin_dir) == "bin" and os.path.isdir(venv_root) else ""
+    extra_env: dict = {}
+    if venv_bin:
+        extra_env = {
+            "VIRTUAL_ENV": venv_root,
+            "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
+        }
+    cuda_decl = contract.get("cuda_env")
+    if cuda_decl:
+        # A probe that imports CUDA extensions needs the managed toolkit on
+        # PATH/LD_LIBRARY_PATH, exactly like the launch environment. A string
+        # declaration is the DEFAULT toolkit version when the row carries none.
+        try:
+            from backend.cuda_installer import get_cuda_installer
+
+            cuda_version = (version_row or {}).get("cuda_version")
+            if not cuda_version and isinstance(cuda_decl, str):
+                cuda_version = cuda_decl
+            cuda_env = get_cuda_installer().get_cuda_env(
+                str(cuda_version) if cuda_version else None
+            )
+            for key, value in cuda_env.items():
+                if key not in {"PATH", "LD_LIBRARY_PATH"}:
+                    extra_env[key] = value
+            if cuda_env.get("LD_LIBRARY_PATH"):
+                extra_env["LD_LIBRARY_PATH"] = cuda_env["LD_LIBRARY_PATH"]
+            cuda_path = [part for part in str(cuda_env.get("PATH") or "").split(os.pathsep) if part]
+            if cuda_path:
+                extra_env["PATH"] = os.pathsep.join(
+                    [part for part in [venv_bin, *cuda_path] if part]
+                )
+        except Exception as exc:  # noqa: BLE001 — probe may still work without CUDA
+            logger.debug("Could not resolve Studio CUDA for %s scan: %s", engine, exc)
+    if venv_bin:
+        path_parts = [part for part in str(extra_env.get("PATH") or "").split(os.pathsep) if part]
+        if venv_bin not in path_parts:
+            extra_env["PATH"] = os.pathsep.join([venv_bin, *path_parts])
+    extra_env.update(contract.get("env_defaults") or {})
+    final_env = dict(os.environ)
+    final_env.update({str(key): str(value) for key, value in extra_env.items()})
+    for required in contract.get("env_required") or ():
+        name = str(required.get("name") or "")
+        if not final_env.get(name):
+            return _error_entry(
+                executable,
+                str(required.get("error") or f"{engine} requires {name}"),
+            )
+
+    def cwd_for(mode: str) -> str:
+        if mode == "venv_root" and os.path.isdir(venv_root):
+            return venv_root
+        return bin_dir
+
+    probe_cwd = cwd_for(cwd_mode)
+    _scan_stage("help", 22, f"Running {engine} {' '.join(prefix)}")
+    text, run_err = _run_help_argv(
+        [executable, *prefix],
+        cwd=probe_cwd if os.path.isdir(probe_cwd) else None,
+        extra_env=extra_env,
+        scan_engine=engine,
+    )
+    if not text.strip():
+        return _error_entry(executable, run_err or "empty help output")
+    try:
+        _scan_stage("parse", 55, f"Extracting {engine} flags from {' '.join(prefix)}")
+        sections = parse(text, engine)
+    except Exception as e:
+        logger.exception("definition help parse failed")
+        return _error_entry(executable, f"parse error: {e}")
+
+    n_params = sum(len(s.get("params") or []) for s in sections)
+    if n_params == 0:
+        return _error_entry(
+            executable,
+            run_err or f"No CLI flags parsed from {executable} help",
+        )
+    _scan_after_parse(text, sections, parser=f"definition:{parser}")
+    entry = {
+        "binary_path": executable,
+        "scanned_at": iso_now(),
+        "scan_error": None,
+        "sections": sections,
+    }
+    if contract.get("primary_runtime"):
+        entry["runtime"] = str(contract["primary_runtime"])
+    return _definition_runtime_probes(
+        entry,
+        engine=engine,
+        executable=executable,
+        extra_env=extra_env,
+        contract=contract,
+        cwd_for=cwd_for,
+    )
+
+
+def _definition_runtime_probes(
+    entry: dict,
+    *,
+    engine: str,
+    executable: str,
+    extra_env: dict,
+    contract: dict,
+    cwd_for,
+) -> dict:
+    """Run each declared secondary probe and attach its catalog.
+
+    A definition can declare several runtime arms (e.g. a diffusion server) that
+    share the executable but have their own argv, parser and "not available"
+    marker. Each result keeps the legacy shape: same entry keys PLUS
+    ``runtime``, collected under ``runtime_profiles``.
+    """
+    probes = contract.get("runtime_probes") or {}
+    if not probes:
+        return entry
+    profiles: dict = {}
+    for name, probe in probes.items():
+        parser_kind = str(probe.get("parser") or "")
+        parser = DEFINITION_HELP_PARSERS.get(parser_kind)
+        base = {"runtime": name}
+        if parser is None:
+            profiles[name] = {
+                **_error_entry(
+                    executable,
+                    f"{engine} discovery parser {parser_kind!r} has no parse-only adapter",
+                ),
+                **base,
+            }
+            continue
+        cwd = cwd_for(str(probe.get("cwd") or contract.get("cwd") or "bin_dir"))
+        text, run_err = _run_help_argv(
+            [executable, *[str(item) for item in (probe.get("argv_prefix") or ())]],
+            cwd=cwd if os.path.isdir(cwd) else None,
+            extra_env=extra_env,
+            scan_engine=engine,
+        )
+        marker = str(probe.get("unavailable_marker") or "")
+        if marker and marker in text:
+            profiles[name] = {**_error_entry(executable, marker), **base}
+            continue
+        if not text.strip():
+            profiles[name] = {
+                **_error_entry(executable, run_err or "empty help output"),
+                **base,
+            }
+            continue
+        try:
+            sections = parser(text, engine)
+        except Exception as exc:  # noqa: BLE001 — one arm must not erase the rest
+            logger.exception("%s %s probe parse failed", engine, name)
+            profiles[name] = {**_error_entry(executable, f"parse error: {exc}"), **base}
+            continue
+        profiles[name] = {
+            "binary_path": executable,
+            "scanned_at": iso_now(),
+            "scan_error": None,
+            "sections": sections,
+            **base,
+        }
+        _scan_after_parse(text, sections, parser=f"definition:{parser_kind}")
+    entry["runtime_profiles"] = profiles
+    return entry
 
 
 def scan_engine_version(store: Any, engine: str, version_row: dict) -> dict:
@@ -1368,21 +1333,23 @@ def scan_engine_version(store: Any, engine: str, version_row: dict) -> dict:
         if stored:
             merged = dict(stored)
             merged.update(
-                {
-                    key: value
-                    for key, value in version_row.items()
-                    if value not in (None, "")
-                }
+                {key: value for key, value in version_row.items() if value not in (None, "")}
             )
             version_row = merged
         from backend.engines.registry import get_engine_spec
+        from backend.proxy.profile_launch import profile_scan_contract
 
         spec = get_engine_spec(engine)
-        scanner = SCANNER_KIND_DISPATCH.get(spec.scanner_kind if spec else "")
-        if scanner is None:
-            entry = _error_entry("", f"unknown engine {engine}")
+        contract = profile_scan_contract(engine)
+        adapter_mode = contract is not None and str(contract.get("mode") or "probes") == "adapter"
+        if spec is not None and contract is not None and not adapter_mode:
+            entry = scan_definition_engine_version(engine, version_row)
         else:
-            entry = scanner(store, engine, version_row, session, str(ver))
+            scanner = SCANNER_KIND_DISPATCH.get(spec.scanner_kind if spec else "")
+            if scanner is None:
+                entry = _error_entry("", f"unknown engine {engine}")
+            else:
+                entry = scanner(store, engine, version_row, session, str(ver))
 
         try:
             session.log_catalog(entry)
@@ -1410,9 +1377,7 @@ def scan_engine_version(store: Any, engine: str, version_row: dict) -> dict:
             session.detach()
 
 
-def resolve_version_row(
-    store: Any, engine: str, version: Optional[str]
-) -> Optional[dict]:
+def resolve_version_row(store: Any, engine: str, version: Optional[str]) -> Optional[dict]:
     """Pick version dict from engines.yaml."""
     versions = store.get_engine_versions(engine)
     if version:

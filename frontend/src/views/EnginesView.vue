@@ -1,6 +1,9 @@
 <template>
   <div class="engines-view page-shell page-shell--relaxed page-shell--wide">
-    <PageHeader title="Engines" description="Install a runtime, activate a version, and choose compatible models." />
+    <PageHeader
+      title="Engines"
+      description="Install a runtime, activate a version, and choose compatible models."
+    />
 
     <!-- ── Engines Overview ───────────────────────────────── -->
     <section class="ev-section engine-catalog">
@@ -62,312 +65,58 @@
           </div>
           <div class="engine-grid">
             <EngineCard
-              :style="{ order: presentation('llama_cpp').order }"
-              v-show="presentation('llama_cpp').visible"
-              @open="openEngineModal('llama_cpp')"
-              title="llama.cpp"
-              :count="enginesStore.llamaVersions.length"
-              :cta="presentation('llama_cpp').cta"
+              v-for="card in engineSummaryCards"
+              :key="card.id"
+              :style="{ order: presentation(card.id).order }"
+              v-show="presentation(card.id).visible"
+              :disabled="card.disabled"
+              v-tooltip.top="card.tooltip"
+              @open="card.disabled ? undefined : openEngineModal(card.id)"
+              :title="card.title"
+              :count="card.count"
+              :cta="presentation(card.id).cta"
             >
-              <template #mark
-                ><span class="engine-mark engine-mark--llama" aria-hidden="true">L</span></template
-              >
+              <template #mark>
+                <span
+                  v-if="card.mark.text"
+                  :class="['engine-mark', card.mark.className]"
+                  aria-hidden="true"
+                  >{{ card.mark.text }}</span
+                >
+                <i v-else :class="['engine-card-icon', card.mark.icon]" />
+              </template>
+              <template v-if="card.badge" #badge>
+                <Tag :value="card.badge.value" :severity="card.badge.severity" />
+              </template>
               <div
                 class="engine-card-version-line"
-                :title="activeLlamaCpp ? activeLlamaCpp.version : undefined"
+                :title="card.active ? card.active.version : undefined"
               >
                 <Tag
-                  v-if="activeLlamaCpp"
-                  :value="engineVersionDisplay(activeLlamaCpp.version)"
+                  v-if="card.active"
+                  :value="engineVersionDisplay(card.active.version)"
                   severity="success"
                   class="engine-version-tag"
                 />
-                <EngineStatusTag
-                  v-else
-                  :versions="enginesStore.llamaVersions"
-                  engine-id="llama.cpp"
-                />
+                <EngineStatusTag v-else :versions="card.versions" :engine-id="card.id" />
               </div>
               <div
-                v-if="llamaCppUpdateInfo?.update_available"
+                v-if="card.update?.update_available"
                 class="engine-card-status engine-card-status--warning"
               >
-                Update available: {{ llamaCppUpdateInfo.latest_version }}
+                Update available: {{ card.updateText }}
               </div>
-              <div v-else class="engine-card-status">GGUF on CPU or GPU.</div>
+              <div v-else class="engine-card-status">{{ card.subtitle }}</div>
             </EngineCard>
 
-            <EngineCard
-              :style="{ order: presentation('ik_llama').order }"
-              v-show="presentation('ik_llama').visible"
-              @open="openEngineModal('ik_llama')"
-              title="ik_llama.cpp"
-              :count="enginesStore.ikLlamaVersions.length"
-              :cta="presentation('ik_llama').cta"
-            >
-              <template #mark
-                ><span class="engine-mark engine-mark--ik" aria-hidden="true">IK</span></template
-              >
-              <div
-                class="engine-card-version-line"
-                :title="activeIkLlama ? activeIkLlama.version : undefined"
-              >
-                <Tag
-                  v-if="activeIkLlama"
-                  :value="engineVersionDisplay(activeIkLlama.version)"
-                  severity="success"
-                  class="engine-version-tag"
-                />
-                <EngineStatusTag
-                  v-else
-                  :versions="enginesStore.ikLlamaVersions"
-                  engine-id="ik_llama"
-                />
-              </div>
-              <div
-                v-if="ikLlamaUpdateInfo?.update_available"
-                class="engine-card-status engine-card-status--warning"
-              >
-                Update available: {{ ikLlamaUpdateInfo.latest_version }}
-              </div>
-              <div v-else class="engine-card-status">GGUF, including IQK quants.</div>
-            </EngineCard>
-
-            <EngineCard
-              :style="{ order: presentation('unsloth_llama').order }"
-              v-show="presentation('unsloth_llama').visible"
-              @open="openEngineModal('unsloth_llama')"
-              title="Unsloth llama.cpp"
-              :count="(enginesStore.unslothLlamaVersions || []).length"
-              :cta="presentation('unsloth_llama').cta"
-            >
-              <template #mark
-                ><span class="engine-mark engine-mark--unsloth" aria-hidden="true"
-                  >US</span
-                ></template
-              >
-              <div
-                class="engine-card-version-line"
-                :title="activeUnslothLlama ? activeUnslothLlama.version : undefined"
-              >
-                <Tag
-                  v-if="activeUnslothLlama"
-                  :value="engineVersionDisplay(activeUnslothLlama.version)"
-                  severity="success"
-                  class="engine-version-tag"
-                />
-                <EngineStatusTag
-                  v-else
-                  :versions="enginesStore.unslothLlamaVersions || []"
-                  engine-id="unsloth_llama"
-                />
-              </div>
-              <div
-                v-if="unslothLlamaUpdateInfo?.update_available"
-                class="engine-card-status engine-card-status--warning"
-              >
-                Update available: {{ unslothLlamaUpdateInfo.latest_version }}
-              </div>
-              <div v-else class="engine-card-status">GGUF with Unsloth llama-server.</div>
-            </EngineCard>
-
-            <EngineCard
-              :style="{ order: presentation('lmdeploy').order }"
-              v-show="presentation('lmdeploy').visible"
-              @open="openEngineModal('lmdeploy')"
-              title="LMDeploy"
-              :count="enginesStore.lmdeployVersions.length"
-              :cta="presentation('lmdeploy').cta"
-            >
-              <template #mark><i class="pi pi-server engine-card-icon" /></template>
-              <div
-                class="engine-card-version-line"
-                :title="activeLmdeploy ? activeLmdeploy.version : undefined"
-              >
-                <Tag
-                  v-if="activeLmdeploy"
-                  :value="engineVersionDisplay(activeLmdeploy.version)"
-                  severity="success"
-                  class="engine-version-tag"
-                />
-                <EngineStatusTag
-                  v-else
-                  :versions="enginesStore.lmdeployVersions"
-                  engine-id="lmdeploy"
-                />
-              </div>
-              <div
-                v-if="lmdeployUpdateInfo?.update_available"
-                class="engine-card-status engine-card-status--warning"
-              >
-                Update available: v{{ lmdeployUpdateInfo.latest_version }}
-              </div>
-              <div v-else class="engine-card-status">Safetensors via a Python environment.</div>
-            </EngineCard>
-
-            <EngineCard
-              :style="{ order: presentation('1cat_vllm').order }"
-              v-show="presentation('1cat_vllm').visible"
-              @open="openEngineModal('1cat_vllm')"
-              title="1Cat-vLLM"
-              :count="enginesStore.onecatVllmVersions.length"
-              :cta="presentation('1cat_vllm').cta"
-            >
-              <template #mark><i class="pi pi-bolt engine-card-icon" /></template>
-              <div
-                class="engine-card-version-line"
-                :title="activeOnecatVllm ? activeOnecatVllm.version : undefined"
-              >
-                <Tag
-                  v-if="activeOnecatVllm"
-                  :value="engineVersionDisplay(activeOnecatVllm.version)"
-                  severity="success"
-                  class="engine-version-tag"
-                />
-                <EngineStatusTag
-                  v-else
-                  :versions="enginesStore.onecatVllmVersions"
-                  engine-id="1cat"
-                />
-              </div>
-              <div
-                v-if="onecatVllmUpdateInfo?.update_available"
-                class="engine-card-status engine-card-status--warning"
-              >
-                Update available: v{{ onecatVllmUpdateInfo.latest_version }}
-              </div>
-              <div v-else class="engine-card-status">Safetensors on SM70 GPUs.</div>
-            </EngineCard>
-
-            <EngineCard
-              :style="{ order: presentation('sglang').order }"
-              v-show="presentation('sglang').visible"
-              @open="openEngineModal('sglang')"
-              title="SGLang"
-              :count="(enginesStore.sglangVersions || []).length"
-              :cta="presentation('sglang').cta"
-            >
-              <template #mark><i class="pi pi-sparkles engine-card-icon" /></template>
-              <div
-                class="engine-card-version-line"
-                :title="activeSglang ? activeSglang.version : undefined"
-              >
-                <Tag
-                  v-if="activeSglang"
-                  :value="engineVersionDisplay(activeSglang.version)"
-                  severity="success"
-                  class="engine-version-tag"
-                />
-                <EngineStatusTag
-                  v-else
-                  :versions="enginesStore.sglangVersions || []"
-                  engine-id="sglang"
-                />
-              </div>
-              <div class="engine-card-status">Safetensors, OpenAI-compatible API.</div>
-            </EngineCard>
-
-            <EngineCard
-              :style="{ order: presentation('sglang_v100').order }"
-              v-show="presentation('sglang_v100').visible"
-              @open="openEngineModal('sglang_v100')"
-              title="SGLang V100"
-              :count="(enginesStore.sglangV100Versions || []).length"
-              :cta="presentation('sglang_v100').cta"
-            >
-              <template #mark><i class="pi pi-bolt engine-card-icon" /></template
-              ><template #badge><Tag value="SM70" severity="warn" /></template>
-              <div
-                class="engine-card-version-line"
-                :title="activeSglangV100 ? activeSglangV100.version : undefined"
-              >
-                <Tag
-                  v-if="activeSglangV100"
-                  :value="engineVersionDisplay(activeSglangV100.version)"
-                  severity="success"
-                  class="engine-version-tag"
-                />
-                <EngineStatusTag
-                  v-else
-                  :versions="enginesStore.sglangV100Versions || []"
-                  engine-id="sglang_v100"
-                />
-              </div>
-              <div class="engine-card-status">V100 / SM70 source build.</div>
-            </EngineCard>
-
-            <EngineCard
-              :style="{ order: presentation('vllm').order }"
-              v-show="presentation('vllm').visible"
-              @open="openEngineModal('vllm')"
-              title="vLLM"
-              :count="(enginesStore.vllmVersions || []).length"
-              :cta="presentation('vllm').cta"
-            >
-              <template #mark><i class="pi pi-server engine-card-icon" /></template>
-              <div
-                class="engine-card-version-line"
-                :title="activeVllm ? activeVllm.version : undefined"
-              >
-                <Tag
-                  v-if="activeVllm"
-                  :value="engineVersionDisplay(activeVllm.version)"
-                  severity="success"
-                  class="engine-version-tag"
-                />
-                <EngineStatusTag
-                  v-else
-                  :versions="enginesStore.vllmVersions || []"
-                  engine-id="vllm"
-                />
-              </div>
-              <div class="engine-card-status">Safetensors, OpenAI-compatible API.</div>
-            </EngineCard>
-
-            <EngineCard
-              :style="{ order: presentation('audio_cpp').order }"
-              v-show="presentation('audio_cpp').visible"
-              :disabled="!audioCppFeatureEnabled"
-              v-tooltip.top="
-                audioCppFeatureEnabled ? audioCppMaturityTooltip : 'Disabled by AUDIO_CPP_ENABLED'
-              "
-              @open="audioCppFeatureEnabled && openEngineModal('audio_cpp')"
-              title="audio.cpp"
-              :count="enginesStore.audioCppVersions.length"
-              :cta="presentation('audio_cpp').cta"
-            >
-              <template #mark
-                ><span class="engine-mark engine-mark--audio" aria-hidden="true">A</span></template
-              ><template #badge
-                ><Tag
-                  :value="audioCppFeatureEnabled ? audioCppMaturityTag : 'Disabled'"
-                  :severity="audioCppFeatureEnabled ? 'success' : 'secondary'"
-              /></template>
-              <div
-                class="engine-card-version-line"
-                :title="activeAudioCpp ? activeAudioCpp.version : undefined"
-              >
-                <Tag
-                  v-if="activeAudioCpp"
-                  :value="engineVersionDisplay(activeAudioCpp.version)"
-                  severity="success"
-                  class="engine-version-tag"
-                />
-                <EngineStatusTag
-                  v-else
-                  :versions="enginesStore.audioCppVersions"
-                  engine-id="audio.cpp"
-                />
-              </div>
-              <div
-                v-if="audioCppUpdateInfo?.update_available"
-                class="engine-card-status engine-card-status--warning"
-              >
-                Update available:
-                {{ formatEngineUpdateVersion(audioCppUpdateInfo.latest_version) }}
-              </div>
-              <div v-else class="engine-card-status">Speech, music, and other audio tasks.</div>
-            </EngineCard>
+            <!-- YAML campaign S6: dynamic cards for SERVER-BACKED
+                 (YAML-onboarded) engines — payload-driven, zero view edits
+                 to onboard an engine, no entries in the client registry. -->
+            <GenericEnginePanel
+              v-for="descriptor in serverBackedEngineDescriptors"
+              :key="descriptor.id"
+              :descriptor="descriptor"
+            />
           </div>
         </div>
       </Transition>
@@ -375,29 +124,31 @@
 
     <Dialog v-model:visible="engineDialogVisible" modal maximizable class="dialog-width-lg">
       <template #header>
-        <EngineDialogHeader v-if="selectedEngine === 'llama_cpp'" title="llama.cpp">
+        <EngineDialogHeader v-if="nativeDialog" :title="nativeDialog.title">
           <template #leading>
-            <span class="engine-mark engine-mark--llama" aria-hidden="true">L</span>
+            <span :class="['engine-mark', nativeDialog.markClass]" aria-hidden="true">{{
+              nativeDialog.markText
+            }}</span>
           </template>
           <template #tags>
             <span
               class="engine-dialog-tag-clip"
-              :title="activeLlamaCpp ? activeLlamaCpp.version : undefined"
+              :title="nativeDialog.activeVersion ? nativeDialog.activeVersion.version : undefined"
             >
               <Tag
-                v-if="activeLlamaCpp"
-                :value="engineVersionDisplay(activeLlamaCpp.version)"
+                v-if="nativeDialog.activeVersion"
+                :value="engineVersionDisplay(nativeDialog.activeVersion.version)"
                 severity="success"
                 class="engine-version-tag"
               />
               <EngineStatusTag
                 v-else
-                :versions="enginesStore.llamaVersions"
-                engine-id="llama.cpp"
+                :versions="nativeDialog.versions"
+                :engine-id="nativeDialog.statusEngineId"
               />
             </span>
           </template>
-          <template #actions>
+          <template v-if="nativeDialog.settings" #actions>
             <Button
               icon="pi pi-cog"
               text
@@ -405,7 +156,7 @@
               size="small"
               aria-label="Build settings"
               v-tooltip.top="'Build settings'"
-              @click="openBuildDialog('llama_cpp')"
+              @click="nativeDialog.onOpenSettings()"
             />
           </template>
           <template #more>
@@ -427,30 +178,32 @@
               size="small"
               aria-label="Rescan CLI parameters"
               v-tooltip.top="'Rescan CLI parameters (--help)'"
-              :loading="paramScanLoading === 'llama_cpp'"
-              @click="rescanEngineCliParams('llama_cpp')"
+              :loading="paramScanLoading === nativeDialog.engineId"
+              @click="rescanEngineCliParams(nativeDialog.engineId)"
             />
           </template>
         </EngineDialogHeader>
-        <EngineDialogHeader v-else-if="selectedEngine === 'ik_llama'" title="ik_llama.cpp">
+        <EngineDialogHeader v-else-if="venvDialogHeader" :title="venvDialogHeader.title">
           <template #leading>
-            <span class="engine-mark engine-mark--ik" aria-hidden="true">IK</span>
+            <i :class="`pi ${venvDialogHeader.icon}`" aria-hidden="true" />
           </template>
           <template #tags>
             <span
               class="engine-dialog-tag-clip"
-              :title="activeIkLlama ? activeIkLlama.version : undefined"
+              :title="
+                venvDialogHeader.activeVersion ? venvDialogHeader.activeVersion.version : undefined
+              "
             >
               <Tag
-                v-if="activeIkLlama"
-                :value="engineVersionDisplay(activeIkLlama.version)"
+                v-if="venvDialogHeader.activeVersion"
+                :value="engineVersionDisplay(venvDialogHeader.activeVersion.version)"
                 severity="success"
                 class="engine-version-tag"
               />
               <EngineStatusTag
                 v-else
-                :versions="enginesStore.ikLlamaVersions"
-                engine-id="ik_llama.cpp"
+                :versions="venvDialogHeader.versions"
+                :engine-id="venvDialogHeader.engineId"
               />
             </span>
           </template>
@@ -460,21 +213,21 @@
               text
               severity="secondary"
               size="small"
-              aria-label="Build settings"
-              v-tooltip.top="'Build settings'"
-              @click="openBuildDialog('ik_llama')"
+              :aria-label="venvDialogHeader.settingsAriaLabel"
+              v-tooltip.top="venvDialogHeader.settingsAriaLabel"
+              @click="venvDialogHeader.onOpenSettings()"
             />
           </template>
           <template #more>
             <Button
               icon="pi pi-refresh"
-              label="Reload versions"
+              label="Reload versions and status"
               text
               severity="secondary"
               size="small"
-              aria-label="Reload versions"
-              v-tooltip.top="'Reload versions'"
-              @click="enginesStore.fetchLlamaVersions()"
+              :aria-label="venvDialogHeader.buttonA11y ? 'Reload versions and status' : undefined"
+              v-tooltip.top="venvDialogHeader.buttonA11y ? 'Reload versions and status' : undefined"
+              @click="venvDialogHeader.onRefresh()"
             />
             <Button
               icon="pi pi-book"
@@ -482,251 +235,19 @@
               text
               severity="secondary"
               size="small"
-              aria-label="Rescan CLI parameters"
-              v-tooltip.top="'Rescan CLI parameters (--help)'"
-              :loading="paramScanLoading === 'ik_llama'"
-              @click="rescanEngineCliParams('ik_llama')"
+              :aria-label="venvDialogHeader.buttonA11y ? 'Rescan CLI parameters' : undefined"
+              v-tooltip.top="
+                venvDialogHeader.buttonA11y ? 'Rescan CLI parameters (--help)' : undefined
+              "
+              :loading="paramScanLoading === venvDialogHeader.engineId"
+              @click="rescanEngineCliParams(venvDialogHeader.engineId)"
             />
           </template>
         </EngineDialogHeader>
         <EngineDialogHeader
-          v-else-if="selectedEngine === 'unsloth_llama'"
-          title="Unsloth llama.cpp"
+          v-else-if="ENGINE_DESCRIPTORS[selectedEngine]?.configPanel === 'audio'"
+          title="audio.cpp"
         >
-          <template #leading>
-            <span class="engine-mark engine-mark--unsloth" aria-hidden="true">US</span>
-          </template>
-          <template #tags>
-            <span
-              class="engine-dialog-tag-clip"
-              :title="activeUnslothLlama ? activeUnslothLlama.version : undefined"
-            >
-              <Tag
-                v-if="activeUnslothLlama"
-                :value="engineVersionDisplay(activeUnslothLlama.version)"
-                severity="success"
-                class="engine-version-tag"
-              />
-              <EngineStatusTag
-                v-else
-                :versions="enginesStore.unslothLlamaVersions"
-                engine-id="unsloth_llama"
-              />
-            </span>
-          </template>
-          <template #more>
-            <Button
-              icon="pi pi-refresh"
-              label="Reload versions"
-              text
-              severity="secondary"
-              size="small"
-              aria-label="Reload versions"
-              v-tooltip.top="'Reload versions'"
-              @click="enginesStore.fetchLlamaVersions()"
-            />
-            <Button
-              icon="pi pi-book"
-              label="Rescan CLI parameters"
-              text
-              severity="secondary"
-              size="small"
-              aria-label="Rescan CLI parameters"
-              v-tooltip.top="'Rescan CLI parameters (--help)'"
-              :loading="paramScanLoading === 'unsloth_llama'"
-              @click="rescanEngineCliParams('unsloth_llama')"
-            />
-          </template>
-        </EngineDialogHeader>
-        <EngineDialogHeader v-else-if="selectedEngine === 'lmdeploy'" title="LMDeploy">
-          <template #leading>
-            <i class="pi pi-server" aria-hidden="true" />
-          </template>
-          <template #tags>
-            <span
-              class="engine-dialog-tag-clip"
-              :title="activeLmdeploy ? activeLmdeploy.version : undefined"
-            >
-              <Tag
-                v-if="activeLmdeploy"
-                :value="engineVersionDisplay(activeLmdeploy.version)"
-                severity="success"
-                class="engine-version-tag"
-              />
-              <EngineStatusTag
-                v-else
-                :versions="enginesStore.lmdeployVersions"
-                engine-id="lmdeploy"
-              />
-            </span>
-          </template>
-          <template #actions>
-            <Button
-              icon="pi pi-cog"
-              text
-              severity="secondary"
-              size="small"
-              aria-label="Build settings"
-              v-tooltip.top="'Build settings'"
-              @click="openLmdeployBuildSettings"
-            />
-          </template>
-          <template #more>
-            <Button
-              icon="pi pi-refresh"
-              label="Reload versions and status"
-              text
-              severity="secondary"
-              size="small"
-              aria-label="Reload versions and status"
-              v-tooltip.top="'Reload versions and status'"
-              @click="refreshEngineDialogStatus('lmdeploy')"
-            />
-            <Button
-              icon="pi pi-book"
-              label="Rescan CLI parameters"
-              text
-              severity="secondary"
-              size="small"
-              aria-label="Rescan CLI parameters"
-              v-tooltip.top="'Rescan CLI parameters (--help)'"
-              :loading="paramScanLoading === 'lmdeploy'"
-              @click="rescanEngineCliParams('lmdeploy')"
-            />
-          </template>
-        </EngineDialogHeader>
-        <EngineDialogHeader v-else-if="selectedEngine === '1cat_vllm'" title="1Cat-vLLM">
-          <template #leading>
-            <i class="pi pi-bolt" aria-hidden="true" />
-          </template>
-          <template #tags>
-            <span
-              class="engine-dialog-tag-clip"
-              :title="activeOnecatVllm ? activeOnecatVllm.version : undefined"
-            >
-              <Tag
-                v-if="activeOnecatVllm"
-                :value="engineVersionDisplay(activeOnecatVllm.version)"
-                severity="success"
-                class="engine-version-tag"
-              />
-              <EngineStatusTag
-                v-else
-                :versions="enginesStore.onecatVllmVersions"
-                engine-id="1cat_vllm"
-              />
-            </span>
-          </template>
-          <template #actions>
-            <Button
-              icon="pi pi-cog"
-              text
-              severity="secondary"
-              size="small"
-              aria-label="Build settings"
-              v-tooltip.top="'Build settings'"
-              @click="openOnecatVllmBuildSettings"
-            />
-          </template>
-          <template #more>
-            <Button
-              icon="pi pi-refresh"
-              label="Reload versions and status"
-              text
-              severity="secondary"
-              size="small"
-              aria-label="Reload versions and status"
-              v-tooltip.top="'Reload versions and status'"
-              @click="refreshEngineDialogStatus('1cat_vllm')"
-            />
-            <Button
-              icon="pi pi-book"
-              label="Rescan CLI parameters"
-              text
-              severity="secondary"
-              size="small"
-              aria-label="Rescan CLI parameters"
-              v-tooltip.top="'Rescan CLI parameters (--help)'"
-              :loading="paramScanLoading === '1cat_vllm'"
-              @click="rescanEngineCliParams('1cat_vllm')"
-            />
-          </template>
-        </EngineDialogHeader>
-        <EngineDialogHeader
-          v-else-if="['sglang', 'sglang_v100', 'vllm'].includes(selectedEngine)"
-          :title="
-            selectedEngine === 'sglang_v100'
-              ? 'SGLang V100'
-              : selectedEngine === 'vllm'
-                ? 'vLLM'
-                : 'SGLang'
-          "
-        >
-          <template #leading>
-            <i
-              :class="['pi', selectedEngine === 'sglang_v100' ? 'pi-bolt' : 'pi-sparkles']"
-              aria-hidden="true"
-            />
-          </template>
-          <template #tags>
-            <span class="engine-dialog-tag-clip" :title="selectedSglangActive?.version">
-              <Tag
-                v-if="selectedSglangActive"
-                :value="engineVersionDisplay(selectedSglangActive.version)"
-                severity="success"
-                class="engine-version-tag"
-              />
-              <EngineStatusTag
-                v-else
-                :versions="selectedSglangVersions"
-                :engine-id="selectedEngine"
-              />
-            </span>
-          </template>
-          <template #actions>
-            <Button
-              icon="pi pi-cog"
-              text
-              severity="secondary"
-              size="small"
-              aria-label="Install settings"
-              v-tooltip.top="'Install settings'"
-              @click="
-                selectedEngine === 'sglang_v100'
-                  ? sglangV100Panel?.openSettings()
-                  : selectedEngine === 'vllm'
-                    ? vllmPanel?.openSettings()
-                    : sglangPanel?.openSettings()
-              "
-            />
-          </template>
-          <template #more>
-            <Button
-              icon="pi pi-refresh"
-              label="Reload versions and status"
-              text
-              severity="secondary"
-              size="small"
-              @click="
-                selectedEngine === 'sglang_v100'
-                  ? sglangV100Panel?.refresh()
-                  : selectedEngine === 'vllm'
-                    ? vllmPanel?.refresh()
-                    : sglangPanel?.refresh()
-              "
-            />
-            <Button
-              icon="pi pi-book"
-              label="Rescan CLI parameters"
-              text
-              severity="secondary"
-              size="small"
-              :loading="paramScanLoading === selectedEngine"
-              @click="rescanEngineCliParams(selectedEngine)"
-            />
-          </template>
-        </EngineDialogHeader>
-        <EngineDialogHeader v-else-if="selectedEngine === 'audio_cpp'" title="audio.cpp">
           <template #leading>
             <span class="engine-mark engine-mark--audio" aria-hidden="true">A</span>
           </template>
@@ -784,314 +305,120 @@
           </template>
         </EngineDialogHeader>
       </template>
-      <section v-if="selectedEngine === 'llama_cpp'" class="ev-section ev-section--modal">
+      <section v-if="nativeDialog" class="ev-section ev-section--modal">
         <div class="ev-section-body engine-modal-body">
           <EngineBuildSettingsHint
-            :key="`llama-hint-${hintRevLlama}`"
-            engine-key="llama_cpp"
-            @open-settings="openBuildDialog('llama_cpp')"
+            v-if="nativeDialog.hintEngineKey"
+            :key="nativeDialog.hintKey"
+            :engine-key="nativeDialog.hintEngineKey"
+            @open-settings="nativeDialog.onOpenSettings()"
           />
-          <EngineCheckUpdatesCta
-            :loading="checkingLlamaCpp"
-            hint="Compare the installed ref to the latest stable release (vX.Y.Z)."
-            @check="checkLlamaCppUpdates"
-          />
-          <EngineUpdateBanner
-            :available="!!llamaCppUpdateInfo?.update_available"
-            :checked="!!llamaCppUpdateInfo"
-            :latest-version="llamaCppUpdateInfo?.latest_version"
-            :current-version="llamaCppUpdateInfo?.current_version"
-            :link-url="llamaCppUpdateInfo?.release_url"
-            :updating="updatingEngine === 'llama_cpp'"
-            update-tooltip="Update using saved build settings"
-            @update="doUpdateEngine('llama_cpp')"
-          />
-          <EngineInstallPanel
-            subtitle="Add a build of the latest stable release (vX.Y.Z) or any git ref. Each build is a version you can activate."
-          >
-            <Button
-              label="From release"
-              icon="pi pi-tag"
-              severity="success"
-              outlined
-              :loading="llamaReleaseInstalling"
-              :disabled="llamaReleaseInstalling || llamaCppSourceInstalling"
-              @click="installLlamaLatestRelease"
-            />
-            <Button
-              label="From source"
-              icon="pi pi-code"
-              severity="info"
-              outlined
-              :loading="llamaCppSourceInstalling"
-              :disabled="llamaReleaseInstalling || llamaCppSourceInstalling"
-              @click="openLlamaCppSourceDialog"
-            />
-          </EngineInstallPanel>
-          <EngineActiveStatus :rows="llamaCppActiveStatusRows" />
-          <EngineVersionsBlock>
-            <VersionTable
-              :versions="enginesStore.llamaVersions"
-              :activating="activating"
-              :activating-message="activatingMessage"
-              :syncing="syncingVersion"
-              :retrying="retryingVersion"
-              :deleting="deletingVersion"
-              can-verify
-              empty-message="No versions yet. Install one using the options above."
-              @activate="activateVersion"
-              @sync="syncVersion"
-              @retry="retryVersion"
-              @edit-config="openVersionBuildConfig"
-              @verify="verifyEngineVersion"
-              @delete="confirmDeleteVersion"
-            />
-          </EngineVersionsBlock>
-        </div>
-      </section>
-
-      <section v-else-if="selectedEngine === 'ik_llama'" class="ev-section ev-section--modal">
-        <div class="ev-section-body engine-modal-body">
-          <EngineBuildSettingsHint
-            :key="`ik-hint-${hintRevIk}`"
-            engine-key="ik_llama"
-            @open-settings="openBuildDialog('ik_llama')"
-          />
-          <EngineCheckUpdatesCta
-            :loading="checkingIkLlama"
-            hint="Compare the installed tip to the latest commit on main."
-            @check="checkIkLlamaUpdates"
-          />
-          <EngineUpdateBanner
-            :available="!!ikLlamaUpdateInfo?.update_available"
-            :checked="!!ikLlamaUpdateInfo"
-            :latest-version="ikLlamaUpdateInfo?.latest_version"
-            :current-version="ikLlamaUpdateInfo?.current_version"
-            :link-url="ikLlamaUpdateInfo?.release_url"
-            link-label="View commit"
-            :updating="updatingEngine === 'ik_llama'"
-            update-tooltip="Rebuild tip of main using saved build settings"
-            @update="doUpdateEngine('ik_llama')"
-          />
-          <EngineInstallPanel
-            subtitle="ik_llama.cpp has no release tags here. Build the tip of main, or any git repo/ref. Each build is a version you can activate."
-          >
-            <Button
-              label="From tip"
-              icon="pi pi-bolt"
-              severity="success"
-              outlined
-              :loading="ikTipInstalling"
-              :disabled="ikTipInstalling || ikLlamaSourceInstalling"
-              @click="installIkFromTip"
-            />
-            <Button
-              label="From source"
-              icon="pi pi-code"
-              severity="info"
-              outlined
-              :loading="ikLlamaSourceInstalling"
-              :disabled="ikTipInstalling || ikLlamaSourceInstalling"
-              @click="openIkLlamaSourceDialog"
-            />
-          </EngineInstallPanel>
-          <EngineActiveStatus :rows="ikLlamaActiveStatusRows" />
-          <EngineVersionsBlock>
-            <VersionTable
-              :versions="enginesStore.ikLlamaVersions"
-              :activating="activating"
-              :activating-message="activatingMessage"
-              :syncing="syncingVersion"
-              :retrying="retryingVersion"
-              :deleting="deletingVersion"
-              can-verify
-              empty-message="No versions yet. Install one using the options above."
-              @activate="activateVersion"
-              @sync="syncVersion"
-              @retry="retryVersion"
-              @edit-config="openVersionBuildConfig"
-              @verify="verifyEngineVersion"
-              @delete="confirmDeleteVersion"
-            />
-          </EngineVersionsBlock>
-        </div>
-      </section>
-
-      <section v-else-if="selectedEngine === 'unsloth_llama'" class="ev-section ev-section--modal">
-        <div class="ev-section-body engine-modal-body">
-          <p class="build-note build-note--info">
-            Installs Unsloth's published llama-server: an upstream llama.cpp nightly plus their
-            pinned patch mix. This is the inference binary, not Unsloth Studio.
+          <p v-if="nativeDialog.noteRaw" class="build-note build-note--info">
+            {{ nativeDialog.noteRaw }}
           </p>
           <EngineCheckUpdatesCta
-            :loading="checkingUnslothLlama"
-            hint="Compare the active mix tag to the latest unslothai/llama.cpp prebuilt."
-            @check="checkUnslothLlamaUpdates"
+            :loading="nativeDialog.checking"
+            :hint="nativeDialog.checkHint"
+            @check="nativeDialog.onCheck()"
           />
           <EngineUpdateBanner
-            :available="!!unslothLlamaUpdateInfo?.update_available"
-            :checked="!!unslothLlamaUpdateInfo"
-            :latest-version="unslothLlamaUpdateInfo?.latest_version"
-            :current-version="unslothLlamaUpdateInfo?.current_version"
-            :link-url="unslothLlamaUpdateInfo?.release_url"
-            :updating="unslothLlamaInstalling"
-            update-tooltip="Install the latest Unsloth llama-server mix"
-            @update="installUnslothLlamaRelease"
+            :available="!!nativeDialog.updateInfo?.update_available"
+            :checked="!!nativeDialog.updateInfo"
+            :latest-version="nativeDialog.updateInfo?.latest_version"
+            :current-version="nativeDialog.updateInfo?.current_version"
+            :link-url="nativeDialog.updateInfo?.release_url"
+            :link-label="nativeDialog.updateLinkLabel"
+            :updating="nativeDialog.updating"
+            :update-tooltip="nativeDialog.updateTooltip"
+            @update="nativeDialog.onUpdate()"
           />
-          <EngineInstallPanel
-            subtitle="Download a Linux x64 prebuilt (CUDA 12/13 portable when a matching toolkit is active, otherwise CPU). Each release is a version you can activate."
-          >
+          <EngineInstallPanel :subtitle="nativeDialog.installSubtitle">
             <Button
-              label="Install prebuilt"
-              icon="pi pi-download"
-              severity="success"
+              v-for="btn in nativeDialog.installButtons"
+              :key="btn.label"
+              :label="btn.label"
+              :icon="btn.icon"
+              :severity="btn.severity"
               outlined
-              :loading="unslothLlamaInstalling"
-              :disabled="unslothLlamaInstalling"
-              @click="installUnslothLlamaRelease"
+              :loading="btn.loading"
+              :disabled="btn.disabled"
+              @click="btn.onClick()"
             />
           </EngineInstallPanel>
-          <EngineActiveStatus :rows="unslothLlamaActiveStatusRows" />
+          <EngineActiveStatus :rows="nativeDialog.statusRows" />
           <EngineVersionsBlock>
             <VersionTable
-              :versions="enginesStore.unslothLlamaVersions"
+              :versions="nativeDialog.versions"
               :activating="activating"
               :activating-message="activatingMessage"
               :syncing="syncingVersion"
               :retrying="retryingVersion"
               :deleting="deletingVersion"
-              empty-message="No versions yet. Install a prebuilt using the option above."
+              :can-verify="nativeDialog.canVerify"
+              :empty-message="nativeDialog.emptyMessage"
               @activate="activateVersion"
               @sync="syncVersion"
               @retry="retryVersion"
               @edit-config="openVersionBuildConfig"
+              @verify="verifyEngineVersion"
               @delete="confirmDeleteVersion"
             />
           </EngineVersionsBlock>
         </div>
       </section>
 
-      <section v-else-if="selectedEngine === 'lmdeploy'" class="ev-section ev-section--modal">
+      <section v-else-if="venvDialog" class="ev-section ev-section--modal">
         <div class="ev-section-body engine-modal-body">
           <EngineBuildSettingsHint
-            :key="`lm-hint-${hintRevLmdeploy}`"
-            engine-key="lmdeploy"
-            @open-settings="openLmdeployBuildSettings"
+            :key="venvDialog.hintKey"
+            :engine-key="venvDialog.engineId"
+            @open-settings="venvDialog.onOpenSettings()"
           />
           <EngineCheckUpdatesCta
-            :loading="checkingLmdeploy"
-            hint="Compare the active install to the latest PyPI release."
-            @check="checkLmdeployUpdates"
+            :loading="venvDialog.checking"
+            :hint="venvDialog.checkHint"
+            @check="venvDialog.onCheck()"
           />
           <EngineUpdateBanner
-            :available="!!lmdeployUpdateInfo?.update_available"
-            :checked="!!lmdeployUpdateInfo"
+            :available="!!venvDialog.updateInfo?.update_available"
+            :checked="!!venvDialog.updateInfo"
             :latest-version="
-              lmdeployUpdateInfo?.latest_version ? `v${lmdeployUpdateInfo.latest_version}` : ''
+              venvDialog.updateInfo?.latest_version
+                ? `v${venvDialog.updateInfo.latest_version}`
+                : ''
             "
             :current-version="
-              lmdeployUpdateInfo?.current_version
-                ? `v${lmdeployUpdateInfo.current_version}`
+              venvDialog.updateInfo?.current_version
+                ? `v${venvDialog.updateInfo.current_version}`
                 : 'none'
             "
-            link-url="https://pypi.org/project/lmdeploy/"
-            link-label="View on PyPI"
-            :updating="updatingLmdeploy"
-            update-tooltip="Install the latest PyPI version as a new environment"
-            @update="doUpdateLmdeploy"
+            :link-url="venvDialog.updateLinkUrl"
+            :link-label="venvDialog.updateLinkLabel"
+            :updating="venvDialog.updating"
+            :update-tooltip="venvDialog.updateTooltip"
+            @update="venvDialog.onUpdate()"
           />
-          <EngineInstallPanel
-            subtitle="Add a new Python environment from PyPI or a git source. Each install is a version you can activate."
-          >
+          <EngineNote v-if="venvDialog.note">{{ venvDialog.note }}</EngineNote>
+          <EngineInstallPanel :subtitle="venvDialog.installSubtitle">
             <Button
-              label="From PyPI"
+              :label="venvDialog.installPrimaryLabel"
               icon="pi pi-download"
               severity="success"
               outlined
-              @click="openLmdeployPipDialog"
+              @click="venvDialog.onInstallPrimary()"
             />
             <Button
               label="From source"
               icon="pi pi-code"
               severity="info"
               outlined
-              @click="openLmdeploySourceDialog"
+              @click="venvDialog.onInstallSource()"
             />
           </EngineInstallPanel>
-          <EngineActiveStatus :rows="lmdeployActiveStatusRows" />
+          <EngineActiveStatus :rows="venvDialog.statusRows" />
           <EngineVersionsBlock>
             <VersionTable
-              :versions="enginesStore.lmdeployVersions"
-              :activating="activating"
-              :activating-message="activatingMessage"
-              :syncing="syncingVersion"
-              :retrying="retryingVersion"
-              :deleting="deletingVersion"
-              empty-message="No versions yet. Install one using the options above."
-              @activate="activateVersion"
-              @sync="syncVersion"
-              @retry="retryVersion"
-              @edit-config="openVersionBuildConfig"
-              @delete="confirmDeleteVersion"
-            />
-          </EngineVersionsBlock>
-        </div>
-      </section>
-
-      <section v-else-if="selectedEngine === '1cat_vllm'" class="ev-section ev-section--modal">
-        <div class="ev-section-body engine-modal-body">
-          <EngineBuildSettingsHint
-            :key="`ovllm-hint-${hintRevOnecat}`"
-            engine-key="1cat_vllm"
-            @open-settings="openOnecatVllmBuildSettings"
-          />
-          <EngineCheckUpdatesCta
-            :loading="checkingOnecatVllm"
-            hint="Compare the active install to the latest GitHub release."
-            @check="checkOnecatVllmUpdates"
-          />
-          <EngineUpdateBanner
-            :available="!!onecatVllmUpdateInfo?.update_available"
-            :checked="!!onecatVllmUpdateInfo"
-            :latest-version="
-              onecatVllmUpdateInfo?.latest_version ? `v${onecatVllmUpdateInfo.latest_version}` : ''
-            "
-            :current-version="
-              onecatVllmUpdateInfo?.current_version
-                ? `v${onecatVllmUpdateInfo.current_version}`
-                : 'none'
-            "
-            link-url="https://github.com/1CatAI/1Cat-vLLM/releases/latest"
-            :updating="updatingOnecatVllm"
-            update-tooltip="Install the latest release wheels as a new environment"
-            @update="doUpdateOnecatVllm"
-          />
-          <EngineNote>
-            vLLM fork for Tesla V100 (SM70). Release installs use a prebuilt CUDA 12.8 wheel. Source
-            builds need an SM70 GPU and the CUDA 12.8 toolkit.
-          </EngineNote>
-          <EngineInstallPanel
-            subtitle="Add a new environment from prebuilt release wheels (recommended) or build from source. Each install is a version you can activate."
-          >
-            <Button
-              label="From release"
-              icon="pi pi-download"
-              severity="success"
-              outlined
-              @click="openOnecatVllmReleaseDialog"
-            />
-            <Button
-              label="From source"
-              icon="pi pi-code"
-              severity="info"
-              outlined
-              @click="openOnecatVllmSourceDialog"
-            />
-          </EngineInstallPanel>
-          <EngineActiveStatus :rows="onecatVllmActiveStatusRows" />
-          <EngineVersionsBlock>
-            <VersionTable
-              :versions="enginesStore.onecatVllmVersions"
+              :versions="venvDialog.versions"
               :activating="activating"
               :activating-message="activatingMessage"
               :syncing="syncingVersion"
@@ -1109,20 +436,16 @@
       </section>
 
       <SglangEnginePanel
-        v-else-if="selectedEngine === 'sglang'"
-        ref="sglangPanel"
-        engine-id="sglang"
+        v-else-if="sglangPanelEngineId"
+        :key="sglangPanelEngineId"
+        :ref="(el) => setSglangPanelRef(sglangPanelEngineId, el)"
+        :engine-id="sglangPanelEngineId"
       />
 
-      <SglangEnginePanel
-        v-else-if="selectedEngine === 'sglang_v100'"
-        ref="sglangV100Panel"
-        engine-id="sglang_v100"
-      />
-
-      <SglangEnginePanel v-else-if="selectedEngine === 'vllm'" ref="vllmPanel" engine-id="vllm" />
-
-      <section v-else-if="selectedEngine === 'audio_cpp'" class="ev-section ev-section--modal">
+      <section
+        v-else-if="ENGINE_DESCRIPTORS[selectedEngine]?.configPanel === 'audio'"
+        class="ev-section ev-section--modal"
+      >
         <div class="ev-section-body engine-modal-body">
           <EngineBuildSettingsHint
             :key="`audio-hint-${hintRevAudio}`"
@@ -1135,7 +458,7 @@
             :checked="!!audioCppUpdateInfo"
             :latest-version="formatEngineUpdateVersion(audioCppUpdateInfo?.latest_version)"
             :current-version="
-              audioCppUpdateInfo?.tracking_ref || enginesStore.audioCppStatus?.tracking_ref || ''
+              audioCppUpdateInfo?.tracking_ref || audioCppStatus?.tracking_ref || ''
             "
             :link-url="
               audioCppUpdateInfo?.latest_release?.html_url ||
@@ -1158,9 +481,7 @@
               <template v-else>
                 Update available on
                 <strong>{{
-                  audioCppUpdateInfo?.tracking_ref ||
-                  enginesStore.audioCppStatus?.tracking_ref ||
-                  'tracked ref'
+                  audioCppUpdateInfo?.tracking_ref || audioCppStatus?.tracking_ref || 'tracked ref'
                 }}</strong
                 >:
                 <strong>{{ formatEngineUpdateVersion(audioCppUpdateInfo?.latest_version) }}</strong>
@@ -1212,342 +533,71 @@
     </Dialog>
 
     <!-- ── LMDeploy Build Settings Dialog ─────────────────── -->
-    <Dialog
+    <EngineInstallSettingsDialog
       v-model:visible="lmdeployBuildDialogVisible"
-      header="Build settings — LMDeploy"
-      modal
-      class="build-settings-dialog dialog-width-md"
-    >
-      <div class="dialog-body build-settings-body">
-        <PersistenceAlert
-          :notice="documentSaveNotice"
-          @retry="retryDocumentSave"
-          @refresh="refreshDocumentSave"
-        />
-        <p class="build-note build-note--info">
-          Saved defaults for PyPI and source installs. Use <strong>Save settings</strong> to store
-          without installing, or <strong>Install from source</strong> to build now.
-        </p>
-        <div class="form-field">
-          <label>Default PyPI version <span class="optional">(optional)</span></label>
-          <InputText
-            v-model="lmdeployBuildForm.pip_version"
-            placeholder="Blank = latest"
-            class="w-full"
-          />
-          <small>Used by From PyPI when the version field is left blank.</small>
-        </div>
-        <div class="form-field">
-          <label>Source repo URL</label>
-          <InputText
-            v-model="lmdeployBuildForm.source_repo"
-            placeholder="https://github.com/InternLM/lmdeploy.git"
-            class="w-full"
-          />
-        </div>
-        <div class="form-field">
-          <label>Source branch</label>
-          <InputText v-model="lmdeployBuildForm.source_branch" placeholder="main" class="w-full" />
-        </div>
-      </div>
-      <template #footer>
-        <Button
-          label="Cancel"
-          severity="secondary"
-          outlined
-          @click="lmdeployBuildDialogVisible = false"
-        />
-        <Button
-          label="Save settings"
-          icon="pi pi-save"
-          severity="secondary"
-          :loading="savingLmdeployBuildSettings"
-          :disabled="documentSaveHeld"
-          @click="saveLmdeployBuildSettingsOnly"
-        />
-        <Button
-          label="Install from source"
-          icon="pi pi-code"
-          severity="info"
-          :loading="lmdeployInstalling"
-          @click="installLmdeployFromBuildSettings"
-        />
-      </template>
-    </Dialog>
+      title="Build settings — LMDeploy"
+      note="Saved defaults for PyPI and source installs. Use Save settings to store without installing, or Install from source to build now."
+      version-key="pip_version"
+      version-label="Default PyPI version"
+      version-hint="Used by From PyPI when the version field is left blank."
+      repo-placeholder="https://github.com/InternLM/lmdeploy.git"
+      :form="lmdeployBuildForm"
+      :compatibility="lmdeployCompatibility"
+      :notice="documentSaveNotice"
+      :saving="savingLmdeployBuildSettings"
+      :save-disabled="documentSaveHeld"
+      :install-loading="lmdeployInstalling"
+      install-label="Install from source"
+      @field="(key, value) => (lmdeployBuildForm[key] = value)"
+      @retry="retryDocumentSave"
+      @refresh="refreshDocumentSave"
+      @save="saveLmdeployBuildSettingsOnly"
+      @install="installLmdeployFromBuildSettings"
+    />
 
-    <!-- ── 1Cat-vLLM Build Settings Dialog ───────────────── -->
-    <Dialog
+    <EngineInstallSettingsDialog
       v-model:visible="onecatVllmBuildDialogVisible"
-      header="Build settings — 1Cat-vLLM"
-      modal
-      class="build-settings-dialog dialog-width-md"
-    >
-      <div class="dialog-body build-settings-body">
-        <PersistenceAlert
-          :notice="documentSaveNotice"
-          @retry="retryDocumentSave"
-          @refresh="refreshDocumentSave"
-        />
-        <p class="build-note build-note--info">
-          Saved defaults for release wheels and source builds. Use <strong>Save settings</strong> to
-          store without installing, or <strong>Build from source</strong> to compile now.
-        </p>
-        <div class="form-field">
-          <label>Default release version <span class="optional">(optional)</span></label>
-          <InputText
-            v-model="onecatVllmBuildForm.release_version"
-            placeholder="Blank = latest"
-            class="w-full"
-          />
-          <small>Used by From release when the version field is left blank.</small>
-        </div>
-        <div class="form-field">
-          <label>Source repo URL</label>
-          <InputText
-            v-model="onecatVllmBuildForm.source_repo"
-            placeholder="https://github.com/1CatAI/1Cat-vLLM.git"
-            class="w-full"
-          />
-        </div>
-        <div class="form-field">
-          <label>Source branch</label>
-          <InputText
-            v-model="onecatVllmBuildForm.source_branch"
-            placeholder="main"
-            class="w-full"
-          />
-        </div>
-        <div class="form-field">
-          <small
-            >Source builds compile SM70 CUDA kernels and require an NVIDIA GPU plus the CUDA 12.8
-            toolkit.</small
-          >
-        </div>
-      </div>
-      <template #footer>
-        <Button
-          label="Cancel"
-          severity="secondary"
-          outlined
-          @click="onecatVllmBuildDialogVisible = false"
-        />
-        <Button
-          label="Save settings"
-          icon="pi pi-save"
-          severity="secondary"
-          :loading="savingOnecatVllmBuildSettings"
-          :disabled="documentSaveHeld"
-          @click="saveOnecatVllmBuildSettingsOnly"
-        />
-        <Button
-          label="Build from source"
-          icon="pi pi-code"
-          severity="info"
-          :loading="onecatVllmInstalling"
-          @click="installOnecatVllmFromBuildSettings"
-        />
-      </template>
-    </Dialog>
+      title="Build settings — 1Cat-vLLM"
+      note="Saved defaults for release wheels and source builds. Use Save settings to store without installing, or Build from source to compile now."
+      version-key="release_version"
+      version-label="Default release version"
+      version-hint="Used by From release when the version field is left blank."
+      repo-placeholder="https://github.com/1CatAI/1Cat-vLLM.git"
+      extra-note="Source builds compile SM70 CUDA kernels and require an NVIDIA GPU plus the CUDA 12.8 toolkit."
+      :form="onecatVllmBuildForm"
+      :notice="documentSaveNotice"
+      :saving="savingOnecatVllmBuildSettings"
+      :save-disabled="documentSaveHeld"
+      :install-loading="onecatVllmInstalling"
+      install-label="Build from source"
+      @field="(key, value) => (onecatVllmBuildForm[key] = value)"
+      @retry="retryDocumentSave"
+      @refresh="refreshDocumentSave"
+      @save="saveOnecatVllmBuildSettingsOnly"
+      @install="installOnecatVllmFromBuildSettings"
+    />
 
-    <!-- ── audio.cpp Build Settings Dialog ───────────────── -->
-    <Dialog
+    <EngineBuildOptionsDialog
       v-model:visible="audioCppBuildDialogVisible"
       :header="audioCppBuildDialogHeader"
-      modal
-      class="build-settings-dialog dialog-width-md"
-    >
-      <div class="dialog-body build-settings-body">
-        <PersistenceAlert
-          :notice="documentSaveNotice"
-          @retry="retryDocumentSave"
-          @refresh="refreshDocumentSave"
-        />
-        <p v-if="editingAudioVersion" class="build-note build-note--info">
-          These CMake options are frozen to
-          <strong>{{ editingAudioVersion.version }}</strong
-          >. Saving does not change global Build settings.
-        </p>
-        <div v-if="!editingAudioVersion" class="form-field">
-          <label>Repo URL</label>
-          <InputText
-            v-model="audioCppBuildForm.repository_url"
-            placeholder="https://github.com/0xShug0/audio.cpp.git"
-            class="w-full"
-          />
-          <small>Official repo or any fork with the same layout. Saved with Build settings.</small>
-        </div>
-        <div v-if="!editingAudioVersion" class="form-field">
-          <label>Ref (tag / branch / commit)</label>
-          <InputText
-            v-model="audioCppBuildForm.source_ref"
-            :placeholder="enginesStore.audioCppStatus?.tracking_ref || 'main'"
-            class="w-full"
-          />
-          <small>
-            Used when you Build now. Branch and tag refs become the Update tracking ref. Building a
-            commit installs that tip but leaves tracking on the previous branch/tag, so Update will
-            not follow the detached commit.
-          </small>
-        </div>
-        <div v-if="!editingAudioVersion" class="form-field">
-          <label>Build Name Suffix <span class="optional">(optional)</span></label>
-          <InputText
-            v-model="audioCppBuildForm.versionSuffix"
-            placeholder="e.g. my-build"
-            class="w-full"
-          />
-          <small>Appended to version name. Defaults to timestamp if empty.</small>
-        </div>
-        <div class="form-field">
-          <label>Build type</label>
-          <Select
-            v-model="audioCppBuildForm.build_config.build_type"
-            :options="audioCppBuildTypeOptions"
-            optionLabel="label"
-            optionValue="value"
-            class="w-full"
-          />
-        </div>
-
-        <div v-if="audioCppOptionsLoading" class="build-note build-note--info">
-          Loading build options…
-        </div>
-
-        <template v-for="cat in visibleAudioBuildCategories" :key="cat.id">
-          <div v-if="cat.id === 'backends'" class="form-field">
-            <label class="build-options-section">{{ cat.label }}</label>
-            <div class="toggle-grid">
-              <div v-for="opt in cat.options || []" :key="opt.key" class="toggle-row">
-                <ToggleSwitch
-                  v-model="audioCppBuildForm.build_config[opt.key]"
-                  :disabled="audioBackendDisabled(opt.key)"
-                  @update:modelValue="onAudioBackendToggle(opt.key)"
-                />
-                <div>
-                  <span class="opt-label">{{ opt.label }}</span>
-                  <small class="opt-desc">{{ opt.desc }}</small>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <details v-else class="build-options-details">
-            <summary class="build-options-section">
-              {{ cat.label }}
-              <span class="build-advanced-hint">advanced</span>
-            </summary>
-            <div class="toggle-grid">
-              <template v-for="opt in visibleAudioOptions(cat)" :key="opt.key">
-                <div v-if="opt.type === 'bool'" class="toggle-row">
-                  <ToggleSwitch v-model="audioCppBuildForm.build_config[opt.key]" />
-                  <div>
-                    <span class="opt-label">{{ opt.label }}</span>
-                    <small class="opt-desc">{{ opt.desc }}</small>
-                  </div>
-                </div>
-                <div v-else-if="opt.type === 'int'" class="opt-string-field">
-                  <span class="opt-label">{{ opt.label }}</span>
-                  <small class="opt-desc">{{ opt.desc }}</small>
-                  <InputNumber
-                    v-model="audioCppBuildForm.build_config[opt.key]"
-                    :min="0"
-                    :max="256"
-                    class="w-full mt-1"
-                  />
-                </div>
-                <div v-else class="opt-string-field">
-                  <span class="opt-label">{{ opt.label }}</span>
-                  <small class="opt-desc">{{ opt.desc }}</small>
-                  <Select
-                    v-if="opt.type === 'enum'"
-                    v-model="audioCppBuildForm.build_config[opt.key]"
-                    :options="opt.enum_values || []"
-                    class="w-full mt-1"
-                  />
-                  <InputText
-                    v-else
-                    v-model="audioCppBuildForm.build_config[opt.key]"
-                    class="w-full mt-1"
-                  />
-                </div>
-              </template>
-            </div>
-          </details>
-        </template>
-
-        <details class="build-options-details">
-          <summary class="build-options-section">
-            Custom flags
-            <span class="build-advanced-hint">advanced</span>
-          </summary>
-          <div class="form-field">
-            <label>Custom CMake args <span class="optional">(optional)</span></label>
-            <InputText
-              v-model="audioCppBuildForm.build_config.custom_cmake_args"
-              placeholder="e.g. -DFOO=ON -DBAR=OFF"
-              class="w-full"
-            />
-          </div>
-          <div class="form-field">
-            <label>CFLAGS / CXXFLAGS <span class="optional">(optional)</span></label>
-            <div class="flags-row">
-              <InputText
-                v-model="audioCppBuildForm.build_config.cflags"
-                placeholder="CFLAGS"
-                class="flex-1"
-              />
-              <InputText
-                v-model="audioCppBuildForm.build_config.cxxflags"
-                placeholder="CXXFLAGS"
-                class="flex-1"
-              />
-            </div>
-          </div>
-        </details>
-      </div>
-      <template #footer>
-        <Button label="Cancel" severity="secondary" outlined @click="closeAudioCppBuildDialog" />
-        <template v-if="editingAudioVersion">
-          <Button
-            label="Save"
-            icon="pi pi-save"
-            severity="secondary"
-            :loading="savingAudioCppBuildSettings"
-            :disabled="documentSaveHeld"
-            @click="saveAudioVersionBuildConfigOnly"
-          />
-          <Button
-            v-if="versionRebuildAction(editingAudioVersion)"
-            :label="
-              versionRebuildAction(editingAudioVersion) === 'retry'
-                ? 'Save & retry'
-                : 'Save & rebuild'
-            "
-            icon="pi pi-refresh"
-            severity="info"
-            :loading="savingAudioCppBuildSettings || buildingVersionConfig"
-            @click="saveAudioVersionBuildConfigAndRebuild"
-          />
-        </template>
-        <template v-else>
-          <Button
-            label="Save settings"
-            icon="pi pi-save"
-            severity="secondary"
-            :loading="savingAudioCppBuildSettings"
-            :disabled="documentSaveHeld"
-            @click="saveAudioCppBuildSettingsOnly"
-          />
-          <Button
-            label="Build now"
-            icon="pi pi-cog"
-            severity="info"
-            :loading="audioCppBuilding"
-            @click="buildAudioCpp"
-          />
-        </template>
-      </template>
-    </Dialog>
+      :form="audioCppBuildForm"
+      config-key="build_config"
+      :fields="audioBuildFields"
+      :categories="audioBuildDialogCategories"
+      :build-types="audioCppBuildTypeOptions"
+      :notice="documentSaveNotice"
+      :options-loading="audioCppOptionsLoading"
+      :frozen="Boolean(editingAudioVersion)"
+      :frozen-version="String(editingAudioVersion?.version || '')"
+      :actions="audioBuildDialogActions"
+      @field="applyAudioBuildField"
+      @option="applyAudioBuildOption"
+      @retry="retryDocumentSave"
+      @refresh="refreshDocumentSave"
+      @save="saveAudioBuildSettingsFromDialog"
+      @rebuild="saveAudioVersionBuildConfigAndRebuild"
+      @build="buildAudioCpp"
+    />
 
     <!-- ── audio.cpp Install from Source Dialog ───────────── -->
     <Dialog
@@ -1624,223 +674,29 @@
     </Dialog>
 
     <!-- ── Build Settings Dialog ─────────────────────────── -->
-    <Dialog
+    <EngineBuildOptionsDialog
       v-model:visible="buildDialogVisible"
       :header="llamaBuildDialogHeader"
-      modal
-      class="build-settings-dialog dialog-width-md"
-    >
-      <div class="dialog-body build-settings-body">
-        <PersistenceAlert
-          :notice="documentSaveNotice"
-          @retry="retryDocumentSave"
-          @refresh="refreshDocumentSave"
-        />
-        <p v-if="buildCapabilitiesError" class="build-note" role="status">
-          {{ buildCapabilitiesError }}
-        </p>
-        <p v-else-if="buildCapabilities" class="build-note build-note--info" role="status">
-          {{ capabilityLine('CUDA', buildCapabilities.cuda) }}.
-          {{ capabilityLine('OpenBLAS', buildCapabilities.openblas) }}.
-        </p>
-        <p v-if="editingVersion" class="build-note build-note--info">
-          These CMake options are frozen to
-          <strong>{{ editingVersion.version }}</strong
-          >. Saving does not change global Build settings.
-        </p>
-        <div v-if="!editingVersion" class="form-field">
-          <label>Ref (tag / branch / commit)</label>
-          <InputText
-            v-model="buildForm.commitSha"
-            :placeholder="buildTarget === 'ik_llama' ? 'main or commit SHA' : 'master'"
-            class="w-full"
-          />
-          <small v-if="buildTarget === 'ik_llama'">
-            Use a branch or commit. ik_llama.cpp does not ship releases or tags here; check for
-            updates and “build latest” track the tip of <code>main</code>.
-          </small>
-          <small v-else>
-            Stable tags are vX.Y.Z. Nightly tags are still bNNNN (the master commit count, not a
-            commit SHA). A branch or commit also works.
-          </small>
-        </div>
-        <div v-if="!editingVersion" class="form-field">
-          <label>Build Name Suffix <span class="optional">(optional)</span></label>
-          <InputText v-model="buildForm.versionSuffix" placeholder="e.g. my-build" class="w-full" />
-          <small>Appended to version name. Defaults to timestamp if empty.</small>
-        </div>
-        <div class="form-field">
-          <label>Build type</label>
-          <Select
-            v-model="buildForm.buildConfig.build_type"
-            :options="buildTypeOptions"
-            optionLabel="label"
-            optionValue="value"
-            placeholder="Release"
-            class="w-full"
-          />
-        </div>
-
-        <div v-if="buildOptionsLoading" class="build-note build-note--info">
-          Loading build options…
-        </div>
-
-        <template v-for="cat in visibleBuildCategories" :key="cat.id">
-          <!-- Primary backends stay open; niche backends nested under More -->
-          <div v-if="cat.id === 'backends'" class="form-field">
-            <div v-if="buildTarget === 'ik_llama'" class="build-note build-note--info">
-              ik_llama.cpp uses IQK kernels and <code>GGML_CUDA_USE_GRAPHS</code> naming. Examples
-              must stay on (server lives there).
-            </div>
-            <label class="build-options-section">{{ cat.label }}</label>
-            <div class="toggle-grid">
-              <div v-for="opt in primaryBackendOptions(cat)" :key="opt.key" class="toggle-row">
-                <ToggleSwitch
-                  v-model="buildForm.buildConfig[opt.key]"
-                  :disabled="backendToggleDisabled(opt.key)"
-                />
-                <div>
-                  <span class="opt-label">{{ opt.label }}</span>
-                  <small class="opt-desc">{{ opt.desc }}</small>
-                  <small v-if="backendBlockReason(opt.key)" class="opt-block-reason">
-                    {{ backendBlockReason(opt.key) }}
-                  </small>
-                </div>
-              </div>
-            </div>
-            <details v-if="extraBackendOptions(cat).length" class="build-options-details">
-              <summary class="build-options-section">More backends</summary>
-              <div class="toggle-grid">
-                <div v-for="opt in extraBackendOptions(cat)" :key="opt.key" class="toggle-row">
-                  <ToggleSwitch v-model="buildForm.buildConfig[opt.key]" />
-                  <div>
-                    <span class="opt-label">{{ opt.label }}</span>
-                    <small class="opt-desc">{{ opt.desc }}</small>
-                  </div>
-                </div>
-              </div>
-            </details>
-          </div>
-
-          <!-- Everything else: collapsed by default when marked advanced -->
-          <details v-else class="build-options-details">
-            <summary class="build-options-section">
-              {{ cat.label }}
-              <span class="build-advanced-hint">advanced</span>
-            </summary>
-            <div
-              v-if="cat.id === 'artifacts' && buildTarget === 'ik_llama'"
-              class="build-note build-note--info"
-            >
-              For ik_llama.cpp, <strong>Examples</strong> is required (server binary lives in
-              examples).
-            </div>
-            <div class="toggle-grid">
-              <template v-for="opt in visibleOptions(cat)" :key="opt.key">
-                <div v-if="opt.type === 'bool'" class="toggle-row">
-                  <ToggleSwitch
-                    v-model="buildForm.buildConfig[opt.key]"
-                    :disabled="buildTarget === 'ik_llama' && opt.key === 'build_examples'"
-                  />
-                  <div>
-                    <span class="opt-label">{{ opt.label }}</span>
-                    <small class="opt-desc">{{ opt.desc }}</small>
-                  </div>
-                </div>
-                <div v-else class="opt-string-field">
-                  <span class="opt-label">{{ opt.label }}</span>
-                  <small class="opt-desc">{{ opt.desc }}</small>
-                  <Select
-                    v-if="opt.type === 'enum'"
-                    v-model="buildForm.buildConfig[opt.key]"
-                    :options="opt.enum_values || []"
-                    class="w-full mt-1"
-                  />
-                  <InputText
-                    v-else
-                    v-model="buildForm.buildConfig[opt.key]"
-                    class="w-full mt-1"
-                    :placeholder="
-                      opt.key === 'cuda_architectures' ? 'e.g. 86;89 (blank = auto)' : ''
-                    "
-                  />
-                </div>
-              </template>
-            </div>
-          </details>
-        </template>
-
-        <details class="build-options-details">
-          <summary class="build-options-section">
-            Custom flags
-            <span class="build-advanced-hint">advanced</span>
-          </summary>
-          <div class="form-field">
-            <label>Custom CMake args <span class="optional">(optional)</span></label>
-            <InputText
-              v-model="buildForm.buildConfig.custom_cmake_args"
-              placeholder="e.g. -DFOO=ON -DBAR=OFF"
-              class="w-full"
-            />
-          </div>
-          <div class="form-field">
-            <label>CFLAGS / CXXFLAGS <span class="optional">(optional)</span></label>
-            <div class="flags-row">
-              <InputText
-                v-model="buildForm.buildConfig.cflags"
-                placeholder="CFLAGS"
-                class="flex-1"
-              />
-              <InputText
-                v-model="buildForm.buildConfig.cxxflags"
-                placeholder="CXXFLAGS"
-                class="flex-1"
-              />
-            </div>
-          </div>
-        </details>
-      </div>
-      <template #footer>
-        <Button label="Cancel" severity="secondary" outlined @click="closeLlamaBuildDialog" />
-        <template v-if="editingVersion">
-          <Button
-            label="Save"
-            icon="pi pi-save"
-            severity="secondary"
-            :loading="savingBuildSettings"
-            :disabled="documentSaveHeld"
-            @click="saveLlamaVersionBuildConfigOnly"
-          />
-          <Button
-            v-if="versionRebuildAction(editingVersion)"
-            :label="
-              versionRebuildAction(editingVersion) === 'retry' ? 'Save & retry' : 'Save & rebuild'
-            "
-            icon="pi pi-refresh"
-            severity="info"
-            :loading="savingBuildSettings || buildingVersionConfig"
-            @click="saveLlamaVersionBuildConfigAndRebuild"
-          />
-        </template>
-        <template v-else>
-          <Button
-            label="Save settings"
-            icon="pi pi-save"
-            severity="secondary"
-            :loading="savingBuildSettings"
-            :disabled="documentSaveHeld"
-            @click="saveBuildSettingsOnly"
-          />
-          <Button
-            label="Build now"
-            icon="pi pi-cog"
-            severity="info"
-            :loading="building"
-            @click="doStartBuild"
-          />
-        </template>
-      </template>
-    </Dialog>
+      :form="buildForm"
+      config-key="buildConfig"
+      :fields="llamaBuildFields"
+      :categories="llamaBuildDialogCategories"
+      :build-types="buildTypeOptions"
+      build-type-placeholder="Release"
+      :notes="llamaBuildNotes"
+      :notice="documentSaveNotice"
+      :options-loading="buildOptionsLoading"
+      :frozen="Boolean(editingVersion)"
+      :frozen-version="String(editingVersion?.version || '')"
+      :actions="llamaBuildDialogActions"
+      @field="applyLlamaBuildField"
+      @option="applyLlamaBuildOption"
+      @retry="retryDocumentSave"
+      @refresh="refreshDocumentSave"
+      @save="saveLlamaBuildSettingsFromDialog"
+      @rebuild="saveLlamaVersionBuildConfigAndRebuild"
+      @build="doStartBuild"
+    />
 
     <!-- ── llama.cpp Install from Source Dialog ────────────── -->
     <Dialog
@@ -2084,6 +940,7 @@
 
 <script setup>
 import EngineCard from '@/components/engines/EngineCard.vue'
+import GenericEnginePanel from '@/components/engines/GenericEnginePanel.vue'
 import { useQueryState } from '@/composables/useQueryState'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useConfirm } from 'primevue/useconfirm'
@@ -2091,22 +948,20 @@ import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import Dialog from 'primevue/dialog'
-import Select from 'primevue/select'
 import InputText from 'primevue/inputtext'
-import InputNumber from 'primevue/inputnumber'
-import ToggleSwitch from 'primevue/toggleswitch'
 import PageHeader from '@/components/common/PageHeader.vue'
 import EngineDialogHeader from '@/components/system/EngineDialogHeader.vue'
 import EngineCheckUpdatesCta from '@/components/system/EngineCheckUpdatesCta.vue'
 import EngineBuildSettingsHint from '@/components/system/EngineBuildSettingsHint.vue'
+import EngineBuildOptionsDialog from '@/components/system/EngineBuildOptionsDialog.vue'
 import EngineInstallPanel from '@/components/system/EngineInstallPanel.vue'
+import EngineInstallSettingsDialog from '@/components/system/EngineInstallSettingsDialog.vue'
 import EngineUpdateBanner from '@/components/system/EngineUpdateBanner.vue'
 import EngineActiveStatus from '@/components/system/EngineActiveStatus.vue'
 import EngineVersionsBlock from '@/components/system/EngineVersionsBlock.vue'
 import EngineNote from '@/components/system/EngineNote.vue'
 import SglangEnginePanel from '@/components/system/SglangEnginePanel.vue'
 import VersionTable from '@/components/system/VersionTable.vue'
-import PersistenceAlert from '@/components/common/PersistenceAlert.vue'
 import {
   noteDocumentSaveFailure,
   saveHeldForRefresh,
@@ -2115,14 +970,38 @@ import {
 import { requireSingleConfirmation } from '@/composables/singleConfirm'
 import { engineCardCta, engineCardOrder, engineMatchesFilters } from '@/composables/engineReadiness'
 import { activeVersionDeletePlan } from '@/composables/engineVersionDelete'
+import { lmdeployCompatibilityFor } from '@/utils/lmdeployCompatibility'
+import {
+  ENGINE_DESCRIPTORS,
+  SG_PANEL_ENGINE_IDS,
+  engineIdForManager,
+  engineLabel,
+  serverBackedEngines,
+} from '@/engines/registry'
+import { FALLBACK_BUILD_DEFAULTS, FALLBACK_BUILD_TYPES } from '@/engines/buildDefaults'
 import { versionDeleteErrorText, versionDeleteRetry } from '@/composables/actionConfirmation'
 import EngineStatusTag from '@/components/system/EngineStatusTag.vue'
 import { useEnginesStore } from '@/stores/engines'
 import { useProgressStore } from '@/stores/progress'
 
 const enginesStore = useEnginesStore()
+
+// R88: statuses live in the store's keyed map; the view keeps named computeds
+// (template-friendly) instead of the removed per-engine status refs.
+const audioCppStatus = computed(() => enginesStore.statusForEngine('audio_cpp'))
+const lmdeployStatus = computed(() => enginesStore.statusForEngine('lmdeploy'))
+const onecatVllmStatus = computed(() => enginesStore.statusForEngine('1cat_vllm'))
 const progressStore = useProgressStore()
 const confirm = useConfirm()
+
+// YAML campaign S6: the dynamic card section — purely payload-driven. Engines
+// that already have a client descriptor render through their pinned card; a
+// YAML-onboarded engine with no local entry gets this generic card + dialog.
+const serverBackedEngineDescriptors = computed(() =>
+  serverBackedEngines(enginesStore.engineDescriptors).filter(
+    (descriptor) => !Object.hasOwn(ENGINE_DESCRIPTORS, descriptor.id),
+  ),
+)
 const toast = useToast()
 const documentSaveNotice = ref(null)
 const documentSaveHeld = computed(() => saveHeldForRefresh(documentSaveNotice.value))
@@ -2179,13 +1058,21 @@ async function refreshDocumentSave() {
 
 // ── System metrics ─────────────────────────────────────────
 const enginesExpanded = ref(true)
-const sglangPanel = ref(null)
-const sglangV100Panel = ref(null)
-const vllmPanel = ref(null)
 
 const engineDialogVisible = ref(false)
 const selectedEngine = ref('llama_cpp')
 const paramScanLoading = ref(null)
+
+const sglangPanelRefs = {}
+function setSglangPanelRef(engineId, element) {
+  if (!engineId) return
+  if (element) sglangPanelRefs[engineId] = element
+  else delete sglangPanelRefs[engineId]
+}
+const sglangPanelEngineId = computed(() => {
+  const engineId = selectedEngine.value
+  return engineId && ENGINE_DESCRIPTORS[engineId]?.panelFamily === 'sglang' ? engineId : ''
+})
 
 async function rescanEngineCliParams(engine) {
   paramScanLoading.value = engine
@@ -2218,30 +1105,41 @@ async function rescanEngineCliParams(engine) {
   }
 }
 
-function openEngineModal(engineKey) {
-  selectedEngine.value = engineKey
-  engineDialogVisible.value = true
-  if (engineKey === 'llama_cpp') {
-    checkLlamaCppUpdates()
-  } else if (engineKey === 'ik_llama') {
-    checkIkLlamaUpdates()
-  } else if (engineKey === 'unsloth_llama') {
+// Dialog-open probes keyed by engine. Declarative replacement for the old
+// 7-branch if-chain: every family except llama.cpp and ik_llama refreshes
+// the shared version list first (their branches skipped it — preserved),
+// and the SGLang panel family is generated from the registry instead of
+// spelled out. Pinned by EnginesView.tasks.test.js (dispatch + cross-absence).
+function withVersionListRefresh(probe) {
+  return () => {
     enginesStore.fetchLlamaVersions()
-    checkUnslothLlamaUpdates()
-  } else if (engineKey === 'lmdeploy') {
-    enginesStore.fetchLlamaVersions()
-    checkLmdeployUpdates()
-  } else if (engineKey === '1cat_vllm') {
-    enginesStore.fetchLlamaVersions()
-    checkOnecatVllmUpdates()
-  } else if (['sglang', 'sglang_v100', 'vllm'].includes(engineKey)) {
-    enginesStore.fetchLlamaVersions()
-    enginesStore.fetchSglangStatus(engineKey)
-  } else if (engineKey === 'audio_cpp') {
+    probe()
+  }
+}
+
+const ENGINE_DIALOG_OPEN = {
+  llama_cpp: () => checkLlamaCppUpdates(),
+  ik_llama: () => checkIkLlamaUpdates(),
+  unsloth_llama: withVersionListRefresh(checkUnslothLlamaUpdates),
+  lmdeploy: withVersionListRefresh(checkLmdeployUpdates),
+  '1cat_vllm': withVersionListRefresh(checkOnecatVllmUpdates),
+  ...Object.fromEntries(
+    SG_PANEL_ENGINE_IDS.map((engineId) => [
+      engineId,
+      withVersionListRefresh(() => enginesStore.fetchSglangStatus(engineId)),
+    ]),
+  ),
+  audio_cpp: () => {
     enginesStore.fetchLlamaVersions()
     enginesStore.fetchAudioCppStatus()
     checkAudioCppUpdates()
-  }
+  },
+}
+
+function openEngineModal(engineKey) {
+  selectedEngine.value = engineKey
+  engineDialogVisible.value = true
+  ENGINE_DIALOG_OPEN[engineKey]?.()
 }
 
 function refreshEngineDialogStatus(engineKey) {
@@ -2253,7 +1151,9 @@ function refreshEngineDialogStatus(engineKey) {
 
 async function refreshEnginesOverview() {
   await Promise.allSettled([
+    enginesStore.fetchEngineDescriptors(),
     enginesStore.fetchLlamaVersions(),
+    enginesStore.fetchServerBackedStatuses(),
     enginesStore.fetchLmdeployStatus(),
     enginesStore.fetchOnecatVllmStatus(),
     enginesStore.fetchSglangStatus('sglang'),
@@ -2342,18 +1242,6 @@ useQueryState({
   },
 })
 
-const engineVersionLists = {
-  llama_cpp: () => enginesStore.llamaVersions,
-  ik_llama: () => enginesStore.ikLlamaVersions,
-  unsloth_llama: () => enginesStore.unslothLlamaVersions,
-  lmdeploy: () => enginesStore.lmdeployVersions,
-  '1cat_vllm': () => enginesStore.onecatVllmVersions,
-  sglang: () => enginesStore.sglangVersions,
-  sglang_v100: () => enginesStore.sglangV100Versions,
-  vllm: () => enginesStore.vllmVersions,
-  audio_cpp: () => enginesStore.audioCppVersions,
-}
-
 const engineActive = {
   llama_cpp: activeLlamaCpp,
   ik_llama: activeIkLlama,
@@ -2371,9 +1259,84 @@ function resetEngineFilters() {
   engineHardwareFilter.value = 'all'
 }
 
+function versionsFor(engineId) {
+  // R82: the descriptor declares which store list holds this engine's rows
+  // (`versionsKey`); no per-engine map in the view.
+  const key = ENGINE_DESCRIPTORS[engineId]?.versionsKey
+  const list = key ? enginesStore[key] : undefined
+  return Array.isArray(list) ? list : []
+}
+
+const ENGINE_CARD_ORDER = Object.freeze([
+  'llama_cpp',
+  'ik_llama',
+  'unsloth_llama',
+  'lmdeploy',
+  '1cat_vllm',
+  'sglang',
+  'sglang_v100',
+  'vllm',
+  'audio_cpp',
+])
+
+// Update-info refs are declared later in setup; resolve them lazily so the
+// summary cards stay one descriptor-driven loop.
+const ENGINE_UPDATE_SOURCES = {
+  llamaCpp: () => llamaCppUpdateInfo.value,
+  ikLlama: () => ikLlamaUpdateInfo.value,
+  unslothLlama: () => unslothLlamaUpdateInfo.value,
+  lmdeploy: () => lmdeployUpdateInfo.value,
+  onecatVllm: () => onecatVllmUpdateInfo.value,
+  audioCpp: () => audioCppUpdateInfo.value,
+}
+
+const ENGINE_UPDATE_FORMATTERS = {
+  plain: (value) => String(value ?? ''),
+  v: (value) => `v${value ?? ''}`,
+  version: (value) => formatEngineUpdateVersion(value),
+}
+
+const engineSummaryCards = computed(() =>
+  ENGINE_CARD_ORDER.map((engineId) => {
+    const descriptor = ENGINE_DESCRIPTORS[engineId]
+    const card = descriptor.card || {}
+    const versions = versionsFor(engineId)
+    const active = engineActive[engineId]?.value || null
+    const update = card.update ? ENGINE_UPDATE_SOURCES[card.update.key]?.() || null : null
+    const disabled = card.featureFlag === 'audio_cpp' ? !audioCppFeatureEnabled.value : false
+    let badge = card.badge || null
+    if (badge?.kind === 'audio-maturity') {
+      badge = audioCppFeatureEnabled.value
+        ? { value: audioCppMaturityTag.value, severity: 'success' }
+        : { value: 'Disabled', severity: 'secondary' }
+    }
+    return {
+      id: engineId,
+      title: descriptor.label,
+      versions,
+      count: versions.length,
+      active,
+      mark: card.mark || {},
+      badge,
+      subtitle: card.subtitle || '',
+      update,
+      updateText:
+        update?.update_available && card.update
+          ? ENGINE_UPDATE_FORMATTERS[card.update.formatter](update.latest_version)
+          : '',
+      disabled,
+      tooltip: disabled
+        ? 'Disabled by AUDIO_CPP_ENABLED'
+        : card.featureFlag
+          ? audioCppMaturityTooltip.value
+          : undefined,
+    }
+  }),
+)
+
 function presentation(engineId) {
   const descriptor = (enginesStore.engineDescriptors || []).find((item) => item.id === engineId)
-  const versions = engineVersionLists[engineId]?.() || []
+  const versions = versionsFor(engineId)
   const active = Boolean(engineActive[engineId]?.value)
   const installed = (versions || []).length > 0
   const filters = { task: engineTaskFilter.value, hardware: engineHardwareFilter.value }
@@ -2432,7 +1395,7 @@ const unslothLlamaActiveStatusRows = computed(() => {
 })
 
 const lmdeployActiveStatusRows = computed(() => {
-  const status = enginesStore.lmdeployStatus || {}
+  const status = lmdeployStatus.value
   const rows = []
   if (activeLmdeploy.value || status.venv_path) {
     const displayType =
@@ -2462,7 +1425,7 @@ const lmdeployActiveStatusRows = computed(() => {
 })
 
 const onecatVllmActiveStatusRows = computed(() => {
-  const status = enginesStore.onecatVllmStatus || {}
+  const status = onecatVllmStatus.value
   const rows = []
   if (activeOnecatVllm.value || status.venv_path) {
     const displayType =
@@ -2492,7 +1455,7 @@ const onecatVllmActiveStatusRows = computed(() => {
 })
 
 const audioCppActiveStatusRows = computed(() => {
-  const active = enginesStore.audioCppStatus?.active
+  const active = audioCppStatus.value?.active
   if (!active) return []
   const rows = []
   if (active.install_type || active.type) {
@@ -2517,15 +1480,15 @@ const audioCppActiveStatusRows = computed(() => {
   if (backend) {
     rows.push({ label: 'Backend:', tag: backend, tagSeverity: 'secondary' })
   }
-  if (enginesStore.audioCppStatus?.models_root) {
+  if (audioCppStatus.value?.models_root) {
     rows.push({
       label: 'Models:',
-      code: enginesStore.audioCppStatus.models_root,
-      tag: enginesStore.audioCppStatus.model_manager_ready
+      code: audioCppStatus.value.models_root,
+      tag: audioCppStatus.value.model_manager_ready
         ? 'Model manager ready'
         : 'Model manager unavailable',
-      tagSeverity: enginesStore.audioCppStatus.model_manager_ready ? 'success' : 'warning',
-      tagTooltip: enginesStore.audioCppStatus.model_manager_ready
+      tagSeverity: audioCppStatus.value.model_manager_ready ? 'success' : 'warning',
+      tagTooltip: audioCppStatus.value.model_manager_ready
         ? 'Prefers model_manager_v2.py (model_specs). Legacy manager remains for assemble/convert packages.'
         : 'Activate an audio.cpp build that includes model_manager_v2.py or a legacy model_manager*.py',
     })
@@ -3069,6 +2032,7 @@ async function installUnslothLlamaRelease() {
 // ── Build from source dialog ───────────────────────────────
 const buildDialogVisible = ref(false)
 const buildTarget = ref('llama_cpp')
+const buildUi = computed(() => ENGINE_DESCRIPTORS[buildTarget.value]?.buildUi || {})
 const building = ref(false)
 const savingBuildSettings = ref(false)
 const buildCapabilities = ref(null)
@@ -3096,50 +2060,16 @@ const audioCppBuildDialogHeader = computed(() => {
   return 'Build settings — audio.cpp'
 })
 
-const buildTypeOptions = [
-  { label: 'Release', value: 'Release' },
-  { label: 'Debug', value: 'Debug' },
-  { label: 'RelWithDebInfo', value: 'RelWithDebInfo' },
-  { label: 'MinSizeRel', value: 'MinSizeRel' },
-]
+const buildTypeOptions = FALLBACK_BUILD_TYPES.map((value) => ({ label: value, value }))
 
-/** Fallback catalog if GET /build-options fails (kept in sync with backend defaults). */
-const FALLBACK_BUILD_DEFAULTS = {
-  build_type: 'Release',
-  cuda: false,
-  blas: false,
-  flash_attention: false,
-  cuda_fa: true,
-  cuda_graphs: true,
-  build_common: true,
-  build_tests: true,
-  build_tools: true,
-  build_examples: true,
-  build_server: true,
-  build_app: true,
-  build_ui: false,
-  use_prebuilt_ui: true,
-  install_tools: true,
-  install_tests: true,
-  openssl: true,
-  backend_dl: false,
-  cpu_all_variants: false,
-  lto: false,
-  native: true,
-  ccache: true,
-  openmp: true,
-  cpu: true,
-  custom_cmake_args: '',
-  cuda_architectures: '',
-  blas_vendor: 'OpenBLAS',
-  cflags: '',
-  cxxflags: '',
-}
+// Fallback catalog if GET /build-options fails: generated from the backend
+// build-option catalogs (scripts/export-build-defaults.py, --check in gates),
+// so this can no longer drift from the backend defaults.
 
 const buildOptionsCatalog = ref({
   categories: [],
   defaults: { ...FALLBACK_BUILD_DEFAULTS },
-  build_types: ['Release', 'Debug', 'RelWithDebInfo', 'MinSizeRel'],
+  build_types: [...FALLBACK_BUILD_TYPES],
 })
 const buildOptionsLoading = ref(false)
 const buildOptionsCatalogEngine = ref(null)
@@ -3173,12 +2103,108 @@ function visibleOptions(cat) {
   return (cat.options || []).filter(optionVisible)
 }
 
-function primaryBackendOptions(cat) {
-  return (cat.options || []).filter((o) => o.primary !== false && optionVisible(o))
+const llamaBuildFields = computed(() => [
+  {
+    key: 'commitSha',
+    label: 'Ref (tag / branch / commit)',
+    placeholder: buildUi.value.refPlaceholder || 'master',
+    hint: buildUi.value.refHint || '',
+  },
+  {
+    key: 'versionSuffix',
+    label: 'Build Name Suffix',
+    optional: true,
+    placeholder: 'e.g. my-build',
+    hint: 'Appended to version name. Defaults to timestamp if empty.',
+  },
+])
+
+const llamaBuildNotes = computed(() => {
+  if (buildCapabilitiesError.value) {
+    return [{ text: buildCapabilitiesError.value, role: 'status' }]
+  }
+  if (buildCapabilities.value) {
+    return [
+      {
+        text:
+          `${capabilityLine('CUDA', buildCapabilities.value.cuda)}. ` +
+          `${capabilityLine('OpenBLAS', buildCapabilities.value.openblas)}.`,
+        tone: 'info',
+        role: 'status',
+      },
+    ]
+  }
+  return []
+})
+
+const llamaBuildDialogCategories = computed(() =>
+  visibleBuildCategories.value.map((cat) => {
+    const isBackends = cat.id === 'backends'
+    const options = (
+      isBackends ? (cat.options || []).filter(optionVisible) : visibleOptions(cat)
+    ).map((opt) => {
+      const primary = opt.primary !== false
+      return {
+        ...opt,
+        disabled: isBackends
+          ? primary && backendToggleDisabled(opt.key)
+          : Boolean(buildUi.value.disableBuildExamples && opt.key === 'build_examples'),
+        disabledReason: isBackends && primary ? backendBlockReason(opt.key) : '',
+        placeholder: opt.key === 'cuda_architectures' ? 'e.g. 86;89 (blank = auto)' : '',
+      }
+    })
+    let note = ''
+    if (isBackends) note = buildUi.value.backendNote || ''
+    else if (cat.id === 'artifacts') note = buildUi.value.artifactsNote || ''
+    return {
+      ...cat,
+      layout: isBackends ? 'grid' : 'advanced',
+      note,
+      options,
+    }
+  }),
+)
+
+const llamaBuildDialogActions = computed(() => {
+  const version = editingVersion.value
+  if (version) {
+    const action = versionRebuildAction(version)
+    return {
+      save: {
+        label: 'Save',
+        loading: savingBuildSettings.value,
+        disabled: documentSaveHeld.value,
+      },
+      ...(action
+        ? {
+            rebuild: {
+              label: action === 'retry' ? 'Save & retry' : 'Save & rebuild',
+              loading: savingBuildSettings.value || buildingVersionConfig.value,
+            },
+          }
+        : {}),
+    }
+  }
+  return {
+    save: {
+      label: 'Save settings',
+      loading: savingBuildSettings.value,
+      disabled: documentSaveHeld.value,
+    },
+    primary: { label: 'Build now', icon: 'pi pi-cog', loading: building.value },
+  }
+})
+
+function applyLlamaBuildField(key, value) {
+  buildForm.value[key] = value
 }
 
-function extraBackendOptions(cat) {
-  return (cat.options || []).filter((o) => o.primary === false && optionVisible(o))
+function applyLlamaBuildOption(key, value) {
+  buildForm.value.buildConfig[key] = value
+}
+
+function saveLlamaBuildSettingsFromDialog() {
+  return editingVersion.value ? saveLlamaVersionBuildConfigOnly() : saveBuildSettingsOnly()
 }
 
 function _defaultBuildConfig() {
@@ -3196,7 +2222,7 @@ async function ensureBuildOptionsCatalog(engineId) {
   }
   buildOptionsLoading.value = true
   try {
-    const data = await enginesStore.fetchBuildOptions(engine)
+    const data = await enginesStore.fetchBuildOptionsForEngine(engine)
     if (data?.categories?.length) {
       buildOptionsCatalog.value = data
       buildOptionsCatalogEngine.value = engine
@@ -3663,14 +2689,91 @@ function visibleAudioOptions(cat) {
 }
 
 function audioBackendDisabled(key) {
-  const supported = new Set(
-    enginesStore.audioCppStatus?.supported_build_backends || ['cpu', 'cuda'],
-  )
+  const supported = new Set(audioCppStatus.value?.supported_build_backends || ['cpu', 'cuda'])
   return !supported.has(key)
 }
 
-function onAudioBackendToggle() {
-  // Studio only exposes CUDA; leftover HIP/Vulkan/Metal keys stay off.
+const audioBuildFields = computed(() => [
+  {
+    key: 'repository_url',
+    label: 'Repo URL',
+    placeholder: 'https://github.com/0xShug0/audio.cpp.git',
+    hint: 'Official repo or any fork with the same layout. Saved with Build settings.',
+  },
+  {
+    key: 'source_ref',
+    label: 'Ref (tag / branch / commit)',
+    placeholder: audioCppStatus.value?.tracking_ref || 'main',
+    hint:
+      'Used when you Build now. Branch and tag refs become the Update tracking ref. ' +
+      'Building a commit installs that tip but leaves tracking on the previous branch/tag, ' +
+      'so Update will not follow the detached commit.',
+  },
+  {
+    key: 'versionSuffix',
+    label: 'Build Name Suffix',
+    optional: true,
+    placeholder: 'e.g. my-build',
+    hint: 'Appended to version name. Defaults to timestamp if empty.',
+  },
+])
+
+const audioBuildDialogCategories = computed(() =>
+  visibleAudioBuildCategories.value.map((cat) => {
+    const isBackends = cat.id === 'backends'
+    return {
+      ...cat,
+      layout: isBackends ? 'grid' : 'advanced',
+      options: (isBackends ? cat.options || [] : visibleAudioOptions(cat)).map((opt) => ({
+        ...opt,
+        disabled: isBackends ? audioBackendDisabled(opt.key) : false,
+      })),
+    }
+  }),
+)
+
+const audioBuildDialogActions = computed(() => {
+  const version = editingAudioVersion.value
+  if (version) {
+    const action = versionRebuildAction(version)
+    return {
+      save: {
+        label: 'Save',
+        loading: savingAudioCppBuildSettings.value,
+        disabled: documentSaveHeld.value,
+      },
+      ...(action
+        ? {
+            rebuild: {
+              label: action === 'retry' ? 'Save & retry' : 'Save & rebuild',
+              loading: savingAudioCppBuildSettings.value || buildingVersionConfig.value,
+            },
+          }
+        : {}),
+    }
+  }
+  return {
+    save: {
+      label: 'Save settings',
+      loading: savingAudioCppBuildSettings.value,
+      disabled: documentSaveHeld.value,
+    },
+    primary: { label: 'Build now', icon: 'pi pi-cog', loading: audioCppBuilding.value },
+  }
+})
+
+function applyAudioBuildField(key, value) {
+  audioCppBuildForm.value[key] = value
+}
+
+function applyAudioBuildOption(key, value) {
+  audioCppBuildForm.value.build_config[key] = value
+}
+
+function saveAudioBuildSettingsFromDialog() {
+  return editingAudioVersion.value
+    ? saveAudioVersionBuildConfigOnly()
+    : saveAudioCppBuildSettingsOnly()
 }
 
 const audioCppUpdateTooltip = computed(() => {
@@ -3679,9 +2782,7 @@ const audioCppUpdateTooltip = computed(() => {
     return `Build source at latest GitHub release tag ${releaseTag}`
   }
   const ref =
-    audioCppUpdateInfo.value?.tracking_ref ||
-    enginesStore.audioCppStatus?.tracking_ref ||
-    'tracked ref'
+    audioCppUpdateInfo.value?.tracking_ref || audioCppStatus.value?.tracking_ref || 'tracked ref'
   return `Sync or rebuild tip of ${ref}`
 })
 
@@ -3704,7 +2805,7 @@ async function ensureAudioCppOptionsCatalog() {
   if ((audioCppOptionsCatalog.value?.categories || []).length) return
   audioCppOptionsLoading.value = true
   try {
-    const data = await enginesStore.fetchAudioCppBuildOptions()
+    const data = await enginesStore.fetchBuildOptionsForEngine('audio_cpp')
     if (data?.categories?.length) {
       audioCppOptionsCatalog.value = data
     }
@@ -3724,11 +2825,11 @@ async function openAudioCppBuildSettings() {
     const split = splitAudioCppSettings(saved)
     audioCppBuildForm.value.repository_url = split.repository_url
     audioCppBuildForm.value.source_ref =
-      split.tracking_ref || enginesStore.audioCppStatus?.tracking_ref || 'main'
+      split.tracking_ref || audioCppStatus.value?.tracking_ref || 'main'
     audioCppBuildForm.value.build_config = { ...base, ...split.build_config }
   } catch {
     audioCppBuildForm.value.build_config = base
-    audioCppBuildForm.value.source_ref = enginesStore.audioCppStatus?.tracking_ref || 'main'
+    audioCppBuildForm.value.source_ref = audioCppStatus.value?.tracking_ref || 'main'
   }
   audioCppBuildForm.value.versionSuffix = ''
   persistBuildHintDismissed('audio_cpp')
@@ -3919,11 +3020,10 @@ async function openAudioCppSourceDialog() {
     const saved = await enginesStore.fetchAudioCppBuildSettings()
     const split = splitAudioCppSettings(saved)
     audioCppSourceRepo.value = split.repository_url
-    audioCppSourceRef.value =
-      split.tracking_ref || enginesStore.audioCppStatus?.tracking_ref || 'main'
+    audioCppSourceRef.value = split.tracking_ref || audioCppStatus.value?.tracking_ref || 'main'
   } catch {
     audioCppSourceRepo.value = 'https://github.com/0xShug0/audio.cpp.git'
-    audioCppSourceRef.value = enginesStore.audioCppStatus?.tracking_ref || 'main'
+    audioCppSourceRef.value = audioCppStatus.value?.tracking_ref || 'main'
   }
   audioCppSourceDialogVisible.value = true
 }
@@ -4025,7 +3125,7 @@ async function updateAudioCpp() {
       repository_url: split.repository_url,
       ...(preferRelease
         ? { from_release: true }
-        : { source_ref: split.tracking_ref || enginesStore.audioCppStatus?.tracking_ref }),
+        : { source_ref: split.tracking_ref || audioCppStatus.value?.tracking_ref }),
     })
     await enginesStore.fetchAudioCppStatus()
     toast.add({
@@ -4051,7 +3151,7 @@ async function updateAudioCpp() {
 }
 
 // ── LMDeploy ───────────────────────────────────────────────
-const lm = computed(() => enginesStore.lmdeployStatus || {})
+const lm = computed(() => lmdeployStatus.value)
 const lmdeployPipVersion = ref('')
 const lmSourceRepo = ref('https://github.com/InternLM/lmdeploy.git')
 const lmSourceBranch = ref('main')
@@ -4066,7 +3166,10 @@ const lmdeployBuildForm = ref({
   source_repo: 'https://github.com/InternLM/lmdeploy.git',
   source_branch: 'main',
   pip_version: '',
+  compat_sm70: false,
 })
+
+const lmdeployCompatibility = computed(() => lmdeployCompatibilityFor(enginesStore.gpuInfo))
 
 async function applyLmdeployBuildSettings(saved) {
   const s = saved && typeof saved === 'object' ? saved : {}
@@ -4074,6 +3177,7 @@ async function applyLmdeployBuildSettings(saved) {
     source_repo: s.source_repo || 'https://github.com/InternLM/lmdeploy.git',
     source_branch: s.source_branch || 'main',
     pip_version: s.pip_version || '',
+    compat_sm70: s.compat_sm70 === true || s.compat_sm70 === 'true',
   }
   lmSourceRepo.value = lmdeployBuildForm.value.source_repo
   lmSourceBranch.value = lmdeployBuildForm.value.source_branch
@@ -4081,6 +3185,11 @@ async function applyLmdeployBuildSettings(saved) {
 }
 
 async function openLmdeployBuildSettings() {
+  try {
+    await enginesStore.fetchGpuInfo()
+  } catch {
+    /* Keep the dialog usable if hardware detection is unavailable. */
+  }
   try {
     const saved = await enginesStore.fetchLmdeployBuildSettings()
     await applyLmdeployBuildSettings(saved)
@@ -4266,7 +3375,7 @@ async function installLmdeploySource() {
 }
 
 // ── 1Cat-vLLM ──────────────────────────────────────────────
-const ovllm = computed(() => enginesStore.onecatVllmStatus || {})
+const ovllm = computed(() => onecatVllmStatus.value)
 const ovllmReleaseVersion = ref('')
 const ovllmSourceRepo = ref('https://github.com/1CatAI/1Cat-vLLM.git')
 const ovllmSourceBranch = ref('main')
@@ -4477,6 +3586,309 @@ async function installOnecatVllmSource() {
   }
 }
 
+// ── Shared native llama-family dialog (llama.cpp / ik_llama / Unsloth) ──
+// The three near-duplicate templates (header + body) are ONE template pair
+// now, parameterized by this per-engine config. Real divergences stay as
+// data: the engine-mark leading (no pi icon), unsloth's MISSING settings
+// action, its raw <p> note instead of the hint component, raw (un-prefixed)
+// banner versions vs the venv `v` prefix, ik's "View commit" link label,
+// per-engine install button sets, and VersionTable can-verify (llama/ik
+// only). Byte-pinned by EnginesView.tasks.test.js ("native dialog…").
+const NATIVE_DIALOG_CONFIG = {
+  llama_cpp: {
+    markClass: 'engine-mark--llama',
+    markText: 'L',
+    statusEngineId: 'llama.cpp',
+    settings: true,
+    active: activeLlamaCpp,
+    versions: () => enginesStore.llamaVersions,
+    hintEngineKey: 'llama_cpp',
+    hintKey: () => `llama-hint-${hintRevLlama.value}`,
+    noteRaw: '',
+    checking: checkingLlamaCpp,
+    checkHint: 'Compare the installed ref to the latest stable release (vX.Y.Z).',
+    updateInfo: llamaCppUpdateInfo,
+    updating: () => updatingEngine.value === 'llama_cpp',
+    updateTooltip: 'Update using saved build settings',
+    installSubtitle:
+      'Add a build of the latest stable release (vX.Y.Z) or any git ref. Each build is a version you can activate.',
+    installButtons: () => [
+      {
+        label: 'From release',
+        icon: 'pi pi-tag',
+        severity: 'success',
+        loading: llamaReleaseInstalling.value,
+        disabled: llamaReleaseInstalling.value || llamaCppSourceInstalling.value,
+        onClick: installLlamaLatestRelease,
+      },
+      {
+        label: 'From source',
+        icon: 'pi pi-code',
+        severity: 'info',
+        loading: llamaCppSourceInstalling.value,
+        disabled: llamaReleaseInstalling.value || llamaCppSourceInstalling.value,
+        onClick: openLlamaCppSourceDialog,
+      },
+    ],
+    statusRows: llamaCppActiveStatusRows,
+    canVerify: true,
+    emptyMessage: 'No versions yet. Install one using the options above.',
+    onCheck: () => checkLlamaCppUpdates(),
+    onOpenSettings: () => openBuildDialog('llama_cpp'),
+    onUpdate: () => doUpdateEngine('llama_cpp'),
+  },
+  ik_llama: {
+    markClass: 'engine-mark--ik',
+    markText: 'IK',
+    statusEngineId: 'ik_llama.cpp',
+    settings: true,
+    active: activeIkLlama,
+    versions: () => enginesStore.ikLlamaVersions,
+    hintEngineKey: 'ik_llama',
+    hintKey: () => `ik-hint-${hintRevIk.value}`,
+    noteRaw: '',
+    checking: checkingIkLlama,
+    checkHint: 'Compare the installed tip to the latest commit on main.',
+    updateInfo: ikLlamaUpdateInfo,
+    updateLinkLabel: 'View commit',
+    updating: () => updatingEngine.value === 'ik_llama',
+    updateTooltip: 'Rebuild tip of main using saved build settings',
+    installSubtitle:
+      'ik_llama.cpp has no release tags here. Build the tip of main, or any git repo/ref. Each build is a version you can activate.',
+    installButtons: () => [
+      {
+        label: 'From tip',
+        icon: 'pi pi-bolt',
+        severity: 'success',
+        loading: ikTipInstalling.value,
+        disabled: ikTipInstalling.value || ikLlamaSourceInstalling.value,
+        onClick: installIkFromTip,
+      },
+      {
+        label: 'From source',
+        icon: 'pi pi-code',
+        severity: 'info',
+        loading: ikLlamaSourceInstalling.value,
+        disabled: ikTipInstalling.value || ikLlamaSourceInstalling.value,
+        onClick: openIkLlamaSourceDialog,
+      },
+    ],
+    statusRows: ikLlamaActiveStatusRows,
+    canVerify: true,
+    emptyMessage: 'No versions yet. Install one using the options above.',
+    onCheck: () => checkIkLlamaUpdates(),
+    onOpenSettings: () => openBuildDialog('ik_llama'),
+    onUpdate: () => doUpdateEngine('ik_llama'),
+  },
+  unsloth_llama: {
+    markClass: 'engine-mark--unsloth',
+    markText: 'US',
+    statusEngineId: 'unsloth_llama',
+    settings: false,
+    active: activeUnslothLlama,
+    versions: () => enginesStore.unslothLlamaVersions,
+    hintEngineKey: '',
+    hintKey: () => '',
+    noteRaw:
+      "Installs Unsloth's published llama-server: an upstream llama.cpp nightly plus their " +
+      'pinned patch mix. This is the inference binary, not Unsloth Studio.',
+    checking: checkingUnslothLlama,
+    checkHint: 'Compare the active mix tag to the latest unslothai/llama.cpp prebuilt.',
+    updateInfo: unslothLlamaUpdateInfo,
+    updating: () => unslothLlamaInstalling.value,
+    updateTooltip: 'Install the latest Unsloth llama-server mix',
+    installSubtitle:
+      'Download a Linux x64 prebuilt (CUDA 12/13 portable when a matching toolkit is active, otherwise CPU). Each release is a version you can activate.',
+    installButtons: () => [
+      {
+        label: 'Install prebuilt',
+        icon: 'pi pi-download',
+        severity: 'success',
+        loading: unslothLlamaInstalling.value,
+        disabled: unslothLlamaInstalling.value,
+        onClick: installUnslothLlamaRelease,
+      },
+    ],
+    statusRows: unslothLlamaActiveStatusRows,
+    canVerify: false,
+    emptyMessage: 'No versions yet. Install a prebuilt using the option above.',
+    onCheck: () => checkUnslothLlamaUpdates(),
+    onOpenSettings: () => {},
+    onUpdate: () => installUnslothLlamaRelease(),
+  },
+}
+
+const nativeDialog = computed(() => {
+  const engineId = selectedEngine.value
+  const cfg = Object.hasOwn(NATIVE_DIALOG_CONFIG, engineId) ? NATIVE_DIALOG_CONFIG[engineId] : null
+  if (!cfg) return null
+  return {
+    engineId,
+    title: ENGINE_DESCRIPTORS[engineId].label,
+    markClass: cfg.markClass,
+    markText: cfg.markText,
+    statusEngineId: cfg.statusEngineId,
+    settings: cfg.settings,
+    activeVersion: cfg.active.value,
+    versions: cfg.versions(),
+    hintEngineKey: cfg.hintEngineKey,
+    hintKey: cfg.hintKey(),
+    noteRaw: cfg.noteRaw,
+    checking: cfg.checking.value,
+    checkHint: cfg.checkHint,
+    updateInfo: cfg.updateInfo.value,
+    updateLinkLabel: cfg.updateLinkLabel,
+    updating: cfg.updating(),
+    updateTooltip: cfg.updateTooltip,
+    installSubtitle: cfg.installSubtitle,
+    installButtons: cfg.installButtons(),
+    statusRows: cfg.statusRows.value,
+    canVerify: cfg.canVerify,
+    emptyMessage: cfg.emptyMessage,
+    onCheck: cfg.onCheck,
+    onOpenSettings: cfg.onOpenSettings,
+    onUpdate: cfg.onUpdate,
+  }
+})
+
+// ── Shared venv dialog (LMDeploy + 1Cat-vLLM) ────────────────
+// The two non-panel venv dialogs were near-duplicate templates; they are
+// ONE template pair now, parameterized by this per-engine config plus
+// registry data (label, dialog icon, store versions key). Per-engine
+// divergences (update link/label, install copy, V100 note, hint-rev and
+// state refs) stay as data here. Byte-pinned by EnginesView.tasks.test.js
+// ("lmdeploy dialog…" / "1Cat dialog…").
+const VENV_DIALOG_CONFIG = {
+  lmdeploy: {
+    settingsAriaLabel: 'Build settings',
+    buttonA11y: true,
+    checkHint: 'Compare the active install to the latest PyPI release.',
+    updateLinkUrl: 'https://pypi.org/project/lmdeploy/',
+    updateLinkLabel: 'View on PyPI',
+    updateTooltip: 'Install the latest PyPI version as a new environment',
+    installSubtitle:
+      'Add a new Python environment from PyPI or a git source. Each install is a version you can activate.',
+    installPrimaryLabel: 'From PyPI',
+    note: '',
+    checking: checkingLmdeploy,
+    updateInfo: lmdeployUpdateInfo,
+    updating: updatingLmdeploy,
+    hintRev: hintRevLmdeploy,
+    active: activeLmdeploy,
+    statusRows: lmdeployActiveStatusRows,
+    onCheck: () => checkLmdeployUpdates(),
+    onOpenSettings: () => openLmdeployBuildSettings(),
+    onRefresh: () => refreshEngineDialogStatus('lmdeploy'),
+    onUpdate: () => doUpdateLmdeploy(),
+    onInstallPrimary: () => openLmdeployPipDialog(),
+    onInstallSource: () => openLmdeploySourceDialog(),
+  },
+  '1cat_vllm': {
+    settingsAriaLabel: 'Build settings',
+    buttonA11y: true,
+    checkHint: 'Compare the active install to the latest GitHub release.',
+    updateLinkUrl: 'https://github.com/1CatAI/1Cat-vLLM/releases/latest',
+    // No updateLinkLabel: the banner's default ("View release") applies.
+    updateTooltip: 'Install the latest release wheels as a new environment',
+    installSubtitle:
+      'Add a new environment from prebuilt release wheels (recommended) or build from source. Each install is a version you can activate.',
+    installPrimaryLabel: 'From release',
+    note: 'vLLM fork for Tesla V100 (SM70). Release installs use a prebuilt CUDA 12.8 wheel. Source builds need an SM70 GPU and the CUDA 12.8 toolkit.',
+    checking: checkingOnecatVllm,
+    updateInfo: onecatVllmUpdateInfo,
+    updating: updatingOnecatVllm,
+    hintRev: hintRevOnecat,
+    active: activeOnecatVllm,
+    statusRows: onecatVllmActiveStatusRows,
+    onCheck: () => checkOnecatVllmUpdates(),
+    onOpenSettings: () => openOnecatVllmBuildSettings(),
+    onRefresh: () => refreshEngineDialogStatus('1cat_vllm'),
+    onUpdate: () => doUpdateOnecatVllm(),
+    onInstallPrimary: () => openOnecatVllmReleaseDialog(),
+    onInstallSource: () => openOnecatVllmSourceDialog(),
+  },
+  // The SGLang panel trio shares the dialog HEADER shape (title/icon/tag/
+  // settings/reload/rescan) but its body is SglangEnginePanel and its
+  // actions drive the panel ref. Panel trio: no aria/tooltip on the
+  // Reload/Rescan buttons — a real divergence preserved via buttonA11y.
+  sglang: {
+    panel: true,
+    settingsAriaLabel: 'Install settings',
+    buttonA11y: false,
+    active: selectedSglangActive,
+    versions: selectedSglangVersions,
+    onOpenSettings: () => sglangPanelRefs.sglang?.openSettings(),
+    onRefresh: () => sglangPanelRefs.sglang?.refresh(),
+  },
+  sglang_v100: {
+    panel: true,
+    settingsAriaLabel: 'Install settings',
+    buttonA11y: false,
+    active: selectedSglangActive,
+    versions: selectedSglangVersions,
+    onOpenSettings: () => sglangPanelRefs.sglang_v100?.openSettings(),
+    onRefresh: () => sglangPanelRefs.sglang_v100?.refresh(),
+  },
+  vllm: {
+    panel: true,
+    settingsAriaLabel: 'Install settings',
+    buttonA11y: false,
+    active: selectedSglangActive,
+    versions: selectedSglangVersions,
+    onOpenSettings: () => sglangPanelRefs.vllm?.openSettings(),
+    onRefresh: () => sglangPanelRefs.vllm?.refresh(),
+  },
+}
+
+const venvDialogHeader = computed(() => {
+  const engineId = selectedEngine.value
+  const cfg = Object.hasOwn(VENV_DIALOG_CONFIG, engineId) ? VENV_DIALOG_CONFIG[engineId] : null
+  if (!cfg) return null
+  const descriptor = ENGINE_DESCRIPTORS[engineId]
+  return {
+    engineId,
+    title: descriptor.label,
+    icon: descriptor.dialogIcon,
+    settingsAriaLabel: cfg.settingsAriaLabel,
+    buttonA11y: cfg.buttonA11y,
+    activeVersion: cfg.active.value,
+    versions: cfg.versions ? cfg.versions.value : enginesStore[descriptor.versionsKey],
+    onOpenSettings: cfg.onOpenSettings,
+    onRefresh: cfg.onRefresh,
+  }
+})
+
+const venvDialog = computed(() => {
+  const engineId = selectedEngine.value
+  const cfg = Object.hasOwn(VENV_DIALOG_CONFIG, engineId) ? VENV_DIALOG_CONFIG[engineId] : null
+  if (!cfg || cfg.panel) return null
+  const descriptor = ENGINE_DESCRIPTORS[engineId]
+  return {
+    engineId,
+    title: descriptor.label,
+    icon: descriptor.dialogIcon,
+    versions: enginesStore[descriptor.versionsKey],
+    hintKey: `${engineId}-hint-${cfg.hintRev.value}`,
+    activeVersion: cfg.active.value,
+    checking: cfg.checking.value,
+    checkHint: cfg.checkHint,
+    updateInfo: cfg.updateInfo.value,
+    updating: cfg.updating.value,
+    updateLinkUrl: cfg.updateLinkUrl,
+    updateLinkLabel: cfg.updateLinkLabel,
+    updateTooltip: cfg.updateTooltip,
+    note: cfg.note,
+    installSubtitle: cfg.installSubtitle,
+    installPrimaryLabel: cfg.installPrimaryLabel,
+    statusRows: cfg.statusRows.value,
+    onCheck: cfg.onCheck,
+    onOpenSettings: cfg.onOpenSettings,
+    onUpdate: cfg.onUpdate,
+    onInstallPrimary: cfg.onInstallPrimary,
+    onInstallSource: cfg.onInstallSource,
+  }
+})
+
 // ── Lifecycle ──────────────────────────────────────────────
 let unsubscribeTaskUpdated = null
 
@@ -4500,39 +3912,44 @@ onMounted(() => {
       return
     }
 
-    if (manager === 'lmdeploy' || manager === 'onecat_vllm') {
-      if (task.status === 'failed') {
-        const detail =
-          task.message || `${manager === 'lmdeploy' ? 'LMDeploy' : '1Cat-vLLM'} operation failed`
-        toast.add({
-          severity: 'error',
-          summary: manager === 'lmdeploy' ? 'LMDeploy install failed' : '1Cat-vLLM install failed',
-          detail,
-          life: 5000,
-        })
-      }
+    const managerEngineId = engineIdForManager(manager)
+    if (
+      manager &&
+      !managerEngineId &&
+      serverBackedEngines(enginesStore.engineDescriptors).some((d) => d.id === manager)
+    ) {
+      // YAML campaign S6: task completion for a YAML-onboarded engine —
+      // refresh its dynamic status + version rows (no local registry id).
       await Promise.allSettled([
-        manager === 'lmdeploy'
-          ? enginesStore.fetchLmdeployStatus()
-          : enginesStore.fetchOnecatVllmStatus(),
+        enginesStore.venvFetchStatus(manager),
         enginesStore.fetchLlamaVersions(),
       ])
       return
     }
-
-    if (manager === 'sglang' || manager === 'sglang_v100' || manager === 'vllm') {
+    if (managerEngineId) {
+      // One branch for every generic-router engine (registry-owned manager
+      // ids). The two hand-rolled branches it replaces differed only in
+      // toast detail fallback, life, and which status fetch ran — kept
+      // byte-identical as data below (pinned in EnginesView.tasks.test.js).
+      const isPanelFamily = SG_PANEL_ENGINE_IDS.includes(managerEngineId)
       if (task.status === 'failed') {
         toast.add({
           severity: 'error',
-          summary: `${manager === 'sglang_v100' ? 'SGLang V100' : manager === 'vllm' ? 'vLLM' : 'SGLang'} install failed`,
-          detail: task.message || 'Engine operation failed',
-          life: 6000,
+          summary: `${engineLabel(manager)} install failed`,
+          detail:
+            task.message ||
+            (isPanelFamily
+              ? 'Engine operation failed'
+              : `${engineLabel(manager)} operation failed`),
+          life: isPanelFamily ? 6000 : 5000,
         })
       }
-      await Promise.allSettled([
-        enginesStore.fetchSglangStatus(manager),
-        enginesStore.fetchLlamaVersions(),
-      ])
+      const statusRefresh = isPanelFamily
+        ? enginesStore.fetchSglangStatus(managerEngineId)
+        : managerEngineId === '1cat_vllm'
+          ? enginesStore.fetchOnecatVllmStatus()
+          : enginesStore.fetchLmdeployStatus()
+      await Promise.allSettled([statusRefresh, enginesStore.fetchLlamaVersions()])
       return
     }
 
@@ -4540,7 +3957,7 @@ onMounted(() => {
       if (task.status === 'failed') {
         toast.add({
           severity: 'error',
-          summary: 'Unsloth llama.cpp install failed',
+          summary: `${engineLabel(manager)} install failed`,
           detail: task.message || 'Engine operation failed',
           life: 6000,
         })
@@ -5106,99 +4523,6 @@ code {
   color: var(--text-secondary);
 }
 
-.toggle-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.toggle-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-}
-
-.opt-label {
-  font-size: 0.875rem;
-  font-weight: 500;
-  display: block;
-}
-.opt-desc {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  display: block;
-}
-.opt-block-reason {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  display: block;
-  margin-top: 0.15rem;
-}
-
-.opt-string-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  padding: 0.15rem 0;
-}
-
-.build-settings-body {
-  max-height: min(70vh, 640px);
-  overflow-y: auto;
-  padding-right: 0.25rem;
-}
-
-.build-options-details {
-  margin-bottom: 0.65rem;
-  border: 1px solid var(--border-primary);
-  border-radius: 6px;
-  padding: 0.35rem 0.6rem 0.5rem;
-  background: var(--bg-tertiary);
-}
-
-.build-options-details > summary {
-  cursor: pointer;
-  list-style: none;
-  margin-bottom: 0.15rem;
-  user-select: none;
-}
-
-.build-options-details > summary::-webkit-details-marker {
-  display: none;
-}
-.build-options-details > summary::before {
-  content: '▸ ';
-  color: var(--text-secondary);
-}
-.build-options-details[open] > summary::before {
-  content: '▾ ';
-}
-.build-options-details[open] > summary {
-  margin-bottom: 0.45rem;
-}
-
-.build-advanced-hint {
-  margin-left: 0.4rem;
-  font-size: var(--text-xs);
-  font-weight: 500;
-  color: var(--text-secondary);
-  opacity: 0.85;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.build-options-section {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 0.25rem;
-  display: block;
-}
-.flags-row {
-  display: flex;
-  gap: 0.5rem;
-}
-
 .build-note {
   font-size: 0.8rem;
   padding: 0.5rem 0.6rem;
@@ -5227,10 +4551,6 @@ code {
   .ev-section-actions {
     padding-right: 0.65rem;
     margin-left: auto;
-  }
-
-  .flags-row {
-    flex-wrap: wrap;
   }
 }
 

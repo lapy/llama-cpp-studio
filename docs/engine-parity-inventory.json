@@ -1,0 +1,5806 @@
+{
+  "engine_count": 9,
+  "engine_id_literals": {
+    "1cat_vllm": {
+      "engines_home": [
+        {
+          "count": 2,
+          "file": "backend/engines/vllm/onecat.py",
+          "lines": [
+            18,
+            46
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/activation.py",
+          "lines": [
+            27
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/adapters.py",
+          "lines": [
+            46
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/lifecycle.py",
+          "lines": [
+            54
+          ]
+        }
+      ],
+      "outside_engines": [
+        {
+          "count": 17,
+          "file": "frontend/src/stores/engines.venv.test.js",
+          "lines": [
+            58,
+            89,
+            93,
+            124,
+            137,
+            157,
+            169,
+            185,
+            199,
+            210,
+            211,
+            212,
+            234,
+            251,
+            273,
+            276,
+            277
+          ]
+        },
+        {
+          "count": 12,
+          "file": "frontend/src/test-fixtures/taskFixtures.js",
+          "lines": [
+            221,
+            228,
+            230,
+            233,
+            240,
+            242,
+            245,
+            252,
+            254,
+            257,
+            264,
+            266
+          ]
+        },
+        {
+          "count": 9,
+          "file": "frontend/src/views/EnginesView.vue",
+          "lines": [
+            991,
+            1123,
+            1146,
+            1248,
+            1273,
+            3403,
+            3775,
+            3794,
+            3938
+          ]
+        },
+        {
+          "count": 8,
+          "file": "frontend/src/stores/engines.js",
+          "lines": [
+            156,
+            305,
+            511,
+            515,
+            519,
+            523,
+            527,
+            531
+          ]
+        },
+        {
+          "count": 6,
+          "file": "frontend/src/views/EnginesView.tasks.test.js",
+          "lines": [
+            470,
+            494,
+            522,
+            526,
+            622,
+            648
+          ]
+        },
+        {
+          "count": 5,
+          "file": "scripts/parity-inventory.py",
+          "lines": [
+            52,
+            61,
+            209,
+            292,
+            376
+          ]
+        },
+        {
+          "count": 3,
+          "file": "backend/routes/onecat_vllm_versions.py",
+          "lines": [
+            5,
+            6,
+            11
+          ]
+        },
+        {
+          "count": 3,
+          "file": "frontend/src/engines/registry.js",
+          "lines": [
+            126,
+            137,
+            143
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/routes/llama_versions.py",
+          "lines": [
+            222,
+            265
+          ]
+        },
+        {
+          "count": 2,
+          "file": "frontend/src/components/system/VersionTable.test.js",
+          "lines": [
+            110,
+            314
+          ]
+        },
+        {
+          "count": 2,
+          "file": "frontend/src/composables/engineReadiness.test.js",
+          "lines": [
+            66,
+            70
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/main.py",
+          "lines": [
+            458
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/proxy/studio/tokenization.py",
+          "lines": [
+            20
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/views/ModelConfig.test.js",
+          "lines": [
+            683
+          ]
+        }
+      ]
+    },
+    "audio_cpp": {
+      "engines_home": [
+        {
+          "count": 16,
+          "file": "backend/engines/scan/scanner.py",
+          "lines": [
+            344,
+            459,
+            485,
+            494,
+            515,
+            521,
+            720,
+            867,
+            892,
+            901,
+            915,
+            941,
+            948,
+            955,
+            1018,
+            1063
+          ]
+        },
+        {
+          "count": 8,
+          "file": "backend/engines/lifecycle.py",
+          "lines": [
+            58,
+            381,
+            428,
+            433,
+            435,
+            436,
+            519,
+            625
+          ]
+        },
+        {
+          "count": 4,
+          "file": "backend/engines/audio_cpp/manager.py",
+          "lines": [
+            4,
+            162,
+            165,
+            166
+          ]
+        },
+        {
+          "count": 3,
+          "file": "backend/engines/activation.py",
+          "lines": [
+            29,
+            128,
+            149
+          ]
+        },
+        {
+          "count": 3,
+          "file": "backend/engines/audio_cpp/identity.py",
+          "lines": [
+            5,
+            13,
+            33
+          ]
+        },
+        {
+          "count": 3,
+          "file": "backend/engines/audio_cpp/installer.py",
+          "lines": [
+            3,
+            42,
+            64
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/adapters.py",
+          "lines": [
+            124
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/audio_cpp/artifact.py",
+          "lines": [
+            76
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/audio_cpp/build_options.py",
+          "lines": [
+            17
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/audio_cpp/builtin.py",
+          "lines": [
+            30
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/audio_cpp/integration/contract_registry.py",
+          "lines": [
+            20
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/registry.py",
+          "lines": [
+            122
+          ]
+        }
+      ],
+      "outside_engines": [
+        {
+          "count": 23,
+          "file": "frontend/src/views/AudioWorkspace.test.js",
+          "lines": [
+            37,
+            38,
+            40,
+            45,
+            46,
+            48,
+            53,
+            54,
+            56,
+            61,
+            62,
+            64,
+            69,
+            70,
+            72,
+            217,
+            243,
+            287,
+            330,
+            374,
+            429,
+            474,
+            493
+          ]
+        },
+        {
+          "count": 16,
+          "file": "frontend/src/views/EnginesView.vue",
+          "lines": [
+            292,
+            302,
+            303,
+            452,
+            989,
+            1130,
+            1252,
+            1277,
+            1288,
+            1304,
+            1498,
+            1505,
+            2422,
+            2806,
+            2833,
+            3960
+          ]
+        },
+        {
+          "count": 13,
+          "file": "frontend/src/stores/engines.venv.test.js",
+          "lines": [
+            117,
+            118,
+            161,
+            173,
+            188,
+            203,
+            238,
+            255,
+            287,
+            426,
+            428,
+            430,
+            435
+          ]
+        },
+        {
+          "count": 11,
+          "file": "frontend/src/views/ModelConfig.audioProfiles.test.js",
+          "lines": [
+            53,
+            73,
+            176,
+            178,
+            318,
+            448,
+            450,
+            498,
+            562,
+            624,
+            654
+          ]
+        },
+        {
+          "count": 10,
+          "file": "backend/routes/llama_versions.py",
+          "lines": [
+            169,
+            235,
+            237,
+            238,
+            242,
+            269,
+            468,
+            822,
+            832,
+            1568
+          ]
+        },
+        {
+          "count": 10,
+          "file": "frontend/src/views/EnginesView.tasks.test.js",
+          "lines": [
+            79,
+            90,
+            208,
+            367,
+            389,
+            419,
+            437,
+            448,
+            474,
+            498
+          ]
+        },
+        {
+          "count": 9,
+          "file": "frontend/src/components/audio/AudioModelConfig.test.js",
+          "lines": [
+            79,
+            144,
+            253,
+            262,
+            368,
+            416,
+            486,
+            562,
+            600
+          ]
+        },
+        {
+          "count": 9,
+          "file": "frontend/src/stores/engines.js",
+          "lines": [
+            160,
+            165,
+            167,
+            172,
+            177,
+            189,
+            194,
+            199,
+            312
+          ]
+        },
+        {
+          "count": 9,
+          "file": "frontend/src/views/ModelSearch.vue",
+          "lines": [
+            276,
+            1502,
+            1895,
+            1954,
+            2054,
+            2081,
+            2112,
+            2129,
+            3893
+          ]
+        },
+        {
+          "count": 7,
+          "file": "frontend/src/composables/useAudioModelConfig.test.js",
+          "lines": [
+            138,
+            354,
+            410,
+            460,
+            498,
+            549,
+            576
+          ]
+        },
+        {
+          "count": 7,
+          "file": "frontend/src/stores/models.test.js",
+          "lines": [
+            204,
+            216,
+            235,
+            243,
+            270,
+            271,
+            283
+          ]
+        },
+        {
+          "count": 6,
+          "file": "frontend/src/components/system/VersionTable.test.js",
+          "lines": [
+            77,
+            89,
+            95,
+            210,
+            220,
+            248
+          ]
+        },
+        {
+          "count": 5,
+          "file": "frontend/src/engines/registry.js",
+          "lines": [
+            227,
+            233,
+            234,
+            238,
+            247
+          ]
+        },
+        {
+          "count": 4,
+          "file": "backend/models/engine_contracts.py",
+          "lines": [
+            81,
+            130,
+            159,
+            193
+          ]
+        },
+        {
+          "count": 4,
+          "file": "frontend/src/views/EnginesView.buildConfig.test.js",
+          "lines": [
+            60,
+            66,
+            173,
+            308
+          ]
+        },
+        {
+          "count": 4,
+          "file": "frontend/src/views/ModelConfig.vue",
+          "lines": [
+            696,
+            1694,
+            2843,
+            4113
+          ]
+        },
+        {
+          "count": 4,
+          "file": "frontend/src/views/ModelSearch.catalog.test.js",
+          "lines": [
+            96,
+            97,
+            104,
+            673
+          ]
+        },
+        {
+          "count": 4,
+          "file": "frontend/e2e/fixtures/workspace.mjs",
+          "lines": [
+            93,
+            94,
+            97,
+            107
+          ]
+        },
+        {
+          "count": 4,
+          "file": "scripts/parity-inventory.py",
+          "lines": [
+            55,
+            63,
+            183,
+            185
+          ]
+        },
+        {
+          "count": 3,
+          "file": "backend/proxy/launch_spec.py",
+          "lines": [
+            331,
+            354,
+            674
+          ]
+        },
+        {
+          "count": 3,
+          "file": "frontend/src/composables/useAudioContract.js",
+          "lines": [
+            6,
+            11,
+            42
+          ]
+        },
+        {
+          "count": 3,
+          "file": "frontend/src/composables/useTaskCancelEndpoint.test.js",
+          "lines": [
+            22,
+            25,
+            26
+          ]
+        },
+        {
+          "count": 3,
+          "file": "frontend/src/stores/engines.test.js",
+          "lines": [
+            125,
+            128,
+            130
+          ]
+        },
+        {
+          "count": 3,
+          "file": "frontend/src/stores/models.js",
+          "lines": [
+            351,
+            356,
+            362
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/audio/community_voices.py",
+          "lines": [
+            12,
+            41
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/model_catalog/audio_cpp_provider.py",
+          "lines": [
+            161,
+            227
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/model_catalog/base.py",
+          "lines": [
+            112,
+            113
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/operations/supervisor.py",
+          "lines": [
+            334,
+            336
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/proxy/commands.py",
+          "lines": [
+            475,
+            611
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/routes/engines.py",
+          "lines": [
+            27,
+            34
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/routes/model_catalog.py",
+          "lines": [
+            121,
+            171
+          ]
+        },
+        {
+          "count": 2,
+          "file": "frontend/src/components/ModelRow.test.js",
+          "lines": [
+            112,
+            113
+          ]
+        },
+        {
+          "count": 2,
+          "file": "frontend/src/components/ModelWarmupButton.test.js",
+          "lines": [
+            59,
+            60
+          ]
+        },
+        {
+          "count": 2,
+          "file": "frontend/src/composables/engineReadiness.test.js",
+          "lines": [
+            26,
+            39
+          ]
+        },
+        {
+          "count": 2,
+          "file": "frontend/src/test-fixtures/taskFixtures.js",
+          "lines": [
+            76,
+            78
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/model_catalog/huggingface_provider.py",
+          "lines": [
+            27
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/reference_audio.py",
+          "lines": [
+            16
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/routes/audio_cpp_versions.py",
+          "lines": [
+            53
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/services/audio_model_installer.py",
+          "lines": [
+            1174
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/composables/connectTarget.test.js",
+          "lines": [
+            31
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/composables/useAudioContract.test.js",
+          "lines": [
+            41
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/utils/audioModel.js",
+          "lines": [
+            10
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/utils/modelPresentation.js",
+          "lines": [
+            48
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/views/AudioWorkspace.vue",
+          "lines": [
+            675
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/e2e/ui-refactor.spec.mjs",
+          "lines": [
+            76
+          ]
+        }
+      ]
+    },
+    "ik_llama": {
+      "engines_home": [
+        {
+          "count": 10,
+          "file": "backend/engines/lifecycle.py",
+          "lines": [
+            51,
+            325,
+            326,
+            330,
+            331,
+            406,
+            414,
+            507,
+            562,
+            614
+          ]
+        },
+        {
+          "count": 9,
+          "file": "backend/engines/python/cmake_source.py",
+          "lines": [
+            1,
+            4,
+            55,
+            578,
+            1186,
+            1494,
+            1501,
+            1554,
+            1559
+          ]
+        },
+        {
+          "count": 7,
+          "file": "backend/engines/llama_cpp/build_options.py",
+          "lines": [
+            31,
+            45,
+            46,
+            94,
+            95,
+            286,
+            292
+          ]
+        },
+        {
+          "count": 7,
+          "file": "backend/engines/llama_cpp/manager.py",
+          "lines": [
+            41,
+            176,
+            182,
+            185,
+            187,
+            188,
+            912
+          ]
+        },
+        {
+          "count": 5,
+          "file": "backend/engines/scan/help_parsers.py",
+          "lines": [
+            39,
+            902,
+            1235,
+            1316,
+            1333
+          ]
+        },
+        {
+          "count": 4,
+          "file": "backend/engines/llama_cpp/github_refs.py",
+          "lines": [
+            1,
+            30,
+            46,
+            131
+          ]
+        },
+        {
+          "count": 4,
+          "file": "backend/engines/llama_cpp/resolve.py",
+          "lines": [
+            52,
+            55,
+            67,
+            70
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/engines/adapters.py",
+          "lines": [
+            120,
+            126
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/engines/registry.py",
+          "lines": [
+            121,
+            136
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/engines/scan/scanner.py",
+          "lines": [
+            75,
+            205
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/llama_cpp/__init__.py",
+          "lines": [
+            1
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/spec.py",
+          "lines": [
+            86
+          ]
+        }
+      ],
+      "outside_engines": [
+        {
+          "count": 43,
+          "file": "frontend/src/views/EnginesView.vue",
+          "lines": [
+            748,
+            751,
+            760,
+            770,
+            1107,
+            1120,
+            1245,
+            1270,
+            1284,
+            1714,
+            1772,
+            1789,
+            1862,
+            1879,
+            1895,
+            1900,
+            1954,
+            2047,
+            2214,
+            2354,
+            2355,
+            2369,
+            2370,
+            2374,
+            2378,
+            2426,
+            2438,
+            2441,
+            2520,
+            2521,
+            2527,
+            2533,
+            2551,
+            2574,
+            2584,
+            3578,
+            3629,
+            3632,
+            3636,
+            3643,
+            3646,
+            3669,
+            3670
+          ]
+        },
+        {
+          "count": 27,
+          "file": "frontend/src/stores/engines.venv.test.js",
+          "lines": [
+            104,
+            107,
+            108,
+            144,
+            154,
+            166,
+            182,
+            188,
+            191,
+            196,
+            238,
+            265,
+            369,
+            404,
+            405,
+            413,
+            414,
+            422,
+            427,
+            432,
+            444,
+            445,
+            446,
+            448,
+            454,
+            455,
+            457
+          ]
+        },
+        {
+          "count": 22,
+          "file": "backend/routes/llama_versions.py",
+          "lines": [
+            213,
+            262,
+            444,
+            467,
+            505,
+            518,
+            561,
+            563,
+            576,
+            578,
+            607,
+            648,
+            702,
+            703,
+            748,
+            881,
+            927,
+            978,
+            1009,
+            1231,
+            2019,
+            2111
+          ]
+        },
+        {
+          "count": 20,
+          "file": "frontend/src/stores/engines.js",
+          "lines": [
+            69,
+            74,
+            102,
+            130,
+            208,
+            215,
+            226,
+            246,
+            249,
+            254,
+            264,
+            271,
+            279,
+            291,
+            333,
+            364,
+            373,
+            379,
+            384,
+            670
+          ]
+        },
+        {
+          "count": 16,
+          "file": "frontend/src/stores/engines.test.js",
+          "lines": [
+            26,
+            46,
+            86,
+            89,
+            107,
+            117,
+            121,
+            129,
+            186,
+            201,
+            244,
+            247,
+            273,
+            283,
+            301,
+            302
+          ]
+        },
+        {
+          "count": 9,
+          "file": "frontend/src/engines/registry.js",
+          "lines": [
+            55,
+            69,
+            70,
+            74,
+            76,
+            78,
+            83,
+            428,
+            450
+          ]
+        },
+        {
+          "count": 7,
+          "file": "frontend/src/test-fixtures/taskFixtures.js",
+          "lines": [
+            32,
+            38,
+            39,
+            41,
+            66,
+            158,
+            170
+          ]
+        },
+        {
+          "count": 5,
+          "file": "frontend/src/views/EnginesView.tasks.test.js",
+          "lines": [
+            467,
+            491,
+            711,
+            712,
+            797
+          ]
+        },
+        {
+          "count": 5,
+          "file": "scripts/parity-inventory.py",
+          "lines": [
+            44,
+            45,
+            48,
+            59,
+            178
+          ]
+        },
+        {
+          "count": 4,
+          "file": "backend/proxy/commands.py",
+          "lines": [
+            325,
+            430,
+            436,
+            463
+          ]
+        },
+        {
+          "count": 4,
+          "file": "backend/services/upstream_versions.py",
+          "lines": [
+            112,
+            121,
+            130,
+            135
+          ]
+        },
+        {
+          "count": 3,
+          "file": "frontend/src/composables/useTaskCancelEndpoint.js",
+          "lines": [
+            11,
+            15,
+            30
+          ]
+        },
+        {
+          "count": 3,
+          "file": "frontend/src/stores/engines.server.test.js",
+          "lines": [
+            99,
+            154,
+            175
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/main.py",
+          "lines": [
+            413,
+            451
+          ]
+        },
+        {
+          "count": 2,
+          "file": "frontend/src/components/system/VersionTable.test.js",
+          "lines": [
+            190,
+            203
+          ]
+        },
+        {
+          "count": 2,
+          "file": "frontend/src/composables/engineVersionDelete.test.js",
+          "lines": [
+            21,
+            24
+          ]
+        },
+        {
+          "count": 2,
+          "file": "frontend/src/composables/useTaskCancelEndpoint.test.js",
+          "lines": [
+            31,
+            34
+          ]
+        },
+        {
+          "count": 2,
+          "file": "frontend/src/views/ModelConfig.test.js",
+          "lines": [
+            709,
+            717
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/build_progress.py",
+          "lines": [
+            3
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/build_task_manager.py",
+          "lines": [
+            1
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/proxy/studio/tokenization.py",
+          "lines": [
+            19
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/routes/engine_versions.py",
+          "lines": [
+            86
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/composables/useDraftGuard.test.js",
+          "lines": [
+            15
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/views/ModelSearch.catalog.test.js",
+          "lines": [
+            173
+          ]
+        }
+      ]
+    },
+    "llama_cpp": {
+      "engines_home": [
+        {
+          "count": 29,
+          "file": "backend/engines/python/cmake_source.py",
+          "lines": [
+            3,
+            15,
+            17,
+            55,
+            72,
+            83,
+            1213,
+            1219,
+            1226,
+            1242,
+            1293,
+            1352,
+            1377,
+            1385,
+            1464,
+            1490,
+            1531,
+            1547,
+            1550,
+            1568,
+            1571,
+            1573,
+            1575,
+            1578,
+            1591,
+            1620,
+            1643,
+            1704,
+            1748
+          ]
+        },
+        {
+          "count": 8,
+          "file": "backend/engines/lifecycle.py",
+          "lines": [
+            50,
+            328,
+            332,
+            406,
+            413,
+            506,
+            562,
+            614
+          ]
+        },
+        {
+          "count": 8,
+          "file": "backend/engines/llama_cpp/build_options.py",
+          "lines": [
+            31,
+            34,
+            38,
+            47,
+            48,
+            93,
+            95,
+            267
+          ]
+        },
+        {
+          "count": 8,
+          "file": "backend/engines/llama_cpp/resolve.py",
+          "lines": [
+            1,
+            16,
+            28,
+            52,
+            55,
+            67,
+            70,
+            77
+          ]
+        },
+        {
+          "count": 7,
+          "file": "backend/engines/llama_cpp/manager.py",
+          "lines": [
+            912,
+            990,
+            992,
+            993,
+            1018,
+            1023,
+            1039
+          ]
+        },
+        {
+          "count": 6,
+          "file": "backend/engines/scan/help_parsers.py",
+          "lines": [
+            497,
+            637,
+            748,
+            1264,
+            1315,
+            1379
+          ]
+        },
+        {
+          "count": 4,
+          "file": "backend/engines/unsloth_llama/installer.py",
+          "lines": [
+            1,
+            4,
+            141,
+            142
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/engines/adapters.py",
+          "lines": [
+            114,
+            125
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/engines/llama_cpp/server_exec.py",
+          "lines": [
+            1,
+            54
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/activation.py",
+          "lines": [
+            25
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/llama_cpp/__init__.py",
+          "lines": [
+            1
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/registry.py",
+          "lines": [
+            121
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/scan/scanner.py",
+          "lines": [
+            205
+          ]
+        }
+      ],
+      "outside_engines": [
+        {
+          "count": 26,
+          "file": "frontend/src/views/EnginesView.vue",
+          "lines": [
+            652,
+            1061,
+            1119,
+            1244,
+            1269,
+            1283,
+            1754,
+            1798,
+            1815,
+            1831,
+            2014,
+            2032,
+            2214,
+            2354,
+            2426,
+            2438,
+            2521,
+            2551,
+            2584,
+            3587,
+            3594,
+            3600,
+            3626,
+            3627,
+            3682,
+            3688
+          ]
+        },
+        {
+          "count": 25,
+          "file": "frontend/src/stores/engines.test.js",
+          "lines": [
+            46,
+            85,
+            86,
+            87,
+            89,
+            98,
+            106,
+            107,
+            108,
+            116,
+            117,
+            118,
+            121,
+            129,
+            186,
+            201,
+            244,
+            247,
+            273,
+            277,
+            278,
+            283,
+            295,
+            301,
+            302
+          ]
+        },
+        {
+          "count": 23,
+          "file": "backend/routes/llama_versions.py",
+          "lines": [
+            212,
+            261,
+            467,
+            505,
+            560,
+            561,
+            563,
+            575,
+            576,
+            578,
+            608,
+            705,
+            927,
+            978,
+            1009,
+            1139,
+            1231,
+            1592,
+            1609,
+            1611,
+            1826,
+            2084,
+            2111
+          ]
+        },
+        {
+          "count": 22,
+          "file": "frontend/src/stores/engines.venv.test.js",
+          "lines": [
+            103,
+            143,
+            153,
+            165,
+            182,
+            188,
+            191,
+            195,
+            238,
+            265,
+            286,
+            369,
+            402,
+            415,
+            416,
+            422,
+            427,
+            432,
+            448,
+            450,
+            462,
+            466
+          ]
+        },
+        {
+          "count": 21,
+          "file": "frontend/src/components/system/VersionTable.test.js",
+          "lines": [
+            37,
+            57,
+            71,
+            127,
+            144,
+            150,
+            162,
+            168,
+            182,
+            184,
+            226,
+            237,
+            261,
+            291,
+            297,
+            303,
+            330,
+            339,
+            345,
+            356,
+            365
+          ]
+        },
+        {
+          "count": 19,
+          "file": "frontend/src/stores/engines.js",
+          "lines": [
+            69,
+            74,
+            102,
+            124,
+            208,
+            215,
+            226,
+            249,
+            257,
+            264,
+            271,
+            279,
+            291,
+            333,
+            364,
+            373,
+            379,
+            384,
+            670
+          ]
+        },
+        {
+          "count": 15,
+          "file": "frontend/src/views/ModelConfig.test.js",
+          "lines": [
+            196,
+            198,
+            287,
+            303,
+            305,
+            347,
+            349,
+            362,
+            364,
+            390,
+            439,
+            441,
+            531,
+            533,
+            708
+          ]
+        },
+        {
+          "count": 8,
+          "file": "frontend/src/views/EnginesView.tasks.test.js",
+          "lines": [
+            62,
+            174,
+            263,
+            466,
+            490,
+            705,
+            772,
+            830
+          ]
+        },
+        {
+          "count": 7,
+          "file": "frontend/src/test-fixtures/taskFixtures.js",
+          "lines": [
+            12,
+            17,
+            27,
+            29,
+            66,
+            158,
+            170
+          ]
+        },
+        {
+          "count": 6,
+          "file": "frontend/src/engines/registry.js",
+          "lines": [
+            44,
+            49,
+            55,
+            78,
+            98,
+            421
+          ]
+        },
+        {
+          "count": 6,
+          "file": "frontend/src/views/EnginesView.buildConfig.test.js",
+          "lines": [
+            158,
+            222,
+            246,
+            253,
+            282,
+            285
+          ]
+        },
+        {
+          "count": 6,
+          "file": "frontend/e2e/ui-refactor.spec.mjs",
+          "lines": [
+            36,
+            38,
+            215,
+            230,
+            244,
+            252
+          ]
+        },
+        {
+          "count": 6,
+          "file": "scripts/parity-inventory.py",
+          "lines": [
+            44,
+            45,
+            48,
+            59,
+            178,
+            180
+          ]
+        },
+        {
+          "count": 5,
+          "file": "backend/proxy/commands.py",
+          "lines": [
+            325,
+            330,
+            366,
+            440,
+            463
+          ]
+        },
+        {
+          "count": 4,
+          "file": "frontend/src/composables/useDraftGuard.test.js",
+          "lines": [
+            13,
+            14,
+            16,
+            17
+          ]
+        },
+        {
+          "count": 4,
+          "file": "frontend/e2e/model-journey.spec.mjs",
+          "lines": [
+            4,
+            5,
+            49,
+            128
+          ]
+        },
+        {
+          "count": 3,
+          "file": "frontend/src/composables/engineReadiness.test.js",
+          "lines": [
+            7,
+            27,
+            68
+          ]
+        },
+        {
+          "count": 3,
+          "file": "frontend/src/composables/useTaskActions.test.js",
+          "lines": [
+            81,
+            82,
+            91
+          ]
+        },
+        {
+          "count": 3,
+          "file": "frontend/src/composables/useTaskCancelEndpoint.js",
+          "lines": [
+            11,
+            15,
+            30
+          ]
+        },
+        {
+          "count": 3,
+          "file": "frontend/src/views/ModelConfig.vue",
+          "lines": [
+            2850,
+            3379,
+            3383
+          ]
+        },
+        {
+          "count": 3,
+          "file": "frontend/e2e/fixtures/workspace.mjs",
+          "lines": [
+            80,
+            114,
+            123
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/main.py",
+          "lines": [
+            413,
+            451
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/services/upstream_versions.py",
+          "lines": [
+            111,
+            121
+          ]
+        },
+        {
+          "count": 2,
+          "file": "frontend/src/components/common/SetupChecklist.test.js",
+          "lines": [
+            34,
+            64
+          ]
+        },
+        {
+          "count": 2,
+          "file": "frontend/src/composables/useTaskCancelEndpoint.test.js",
+          "lines": [
+            31,
+            34
+          ]
+        },
+        {
+          "count": 2,
+          "file": "frontend/src/stores/engines.server.test.js",
+          "lines": [
+            154,
+            175
+          ]
+        },
+        {
+          "count": 2,
+          "file": "frontend/src/stores/models.test.js",
+          "lines": [
+            98,
+            101
+          ]
+        },
+        {
+          "count": 2,
+          "file": "frontend/e2e/accessibility.spec.mjs",
+          "lines": [
+            55,
+            65
+          ]
+        },
+        {
+          "count": 2,
+          "file": "frontend/e2e/studio-native.spec.mjs",
+          "lines": [
+            65,
+            85
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/models/config.py",
+          "lines": [
+            14
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/models/introspection.py",
+          "lines": [
+            415
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/operations/action_recovery.py",
+          "lines": [
+            73
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/proxy/studio/tokenization.py",
+          "lines": [
+            19
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/routes/engine_versions.py",
+          "lines": [
+            86
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/routes/models.py",
+          "lines": [
+            653
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/routes/status.py",
+          "lines": [
+            123
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/components/ParseCommandDialog.test.js",
+          "lines": [
+            110
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/components/system/VersionTable.vue",
+          "lines": [
+            73
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/stores/progress.test.js",
+          "lines": [
+            161
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/utils/parseCliCommand.js",
+          "lines": [
+            282
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/views/ModelConfig.runtime.test.js",
+          "lines": [
+            58
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/views/ModelSearch.catalog.test.js",
+          "lines": [
+            173
+          ]
+        },
+        {
+          "count": 1,
+          "file": "scripts/export-build-defaults.py",
+          "lines": [
+            7
+          ]
+        }
+      ]
+    },
+    "lmdeploy": {
+      "engines_home": [
+        {
+          "count": 3,
+          "file": "backend/engines/activation.py",
+          "lines": [
+            27,
+            77,
+            78
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/engines/lmdeploy/installer.py",
+          "lines": [
+            40,
+            42
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/engines/scan/scanner.py",
+          "lines": [
+            69,
+            71
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/lifecycle.py",
+          "lines": [
+            53
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/lmdeploy/__init__.py",
+          "lines": [
+            5
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/scan/help_parsers.py",
+          "lines": [
+            2358
+          ]
+        }
+      ],
+      "outside_engines": [
+        {
+          "count": 16,
+          "file": "frontend/src/views/EnginesView.vue",
+          "lines": [
+            543,
+            831,
+            990,
+            1122,
+            1145,
+            1247,
+            1272,
+            1286,
+            3154,
+            3164,
+            3172,
+            3188,
+            3749,
+            3751,
+            3755,
+            3770
+          ]
+        },
+        {
+          "count": 13,
+          "file": "frontend/src/stores/engines.venv.test.js",
+          "lines": [
+            49,
+            89,
+            94,
+            125,
+            132,
+            156,
+            168,
+            185,
+            198,
+            233,
+            250,
+            271,
+            377
+          ]
+        },
+        {
+          "count": 12,
+          "file": "frontend/src/test-fixtures/taskFixtures.js",
+          "lines": [
+            173,
+            180,
+            182,
+            185,
+            192,
+            194,
+            197,
+            204,
+            206,
+            209,
+            216,
+            218
+          ]
+        },
+        {
+          "count": 11,
+          "file": "frontend/src/views/EnginesView.tasks.test.js",
+          "lines": [
+            290,
+            298,
+            306,
+            315,
+            469,
+            493,
+            587,
+            598,
+            602,
+            613,
+            642
+          ]
+        },
+        {
+          "count": 9,
+          "file": "frontend/src/stores/engines.js",
+          "lines": [
+            152,
+            296,
+            304,
+            485,
+            489,
+            493,
+            497,
+            501,
+            505
+          ]
+        },
+        {
+          "count": 5,
+          "file": "frontend/src/engines/registry.js",
+          "lines": [
+            34,
+            107,
+            112,
+            118,
+            122
+          ]
+        },
+        {
+          "count": 4,
+          "file": "frontend/src/stores/engines.server.test.js",
+          "lines": [
+            36,
+            87,
+            98,
+            164
+          ]
+        },
+        {
+          "count": 4,
+          "file": "frontend/src/stores/engines.test.js",
+          "lines": [
+            183,
+            189,
+            204,
+            250
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/routes/llama_versions.py",
+          "lines": [
+            221,
+            264
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/routes/lmdeploy_versions.py",
+          "lines": [
+            12,
+            14
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/routes/status.py",
+          "lines": [
+            122,
+            123
+          ]
+        },
+        {
+          "count": 2,
+          "file": "frontend/src/components/common/TaskDetailPanel.test.js",
+          "lines": [
+            88,
+            104
+          ]
+        },
+        {
+          "count": 2,
+          "file": "scripts/parity-inventory.py",
+          "lines": [
+            50,
+            60
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/main.py",
+          "lines": [
+            457
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/models/engine_contracts.py",
+          "lines": [
+            35
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/proxy/studio/registry.py",
+          "lines": [
+            34
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/components/system/VersionTable.test.js",
+          "lines": [
+            276
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/composables/useTaskFilter.test.js",
+          "lines": [
+            41
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/utils/parseCliCommand.js",
+          "lines": [
+            54
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/views/ModelConfig.test.js",
+          "lines": [
+            683
+          ]
+        }
+      ]
+    },
+    "sglang": {
+      "engines_home": [
+        {
+          "count": 4,
+          "file": "backend/engines/sglang/installer.py",
+          "lines": [
+            17,
+            27,
+            32,
+            44
+          ]
+        },
+        {
+          "count": 3,
+          "file": "backend/engines/sglang/runtime.py",
+          "lines": [
+            6,
+            10,
+            14
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/engines/scan/help_parsers.py",
+          "lines": [
+            2441,
+            2446
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/activation.py",
+          "lines": [
+            27
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/adapters.py",
+          "lines": [
+            43
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/lifecycle.py",
+          "lines": [
+            55
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/params.py",
+          "lines": [
+            406
+          ]
+        }
+      ],
+      "outside_engines": [
+        {
+          "count": 15,
+          "file": "frontend/src/stores/engines.venv.test.js",
+          "lines": [
+            45,
+            67,
+            89,
+            127,
+            134,
+            158,
+            170,
+            185,
+            200,
+            219,
+            220,
+            221,
+            253,
+            284,
+            380
+          ]
+        },
+        {
+          "count": 10,
+          "file": "frontend/src/engines/registry.js",
+          "lines": [
+            147,
+            150,
+            151,
+            152,
+            163,
+            167,
+            169,
+            196,
+            223,
+            298
+          ]
+        },
+        {
+          "count": 8,
+          "file": "frontend/src/stores/engines.js",
+          "lines": [
+            298,
+            309,
+            536,
+            540,
+            544,
+            548,
+            552,
+            556
+          ]
+        },
+        {
+          "count": 6,
+          "file": "frontend/src/views/EnginesView.tasks.test.js",
+          "lines": [
+            471,
+            495,
+            540,
+            549,
+            656,
+            742
+          ]
+        },
+        {
+          "count": 5,
+          "file": "frontend/src/views/EnginesView.vue",
+          "lines": [
+            1072,
+            1157,
+            1249,
+            1274,
+            3803
+          ]
+        },
+        {
+          "count": 5,
+          "file": "scripts/parity-inventory.py",
+          "lines": [
+            53,
+            54,
+            62,
+            291,
+            376
+          ]
+        },
+        {
+          "count": 3,
+          "file": "backend/proxy/client.py",
+          "lines": [
+            11,
+            17,
+            242
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/routes/llama_versions.py",
+          "lines": [
+            223,
+            266
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/main.py",
+          "lines": [
+            460
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/models/engine_contracts.py",
+          "lines": [
+            35
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/proxy/studio/registry.py",
+          "lines": [
+            34
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/routes/sglang_versions.py",
+          "lines": [
+            13
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/components/ParseCommandDialog.test.js",
+          "lines": [
+            157
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/components/ParseCommandDialog.vue",
+          "lines": [
+            23
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/components/layout/WorkspaceNavigator.vue",
+          "lines": [
+            98
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/components/system/SglangEnginePanel.vue",
+          "lines": [
+            225
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/utils/parseCliCommand.js",
+          "lines": [
+            51
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/utils/parseCliCommand.test.js",
+          "lines": [
+            296
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/views/ModelConfig.test.js",
+          "lines": [
+            662
+          ]
+        }
+      ]
+    },
+    "sglang_v100": {
+      "engines_home": [
+        {
+          "count": 2,
+          "file": "backend/engines/adapters.py",
+          "lines": [
+            27,
+            44
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/engines/sglang/installer.py",
+          "lines": [
+            17,
+            36
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/activation.py",
+          "lines": [
+            27
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/lifecycle.py",
+          "lines": [
+            56
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/params.py",
+          "lines": [
+            406
+          ]
+        }
+      ],
+      "outside_engines": [
+        {
+          "count": 19,
+          "file": "frontend/src/stores/engines.venv.test.js",
+          "lines": [
+            45,
+            68,
+            89,
+            92,
+            123,
+            135,
+            159,
+            171,
+            175,
+            176,
+            185,
+            201,
+            220,
+            221,
+            224,
+            252,
+            280,
+            281,
+            282
+          ]
+        },
+        {
+          "count": 7,
+          "file": "frontend/src/components/system/SglangEnginePanel.test.js",
+          "lines": [
+            30,
+            51,
+            102,
+            113,
+            120,
+            136,
+            187
+          ]
+        },
+        {
+          "count": 6,
+          "file": "frontend/src/views/EnginesView.vue",
+          "lines": [
+            1158,
+            1206,
+            1213,
+            1250,
+            1275,
+            3812
+          ]
+        },
+        {
+          "count": 5,
+          "file": "frontend/src/views/EnginesView.tasks.test.js",
+          "lines": [
+            336,
+            340,
+            472,
+            496,
+            662
+          ]
+        },
+        {
+          "count": 5,
+          "file": "scripts/parity-inventory.py",
+          "lines": [
+            53,
+            54,
+            62,
+            291,
+            375
+          ]
+        },
+        {
+          "count": 4,
+          "file": "frontend/src/stores/engines.test.js",
+          "lines": [
+            54,
+            55,
+            60,
+            61
+          ]
+        },
+        {
+          "count": 3,
+          "file": "frontend/src/composables/engineReadiness.test.js",
+          "lines": [
+            33,
+            65,
+            69
+          ]
+        },
+        {
+          "count": 3,
+          "file": "frontend/src/engines/registry.js",
+          "lines": [
+            173,
+            176,
+            194
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/proxy/launch_spec.py",
+          "lines": [
+            579,
+            730
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/routes/llama_versions.py",
+          "lines": [
+            224,
+            267
+          ]
+        },
+        {
+          "count": 2,
+          "file": "frontend/src/stores/engines.js",
+          "lines": [
+            298,
+            308
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/routes/sglang_versions.py",
+          "lines": [
+            14
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/components/system/SglangEnginePanel.vue",
+          "lines": [
+            234
+          ]
+        }
+      ]
+    },
+    "unsloth_llama": {
+      "engines_home": [
+        {
+          "count": 6,
+          "file": "backend/engines/lifecycle.py",
+          "lines": [
+            52,
+            174,
+            438,
+            443,
+            447,
+            513
+          ]
+        },
+        {
+          "count": 4,
+          "file": "backend/engines/unsloth_llama/installer.py",
+          "lines": [
+            42,
+            161,
+            474,
+            495
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/engines/llama_cpp/resolve.py",
+          "lines": [
+            55,
+            70
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/engines/registry.py",
+          "lines": [
+            122,
+            137
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/activation.py",
+          "lines": [
+            25
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/scan/scanner.py",
+          "lines": [
+            205
+          ]
+        }
+      ],
+      "outside_engines": [
+        {
+          "count": 16,
+          "file": "frontend/src/stores/engines.venv.test.js",
+          "lines": [
+            105,
+            111,
+            112,
+            114,
+            115,
+            145,
+            155,
+            167,
+            182,
+            197,
+            222,
+            225,
+            238,
+            407,
+            468,
+            472
+          ]
+        },
+        {
+          "count": 8,
+          "file": "frontend/src/views/EnginesView.tasks.test.js",
+          "lines": [
+            468,
+            492,
+            570,
+            718,
+            815,
+            819,
+            820,
+            833
+          ]
+        },
+        {
+          "count": 8,
+          "file": "frontend/src/views/EnginesView.vue",
+          "lines": [
+            1121,
+            1246,
+            1271,
+            1285,
+            3581,
+            3672,
+            3675,
+            3945
+          ]
+        },
+        {
+          "count": 5,
+          "file": "frontend/src/engines/registry.js",
+          "lines": [
+            94,
+            99,
+            105,
+            435,
+            451
+          ]
+        },
+        {
+          "count": 4,
+          "file": "backend/routes/llama_versions.py",
+          "lines": [
+            214,
+            263,
+            468,
+            1540
+          ]
+        },
+        {
+          "count": 3,
+          "file": "frontend/src/stores/engines.js",
+          "lines": [
+            135,
+            140,
+            145
+          ]
+        },
+        {
+          "count": 3,
+          "file": "frontend/src/test-fixtures/taskFixtures.js",
+          "lines": [
+            44,
+            51,
+            53
+          ]
+        },
+        {
+          "count": 2,
+          "file": "frontend/src/components/common/SetupChecklist.test.js",
+          "lines": [
+            35,
+            51
+          ]
+        },
+        {
+          "count": 2,
+          "file": "frontend/src/composables/engineReadiness.test.js",
+          "lines": [
+            8,
+            10
+          ]
+        },
+        {
+          "count": 2,
+          "file": "scripts/parity-inventory.py",
+          "lines": [
+            49,
+            59
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/proxy/studio/tokenization.py",
+          "lines": [
+            19
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/routes/unsloth_llama_versions.py",
+          "lines": [
+            28
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/composables/useTaskCancelEndpoint.js",
+          "lines": [
+            15
+          ]
+        }
+      ]
+    },
+    "vllm": {
+      "engines_home": [
+        {
+          "count": 3,
+          "file": "backend/engines/vllm/installer.py",
+          "lines": [
+            1,
+            3,
+            15
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/engines/scan/help_parsers.py",
+          "lines": [
+            186,
+            2514
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/activation.py",
+          "lines": [
+            27
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/adapters.py",
+          "lines": [
+            45
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/lifecycle.py",
+          "lines": [
+            57
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/python/installer.py",
+          "lines": [
+            1
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/vllm/__init__.py",
+          "lines": [
+            1
+          ]
+        }
+      ],
+      "outside_engines": [
+        {
+          "count": 19,
+          "file": "frontend/src/stores/engines.venv.test.js",
+          "lines": [
+            45,
+            69,
+            89,
+            126,
+            133,
+            160,
+            172,
+            185,
+            202,
+            213,
+            221,
+            223,
+            247,
+            248,
+            254,
+            274,
+            276,
+            277,
+            285
+          ]
+        },
+        {
+          "count": 12,
+          "file": "frontend/src/engines/registry.js",
+          "lines": [
+            14,
+            15,
+            200,
+            201,
+            203,
+            204,
+            205,
+            211,
+            216,
+            222,
+            294,
+            297
+          ]
+        },
+        {
+          "count": 9,
+          "file": "frontend/src/composables/engineReadiness.test.js",
+          "lines": [
+            28,
+            29,
+            32,
+            44,
+            45,
+            46,
+            59,
+            67,
+            71
+          ]
+        },
+        {
+          "count": 7,
+          "file": "frontend/src/views/EnginesView.tasks.test.js",
+          "lines": [
+            473,
+            497,
+            558,
+            561,
+            668,
+            670,
+            671
+          ]
+        },
+        {
+          "count": 7,
+          "file": "frontend/src/views/EnginesView.vue",
+          "lines": [
+            1159,
+            1208,
+            1215,
+            1251,
+            1276,
+            3785,
+            3821
+          ]
+        },
+        {
+          "count": 6,
+          "file": "frontend/src/stores/engines.test.js",
+          "lines": [
+            30,
+            68,
+            73,
+            74,
+            76,
+            77
+          ]
+        },
+        {
+          "count": 5,
+          "file": "frontend/src/components/system/SglangEnginePanel.vue",
+          "lines": [
+            40,
+            51,
+            127,
+            136,
+            235
+          ]
+        },
+        {
+          "count": 5,
+          "file": "scripts/parity-inventory.py",
+          "lines": [
+            51,
+            61,
+            209,
+            292,
+            376
+          ]
+        },
+        {
+          "count": 4,
+          "file": "frontend/src/stores/engines.js",
+          "lines": [
+            300,
+            301,
+            310,
+            534
+          ]
+        },
+        {
+          "count": 3,
+          "file": "backend/routes/vllm_versions.py",
+          "lines": [
+            5,
+            6,
+            11
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/proxy/studio/tokenization.py",
+          "lines": [
+            3,
+            20
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/routes/llama_versions.py",
+          "lines": [
+            225,
+            268
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/main.py",
+          "lines": [
+            459
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/models/engine_contracts.py",
+          "lines": [
+            35
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/models/schema.py",
+          "lines": [
+            136
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/proxy/studio/registry.py",
+          "lines": [
+            34
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/components/layout/WorkspaceNavigator.vue",
+          "lines": [
+            98
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/components/system/SglangEnginePanel.test.js",
+          "lines": [
+            28
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/utils/parseCliCommand.js",
+          "lines": [
+            53
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/views/ModelConfig.test.js",
+          "lines": [
+            680
+          ]
+        }
+      ]
+    }
+  },
+  "install_build_defaults": {
+    "1cat_vllm": {
+      "source": "backend/venv_install_settings.py:default_install_settings",
+      "values": {
+        "release_version": "",
+        "source_branch": "main",
+        "source_repo": "https://github.com/1CatAI/1Cat-vLLM.git"
+      }
+    },
+    "audio_cpp": {
+      "source": "backend/engines/audio_cpp/build_options.py:default_build_settings",
+      "values": {
+        "build_settings": {
+          "backend": "cpu",
+          "build_c_api": false,
+          "build_examples": false,
+          "build_extended_tests": false,
+          "build_model_tests": false,
+          "build_server_frontends": false,
+          "build_tests": false,
+          "build_type": "RelWithDebInfo",
+          "build_warmbench": false,
+          "cflags": "",
+          "cpu_all_variants": false,
+          "cuda": false,
+          "cuda_graphs": true,
+          "custom_cmake_args": "",
+          "cxxflags": "",
+          "deployment_build": false,
+          "jobs": 0,
+          "llamafile": true,
+          "model_set": "full",
+          "models": "",
+          "native_cpu": true,
+          "native_model_manager": false,
+          "openmp": true,
+          "static_espeak": false,
+          "use_system_openssl": false
+        },
+        "source_ref_default": "main"
+      }
+    },
+    "ik_llama": {
+      "source": "backend/engines/llama_cpp/build_options.py:default_build_settings (shared llama-server family)",
+      "values": {
+        "accelerate": true,
+        "all_warnings": true,
+        "amx_bf16": false,
+        "amx_int8": false,
+        "amx_tile": false,
+        "avx": false,
+        "avx2": false,
+        "avx512": false,
+        "avx512_bf16": false,
+        "avx512_vbmi": false,
+        "avx512_vnni": false,
+        "avx_vnni": false,
+        "backend_dir": "",
+        "backend_dl": false,
+        "blas": false,
+        "blas_vendor": "OpenBLAS",
+        "bmi2": false,
+        "build_app": true,
+        "build_common": true,
+        "build_examples": true,
+        "build_mtmd": false,
+        "build_server": true,
+        "build_tests": true,
+        "build_tools": true,
+        "build_type": "Release",
+        "build_ui": false,
+        "ccache": true,
+        "cflags": "",
+        "cpu": true,
+        "cpu_all_variants": false,
+        "cpu_arm_arch": "",
+        "cpu_hbm": false,
+        "cpu_kleidiai": false,
+        "cpu_powerpc_cputype": "",
+        "cpu_repack": true,
+        "cuda": false,
+        "cuda_architectures": "",
+        "cuda_compression_mode": "size",
+        "cuda_dmmv_x": "32",
+        "cuda_f16": false,
+        "cuda_fa": true,
+        "cuda_fa_quants": "q4_0-q4_0;q8_0-q8_0;f16-f16;bf16-bf16",
+        "cuda_force_cublas": false,
+        "cuda_force_dmmv": false,
+        "cuda_force_mmq": false,
+        "cuda_fusion": "1",
+        "cuda_graphs": true,
+        "cuda_iqk_force_bf16": false,
+        "cuda_kquants_iter": "2",
+        "cuda_min_batch_offload": "32",
+        "cuda_mmv_y": "1",
+        "cuda_nccl": true,
+        "cuda_no_peer_copy": false,
+        "cuda_no_vmm": false,
+        "cuda_peer_max_batch_size": "128",
+        "custom_cmake_args": "",
+        "cxxflags": "",
+        "expert_chunking": true,
+        "f16c": false,
+        "fatal_warnings": false,
+        "flash_attention": false,
+        "fma": false,
+        "gprof": false,
+        "install_tests": true,
+        "install_tools": true,
+        "iqk_fa_all_quants": true,
+        "iqk_flash_attention": true,
+        "iqk_mul_mat": true,
+        "lasx": true,
+        "llamafile": true,
+        "llguidance": false,
+        "lsx": true,
+        "lto": false,
+        "max_contexts": "",
+        "native": true,
+        "nccl": true,
+        "openmp": true,
+        "openmp_fetch": false,
+        "openssl": true,
+        "rv_zfh": true,
+        "rv_zicbop": true,
+        "rv_zihintpause": true,
+        "rv_zvfbfwma": false,
+        "rv_zvfh": true,
+        "rvv": true,
+        "sanitize_address": false,
+        "sanitize_thread": false,
+        "sanitize_undefined": false,
+        "sched_max_copies": "",
+        "sched_no_realloc": false,
+        "sse42": false,
+        "static": false,
+        "subprocess": true,
+        "sve": false,
+        "use_prebuilt_ui": true,
+        "vxe": false,
+        "xtheadvector": false
+      }
+    },
+    "llama_cpp": {
+      "source": "backend/engines/llama_cpp/build_options.py:default_build_settings (shared llama-server family)",
+      "values": {
+        "accelerate": true,
+        "all_warnings": true,
+        "amx_bf16": false,
+        "amx_int8": false,
+        "amx_tile": false,
+        "avx": false,
+        "avx2": false,
+        "avx512": false,
+        "avx512_bf16": false,
+        "avx512_vbmi": false,
+        "avx512_vnni": false,
+        "avx_vnni": false,
+        "backend_dir": "",
+        "backend_dl": false,
+        "blas": false,
+        "blas_vendor": "OpenBLAS",
+        "bmi2": false,
+        "build_app": true,
+        "build_common": true,
+        "build_examples": true,
+        "build_mtmd": false,
+        "build_server": true,
+        "build_tests": true,
+        "build_tools": true,
+        "build_type": "Release",
+        "build_ui": false,
+        "ccache": true,
+        "cflags": "",
+        "cpu": true,
+        "cpu_all_variants": false,
+        "cpu_arm_arch": "",
+        "cpu_hbm": false,
+        "cpu_kleidiai": false,
+        "cpu_powerpc_cputype": "",
+        "cpu_repack": true,
+        "cuda": false,
+        "cuda_architectures": "",
+        "cuda_compression_mode": "size",
+        "cuda_dmmv_x": "32",
+        "cuda_f16": false,
+        "cuda_fa": true,
+        "cuda_fa_quants": "q4_0-q4_0;q8_0-q8_0;f16-f16;bf16-bf16",
+        "cuda_force_cublas": false,
+        "cuda_force_dmmv": false,
+        "cuda_force_mmq": false,
+        "cuda_fusion": "1",
+        "cuda_graphs": true,
+        "cuda_iqk_force_bf16": false,
+        "cuda_kquants_iter": "2",
+        "cuda_min_batch_offload": "32",
+        "cuda_mmv_y": "1",
+        "cuda_nccl": true,
+        "cuda_no_peer_copy": false,
+        "cuda_no_vmm": false,
+        "cuda_peer_max_batch_size": "128",
+        "custom_cmake_args": "",
+        "cxxflags": "",
+        "expert_chunking": true,
+        "f16c": false,
+        "fatal_warnings": false,
+        "flash_attention": false,
+        "fma": false,
+        "gprof": false,
+        "install_tests": true,
+        "install_tools": true,
+        "iqk_fa_all_quants": true,
+        "iqk_flash_attention": true,
+        "iqk_mul_mat": true,
+        "lasx": true,
+        "llamafile": true,
+        "llguidance": false,
+        "lsx": true,
+        "lto": false,
+        "max_contexts": "",
+        "native": true,
+        "nccl": true,
+        "openmp": true,
+        "openmp_fetch": false,
+        "openssl": true,
+        "rv_zfh": true,
+        "rv_zicbop": true,
+        "rv_zihintpause": true,
+        "rv_zvfbfwma": false,
+        "rv_zvfh": true,
+        "rvv": true,
+        "sanitize_address": false,
+        "sanitize_thread": false,
+        "sanitize_undefined": false,
+        "sched_max_copies": "",
+        "sched_no_realloc": false,
+        "sse42": false,
+        "static": false,
+        "subprocess": true,
+        "sve": false,
+        "use_prebuilt_ui": true,
+        "vxe": false,
+        "xtheadvector": false
+      }
+    },
+    "lmdeploy": {
+      "source": "backend/venv_install_settings.py:default_install_settings",
+      "values": {
+        "pip_version": "",
+        "source_branch": "main",
+        "source_repo": "https://github.com/InternLM/lmdeploy.git"
+      }
+    },
+    "sglang": {
+      "source": "backend/venv_install_settings.py:default_install_settings",
+      "values": {
+        "pip_version": "",
+        "source_branch": "main",
+        "source_repo": "https://github.com/sgl-project/sglang.git"
+      }
+    },
+    "sglang_v100": {
+      "source": "backend/venv_install_settings.py:default_install_settings",
+      "values": {
+        "source_branch": "main",
+        "source_repo": "https://github.com/haohervchb/sglang-V100.git"
+      }
+    },
+    "unsloth_llama": {
+      "note": "prebuilt installs have no persisted settings surface",
+      "source": null,
+      "values": {}
+    },
+    "vllm": {
+      "source": "backend/venv_install_settings.py:default_install_settings",
+      "values": {
+        "pip_version": "",
+        "source_branch": "main",
+        "source_repo": "https://github.com/vllm-project/vllm.git"
+      }
+    }
+  },
+  "operation_endpoints": {
+    "1cat_vllm": {
+      "cancel": [
+        "POST /api/1cat-vllm/cancel"
+      ],
+      "check_updates": [
+        "GET /api/1cat-vllm/check-updates"
+      ],
+      "delete": [
+        "POST /api/1cat-vllm/remove"
+      ],
+      "install_release": [
+        "POST /api/1cat-vllm/install"
+      ],
+      "install_source": [
+        "POST /api/1cat-vllm/install-source"
+      ],
+      "settings": [
+        "GET,PUT /api/1cat-vllm/build-settings"
+      ],
+      "status": [
+        "GET /api/1cat-vllm/status"
+      ]
+    },
+    "audio_cpp": {
+      "cancel": [
+        "POST /api/audio-cpp/cancel"
+      ],
+      "check_updates": [
+        "GET /api/audio-cpp/check-updates",
+        "POST /api/audio-cpp/update"
+      ],
+      "contract": [
+        "GET /api/audio-cpp/contract"
+      ],
+      "install_release": [
+        "POST /api/audio-cpp/community-voices/install"
+      ],
+      "install_source": [
+        "POST /api/audio-cpp/build-source"
+      ],
+      "settings": [
+        "GET /api/audio-cpp/build-options",
+        "GET,PUT /api/audio-cpp/build-settings"
+      ],
+      "status": [
+        "GET /api/audio-cpp/status"
+      ]
+    },
+    "ik_llama": {
+      "activate": [
+        "POST /api/llama-versions/versions/activate"
+      ],
+      "cancel": [
+        "POST /api/llama-versions/build-cancel"
+      ],
+      "check_updates": [
+        "GET /api/llama-versions/check-updates",
+        "POST /api/llama-versions/update"
+      ],
+      "install_source": [
+        "POST /api/llama-versions/build-source"
+      ],
+      "retry": [
+        "POST /api/llama-versions/versions/retry"
+      ],
+      "scan": [
+        "POST /api/llama-versions/scan-engine-params"
+      ],
+      "settings": [
+        "GET /api/llama-versions/build-options",
+        "GET,PUT /api/llama-versions/build-settings",
+        "PUT /api/llama-versions/versions/build-config"
+      ],
+      "sync_source": [
+        "POST /api/llama-versions/versions/sync"
+      ]
+    },
+    "llama_cpp": {
+      "activate": [
+        "POST /api/llama-versions/versions/activate"
+      ],
+      "cancel": [
+        "POST /api/llama-versions/build-cancel"
+      ],
+      "check_updates": [
+        "GET /api/llama-versions/check-updates",
+        "POST /api/llama-versions/update"
+      ],
+      "install_source": [
+        "POST /api/llama-versions/build-source"
+      ],
+      "retry": [
+        "POST /api/llama-versions/versions/retry"
+      ],
+      "scan": [
+        "POST /api/llama-versions/scan-engine-params"
+      ],
+      "settings": [
+        "GET /api/llama-versions/build-options",
+        "GET,PUT /api/llama-versions/build-settings",
+        "PUT /api/llama-versions/versions/build-config"
+      ],
+      "sync_source": [
+        "POST /api/llama-versions/versions/sync"
+      ]
+    },
+    "lmdeploy": {
+      "cancel": [
+        "POST /api/lmdeploy/cancel"
+      ],
+      "check_updates": [
+        "GET /api/lmdeploy/check-updates"
+      ],
+      "delete": [
+        "POST /api/lmdeploy/remove"
+      ],
+      "install_release": [
+        "POST /api/lmdeploy/install"
+      ],
+      "install_source": [
+        "POST /api/lmdeploy/install-source"
+      ],
+      "settings": [
+        "GET,PUT /api/lmdeploy/build-settings"
+      ],
+      "status": [
+        "GET /api/lmdeploy/status"
+      ]
+    },
+    "sglang": {
+      "cancel": [
+        "POST /api/sglang-v100/cancel",
+        "POST /api/sglang/cancel"
+      ],
+      "check_updates": [
+        "GET /api/sglang-v100/check-updates",
+        "GET /api/sglang/check-updates"
+      ],
+      "delete": [
+        "POST /api/sglang-v100/remove",
+        "POST /api/sglang/remove"
+      ],
+      "install_release": [
+        "POST /api/sglang-v100/install",
+        "POST /api/sglang/install"
+      ],
+      "install_source": [
+        "POST /api/sglang-v100/install-source",
+        "POST /api/sglang/install-source"
+      ],
+      "settings": [
+        "GET,PUT /api/sglang-v100/build-settings",
+        "GET,PUT /api/sglang/build-settings"
+      ],
+      "status": [
+        "GET /api/sglang-v100/status",
+        "GET /api/sglang/status"
+      ]
+    },
+    "sglang_v100": {
+      "cancel": [
+        "POST /api/sglang-v100/cancel"
+      ],
+      "check_updates": [
+        "GET /api/sglang-v100/check-updates"
+      ],
+      "delete": [
+        "POST /api/sglang-v100/remove"
+      ],
+      "install_release": [
+        "POST /api/sglang-v100/install"
+      ],
+      "install_source": [
+        "POST /api/sglang-v100/install-source"
+      ],
+      "settings": [
+        "GET,PUT /api/sglang-v100/build-settings"
+      ],
+      "status": [
+        "GET /api/sglang-v100/status"
+      ]
+    },
+    "unsloth_llama": {
+      "cancel": [
+        "POST /api/unsloth-llama/cancel"
+      ],
+      "check_updates": [
+        "GET /api/unsloth-llama/check-updates"
+      ],
+      "install_release": [
+        "POST /api/unsloth-llama/install"
+      ]
+    },
+    "vllm": {
+      "cancel": [
+        "POST /api/1cat-vllm/cancel",
+        "POST /api/vllm/cancel"
+      ],
+      "check_updates": [
+        "GET /api/1cat-vllm/check-updates",
+        "GET /api/vllm/check-updates"
+      ],
+      "delete": [
+        "POST /api/1cat-vllm/remove",
+        "POST /api/vllm/remove"
+      ],
+      "install_release": [
+        "POST /api/1cat-vllm/install",
+        "POST /api/vllm/install"
+      ],
+      "install_source": [
+        "POST /api/1cat-vllm/install-source",
+        "POST /api/vllm/install-source"
+      ],
+      "settings": [
+        "GET,PUT /api/1cat-vllm/build-settings",
+        "GET,PUT /api/vllm/build-settings"
+      ],
+      "status": [
+        "GET /api/1cat-vllm/status",
+        "GET /api/vllm/status"
+      ]
+    }
+  },
+  "registry": {
+    "1cat_vllm": {
+      "active_path_fields": [
+        "venv_path"
+      ],
+      "artifact_formats": [
+        "safetensors"
+      ],
+      "cpu_supported": false,
+      "experimental": false,
+      "gpu_archs": [
+        "sm70"
+      ],
+      "id": "1cat_vllm",
+      "input_modalities": [
+        "image",
+        "text"
+      ],
+      "install_kind": "python_venv",
+      "label": "1Cat-vLLM",
+      "maturity_surfaces": {},
+      "output_modalities": [
+        "embedding",
+        "text"
+      ],
+      "package_kinds": [
+        "hf_snapshot"
+      ],
+      "repository_source": "1Cat-vLLM",
+      "runtime_kind": "onecat_vllm",
+      "scanner_kind": "vllm_help",
+      "supports_embeddings": false,
+      "tasks": [
+        "embeddings",
+        "reranking",
+        "text-generation",
+        "text2text-generation"
+      ]
+    },
+    "audio_cpp": {
+      "active_path_fields": [
+        "server_binary_path",
+        "cli_binary_path"
+      ],
+      "artifact_formats": [
+        "builtin",
+        "mixed",
+        "original",
+        "safetensors"
+      ],
+      "cpu_supported": true,
+      "experimental": false,
+      "gpu_archs": [],
+      "id": "audio_cpp",
+      "input_modalities": [
+        "audio",
+        "text"
+      ],
+      "install_kind": "cmake",
+      "label": "audio.cpp",
+      "maturity_surfaces": {
+        "catalog_json": "stable",
+        "generic_tasks": "stable",
+        "heuristic_discovery": "experimental",
+        "speech_asr": "stable"
+      },
+      "output_modalities": [
+        "audio",
+        "events",
+        "segments",
+        "text"
+      ],
+      "package_kinds": [
+        "builtin",
+        "hf_snapshot",
+        "prepared_bundle"
+      ],
+      "repository_source": "audio.cpp",
+      "runtime_kind": "audio_cpp",
+      "scanner_kind": "audio_cpp",
+      "supports_embeddings": false,
+      "tasks": [
+        "align",
+        "asr",
+        "clon",
+        "diar",
+        "gen",
+        "pipeline",
+        "s2s",
+        "sep",
+        "spk",
+        "svc",
+        "tts",
+        "vad",
+        "vc",
+        "vdes"
+      ]
+    },
+    "ik_llama": {
+      "active_path_fields": [
+        "binary_path"
+      ],
+      "artifact_formats": [
+        "gguf"
+      ],
+      "cpu_supported": false,
+      "experimental": false,
+      "gpu_archs": [],
+      "id": "ik_llama",
+      "input_modalities": [
+        "image",
+        "text"
+      ],
+      "install_kind": "cmake",
+      "label": "ik_llama.cpp",
+      "maturity_surfaces": {},
+      "output_modalities": [
+        "embedding",
+        "score",
+        "text"
+      ],
+      "package_kinds": [
+        "sharded_bundle",
+        "single_file"
+      ],
+      "repository_source": "ik_llama.cpp",
+      "runtime_kind": "llama_server",
+      "scanner_kind": "llama_help",
+      "supports_embeddings": true,
+      "tasks": [
+        "embeddings",
+        "reranking",
+        "text-generation",
+        "text2text-generation"
+      ]
+    },
+    "llama_cpp": {
+      "active_path_fields": [
+        "binary_path"
+      ],
+      "artifact_formats": [
+        "gguf"
+      ],
+      "cpu_supported": false,
+      "experimental": false,
+      "gpu_archs": [],
+      "id": "llama_cpp",
+      "input_modalities": [
+        "image",
+        "text"
+      ],
+      "install_kind": "cmake",
+      "label": "llama.cpp",
+      "maturity_surfaces": {},
+      "output_modalities": [
+        "embedding",
+        "score",
+        "text"
+      ],
+      "package_kinds": [
+        "sharded_bundle",
+        "single_file"
+      ],
+      "repository_source": "llama.cpp",
+      "runtime_kind": "llama_server",
+      "scanner_kind": "llama_help",
+      "supports_embeddings": true,
+      "tasks": [
+        "embeddings",
+        "reranking",
+        "text-generation",
+        "text2text-generation"
+      ]
+    },
+    "lmdeploy": {
+      "active_path_fields": [
+        "venv_path"
+      ],
+      "artifact_formats": [
+        "safetensors"
+      ],
+      "cpu_supported": false,
+      "experimental": false,
+      "gpu_archs": [],
+      "id": "lmdeploy",
+      "input_modalities": [
+        "image",
+        "text"
+      ],
+      "install_kind": "python_venv",
+      "label": "LMDeploy",
+      "maturity_surfaces": {},
+      "output_modalities": [
+        "embedding",
+        "text"
+      ],
+      "package_kinds": [
+        "hf_snapshot"
+      ],
+      "repository_source": "LMDeploy",
+      "runtime_kind": "lmdeploy",
+      "scanner_kind": "lmdeploy_help",
+      "supports_embeddings": false,
+      "tasks": [
+        "embeddings",
+        "reranking",
+        "text-generation",
+        "text2text-generation"
+      ]
+    },
+    "sglang": {
+      "active_path_fields": [
+        "venv_path"
+      ],
+      "artifact_formats": [
+        "safetensors"
+      ],
+      "cpu_supported": false,
+      "experimental": false,
+      "gpu_archs": [],
+      "id": "sglang",
+      "input_modalities": [
+        "image",
+        "text",
+        "video"
+      ],
+      "install_kind": "python_venv",
+      "label": "SGLang",
+      "maturity_surfaces": {},
+      "output_modalities": [
+        "embedding",
+        "score",
+        "text"
+      ],
+      "package_kinds": [
+        "hf_snapshot"
+      ],
+      "repository_source": "SGLang",
+      "runtime_kind": "sglang",
+      "scanner_kind": "sglang_help",
+      "supports_embeddings": true,
+      "tasks": [
+        "embeddings",
+        "reranking",
+        "text-generation",
+        "text2text-generation"
+      ]
+    },
+    "sglang_v100": {
+      "active_path_fields": [
+        "venv_path"
+      ],
+      "artifact_formats": [
+        "safetensors"
+      ],
+      "cpu_supported": false,
+      "experimental": true,
+      "gpu_archs": [
+        "sm70"
+      ],
+      "id": "sglang_v100",
+      "input_modalities": [
+        "image",
+        "text",
+        "video"
+      ],
+      "install_kind": "python_venv",
+      "label": "SGLang V100",
+      "maturity_surfaces": {
+        "nvidia_sm70": "specialized"
+      },
+      "output_modalities": [
+        "embedding",
+        "score",
+        "text"
+      ],
+      "package_kinds": [
+        "hf_snapshot"
+      ],
+      "repository_source": "SGLang-V100",
+      "runtime_kind": "sglang",
+      "scanner_kind": "sglang_help",
+      "supports_embeddings": true,
+      "tasks": [
+        "embeddings",
+        "reranking",
+        "text-generation",
+        "text2text-generation"
+      ]
+    },
+    "unsloth_llama": {
+      "active_path_fields": [
+        "binary_path"
+      ],
+      "artifact_formats": [
+        "gguf"
+      ],
+      "cpu_supported": false,
+      "experimental": false,
+      "gpu_archs": [],
+      "id": "unsloth_llama",
+      "input_modalities": [
+        "image",
+        "text"
+      ],
+      "install_kind": "prebuilt",
+      "label": "Unsloth llama.cpp",
+      "maturity_surfaces": {},
+      "output_modalities": [
+        "embedding",
+        "score",
+        "text"
+      ],
+      "package_kinds": [
+        "sharded_bundle",
+        "single_file"
+      ],
+      "repository_source": "Unsloth llama.cpp",
+      "runtime_kind": "llama_server",
+      "scanner_kind": "llama_help",
+      "supports_embeddings": true,
+      "tasks": [
+        "embeddings",
+        "reranking",
+        "text-generation",
+        "text2text-generation"
+      ]
+    },
+    "vllm": {
+      "active_path_fields": [
+        "venv_path"
+      ],
+      "artifact_formats": [
+        "safetensors"
+      ],
+      "cpu_supported": false,
+      "experimental": false,
+      "gpu_archs": [],
+      "id": "vllm",
+      "input_modalities": [
+        "image",
+        "text",
+        "video"
+      ],
+      "install_kind": "python_venv",
+      "label": "vLLM",
+      "maturity_surfaces": {},
+      "output_modalities": [
+        "embedding",
+        "score",
+        "text"
+      ],
+      "package_kinds": [
+        "hf_snapshot"
+      ],
+      "repository_source": "vLLM",
+      "runtime_kind": "vllm",
+      "scanner_kind": "vllm_help",
+      "supports_embeddings": true,
+      "tasks": [
+        "embeddings",
+        "reranking",
+        "text-generation",
+        "text2text-generation"
+      ]
+    }
+  },
+  "response_shape_divergences": {
+    "1cat_vllm": {
+      "check_updates": "GET /api/1cat-vllm/check-updates -> object",
+      "install_release": "POST /api/1cat-vllm/install -> object",
+      "status": "GET /api/1cat-vllm/status -> object"
+    },
+    "audio_cpp": {
+      "check_updates": "GET /api/audio-cpp/check-updates -> unknown",
+      "contract": "GET /api/audio-cpp/contract -> unknown",
+      "install_release": "POST /api/audio-cpp/community-voices/install -> unknown",
+      "status": "GET /api/audio-cpp/status -> unknown"
+    },
+    "ik_llama": {
+      "check_updates": "GET /api/llama-versions/check-updates -> UpdateCheckResponse"
+    },
+    "llama_cpp": {
+      "check_updates": "GET /api/llama-versions/check-updates -> UpdateCheckResponse"
+    },
+    "lmdeploy": {
+      "check_updates": "GET /api/lmdeploy/check-updates -> object",
+      "install_release": "POST /api/lmdeploy/install -> object",
+      "status": "GET /api/lmdeploy/status -> object"
+    },
+    "sglang": {
+      "check_updates": "GET /api/sglang/check-updates -> object",
+      "install_release": "POST /api/sglang/install -> object",
+      "status": "GET /api/sglang/status -> object"
+    },
+    "sglang_v100": {
+      "check_updates": "GET /api/sglang-v100/check-updates -> object",
+      "install_release": "POST /api/sglang-v100/install -> object",
+      "status": "GET /api/sglang-v100/status -> object"
+    },
+    "unsloth_llama": {
+      "check_updates": "GET /api/unsloth-llama/check-updates -> object",
+      "install_release": "POST /api/unsloth-llama/install -> object"
+    },
+    "vllm": {
+      "check_updates": "GET /api/vllm/check-updates -> object",
+      "install_release": "POST /api/vllm/install -> object",
+      "status": "GET /api/vllm/status -> object"
+    }
+  },
+  "routes": [
+    {
+      "engines": [
+        "1cat_vllm",
+        "vllm"
+      ],
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "path": "/api/1cat-vllm/build-settings",
+      "responses": {
+        "GET": "object",
+        "PUT": "object"
+      }
+    },
+    {
+      "engines": [
+        "1cat_vllm",
+        "vllm"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/1cat-vllm/cancel",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "1cat_vllm",
+        "vllm"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/1cat-vllm/check-updates",
+      "responses": {
+        "GET": "object"
+      }
+    },
+    {
+      "engines": [
+        "1cat_vllm",
+        "vllm"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/1cat-vllm/install",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "1cat_vllm",
+        "vllm"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/1cat-vllm/install-source",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "1cat_vllm",
+        "vllm"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/1cat-vllm/remove",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "1cat_vllm",
+        "vllm"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/1cat-vllm/status",
+      "responses": {
+        "GET": "object"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/access",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "audio_cpp"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/audio-cpp/build-options",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "audio_cpp"
+      ],
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "path": "/api/audio-cpp/build-settings",
+      "responses": {
+        "GET": "unknown",
+        "PUT": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "audio_cpp"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/audio-cpp/build-source",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "audio_cpp"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/audio-cpp/cancel",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "audio_cpp"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/audio-cpp/check-updates",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "audio_cpp"
+      ],
+      "methods": [
+        "DELETE",
+        "GET"
+      ],
+      "path": "/api/audio-cpp/community-voices",
+      "responses": {
+        "DELETE": "unknown",
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "audio_cpp"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/audio-cpp/community-voices/install",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "audio_cpp"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/audio-cpp/contract",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "audio_cpp"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/audio-cpp/status",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "audio_cpp"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/audio-cpp/update",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/benchmarks/run",
+      "responses": {
+        "POST": "BenchmarkResponse"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/benchmarks/{model_id}",
+      "responses": {
+        "GET": "BenchmarkResponse[]"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/config-backup",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/config-backup/apply",
+      "responses": {
+        "POST": "BackupApplyResponse"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/config-backup/preview",
+      "responses": {
+        "POST": "BackupPreviewResponse"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/config-backup/reconcile",
+      "responses": {
+        "POST": "BackupReconcileResponse"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/config-history",
+      "responses": {
+        "GET": "HistoryEntryResponse[]"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/config-history/{entry_id}",
+      "responses": {
+        "GET": "HistoryDiffResponse"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/config-history/{entry_id}/restore",
+      "responses": {
+        "POST": "HistoryRestoreResponse"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/diagnostics/bundle",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/engines",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "path": "/api/engines/{engine_id}/build-settings",
+      "responses": {
+        "GET": "object",
+        "PUT": "object"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/engines/{engine_id}/cancel",
+      "responses": {
+        "POST": "CancelAccepted"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/engines/{engine_id}/check-updates",
+      "responses": {
+        "GET": "object"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/engines/{engine_id}/install",
+      "responses": {
+        "POST": "InstallAccepted"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/engines/{engine_id}/install-source",
+      "responses": {
+        "POST": "InstallAccepted"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/engines/{engine_id}/remove",
+      "responses": {
+        "POST": "InstallAccepted"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/engines/{engine_id}/status",
+      "responses": {
+        "GET": "VenvEngineStatus"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/events",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/gpu-info",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/gpu-list",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "path": "/api/inference/keys",
+      "responses": {
+        "GET": "unknown",
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "DELETE",
+        "PATCH"
+      ],
+      "path": "/api/inference/keys/{key_id}",
+      "responses": {
+        "DELETE": "empty",
+        "PATCH": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/inference/keys/{key_id}/rotate",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/live",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "ik_llama",
+        "llama_cpp"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/llama-versions",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "ik_llama",
+        "llama_cpp"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/llama-versions/build-cancel",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "ik_llama",
+        "llama_cpp"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/llama-versions/build-capabilities",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "ik_llama",
+        "llama_cpp"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/llama-versions/build-options",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "ik_llama",
+        "llama_cpp"
+      ],
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "path": "/api/llama-versions/build-settings",
+      "responses": {
+        "GET": "unknown",
+        "PUT": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "ik_llama",
+        "llama_cpp"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/llama-versions/build-source",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "ik_llama",
+        "llama_cpp"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/llama-versions/check-updates",
+      "responses": {
+        "GET": "UpdateCheckResponse"
+      }
+    },
+    {
+      "engines": [
+        "ik_llama",
+        "llama_cpp"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/llama-versions/cuda-install",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "ik_llama",
+        "llama_cpp"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/llama-versions/cuda-logs",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "ik_llama",
+        "llama_cpp"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/llama-versions/cuda-status",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "ik_llama",
+        "llama_cpp"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/llama-versions/cuda-uninstall",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "ik_llama",
+        "llama_cpp"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/llama-versions/cuda/cancel",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "ik_llama",
+        "llama_cpp"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/llama-versions/scan-engine-params",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "ik_llama",
+        "llama_cpp"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/llama-versions/update",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "ik_llama",
+        "llama_cpp"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/llama-versions/verify/{version}",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "ik_llama",
+        "llama_cpp"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/llama-versions/versions/activate",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "ik_llama",
+        "llama_cpp"
+      ],
+      "methods": [
+        "PUT"
+      ],
+      "path": "/api/llama-versions/versions/build-config",
+      "responses": {
+        "PUT": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "ik_llama",
+        "llama_cpp"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/llama-versions/versions/retry",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "ik_llama",
+        "llama_cpp"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/llama-versions/versions/sync",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "ik_llama",
+        "llama_cpp"
+      ],
+      "methods": [
+        "DELETE"
+      ],
+      "path": "/api/llama-versions/{version_id}",
+      "responses": {
+        "DELETE": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "lmdeploy"
+      ],
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "path": "/api/lmdeploy/build-settings",
+      "responses": {
+        "GET": "object",
+        "PUT": "object"
+      }
+    },
+    {
+      "engines": [
+        "lmdeploy"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/lmdeploy/cancel",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "lmdeploy"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/lmdeploy/check-updates",
+      "responses": {
+        "GET": "object"
+      }
+    },
+    {
+      "engines": [
+        "lmdeploy"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/lmdeploy/install",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "lmdeploy"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/lmdeploy/install-source",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "lmdeploy"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/lmdeploy/remove",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "lmdeploy"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/lmdeploy/status",
+      "responses": {
+        "GET": "object"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/model-catalog/import",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/model-catalog/install",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/model-catalog/search",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/model-catalog/tasks/{task_id}/cancel",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "path": "/api/model-config-templates",
+      "responses": {
+        "GET": "object[]",
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "DELETE",
+        "PUT"
+      ],
+      "path": "/api/model-config-templates/{template_id}",
+      "responses": {
+        "DELETE": "object",
+        "PUT": "object"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/models",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/models/delete-group",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/models/download",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/models/downloads/cancel",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/models/gguf/download-bundle",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "path": "/api/models/huggingface-token",
+      "responses": {
+        "GET": "unknown",
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/models/param-registry",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/models/quantization-sizes",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "DELETE",
+        "GET"
+      ],
+      "path": "/api/models/safetensors",
+      "responses": {
+        "DELETE": "unknown",
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/models/safetensors/download-bundle",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/models/search",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/models/search/{model_id}/file-sizes",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "DELETE"
+      ],
+      "path": "/api/models/{model_id}",
+      "responses": {
+        "DELETE": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/models/{model_id}/companions",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "path": "/api/models/{model_id}/config",
+      "responses": {
+        "GET": "unknown",
+        "PUT": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/models/{model_id}/config/apply-template",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/models/{model_id}/config/save-template",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/models/{model_id}/connect-test",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/models/{model_id}/dflash",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/models/{model_id}/mtp",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/models/{model_id}/preview-command",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/models/{model_id}/projector",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "path": "/api/models/{model_id}/reference-audio",
+      "responses": {
+        "GET": "unknown",
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "DELETE"
+      ],
+      "path": "/api/models/{model_id}/reference-audio/{filename}",
+      "responses": {
+        "DELETE": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/models/{model_id}/refresh",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/models/{model_id}/runtime/apply",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/models/{model_id}/runtime/apply/{operation_id}",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/models/{model_id}/runtime/apply/{operation_id}/cancel",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/models/{model_id}/saved-command",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/models/{model_id}/start",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/models/{model_id}/stop",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/operations/reconcile",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/operations/recovery",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/proxy",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/proxy/lifecycle/{action}",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "DELETE",
+        "GET"
+      ],
+      "path": "/api/proxy/models/{model_id}/logs",
+      "responses": {
+        "DELETE": "empty",
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/proxy/models/{model_id}/preload",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/proxy/models/{model_id}/reload",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/proxy/models/{model_id}/unload",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/proxy/requests",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "PUT"
+      ],
+      "path": "/api/proxy/settings",
+      "responses": {
+        "PUT": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/proxy/stats/reset",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/ready",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/runtime/apply-launch",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/runtime/pending",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/runtime/stale",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/session",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "path": "/api/settings/inference",
+      "responses": {
+        "GET": "unknown",
+        "PUT": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "sglang",
+        "sglang_v100"
+      ],
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "path": "/api/sglang-v100/build-settings",
+      "responses": {
+        "GET": "object",
+        "PUT": "object"
+      }
+    },
+    {
+      "engines": [
+        "sglang",
+        "sglang_v100"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/sglang-v100/cancel",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "sglang",
+        "sglang_v100"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/sglang-v100/check-updates",
+      "responses": {
+        "GET": "object"
+      }
+    },
+    {
+      "engines": [
+        "sglang",
+        "sglang_v100"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/sglang-v100/install",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "sglang",
+        "sglang_v100"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/sglang-v100/install-source",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "sglang",
+        "sglang_v100"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/sglang-v100/remove",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "sglang",
+        "sglang_v100"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/sglang-v100/status",
+      "responses": {
+        "GET": "object"
+      }
+    },
+    {
+      "engines": [
+        "sglang"
+      ],
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "path": "/api/sglang/build-settings",
+      "responses": {
+        "GET": "object",
+        "PUT": "object"
+      }
+    },
+    {
+      "engines": [
+        "sglang"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/sglang/cancel",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "sglang"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/sglang/check-updates",
+      "responses": {
+        "GET": "object"
+      }
+    },
+    {
+      "engines": [
+        "sglang"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/sglang/install",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "sglang"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/sglang/install-source",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "sglang"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/sglang/remove",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "sglang"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/sglang/status",
+      "responses": {
+        "GET": "object"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/status",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/tasks/dismiss",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "unsloth_llama"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/unsloth-llama/cancel",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "unsloth_llama"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/unsloth-llama/check-updates",
+      "responses": {
+        "GET": "object"
+      }
+    },
+    {
+      "engines": [
+        "unsloth_llama"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/unsloth-llama/install",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "vllm"
+      ],
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "path": "/api/vllm/build-settings",
+      "responses": {
+        "GET": "object",
+        "PUT": "object"
+      }
+    },
+    {
+      "engines": [
+        "vllm"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/vllm/cancel",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "vllm"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/vllm/check-updates",
+      "responses": {
+        "GET": "object"
+      }
+    },
+    {
+      "engines": [
+        "vllm"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/vllm/install",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "vllm"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/vllm/install-source",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "vllm"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/vllm/remove",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "vllm"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/vllm/status",
+      "responses": {
+        "GET": "object"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/v1/audio/alignments",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/v1/audio/speech",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/v1/audio/transcriptions",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/v1/audio/transcriptions/details",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "DELETE",
+        "GET",
+        "HEAD",
+        "OPTIONS",
+        "PATCH",
+        "POST",
+        "PUT"
+      ],
+      "path": "/v1/audio/{rest}",
+      "responses": {
+        "DELETE": "unknown",
+        "GET": "unknown",
+        "HEAD": "unknown",
+        "OPTIONS": "unknown",
+        "PATCH": "unknown",
+        "POST": "unknown",
+        "PUT": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/v1/batches/transcriptions",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/v1/tasks/run",
+      "responses": {
+        "POST": "unknown"
+      }
+    }
+  ],
+  "scanner_kinds": {
+    "audio_cpp": {
+      "dispatched": true,
+      "engines": [
+        "audio_cpp"
+      ]
+    },
+    "llama_help": {
+      "dispatched": true,
+      "engines": [
+        "llama_cpp",
+        "ik_llama",
+        "unsloth_llama"
+      ]
+    }
+  },
+  "schema_version": 2,
+  "shadow_definitions_loaded": [
+    "1cat_vllm",
+    "audio_cpp",
+    "ik_llama",
+    "launchcraft",
+    "launchforge",
+    "llama_cpp",
+    "lmdeploy",
+    "nativecraft",
+    "sglang",
+    "sglang_v100",
+    "unsloth_llama",
+    "vllm",
+    "yamlcraft"
+  ]
+}

@@ -8,26 +8,47 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from backend.logging_config import get_logger
 
+from backend.engines.audio_cpp.identity import default_audio_engine_id
+
 logger = get_logger(__name__)
+
+
+def _model_audio_engine(config: dict, model: dict) -> str:
+    from backend.engines.audio_cpp.identity import (
+        audio_engine_ids,
+        default_audio_engine_id,
+        is_audio_engine_id,
+    )
+
+    engine = str(config.get("engine") or model.get("engine") or "").strip()
+    if engine and is_audio_engine_id(engine):
+        return engine
+    engines_cfg = config.get("engines") if isinstance(config.get("engines"), dict) else {}
+    for candidate in audio_engine_ids():
+        if isinstance(engines_cfg.get(candidate), dict):
+            return candidate
+    return default_audio_engine_id()
+
+
+def is_audio_cpp_model(model: dict) -> bool:
+    if not isinstance(model, dict):
+        return False
+    from backend.engines.audio_cpp.identity import audio_engine_ids, is_audio_engine_id
+
+    engines = model.get("compatible_engines") or []
+    if any(engine in engines for engine in audio_engine_ids()):
+        return True
+    config = model.get("config") if isinstance(model.get("config"), dict) else {}
+    if is_audio_engine_id(str(config.get("engine") or "").strip()):
+        return True
+    engines_cfg = config.get("engines") if isinstance(config.get("engines"), dict) else {}
+    return any(isinstance(engines_cfg.get(engine), dict) for engine in audio_engine_ids())
 
 
 def capability_delta(previous: Optional[dict], current: Optional[dict]) -> Dict[str, Any]:
     from backend.engines.scan.scanner import compute_audio_cpp_capability_delta
 
     return compute_audio_cpp_capability_delta(previous, current)
-
-
-def is_audio_cpp_model(model: dict) -> bool:
-    if not isinstance(model, dict):
-        return False
-    engines = model.get("compatible_engines") or []
-    if "audio_cpp" in engines:
-        return True
-    config = model.get("config") if isinstance(model.get("config"), dict) else {}
-    if str(config.get("engine") or "").strip() == "audio_cpp":
-        return True
-    engines_cfg = config.get("engines") if isinstance(config.get("engines"), dict) else {}
-    return isinstance(engines_cfg.get("audio_cpp"), dict)
 
 
 def models_affected_by_delta(
@@ -56,14 +77,12 @@ def models_affected_by_delta(
         if not isinstance(model, dict):
             continue
         config = model.get("config") if isinstance(model.get("config"), dict) else {}
-        engine = str(config.get("engine") or model.get("engine") or "").strip()
+        engine = _model_audio_engine(config, model)
         engines = config.get("engines") if isinstance(config.get("engines"), dict) else {}
-        audio_cfg = engines.get("audio_cpp") if isinstance(engines.get("audio_cpp"), dict) else {}
-        if engine != "audio_cpp" and not audio_cfg:
+        audio_cfg = engines.get(engine) if isinstance(engines.get(engine), dict) else {}
+        if not audio_cfg and not is_audio_cpp_model(model):
             continue
-        family = str(
-            audio_cfg.get("family") or model.get("family") or ""
-        ).strip().lower()
+        family = str(audio_cfg.get("family") or model.get("family") or "").strip().lower()
         task = str(audio_cfg.get("task") or "").strip().lower()
         intersects = (family and family in families) or (task and task in tasks)
         if intersects or (contract_changed and not families and not tasks):
@@ -73,9 +92,7 @@ def models_affected_by_delta(
                     "name": model.get("name") or model.get("display_name") or model.get("id"),
                     "family": family or None,
                     "task": task or None,
-                    "last_reviewed_fingerprint": audio_cfg.get(
-                        "last_reviewed_fingerprint"
-                    ),
+                    "last_reviewed_fingerprint": audio_cfg.get("last_reviewed_fingerprint"),
                 }
             )
     return affected
@@ -84,11 +101,8 @@ def models_affected_by_delta(
 def _model_family_task(model: dict) -> Tuple[str, str]:
     config = model.get("config") if isinstance(model.get("config"), dict) else {}
     engines_cfg = config.get("engines") if isinstance(config.get("engines"), dict) else {}
-    audio_cfg = (
-        engines_cfg.get("audio_cpp")
-        if isinstance(engines_cfg.get("audio_cpp"), dict)
-        else {}
-    )
+    engine = _model_audio_engine(config, model)
+    audio_cfg = engines_cfg.get(engine) if isinstance(engines_cfg.get(engine), dict) else {}
     family = str(audio_cfg.get("family") or model.get("family") or "").strip().lower()
     task = str(audio_cfg.get("task") or model.get("task") or "").strip().lower()
     return family, task
@@ -102,7 +116,7 @@ def _profile_cache_is_fresh(store, row: dict, model: dict) -> bool:
     try:
         fingerprint = audio_cpp_model_profile_fingerprint(row, model)
         cached = get_model_profile_entry(
-            store, "audio_cpp", str(row.get("version") or ""), fingerprint
+            store, default_audio_engine_id(), str(row.get("version") or ""), fingerprint
         )
     except Exception as exc:
         logger.debug("audio.cpp profile cache probe failed: %s", exc)
@@ -110,7 +124,9 @@ def _profile_cache_is_fresh(store, row: dict, model: dict) -> bool:
     return bool(cached and not cached.get("scan_error"))
 
 
-def plan_profile_rescans(store, row: dict, delta: Optional[dict], *, contract_changed: bool) -> List[Tuple[dict, bool]]:
+def plan_profile_rescans(
+    store, row: dict, delta: Optional[dict], *, contract_changed: bool
+) -> List[Tuple[dict, bool]]:
     """Select which audio models need a profile rescan after activation.
 
     Returns ``(model, force)`` pairs. A changed contract invalidates every
@@ -139,9 +155,7 @@ def plan_profile_rescans(store, row: dict, delta: Optional[dict], *, contract_ch
         if not is_audio_cpp_model(model):
             continue
         family, task = _model_family_task(model)
-        intersects = (family and family in touched_families) or (
-            task and task in touched_tasks
-        )
+        intersects = (family and family in touched_families) or (task and task in touched_tasks)
         if contract_changed:
             plan.append((model, True))
         elif intersects:
@@ -166,11 +180,7 @@ async def rescan_model_profiles(
     from backend.engines.scan.scanner import scan_audio_cpp_model_profile
 
     if plan is None:
-        plan = [
-            (model, True)
-            for model in store.list_models() or []
-            if is_audio_cpp_model(model)
-        ]
+        plan = [(model, True) for model in store.list_models() or [] if is_audio_cpp_model(model)]
     semaphore = asyncio.Semaphore(RESCAN_CONCURRENCY)
 
     async def _one(model: dict, force: bool) -> dict:
@@ -181,9 +191,7 @@ async def rescan_model_profiles(
                     scan_audio_cpp_model_profile, store, row, model, force=force
                 )
             except Exception as exc:
-                logger.warning(
-                    "audio.cpp model profile rescan failed for %s: %s", model_id, exc
-                )
+                logger.warning("audio.cpp model profile rescan failed for %s: %s", model_id, exc)
                 return {"id": model_id, "ok": False, "scan_error": str(exc), "fingerprint": None}
         return {
             "id": model_id,
@@ -224,7 +232,7 @@ def assert_activation_supported(store, row: dict) -> None:
 
     from backend.engines.params import get_version_entry
 
-    entry = get_version_entry(store, "audio_cpp", str(row.get("version") or ""))
+    entry = get_version_entry(store, default_audio_engine_id(), str(row.get("version") or ""))
     if _scan_can_be_skipped(store, row, entry):
         return
 
@@ -272,7 +280,9 @@ async def finish_audio_activation(store, row: dict, on_stage=None) -> dict:
             except Exception:
                 pass
 
-    previous_entry = get_version_entry(store, "audio_cpp", str(row.get("version") or ""))
+    previous_entry = get_version_entry(
+        store, default_audio_engine_id(), str(row.get("version") or "")
+    )
     scan_entry = None
     skipped_scan = False
     try:
@@ -280,15 +290,13 @@ async def finish_audio_activation(store, row: dict, on_stage=None) -> dict:
             scan_entry = previous_entry
             skipped_scan = True
             _stage("Engine unchanged - reusing cached scan")
-            logger.info(
-                "audio.cpp scan skipped: engine binaries and specs unchanged"
-            )
+            logger.info("audio.cpp scan skipped: engine binaries and specs unchanged")
         else:
             from backend.engines.scan.scanner import scan_engine_version
 
             _stage("Probing engine help and loaders")
             scan_entry = await asyncio.to_thread(
-                scan_engine_version, store, "audio_cpp", row
+                scan_engine_version, store, default_audio_engine_id(), row
             )
             if isinstance(scan_entry, dict) and not scan_entry.get("scan_error"):
                 scan_entry = dict(scan_entry)
@@ -297,7 +305,7 @@ async def finish_audio_activation(store, row: dict, on_stage=None) -> dict:
 
                 try:
                     upsert_version_entry(
-                        store, "audio_cpp", str(row.get("version") or ""), scan_entry
+                        store, default_audio_engine_id(), str(row.get("version") or ""), scan_entry
                     )
                 except Exception as exc:
                     logger.debug("audio.cpp identity persist failed: %s", exc)
@@ -307,13 +315,9 @@ async def finish_audio_activation(store, row: dict, on_stage=None) -> dict:
     delta = (
         (scan_entry or {}).get("capability_delta")
         if isinstance(scan_entry, dict) and (scan_entry or {}).get("capability_delta")
-        else capability_delta(
-            previous_entry, scan_entry if isinstance(scan_entry, dict) else None
-        )
+        else capability_delta(previous_entry, scan_entry if isinstance(scan_entry, dict) else None)
     )
-    contract_changed = bool(
-        isinstance(scan_entry, dict) and scan_entry.get("contract_changed")
-    )
+    contract_changed = bool(isinstance(scan_entry, dict) and scan_entry.get("contract_changed"))
 
     profile_rescans: List[dict] = []
     try:

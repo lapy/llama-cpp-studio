@@ -133,6 +133,9 @@ dmypy.json
 
 # Node.js
 node_modules/
+# The standalone image links node_modules as a symlink; the trailing-slash
+# form only matches directories.
+node_modules
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -326,5 +329,9 @@ llama-gguf-split
 .git/
 .cursor/
 
-# Private deployment and verification records
+# Development-control test scratch space
+.pytest-devcontrol-tmp/
+.tmp/
+
+# Private deployment reports, host details, and local verification evidence
 /docs/private/

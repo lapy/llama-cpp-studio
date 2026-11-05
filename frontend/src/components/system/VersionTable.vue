@@ -107,6 +107,7 @@
 <script setup>
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
+import { CMAKE_ENGINE_IDS, ENGINE_DESCRIPTORS } from '../../engines/registry.js'
 
 defineProps({
   versions: {
@@ -234,17 +235,17 @@ function canRetryVersion(version) {
   return ['failed', 'cancelled', 'broken'].includes(buildStatus(version))
 }
 
-const CMAKE_ENGINES = new Set(['llama_cpp', 'ik_llama', 'audio_cpp'])
+const CMAKE_ENGINES = new Set(CMAKE_ENGINE_IDS)
 
 function versionEngine(version) {
   const id = String(version?.id || '')
   const prefix = id.includes(':') ? id.split(':')[0] : ''
   if (CMAKE_ENGINES.has(prefix)) return prefix
   const repo = String(version?.repository_source || '')
-  if (repo === 'llama.cpp') return 'llama_cpp'
-  if (repo === 'ik_llama.cpp') return 'ik_llama'
-  if (repo === 'audio.cpp') return 'audio_cpp'
-  return ''
+  return (
+    Object.entries(ENGINE_DESCRIPTORS).find(([, descriptor]) => descriptor.repoSource === repo)?.[0] ||
+    ''
+  )
 }
 
 function canEditBuildConfig(version) {

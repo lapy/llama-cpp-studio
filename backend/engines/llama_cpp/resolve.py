@@ -10,6 +10,11 @@ from backend.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# The native server binary's name is family vocabulary and lives in the engine
+# home; shared launch/install code refers to this constant so the literal is
+# not duplicated outside it.
+SERVER_BINARY_NAME = "llama-server"
+
 
 def abs_llama_binary_path(p: Optional[str]) -> str:
     if not p:

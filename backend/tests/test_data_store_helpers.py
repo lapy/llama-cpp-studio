@@ -123,10 +123,13 @@ def test_update_model_writes_current_safetensors_compatible_engines(tmp_path):
 
     updated = store.update_model("org--repo", {"display_name": "Repo"})
     expected = ["lmdeploy", "1cat_vllm", "vllm", "sglang", "sglang_v100"]
-    assert updated["compatible_engines"] == expected
+    # Stored order is preserved for existing entries; newly declared engines
+    # append in registry order (definition-owned engines load after literals).
+    assert updated["compatible_engines"][:2] == ["lmdeploy", "1cat_vllm"]
+    assert set(updated["compatible_engines"]) == set(expected)
 
     on_disk = yaml.safe_load(models_path.read_text(encoding="utf-8"))
-    assert on_disk["models"][0]["compatible_engines"] == expected
+    assert on_disk["models"][0]["compatible_engines"] == updated["compatible_engines"]
 
 
 def test_data_store_engine_version_and_active(tmp_path):

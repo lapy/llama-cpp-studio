@@ -142,7 +142,9 @@ async def test_build_source_task_registers_failure(monkeypatch, tmp_path):
     async def boom(*_args, **_kwargs):
         raise RuntimeError("compile exploded")
 
-    monkeypatch.setattr(llama_routes.llama_manager, "build_source", boom)
+    from backend.engines.llama_cpp.installer import LlamaNativeInstaller
+
+    monkeypatch.setattr(LlamaNativeInstaller, "run_source", boom)
     monkeypatch.setattr(llama_routes, "mark_runtime_changed", lambda: None)
     llama_routes.llama_manager.llama_dir = str(tmp_path / "llama-cpp")
 
@@ -261,6 +263,9 @@ def test_delete_active_version_when_no_model_selects_the_engine(client, monkeypa
         "llama_cpp",
         {"version": "v1", "binary_path": "/bin/llama-server", "type": "release"},
     )
+    store.record_install_snapshot(
+        "llama_cpp", definition_digest="sha256:" + "a" * 64, version="v1"
+    )
     store.set_active_engine_version("llama_cpp", "v1")
     store.add_model(
         {
@@ -278,6 +283,9 @@ def test_delete_active_version_when_no_model_selects_the_engine(client, monkeypa
     assert blocked.status_code == 200
     assert store.get_active_engine_version("llama_cpp") is None
     assert store.get_engine_versions("llama_cpp") == []
+    # Removal prunes the version's retry provenance so a later same-name
+    # install cannot select a stale digest.
+    assert store.list_install_snapshots("llama_cpp") == []
 
 
 def test_delete_active_version_rejected_when_a_model_selects_it(client, monkeypatch, tmp_path):

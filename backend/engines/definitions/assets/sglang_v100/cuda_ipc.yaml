@@ -1,0 +1,12 @@
+schema_version: 1
+name: sglang_v100/cuda_ipc
+description: Use explicit Tuple member access in the custom all-reduce JIT (NVCC 12.8).
+file: python/sglang/kernels/jit/csrc/distributed/ipc.cuh
+optional_file: true
+operations:
+- kind: replace_all_or_none
+  replacements:
+  - search: to_ipc_handle(get<0>(pair))
+    replace: to_ipc_handle(pair.get<0>())
+  - search: const auto offset = get<1>(pair);
+    replace: const auto offset = pair.get<1>();

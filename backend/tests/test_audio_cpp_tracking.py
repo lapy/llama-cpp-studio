@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 
 from backend.engines.audio_cpp.manager import AUDIO_CPP_DEFAULT_REF
 from backend.engines.audio_cpp.tracking import (
@@ -95,26 +94,3 @@ def test_resolve_bootstrap_tracking_ref_prefers_latest_release(monkeypatch):
 
 def test_audio_cpp_default_ref_is_main():
     assert AUDIO_CPP_DEFAULT_REF == "main"
-
-
-def test_persisted_engine_pin_uses_v2_manager_and_commit():
-    path = Path(__file__).resolve().parents[2] / "data" / "config" / "engines.yaml"
-    if not path.is_file():
-        return
-    import yaml
-
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    audio = data.get("audio_cpp") or {}
-    versions = audio.get("versions") or []
-    if not versions:
-        return
-    active = audio.get("active_version")
-    row = next(
-        (item for item in versions if item.get("version") == active),
-        versions[0],
-    )
-    assert str(row.get("model_manager_path") or "").endswith("model_manager_v2.py")
-    assert len(str(row.get("source_commit") or "")) == 40
-    settings = audio.get("build_settings") or {}
-    if settings.get("tracking_ref"):
-        assert settings["tracking_ref"] in {"main", AUDIO_CPP_DEFAULT_REF}

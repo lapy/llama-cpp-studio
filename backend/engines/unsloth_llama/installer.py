@@ -15,12 +15,13 @@ import platform
 import sys
 import tarfile
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 from urllib.parse import urlparse
 
 import httpx
 
 from backend.data_store import get_store, studio_data_dir
+from backend.engines.python.native import GenericNativeInstaller
 from backend.engines.unsloth_llama.prebuilt import (
     CHECKSUM_ASSET_NAME,
     MANIFEST_ASSET_NAME,
@@ -35,7 +36,6 @@ from backend.engines.unsloth_llama.prebuilt import (
     select_release_asset,
 )
 from backend.logging_config import get_logger
-from backend.operations.cancellable import CancellableOperationManager
 
 logger = get_logger(__name__)
 
@@ -60,8 +60,10 @@ def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def find_checksum_asset(assets: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    return find_named_asset(assets, CHECKSUM_ASSET_NAME)
+def find_checksum_asset(
+    assets: List[Dict[str, Any]], name: str = CHECKSUM_ASSET_NAME
+) -> Optional[Dict[str, Any]]:
+    return find_named_asset(assets, name)
 
 
 def _digest_from_entry(value: Any) -> Optional[str]:
@@ -74,7 +76,9 @@ def _digest_from_entry(value: Any) -> Optional[str]:
     return None
 
 
-def expected_sha256(manifest: Any, asset_name: str) -> str:
+def expected_sha256(
+    manifest: Any, asset_name: str, checksum_name: str = CHECKSUM_ASSET_NAME
+) -> str:
     name = str(asset_name or "").strip()
     if not name:
         raise ValueError("Asset name is required for checksum lookup")
@@ -98,7 +102,7 @@ def expected_sha256(manifest: Any, asset_name: str) -> str:
         nested = expected_sha256_from_list(manifest, name)
         if nested:
             return nested
-    raise ValueError(f"No sha256 entry for {name} in {CHECKSUM_ASSET_NAME}")
+    raise ValueError(f"No sha256 entry for {name} in {checksum_name}")
 
 
 def expected_sha256_from_list(items: Any, asset_name: str) -> Optional[str]:
@@ -153,13 +157,28 @@ def _safe_extract_tar(archive: tarfile.TarFile, dest: str) -> None:
     archive.extractall(dest)
 
 
-class UnslothLlamaInstaller(CancellableOperationManager):
+class UnslothLlamaInstaller(GenericNativeInstaller):
     MANAGER_NAME = "unsloth_llama"
 
     def __init__(self, *, base_dir: Optional[str] = None) -> None:
-        super().__init__()
-        self._root_dir = os.path.abspath(base_dir or os.path.join(studio_data_dir(), "unsloth-llama"))
-        os.makedirs(self._root_dir, exist_ok=True)
+        from backend.engines.definitions.loader import load_default_engine_definitions
+
+        definition = load_default_engine_definitions().definitions.get(ENGINE_ID)
+        if definition is None:
+            raise RuntimeError(f"{ENGINE_ID} engine definition is unavailable")
+        policy = dict(definition.release_assets)
+        super().__init__(
+            definition,
+            install_root=base_dir or os.path.join(studio_data_dir(), "unsloth-llama"),
+        )
+        self._repository = str(policy.get("repository") or "unslothai/llama.cpp")
+        self._repository_url = str(policy.get("repository_url") or UNSLOTH_LLAMA_REPO)
+        self._manifest_asset = str(policy.get("manifest_asset") or MANIFEST_ASSET_NAME)
+        self._checksum_asset = str(policy.get("checksum_asset") or CHECKSUM_ASSET_NAME)
+        self._max_walkback = int(policy.get("max_walkback") or MAX_RELEASE_WALKBACK)
+        self._releases_api = f"https://api.github.com/repos/{self._repository}/releases"
+        self._cached_resolution: Optional[Tuple[Any, Any, Any, Any]] = None
+        self._last_resolution: Dict[str, Any] = {}
 
     @property
     def root_dir(self) -> str:
@@ -215,26 +234,27 @@ class UnslothLlamaInstaller(CancellableOperationManager):
         }
 
     async def list_published_releases(
-        self, *, max_items: int = MAX_RELEASE_WALKBACK
+        self, *, max_items: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         from backend.engines.unsloth_llama.prebuilt import sort_releases_by_publish_time
 
+        limit = self._max_walkback if max_items is None else max_items
         async with httpx.AsyncClient(timeout=GITHUB_TIMEOUT, follow_redirects=True) as client:
             response = await client.get(
-                RELEASES_API,
+                self._releases_api,
                 headers=self._headers(),
                 params={"per_page": 30},
             )
             response.raise_for_status()
             payload = response.json() or []
-        return sort_releases_by_publish_time(payload)[: max(1, max_items)]
+        return sort_releases_by_publish_time(payload)[: max(1, limit)]
 
     async def fetch_release(self, tag_name: Optional[str] = None) -> Dict[str, Any]:
         tag = str(tag_name or "").strip()
         async with httpx.AsyncClient(timeout=GITHUB_TIMEOUT, follow_redirects=True) as client:
             if tag:
                 response = await client.get(
-                    f"{RELEASES_API}/tags/{tag}", headers=self._headers()
+                    f"{self._releases_api}/tags/{tag}", headers=self._headers()
                 )
                 response.raise_for_status()
                 payload = response.json()
@@ -281,12 +301,10 @@ class UnslothLlamaInstaller(CancellableOperationManager):
             tag = str(release.get("tag_name") or "").strip()
             assets = [item for item in (release.get("assets") or []) if isinstance(item, dict)]
             manifest = None
-            manifest_asset = find_named_asset(assets, MANIFEST_ASSET_NAME)
+            manifest_asset = find_named_asset(assets, self._manifest_asset)
             if manifest_asset:
                 try:
-                    manifest = await self._fetch_json(
-                        str(manifest_asset["browser_download_url"])
-                    )
+                    manifest = await self._fetch_json(str(manifest_asset["browser_download_url"]))
                 except Exception as exc:
                     logger.warning("Unsloth prebuilt manifest for %s: %s", tag, exc)
             plan = None
@@ -348,14 +366,16 @@ class UnslothLlamaInstaller(CancellableOperationManager):
                 "type": "release",
                 "install_type": "release",
                 "repository_source": REPOSITORY_SOURCE,
-                "source_repo": UNSLOTH_LLAMA_REPO,
+                "source_repo": self._repository_url,
                 "installed_at": utcnow(),
                 **extra,
             },
             task_id=self._progress_task_id,
         )
 
-    def _fail_pending(self, version_name: str, error: str, extra: Optional[Dict[str, Any]] = None) -> None:
+    def _fail_pending(
+        self, version_name: str, error: str, extra: Optional[Dict[str, Any]] = None
+    ) -> None:
         from backend.engines.lifecycle import mark_engine_version_failed
 
         mark_engine_version_failed(
@@ -366,149 +386,167 @@ class UnslothLlamaInstaller(CancellableOperationManager):
             extra=extra or {},
         )
 
+    def _register_pending_install(self, version_name: str, install_dir: str, task_id: str) -> None:
+        self._register_pending(
+            version_name,
+            {"install_dir": install_dir, "repository_source": REPOSITORY_SOURCE},
+        )
+
+    def _install_failed(self, version_name: str, error: str, install_dir: str) -> None:
+        self._fail_pending(version_name, error, {"install_dir": install_dir})
+
+    async def _resolve_latest_tag(self) -> Optional[str]:
+        host = await self._host_target()
+        release, plan_res, manifest = await self._resolve_plan(None, host)
+        self._cached_resolution = (release, plan_res, manifest, host)
+        return plan_res.tag
+
     async def install_release(self, tag_name: Optional[str] = None) -> Dict[str, Any]:
-        async with self._lock:
-            if self._operation:
-                raise RuntimeError("Another Unsloth llama.cpp operation is already running")
-            if not host_is_linux_x64():
-                raise RuntimeError(
-                    "Unsloth llama.cpp prebuilts are installed for Linux x64 only"
-                )
-            await self._start_operation("install", {"engine": ENGINE_ID})
-            pending = self._unique_version_name(str(tag_name or "pending").strip() or "pending")
-            install_dir = os.path.join(self._root_dir, pending)
-            extra = {
-                "install_dir": install_dir,
-                "repository_source": REPOSITORY_SOURCE,
+        if not host_is_linux_x64():
+            raise RuntimeError("Unsloth llama.cpp prebuilts are installed for Linux x64 only")
+        requested = str(tag_name or "").strip() or None
+        return await self.start_release_install(
+            version=requested,
+            version_resolver=None if requested else self._resolve_latest_tag,
+            extra_context={"input.tag_name": requested},
+        )
+
+    def _extra_plan_handlers(self) -> Dict[str, Any]:
+        return {
+            "prereqs.resolve_release_assets": self._resolve_release_assets,
+            "artifact.read_checksum": self._read_checksum,
+        }
+
+    async def _resolve_release_assets(self, step, requirements, context):
+        requested = requirements.get("input.tag_name")
+        await self._update_progress_task(8, "Fetching Unsloth llama.cpp release")
+        cached = self._cached_resolution
+        self._cached_resolution = None
+        if cached is not None and not str(requested or "").strip():
+            release, plan_res, published_manifest, host = cached
+        else:
+            host = await self._host_target()
+            release, plan_res, published_manifest = await self._resolve_plan(
+                str(requested or "").strip() or None, host
+            )
+        tag = plan_res.tag
+        assets = [asset for asset in (release.get("assets") or []) if isinstance(asset, dict)]
+        asset = find_named_asset(assets, plan_res.asset_name)
+        if not asset:
+            raise RuntimeError(f"No Linux x64 {plan_res.flavor} archive in Unsloth release {tag}")
+        checksum_asset = find_checksum_asset(assets, self._checksum_asset)
+        if not checksum_asset:
+            raise RuntimeError(f"{self._checksum_asset} is missing from Unsloth release {tag}")
+        if plan_res.skipped_newer:
+            logger.info(
+                "Unsloth release walk-back: skipped %s, using %s (%s)",
+                ", ".join(plan_res.skipped_newer),
+                tag,
+                plan_res.reason,
+            )
+        current = str(context.get("input.version_name") or "")
+        install_dir = str(context.get("input.install_dir") or "")
+        resolution = {
+            "release": release,
+            "plan": plan_res,
+            "manifest": published_manifest,
+            "host": host,
+            "asset_name": str(asset["name"]),
+        }
+        self._last_resolution = resolution
+        return {
+            "resolution": resolution,
+            "current": current,
+            "install_dir": install_dir,
+            "checksum_path": os.path.join(install_dir, self._checksum_asset),
+            "checksum_url": str(checksum_asset["browser_download_url"]),
+            "archive_path": os.path.join(install_dir, str(asset["name"])),
+            "archive_url": str(asset["browser_download_url"]),
+            "archive_download_label": f"Downloading {asset['name']}",
+            "input.version_name": current,
+            "input.install_dir": install_dir,
+            "input.install_type": "release",
+            "input.requested_version": str(requested or ""),
+            "input.source_repo": self._repository_url,
+            "input.source_ref": plan_res.tag,
+            "input.source_ref_type": "tag",
+            "input.auto_activate": True,
+            "unsloth.resolution": resolution,
+        }
+
+    async def _read_checksum(self, step, requirements, context):
+        resolution = requirements.get("resolution") or {}
+        checksum_path = str(requirements.get("checksum_path") or "")
+        dest_dir = os.path.dirname(checksum_path)
+        published_manifest = resolution.get("manifest")
+        if isinstance(published_manifest, dict):
+            with open(
+                os.path.join(dest_dir, self._manifest_asset), "w", encoding="utf-8"
+            ) as handle:
+                json.dump(published_manifest, handle)
+        with open(checksum_path, "r", encoding="utf-8") as handle:
+            manifest = json.load(handle)
+        expected = expected_sha256(
+            manifest, str(resolution.get("asset_name") or ""), self._checksum_asset
+        )
+        return {"expected_sha256": expected}
+
+    def _row_extras(self, context: Mapping[str, Any]) -> Dict[str, Any]:
+        resolution = context.get("unsloth.resolution") or self._last_resolution or {}
+        plan_res = resolution.get("plan")
+        host = resolution.get("host")
+        if plan_res is None:
+            return {}
+        cuda_major = getattr(host, "cuda_major", None)
+        return {
+            "source_ref": plan_res.tag,
+            "source_ref_type": "tag",
+            "cuda_version": None if cuda_major is None else str(cuda_major),
+            "build_config": {
+                "tag_name": plan_res.tag,
+                "asset_name": resolution.get("asset_name"),
+                "flavor": plan_res.flavor,
+                "coverage_class": plan_res.artifact.coverage_class,
+                "runtime_line": plan_res.artifact.runtime_line,
+                "upstream_tag": plan_res.upstream_tag,
+                "selection_reason": plan_res.reason,
+                "host_sms": list(host.sms),
+                "skipped_newer": list(plan_res.skipped_newer),
+                "release_url": (resolution.get("release") or {}).get("html_url"),
+            },
+        }
+
+    def _record_published_snapshot(self, version_name: str, resolved: Dict[str, Any]) -> None:
+        """Record the version-associated install snapshot (best-effort)."""
+        resolution = self._last_resolution or {}
+        plan_res = resolution.get("plan")
+        if plan_res is not None:
+            resolved = {
+                **resolved,
+                "release_tag": plan_res.tag,
+                "asset_name": resolution.get("asset_name"),
             }
-            self._register_pending(pending, extra)
+        try:
+            from backend.engines.definitions.loader import load_default_engine_definitions
 
-            async def runner() -> None:
-                current = pending
-                current_extra = dict(extra)
-                try:
-                    await self._update_progress_task(8, "Fetching Unsloth llama.cpp release")
-                    host = await self._host_target()
-                    release, plan, published_manifest = await self._resolve_plan(tag_name, host)
-                    tag = plan.tag
-                    flavor = plan.flavor
-                    cuda_major = host.cuda_major
-                    assets = [
-                        asset
-                        for asset in (release.get("assets") or [])
-                        if isinstance(asset, dict)
-                    ]
-                    asset = find_named_asset(assets, plan.asset_name)
-                    if not asset:
-                        raise RuntimeError(
-                            f"No Linux x64 {flavor} archive in Unsloth release {tag}"
-                        )
-                    checksum_asset = find_checksum_asset(assets)
-                    if not checksum_asset:
-                        raise RuntimeError(
-                            f"{CHECKSUM_ASSET_NAME} is missing from Unsloth release {tag}"
-                        )
-                    if plan.skipped_newer:
-                        logger.info(
-                            "Unsloth release walk-back: skipped %s, using %s (%s)",
-                            ", ".join(plan.skipped_newer),
-                            tag,
-                            plan.reason,
-                        )
-                    store = get_store()
-                    if current == tag or current.startswith(f"{tag}-"):
-                        final_name = current
-                    else:
-                        final_name = self._unique_version_name(tag)
-                    if final_name != current:
-                        store.delete_engine_version(ENGINE_ID, current)
-                        current = final_name
-                        current_extra["install_dir"] = os.path.join(self._root_dir, current)
-                        self._register_pending(current, current_extra)
-                    dest_dir = current_extra["install_dir"]
-                    if os.path.exists(dest_dir):
-                        from backend.utils.fs_ops import robust_rmtree
+            definition = load_default_engine_definitions().get(ENGINE_ID)
+            digest = str(getattr(definition, "definition_digest", "") or "")
+            if not digest:
+                return
+            get_store().record_install_snapshot(
+                ENGINE_ID,
+                definition_digest=digest,
+                recipe_version=f"schema-v{getattr(definition, 'schema_version', 2)}",
+                resolved_inputs=resolved,
+                version=version_name,
+                phase="published",
+            )
+        except Exception:  # noqa: BLE001 — bookkeeping must not fail installs
+            logger.debug("install snapshot publish failed for %s", ENGINE_ID, exc_info=True)
 
-                        robust_rmtree(dest_dir)
-                    os.makedirs(dest_dir, exist_ok=True)
-
-                    checksum_path = os.path.join(dest_dir, CHECKSUM_ASSET_NAME)
-                    archive_path = os.path.join(dest_dir, str(asset["name"]))
-                    await self._update_progress_task(20, "Downloading checksum manifest")
-                    await self._download_file(
-                        str(checksum_asset["browser_download_url"]), checksum_path
-                    )
-                    if isinstance(published_manifest, dict):
-                        with open(
-                            os.path.join(dest_dir, MANIFEST_ASSET_NAME),
-                            "w",
-                            encoding="utf-8",
-                        ) as handle:
-                            json.dump(published_manifest, handle)
-                    with open(checksum_path, "r", encoding="utf-8") as handle:
-                        manifest = json.load(handle)
-                    expected = expected_sha256(manifest, str(asset["name"]))
-                    await self._update_progress_task(40, f"Downloading {asset['name']}")
-                    await self._download_file(str(asset["browser_download_url"]), archive_path)
-                    await self._update_progress_task(72, "Verifying archive checksum")
-                    verify_sha256(archive_path, expected)
-                    await self._update_progress_task(82, "Extracting llama-server")
-                    with tarfile.open(archive_path, "r:gz") as archive:
-                        _safe_extract_tar(archive, dest_dir)
-                    os.remove(archive_path)
-                    binary = find_llama_server(dest_dir)
-                    if not binary:
-                        raise RuntimeError("llama-server was not found in the Unsloth archive")
-                    os.chmod(binary, 0o755)
-                    from backend.engines.lifecycle import mark_engine_version_ready
-
-                    payload = {
-                        "version": current,
-                        "type": "release",
-                        "install_type": "release",
-                        "binary_path": binary,
-                        "install_dir": dest_dir,
-                        "repository_source": REPOSITORY_SOURCE,
-                        "source_repo": UNSLOTH_LLAMA_REPO,
-                        "source_ref": tag,
-                        "source_ref_type": "tag",
-                        "cuda_version": None if cuda_major is None else str(cuda_major),
-                        "installed_at": utcnow(),
-                        "build_config": {
-                            "tag_name": tag,
-                            "asset_name": asset.get("name"),
-                            "flavor": flavor,
-                            "coverage_class": plan.artifact.coverage_class,
-                            "runtime_line": plan.artifact.runtime_line,
-                            "upstream_tag": plan.upstream_tag,
-                            "selection_reason": plan.reason,
-                            "host_sms": list(host.sms),
-                            "skipped_newer": list(plan.skipped_newer),
-                            "release_url": release.get("html_url"),
-                        },
-                    }
-                    mark_engine_version_ready(store, ENGINE_ID, payload)
-                    from backend.engines.activation import activate_engine_version
-
-                    await activate_engine_version(
-                        ENGINE_ID,
-                        current,
-                        covered_by=self.progress_task_id,
-                        row=payload,
-                    )
-                    await self._finish_operation(True, f"Installed Unsloth llama.cpp {current}")
-                except asyncio.CancelledError:
-                    self._fail_pending(current, "Operation cancelled by user", current_extra)
-                    raise
-                except Exception as exc:
-                    self._last_error = str(exc)
-                    self._fail_pending(current, str(exc), current_extra)
-                    await self._finish_operation(False, str(exc))
-
-            self._create_task(runner())
-            return self._started_response("Unsloth llama.cpp installation started")
-
-    async def _start_operation(self, operation: str, metadata: Optional[Dict[str, Any]] = None) -> str:
+    async def _start_operation(
+        self, operation: str, metadata: Optional[Dict[str, Any]] = None
+    ) -> str:
         return await self._begin_operation(
             operation,
             "Install Unsloth llama.cpp",

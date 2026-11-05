@@ -1,0 +1,110 @@
+# Isolated development stack managed by `python -m devcontrol`.
+#
+# The compose project, checkout, data root, ports, image, and credentials are
+# all supplied by devcontrol. Never point DEV_DATA at the live instance's data
+# directory and never start this file with the production project name.
+name: ${DEV_COMPOSE_PROJECT:-llama-cpp-studio-dev}
+
+x-dev-build: &dev-build
+  context: ${DEV_REPO}
+  dockerfile: scripts/agent-dev/Dockerfile
+  args:
+    BASE_IMAGE: ${DEV_BASE_IMAGE}
+
+x-dev-labels: &dev-labels
+  com.studio.dev: "true"
+  com.studio.dev.project: ${DEV_COMPOSE_PROJECT}
+
+services:
+  init:
+    image: ${DEV_IMAGE}
+    labels: *dev-labels
+    user: root
+    working_dir: /app
+    volumes:
+      - ${DEV_CHECKOUT}:/app
+      - node_modules:/app/node_modules
+      - ${DEV_DATA}:/app/data
+    environment:
+      DEV_UID: ${DEV_UID}
+      DEV_GID: ${DEV_GID}
+      HOME: /tmp
+    entrypoint: [/bin/bash, /app/scripts/agent-dev/entrypoint.sh]
+    command: [init]
+    restart: "no"
+
+  backend:
+    image: ${DEV_IMAGE}
+    # Only one service declares the build. All three use the same dev-tools
+    # image; building it once avoids racing three identical image tags.
+    build: *dev-build
+    labels: *dev-labels
+    user: ${DEV_UID}:${DEV_GID}
+    working_dir: /app
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    volumes:
+      - ${DEV_CHECKOUT}:/app
+      - ${DEV_DATA}:/app/data
+      - ${DEV_SHARED_MODELS}:/app/shared-models:ro
+      - node_modules:/app/node_modules
+    ports:
+      - 127.0.0.1:${DEV_BACKEND_PORT}:8081
+      - 127.0.0.1:${DEV_PROXY_PORT}:2000
+    environment:
+      PYTHONPATH: /app
+      STUDIO_DATA_DIR: /app/data
+      STUDIO_ACCESS_MODE: remote
+      STUDIO_API_TOKEN: ${DEV_API_TOKEN}
+      STUDIO_BIND_HOST: 0.0.0.0
+      STUDIO_PROXY_LISTEN: 0.0.0.0
+      HF_HOME: /app/data/hf-cache
+      HUGGINGFACE_HUB_CACHE: /app/data/hf-cache/hub
+      CCACHE_DIR: /app/data/ccache
+      HOME: /app/data/home
+      NVIDIA_VISIBLE_DEVICES: ${DEV_GPU:-void}
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      CUDA_VISIBLE_DEVICES: ${DEV_CUDA_VISIBLE_DEVICES:-}
+      WATCHFILES_FORCE_POLLING: "true"
+    entrypoint: [/usr/local/bin/tini, --, /bin/bash, /app/scripts/agent-dev/entrypoint.sh]
+    command: [backend]
+    stop_grace_period: 60s
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, curl, -fsS, http://127.0.0.1:8081/api/live]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+
+  frontend:
+    image: ${DEV_IMAGE}
+    labels: *dev-labels
+    user: ${DEV_UID}:${DEV_GID}
+    working_dir: /app
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    volumes:
+      - ${DEV_CHECKOUT}:/app
+      - node_modules:/app/node_modules
+    ports:
+      - 127.0.0.1:${DEV_FRONTEND_PORT}:5173
+    environment:
+      HOME: /tmp
+      VITE_DEV_HOST: 0.0.0.0
+      VITE_DEV_BACKEND_URL: http://backend:8081
+      VITE_PRIMEUI_LICENSE: ${VITE_PRIMEUI_LICENSE:-}
+    entrypoint: [/usr/local/bin/tini, --, /bin/bash, /app/scripts/agent-dev/entrypoint.sh]
+    command: [frontend]
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, curl, -fsS, http://127.0.0.1:5173/]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+
+volumes:
+  node_modules:

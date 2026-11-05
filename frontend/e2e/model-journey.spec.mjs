@@ -414,7 +414,7 @@ async function saveDistinctiveContext(page, value = '12321') {
   ))
   await page.getByRole('button', { name: 'Save changes' }).click()
   expect((await saved).status()).toBe(200)
-  await expect(page.getByText('These settings stay pending until you apply them.')).toBeVisible()
+  await expect(page.getByText(/Saved changes for this model are/)).toBeVisible()
   await page.goto('/models')
   await page.goto('/models/demo-model/config')
   await expect(contextInput(page).first()).toHaveAttribute('aria-valuenow', String(value))

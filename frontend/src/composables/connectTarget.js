@@ -7,6 +7,7 @@
  */
 
 import { audioContract, OFFLINE_AUDIO_CONTRACT } from './useAudioContract'
+import { isAudioEngineId } from '@/engines/registry'
 
 const AUDIO_TASKS = new Set(['asr', 'tts', 'vc', 'svc', 's2s', 'gen', 'clon'])
 
@@ -37,7 +38,7 @@ export function connectKind(model) {
   const engine = model.config?.engine || model.engine || ''
   const tasks = model.tasks || model.config?.tasks || []
   const task = String(model.config?.task || model.task || '').toLowerCase()
-  if (engine === 'audio_cpp' || model.format === 'audio_cpp' || AUDIO_TASKS.has(task) || tasks.some((item) => AUDIO_TASKS.has(item))) {
+  if (isAudioEngineId(engine) || isAudioEngineId(model.format) || AUDIO_TASKS.has(task) || tasks.some((item) => AUDIO_TASKS.has(item))) {
     return 'audio'
   }
   if (model.is_embedding_model || tasks.includes('embeddings') || model.pipeline_tag === 'feature-extraction') {

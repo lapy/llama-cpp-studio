@@ -8,6 +8,7 @@ from backend.engines.registry import (
     engine_registry_payload,
 )
 from backend.feature_flags import audio_cpp_enabled
+from backend.routes.engine_versions import LIFECYCLE, generic_verb_names
 
 
 router = APIRouter()
@@ -23,19 +24,18 @@ async def list_engine_descriptors():
         descriptor["active_version"] = active.get("version") if active else None
         descriptor["runnable"] = active_engine_row_is_runnable(engine_id, active)
         descriptor["installed_versions"] = len(store.get_engine_versions(engine_id))
-        descriptor["enabled"] = (
-            audio_cpp_enabled() if engine_id == "audio_cpp" else True
-        )
+        descriptor["enabled"] = audio_cpp_enabled() if engine_id == "audio_cpp" else True
+        # Authoritative (YAML-onboarded) engines carry their routing facts so
+        # the UI needs no local entry.
+        lc = LIFECYCLE.get(engine_id)
+        if lc is not None:
+            descriptor["generic_lifecycle"] = True
+            descriptor["generic_verbs"] = generic_verb_names(lc)
         if engine_id == "audio_cpp" and active:
             build_config = (
-                active.get("build_config")
-                if isinstance(active.get("build_config"), dict)
-                else {}
+                active.get("build_config") if isinstance(active.get("build_config"), dict) else {}
             )
             backend = str(build_config.get("backend") or "cpu")
-            descriptor["available_runtime_backends"] = list(
-                dict.fromkeys(["cpu", backend])
-            )
+            descriptor["available_runtime_backends"] = list(dict.fromkeys(["cpu", backend]))
             descriptor["active_source_commit"] = active.get("source_commit")
     return payload
-

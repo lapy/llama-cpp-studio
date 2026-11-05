@@ -1,6 +1,5 @@
 <template>
   <div class="model-config-view page-shell page-shell--wide">
-
     <LoadingState v-if="loading && !model" message="Loading configuration…" />
 
     <EmptyState
@@ -10,21 +9,29 @@
       :description="loadError"
     >
       <Button label="Retry" icon="pi pi-refresh" @click="loadAll" />
-      <Button label="Back to Models" icon="pi pi-arrow-left" severity="secondary" outlined @click="$router.push('/models')" />
+      <Button
+        label="Back to Models"
+        icon="pi pi-arrow-left"
+        severity="secondary"
+        outlined
+        @click="$router.push('/models')"
+      />
     </EmptyState>
 
-    <EmptyState
-      v-else-if="!model"
-      icon="pi pi-exclamation-circle"
-      title="Model not found"
-    >
+    <EmptyState v-else-if="!model" icon="pi pi-exclamation-circle" title="Model not found">
       <Button label="Back to Models" icon="pi pi-arrow-left" @click="$router.push('/models')" />
     </EmptyState>
 
     <template v-else>
       <PageHeader>
         <template #start>
-          <Button icon="pi pi-arrow-left" text severity="secondary" aria-label="Back to Models" @click="requestLeave('/models')" />
+          <Button
+            icon="pi pi-arrow-left"
+            text
+            severity="secondary"
+            aria-label="Back to Models"
+            @click="requestLeave('/models')"
+          />
         </template>
         <template #title>
           <div class="config-page-title">
@@ -33,7 +40,12 @@
               <Tag :value="formatLabel(model.format || 'gguf')" severity="info" />
               <Tag v-if="model.quantization" :value="model.quantization" severity="secondary" />
               <Tag v-if="model.family" :value="model.family" severity="secondary" />
-              <Tag v-for="task in model.tasks || []" :key="task" :value="taskLabel(task)" severity="success" />
+              <Tag
+                v-for="task in model.tasks || []"
+                :key="task"
+                :value="taskLabel(task)"
+                severity="success"
+              />
               <a
                 v-if="model.huggingface_id"
                 :href="`https://huggingface.co/${model.huggingface_id}`"
@@ -66,16 +78,29 @@
             outlined
             @click="openAudioWorkspace"
           />
-          <Tag v-if="hasUnsavedChanges" value="Unsaved changes" severity="warn" class="unsaved-tag" />
+          <Tag
+            v-if="hasUnsavedChanges"
+            value="Unsaved changes"
+            severity="warn"
+            class="unsaved-tag"
+          />
         </template>
       </PageHeader>
 
       <div class="config-status" aria-live="polite">
-        <strong class="runtime-state">{{ hasUnsavedChanges ? 'Unsaved changes' : pendingApply ? 'Saved · awaiting application' : publishedStepLabel }}</strong>
+        <strong class="runtime-state">{{
+          hasUnsavedChanges
+            ? 'Unsaved changes'
+            : pendingApply
+              ? 'Saved · awaiting application'
+              : publishedStepLabel
+        }}</strong>
         <p class="runtime-state__detail" :title="runtimeStateDetail">{{ runtimeStateDetail }}</p>
       </div>
 
-      <div v-if="modelLaunchPlan?.action === 'invalid'" class="state-banner" role="alert">{{ modelLaunchPlan.reasons.join(' ') }} Fix the configuration before applying settings.</div>
+      <div v-if="modelLaunchPlan?.action === 'invalid'" class="state-banner" role="alert">
+        {{ modelLaunchPlan.reasons.join(' ') }} Fix the configuration before applying settings.
+      </div>
       <div v-if="loadError" class="state-banner" role="alert">
         <span>Could not refresh this configuration. {{ loadError }}</span>
         <Button label="Retry" size="small" severity="secondary" outlined @click="loadAll" />
@@ -84,7 +109,13 @@
       <div v-if="draftOffer" class="state-banner" role="status">
         <span>A draft of your edits for this model and engine is saved in this session.</span>
         <Button label="Restore draft" size="small" @click="restoreDraft" />
-        <Button label="Discard draft" size="small" severity="secondary" outlined @click="discardDraftOffer" />
+        <Button
+          label="Discard draft"
+          size="small"
+          severity="secondary"
+          outlined
+          @click="discardDraftOffer"
+        />
       </div>
 
       <div class="config-card config-workbench">
@@ -109,45 +140,24 @@
             :aria-disabled="eng.disabled ? 'true' : 'false'"
             :disabled="eng.disabled"
             :tabindex="engineTabIndex(eng)"
-            v-tooltip.bottom="eng.disabledReason || (eng.runnable || !eng.descriptor ? '' : 'No active version. Activate one from Engines.')"
+            v-tooltip.bottom="
+              eng.disabledReason ||
+              (eng.runnable || !eng.descriptor
+                ? ''
+                : 'No active version. Activate one from Engines.')
+            "
             @click="changeEngine(eng.value)"
           >
             <div class="engine-option-label">
-              <span
-                v-if="eng.value === 'llama_cpp'"
-                class="engine-mark engine-mark--llama"
-                aria-hidden="true"
-              >L</span>
-              <span
-                v-else-if="eng.value === 'ik_llama'"
-                class="engine-mark engine-mark--ik"
-                aria-hidden="true"
-              >IK</span>
-              <span
-                v-else-if="eng.value === 'unsloth_llama'"
-                class="engine-mark engine-mark--unsloth"
-                aria-hidden="true"
-              >US</span>
-              <i
-                v-else-if="eng.value === 'lmdeploy'"
-                class="pi pi-server engine-icon-lmdeploy"
-                aria-hidden="true"
-              />
-              <i
-                v-else-if="eng.value === '1cat_vllm'"
-                class="pi pi-bolt engine-icon-onecat-vllm"
-                aria-hidden="true"
-              />
-              <i
-                v-else-if="['sglang', 'sglang_v100', 'vllm'].includes(eng.value)"
-                class="pi pi-sparkles engine-icon-lmdeploy"
-                aria-hidden="true"
-              />
-              <span
-                v-else-if="eng.value === 'audio_cpp'"
-                class="engine-mark engine-mark--audio"
-                aria-hidden="true"
-              >A</span>
+              <template v-if="engineMark(eng.value)">
+                <span
+                  v-if="engineMark(eng.value).text"
+                  :class="['engine-mark', engineMark(eng.value).className]"
+                  aria-hidden="true"
+                  >{{ engineMark(eng.value).text }}</span
+                >
+                <i v-else :class="engineMark(eng.value).icon" aria-hidden="true" />
+              </template>
               <span class="engine-name">{{ eng.label }}</span>
             </div>
             <small v-if="eng.disabledReason" class="engine-disabled-reason">
@@ -159,7 +169,8 @@
           No installed engine is compatible with this model.
         </p>
         <p v-else-if="unavailableSavedEngine" class="config-muted-hint">
-          {{ unavailableSavedEngine.label }} is saved for this model. It is hidden because it is not installed or not compatible.
+          {{ unavailableSavedEngine.label }} is saved for this model. It is hidden because it is not
+          installed or not compatible.
         </p>
         <div v-if="isSglangEngine" class="param-field sglang-runtime-selector">
           <label for="sglang-runtime">SGLang runtime</label>
@@ -171,7 +182,9 @@
             option-value="value"
             @update:model-value="changeSglangRuntime"
           />
-          <small class="config-muted-hint">Each runtime has its own CLI parameters. Saved values are kept when switching.</small>
+          <small class="config-muted-hint"
+            >Each runtime has its own CLI parameters. Saved values are kept when switching.</small
+          >
         </div>
       </div>
 
@@ -206,300 +219,357 @@
         tabindex="0"
         class="config-tab-panel"
       >
-      <div class="config-card">
-        <div v-if="basicParams.length" class="workbench-block">
-          <div class="section-label section-label--inline">
-            Basics
-            <i class="pi pi-info-circle param-info" tabindex="0" aria-label="About basics" v-tooltip.top="'Common settings for this engine. Default is inherited. Override is saved with this model.'" />
-          </div>
-          <div class="params-grid">
-          <div v-for="param in basicParams" :key="param.key" class="param-field">
-            <label :for="`basic-${param.key}`" class="param-field__label">
-              <span class="param-field__name">{{ param.label }}</span>
-              <code class="param-key-hint">{{ param.key }}</code>
-              <Tag class="param-field__state" :value="isExplicitOverride(param) ? 'Override' : 'Default'" :severity="isExplicitOverride(param) ? 'info' : 'secondary'" />
-            </label>
-            <InputNumber
-              :input-id="`basic-${param.key}`"
-              v-model="config[param.key]"
-              :placeholder="param.default != null ? String(param.default) : 'Engine default'"
-              class="param-input"
-              :disabled="param.supported === false"
-              :min="param.min"
-              :max="param.max"
-              :pt="{ pcInputText: { root: { 'aria-describedby': `basic-help-${param.key}` } } }"
-            />
-            <small :id="`basic-help-${param.key}`" class="param-default-help">{{ parameterHelp(param) }}</small>
-            <button v-if="isExplicitOverride(param)" class="param-reset" type="button" @click="useParameterDefault(param)">Use engine default</button>
-          </div>
-          </div>
-        </div>
-
-        <div v-if="showNvidiaGpuBind" class="workbench-block gpu-bind">
-          <div class="section-label section-label--inline">
-            GPUs
-            <i class="pi pi-info-circle param-info" tabindex="0" aria-label="About GPU assignment" v-tooltip.top="'All GPUs follows the deployment. Choose GPUs to pick devices in the order you click them. CPU only hides every CUDA device. The first card you pick becomes device 0.'" />
-          </div>
-          <div id="gpu-mode" class="gpu-mode" role="radiogroup" aria-label="GPU assignment mode" @keydown="onGpuModeKeydown">
-            <button
-              v-for="mode in gpuModeOptions"
-              :key="mode.value"
-              type="button"
-              class="gpu-mode__option"
-              role="radio"
-              :class="{ selected: (config.gpu_mode || 'inherit') === mode.value }"
-              :aria-checked="(config.gpu_mode || 'inherit') === mode.value ? 'true' : 'false'"
-              :tabindex="(config.gpu_mode || 'inherit') === mode.value ? 0 : -1"
-              @click="setGpuMode(mode.value)"
-            >
-              {{ mode.label }}
-            </button>
-          </div>
-          <div
-            v-if="(config.gpu_mode || 'inherit') === 'selected'"
-            class="gpu-card-grid"
-            role="group"
-            aria-label="Select NVIDIA GPUs for CUDA_VISIBLE_DEVICES"
-          >
-            <button
-              v-for="gpu in nvidiaGpuCards"
-              :key="gpu.value"
-              type="button"
-              class="gpu-card"
-              :class="{ selected: gpu.order != null }"
-              :aria-pressed="gpu.order != null ? 'true' : 'false'"
-              @click="toggleGpuCard(gpu.value)"
-            >
-              <span class="gpu-card__index" aria-hidden="true">{{ gpu.index }}</span>
-              <span class="gpu-card__body">
-                <span class="gpu-card__name">{{ gpu.name }}</span>
-                <span class="gpu-card__meta">{{ gpu.order != null ? `Device ${gpu.order}` : 'Not used' }}</span>
-              </span>
-            </button>
-          </div>
-        </div>
-
-        <template v-if="!isAudioEngine && catalogSections.length">
-          <div class="workbench-block">
-            <div class="config-toolbar__row">
-              <span class="p-input-icon-left config-search-wrap">
-                <i class="pi pi-search" aria-hidden="true" />
-                <InputText
-                  v-model="paramSearchQuery"
-                  type="search"
-                  placeholder="Add a parameter…"
-                  class="config-search-input"
-                  aria-label="Search parameters to add"
-                />
-              </span>
-              <Button
-                v-if="paramSearchQuery"
-                icon="pi pi-times"
-                text
-                rounded
-                severity="secondary"
-                v-tooltip.top="'Clear search'"
-                aria-label="Clear search"
-                @click="paramSearchQuery = ''"
+        <div class="config-card">
+          <div v-if="basicParams.length" class="workbench-block">
+            <div class="section-label section-label--inline">
+              Basics
+              <i
+                class="pi pi-info-circle param-info"
+                tabindex="0"
+                aria-label="About basics"
+                v-tooltip.top="
+                  'Common settings for this engine. Default is inherited. Override is saved with this model.'
+                "
               />
-              <div class="toggle-field">
-                <ToggleSwitch v-model="hideUnsupportedParams" input-id="toggle-hide-unsupported" />
-                <label for="toggle-hide-unsupported">Hide unsupported</label>
+            </div>
+            <div class="params-grid">
+              <div v-for="param in basicParams" :key="param.key" class="param-field">
+                <label :for="`basic-${param.key}`" class="param-field__label">
+                  <span class="param-field__name">{{ param.label }}</span>
+                  <code class="param-key-hint">{{ param.key }}</code>
+                  <Tag
+                    class="param-field__state"
+                    :value="isExplicitOverride(param) ? 'Override' : 'Default'"
+                    :severity="isExplicitOverride(param) ? 'info' : 'secondary'"
+                  />
+                </label>
+                <InputNumber
+                  :input-id="`basic-${param.key}`"
+                  v-model="config[param.key]"
+                  :placeholder="param.default != null ? String(param.default) : 'Engine default'"
+                  class="param-input"
+                  :disabled="param.supported === false"
+                  :min="param.min"
+                  :max="param.max"
+                  :pt="{ pcInputText: { root: { 'aria-describedby': `basic-help-${param.key}` } } }"
+                />
+                <small :id="`basic-help-${param.key}`" class="param-default-help">{{
+                  parameterHelp(param)
+                }}</small>
+                <button
+                  v-if="isExplicitOverride(param)"
+                  class="param-reset"
+                  type="button"
+                  @click="useParameterDefault(param)"
+                >
+                  Use engine default
+                </button>
               </div>
             </div>
-            <div v-if="paramSearchQuery.trim()" class="param-tag-cloud-wrap">
-              <div class="section-label section-label--inline">Add parameter</div>
-          <div v-if="searchTagResults.length" class="param-tag-cloud" role="list">
-            <button
-              v-for="p in searchTagResults"
-              :key="p.key"
-              type="button"
-              class="param-search-tag"
-              role="listitem"
-              @click="addParamKey(p.key)"
-            >
-              <span class="param-search-tag__label">{{ p.label }}</span>
-              <code class="param-search-tag__key">{{ p.key }}</code>
-            </button>
           </div>
-          <Message v-else severity="secondary" :closable="false" class="config-scan-message">
-            No parameters match. Try other words, turn off “hide unsupported”, or clear the search.
-          </Message>
+
+          <div v-if="showNvidiaGpuBind" class="workbench-block gpu-bind">
+            <div class="section-label section-label--inline">
+              GPUs
+              <i
+                class="pi pi-info-circle param-info"
+                tabindex="0"
+                aria-label="About GPU assignment"
+                v-tooltip.top="
+                  'All GPUs follows the deployment. Choose GPUs to pick devices in the order you click them. CPU only hides every CUDA device. The first card you pick becomes device 0.'
+                "
+              />
             </div>
-          <p v-if="!paneParams.length" class="config-muted-hint">
-            Search above to add parameters. Saved values that differ from the engine default appear here.
-          </p>
-          <div v-else class="params-grid">
             <div
-              v-for="param in paneParams"
-              :key="`${param.sectionId}-${param.key}`"
-              class="param-field"
-              :class="{ 'param-field--unsupported': param.supported === false }"
+              id="gpu-mode"
+              class="gpu-mode"
+              role="radiogroup"
+              aria-label="GPU assignment mode"
+              @keydown="onGpuModeKeydown"
             >
-              <div class="param-field__head">
-                <label :for="`p-${param.sectionId}-${param.key}`" class="param-field__label">
-                  <span class="param-field__name">
-                    {{ param.label }}
-                    <Tag
-                      v-if="param.supported === false"
-                      value="Not in this build"
-                      severity="secondary"
-                      class="param-supported-tag"
-                    />
-                    <i class="pi pi-info-circle param-info" tabindex="0" :aria-label="`About ${param.label}`" v-tooltip.top="paramDescriptionTooltip(param)" />
-                  </span>
-                  <code class="param-key-hint">{{ param.key }}</code>
-                </label>
+              <button
+                v-for="mode in gpuModeOptions"
+                :key="mode.value"
+                type="button"
+                class="gpu-mode__option"
+                role="radio"
+                :class="{ selected: (config.gpu_mode || 'inherit') === mode.value }"
+                :aria-checked="(config.gpu_mode || 'inherit') === mode.value ? 'true' : 'false'"
+                :tabindex="(config.gpu_mode || 'inherit') === mode.value ? 0 : -1"
+                @click="setGpuMode(mode.value)"
+              >
+                {{ mode.label }}
+              </button>
+            </div>
+            <div
+              v-if="(config.gpu_mode || 'inherit') === 'selected'"
+              class="gpu-card-grid"
+              role="group"
+              aria-label="Select NVIDIA GPUs for CUDA_VISIBLE_DEVICES"
+            >
+              <button
+                v-for="gpu in nvidiaGpuCards"
+                :key="gpu.value"
+                type="button"
+                class="gpu-card"
+                :class="{ selected: gpu.order != null }"
+                :aria-pressed="gpu.order != null ? 'true' : 'false'"
+                @click="toggleGpuCard(gpu.value)"
+              >
+                <span class="gpu-card__index" aria-hidden="true">{{ gpu.index }}</span>
+                <span class="gpu-card__body">
+                  <span class="gpu-card__name">{{ gpu.name }}</span>
+                  <span class="gpu-card__meta">{{
+                    gpu.order != null ? `Device ${gpu.order}` : 'Not used'
+                  }}</span>
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <template v-if="!isAudioEngine && catalogSections.length">
+            <div class="workbench-block">
+              <div class="config-toolbar__row">
+                <span class="p-input-icon-left config-search-wrap">
+                  <i class="pi pi-search" aria-hidden="true" />
+                  <InputText
+                    v-model="paramSearchQuery"
+                    type="search"
+                    placeholder="Add a parameter…"
+                    class="config-search-input"
+                    aria-label="Search parameters to add"
+                  />
+                </span>
                 <Button
-                  type="button"
+                  v-if="paramSearchQuery"
                   icon="pi pi-times"
                   text
                   rounded
                   severity="secondary"
-                  class="param-remove-btn"
-                  aria-label="Remove parameter (reset to default)"
-                  v-tooltip.top="'Remove from pane (reset to default)'"
-                  @click="removeParamKey(param.key)"
+                  v-tooltip.top="'Clear search'"
+                  aria-label="Clear search"
+                  @click="paramSearchQuery = ''"
                 />
+                <div class="toggle-field">
+                  <ToggleSwitch
+                    v-model="hideUnsupportedParams"
+                    input-id="toggle-hide-unsupported"
+                  />
+                  <label for="toggle-hide-unsupported">Hide unsupported</label>
+                </div>
               </div>
-              <template v-if="param.type === 'int' && (param.key === 'ctx_size' || param.key === 'session_len')">
-                <div class="param-slider-row">
-                  <Slider
+              <div v-if="paramSearchQuery.trim()" class="param-tag-cloud-wrap">
+                <div class="section-label section-label--inline">Add parameter</div>
+                <div v-if="searchTagResults.length" class="param-tag-cloud" role="list">
+                  <button
+                    v-for="p in searchTagResults"
+                    :key="p.key"
+                    type="button"
+                    class="param-search-tag"
+                    role="listitem"
+                    @click="addParamKey(p.key)"
+                  >
+                    <span class="param-search-tag__label">{{ p.label }}</span>
+                    <code class="param-search-tag__key">{{ p.key }}</code>
+                  </button>
+                </div>
+                <Message v-else severity="secondary" :closable="false" class="config-scan-message">
+                  No parameters match. Try other words, turn off “hide unsupported”, or clear the
+                  search.
+                </Message>
+              </div>
+              <p v-if="!paneParams.length" class="config-muted-hint">
+                Search above to add parameters. Saved values that differ from the engine default
+                appear here.
+              </p>
+              <div v-else class="params-grid">
+                <div
+                  v-for="param in paneParams"
+                  :key="`${param.sectionId}-${param.key}`"
+                  class="param-field"
+                  :class="{ 'param-field--unsupported': param.supported === false }"
+                >
+                  <div class="param-field__head">
+                    <label :for="`p-${param.sectionId}-${param.key}`" class="param-field__label">
+                      <span class="param-field__name">
+                        {{ param.label }}
+                        <Tag
+                          v-if="param.supported === false"
+                          value="Not in this build"
+                          severity="secondary"
+                          class="param-supported-tag"
+                        />
+                        <i
+                          class="pi pi-info-circle param-info"
+                          tabindex="0"
+                          :aria-label="`About ${param.label}`"
+                          v-tooltip.top="paramDescriptionTooltip(param)"
+                        />
+                      </span>
+                      <code class="param-key-hint">{{ param.key }}</code>
+                    </label>
+                    <Button
+                      type="button"
+                      icon="pi pi-times"
+                      text
+                      rounded
+                      severity="secondary"
+                      class="param-remove-btn"
+                      aria-label="Remove parameter (reset to default)"
+                      v-tooltip.top="'Remove from pane (reset to default)'"
+                      @click="removeParamKey(param.key)"
+                    />
+                  </div>
+                  <template
+                    v-if="
+                      param.type === 'int' &&
+                      (param.key === 'ctx_size' || param.key === 'session_len')
+                    "
+                  >
+                    <div class="param-slider-row">
+                      <Slider
+                        v-model="config[param.key]"
+                        :min="512"
+                        :max="maxContextSuggestion || 131072"
+                        :step="256"
+                        class="param-slider"
+                        :disabled="param.supported === false"
+                      />
+                      <span v-if="maxContextSuggestion" class="param-hint">
+                        Suggested max: {{ maxContextSuggestion.toLocaleString() }} tokens
+                      </span>
+                    </div>
+                    <InputNumber
+                      :input-id="`p-${param.sectionId}-${param.key}`"
+                      v-model="config[param.key]"
+                      :placeholder="String(param.default ?? '')"
+                      class="param-input"
+                      :disabled="param.supported === false"
+                    />
+                  </template>
+                  <template v-else-if="param.type === 'int' && param.key === 'n_gpu_layers'">
+                    <div class="param-slider-row">
+                      <Slider
+                        v-model="config[param.key]"
+                        :min="0"
+                        :max="layerCountSuggestion || 128"
+                        :step="1"
+                        class="param-slider"
+                        :disabled="param.supported === false"
+                      />
+                      <span v-if="layerCountSuggestion" class="param-hint">
+                        Detected layers: {{ layerCountSuggestion }}
+                      </span>
+                    </div>
+                    <InputNumber
+                      :input-id="`p-${param.sectionId}-${param.key}`"
+                      v-model="config[param.key]"
+                      :placeholder="String(param.default ?? '')"
+                      class="param-input"
+                      :disabled="param.supported === false"
+                    />
+                  </template>
+                  <Select
+                    v-else-if="param.value_kind === 'flag' && param.negative_flag"
+                    :input-id="`p-${param.sectionId}-${param.key}`"
                     v-model="config[param.key]"
-                    :min="512"
-                    :max="maxContextSuggestion || 131072"
-                    :step="256"
-                    class="param-slider"
+                    :options="triStateOptions"
+                    optionLabel="label"
+                    optionValue="value"
+                    placeholder="Default"
+                    showClear
+                    class="param-input"
                     :disabled="param.supported === false"
                   />
-                  <span v-if="maxContextSuggestion" class="param-hint">
-                    Suggested max: {{ maxContextSuggestion.toLocaleString() }} tokens
-                  </span>
-                </div>
-                <InputNumber
-                  :input-id="`p-${param.sectionId}-${param.key}`"
-                  v-model="config[param.key]"
-                  :placeholder="String(param.default ?? '')"
-                  class="param-input"
-                  :disabled="param.supported === false"
-                />
-              </template>
-              <template v-else-if="param.type === 'int' && param.key === 'n_gpu_layers'">
-                <div class="param-slider-row">
-                  <Slider
+                  <InputTags
+                    v-else-if="['repeatable', 'space_list'].includes(param.value_kind)"
+                    :input-id="`p-${param.sectionId}-${param.key}`"
                     v-model="config[param.key]"
-                    :min="0"
-                    :max="layerCountSuggestion || 128"
-                    :step="1"
-                    class="param-slider"
+                    delimiter=","
+                    class="param-input"
                     :disabled="param.supported === false"
                   />
-                  <span v-if="layerCountSuggestion" class="param-hint">
-                    Detected layers: {{ layerCountSuggestion }}
-                  </span>
+                  <MultiSelect
+                    v-else-if="isDelimitedEnumParam(param)"
+                    :input-id="`p-${param.sectionId}-${param.key}`"
+                    v-model="config[param.key]"
+                    :options="param.options || []"
+                    optionLabel="label"
+                    optionValue="value"
+                    display="chip"
+                    :placeholder="csvEnumPlaceholder(param)"
+                    class="param-input w-full"
+                    :disabled="param.supported === false"
+                  />
+                  <Select
+                    v-else-if="param.options && param.options.length"
+                    :input-id="`p-${param.sectionId}-${param.key}`"
+                    v-model="config[param.key]"
+                    :options="param.options"
+                    optionLabel="label"
+                    optionValue="value"
+                    :placeholder="param.default != null ? String(param.default) : ''"
+                    :showClear="param.required !== true"
+                    class="param-input"
+                    :disabled="param.supported === false"
+                  />
+                  <InputNumber
+                    v-else-if="param.type === 'int'"
+                    :input-id="`p-${param.sectionId}-${param.key}`"
+                    v-model="config[param.key]"
+                    :placeholder="String(param.default ?? '')"
+                    class="param-input"
+                    :disabled="param.supported === false"
+                  />
+                  <InputNumber
+                    v-else-if="param.type === 'float'"
+                    :input-id="`p-${param.sectionId}-${param.key}`"
+                    v-model="config[param.key]"
+                    :minFractionDigits="1"
+                    :maxFractionDigits="4"
+                    :placeholder="String(param.default ?? '')"
+                    class="param-input"
+                    :disabled="param.supported === false"
+                  />
+                  <ToggleSwitch
+                    v-else-if="param.type === 'bool'"
+                    :input-id="`p-${param.sectionId}-${param.key}`"
+                    v-model="config[param.key]"
+                    :disabled="param.supported === false"
+                  />
+                  <Textarea
+                    v-else-if="param.type === 'json'"
+                    :id="`p-${param.sectionId}-${param.key}`"
+                    :model-value="jsonParamDisplay(config[param.key])"
+                    rows="4"
+                    class="w-full textarea-cli param-input"
+                    :placeholder="jsonParamPlaceholder(param)"
+                    :disabled="param.supported === false"
+                    autoResize
+                    @update:model-value="(v) => updateJsonParam(param.key, v)"
+                  />
+                  <InputText
+                    v-else
+                    :id="`p-${param.sectionId}-${param.key}`"
+                    v-model="config[param.key]"
+                    :placeholder="param.default != null ? String(param.default) : ''"
+                    class="param-input"
+                    :disabled="param.supported === false"
+                  />
+                  <small class="param-default-help">{{ parameterHelp(param) }}</small>
+                  <button
+                    v-if="isExplicitOverride(param)"
+                    class="param-reset"
+                    type="button"
+                    @click="useParameterDefault(param)"
+                  >
+                    Use engine default
+                  </button>
                 </div>
-                <InputNumber
-                  :input-id="`p-${param.sectionId}-${param.key}`"
-                  v-model="config[param.key]"
-                  :placeholder="String(param.default ?? '')"
-                  class="param-input"
-                  :disabled="param.supported === false"
-                />
-              </template>
-              <Select
-                v-else-if="param.value_kind === 'flag' && param.negative_flag"
-                :input-id="`p-${param.sectionId}-${param.key}`"
-                v-model="config[param.key]"
-                :options="triStateOptions"
-                optionLabel="label"
-                optionValue="value"
-                placeholder="Default"
-                showClear
-                class="param-input"
-                :disabled="param.supported === false"
-              />
-              <InputTags
-                v-else-if="['repeatable', 'space_list'].includes(param.value_kind)"
-                :input-id="`p-${param.sectionId}-${param.key}`"
-                v-model="config[param.key]"
-                delimiter=","
-                class="param-input"
-                :disabled="param.supported === false"
-              />
-              <MultiSelect
-                v-else-if="isDelimitedEnumParam(param)"
-                :input-id="`p-${param.sectionId}-${param.key}`"
-                v-model="config[param.key]"
-                :options="param.options || []"
-                optionLabel="label"
-                optionValue="value"
-                display="chip"
-                :placeholder="csvEnumPlaceholder(param)"
-                class="param-input w-full"
-                :disabled="param.supported === false"
-              />
-              <Select
-                v-else-if="param.options && param.options.length"
-                :input-id="`p-${param.sectionId}-${param.key}`"
-                v-model="config[param.key]"
-                :options="param.options"
-                optionLabel="label"
-                optionValue="value"
-                :placeholder="param.default != null ? String(param.default) : ''"
-                :showClear="param.required !== true"
-                class="param-input"
-                :disabled="param.supported === false"
-              />
-              <InputNumber
-                v-else-if="param.type === 'int'"
-                :input-id="`p-${param.sectionId}-${param.key}`"
-                v-model="config[param.key]"
-                :placeholder="String(param.default ?? '')"
-                class="param-input"
-                :disabled="param.supported === false"
-              />
-              <InputNumber
-                v-else-if="param.type === 'float'"
-                :input-id="`p-${param.sectionId}-${param.key}`"
-                v-model="config[param.key]"
-                :minFractionDigits="1"
-                :maxFractionDigits="4"
-                :placeholder="String(param.default ?? '')"
-                class="param-input"
-                :disabled="param.supported === false"
-              />
-              <ToggleSwitch
-                v-else-if="param.type === 'bool'"
-                :input-id="`p-${param.sectionId}-${param.key}`"
-                v-model="config[param.key]"
-                :disabled="param.supported === false"
-              />
-              <Textarea
-                v-else-if="param.type === 'json'"
-                :id="`p-${param.sectionId}-${param.key}`"
-                :model-value="jsonParamDisplay(config[param.key])"
-                rows="4"
-                class="w-full textarea-cli param-input"
-                :placeholder="jsonParamPlaceholder(param)"
-                :disabled="param.supported === false"
-                autoResize
-                @update:model-value="(v) => updateJsonParam(param.key, v)"
-              />
-              <InputText
-                v-else
-                :id="`p-${param.sectionId}-${param.key}`"
-                v-model="config[param.key]"
-                :placeholder="param.default != null ? String(param.default) : ''"
-                class="param-input"
-                :disabled="param.supported === false"
-              />
-              <small class="param-default-help">{{ parameterHelp(param) }}</small>
-              <button v-if="isExplicitOverride(param)" class="param-reset" type="button" @click="useParameterDefault(param)">Use engine default</button>
+              </div>
             </div>
-          </div>
-          </div>
-        </template>
-      </div>
+          </template>
+        </div>
       </div>
 
       <Message
@@ -508,7 +578,9 @@
         :closable="false"
         class="config-scan-message"
       >
-        Could not read {{ isSglangEngine && sglangRuntime === 'diffusion' ? 'SGLang diffusion' : 'engine' }} CLI help: {{ selectedParamRegistry.scan_error }}. Open Engines and use
+        Could not read
+        {{ isSglangEngine && sglangRuntime === 'diffusion' ? 'SGLang diffusion' : 'engine' }} CLI
+        help: {{ selectedParamRegistry.scan_error }}. Open Engines and use
         <strong>Rescan CLI parameters</strong> for this engine.
       </Message>
       <Message
@@ -517,8 +589,13 @@
         :closable="false"
         class="config-scan-message"
       >
-        {{ isSglangEngine && sglangRuntime === 'diffusion' ? 'SGLang diffusion CLI parameters are' : 'CLI parameters are' }} not loaded for this engine yet. Activate the engine on the Engines page
-        (or use <strong>Rescan CLI parameters</strong> there), then reopen this page.
+        {{
+          isSglangEngine && sglangRuntime === 'diffusion'
+            ? 'SGLang diffusion CLI parameters are'
+            : 'CLI parameters are'
+        }}
+        not loaded for this engine yet. Activate the engine on the Engines page (or use
+        <strong>Rescan CLI parameters</strong> there), then reopen this page.
       </Message>
       <Message
         v-if="unrecognizedSavedKeys.length"
@@ -526,11 +603,13 @@
         :closable="false"
         class="config-scan-message"
       >
-        {{ isAudioEngine
-          ? 'Unrecognized audio.cpp keys are preserved on save:'
-          : isSglangEngine
-          ? 'Unrecognized SGLang keys are preserved on save:'
-          : 'Deprecated or unrecognized saved keys for this engine will be dropped on the next save:' }}
+        {{
+          isAudioEngine
+            ? 'Unrecognized audio.cpp keys are preserved on save:'
+            : isSglangEngine
+              ? 'Unrecognized SGLang keys are preserved on save:'
+              : 'Deprecated or unrecognized saved keys for this engine will be dropped on the next save:'
+        }}
         <code>{{ unrecognizedSavedKeys.join(', ') }}</code>
       </Message>
       <Message
@@ -549,9 +628,22 @@
       >
         <div class="section-label section-label--inline">
           GPUs
-          <i class="pi pi-info-circle param-info" tabindex="0" aria-label="About GPU assignment" v-tooltip.top="'All GPUs follows the deployment. Choose GPUs to pick devices in the order you click them. CPU only hides every CUDA device. The first card you pick becomes device 0.'" />
+          <i
+            class="pi pi-info-circle param-info"
+            tabindex="0"
+            aria-label="About GPU assignment"
+            v-tooltip.top="
+              'All GPUs follows the deployment. Choose GPUs to pick devices in the order you click them. CPU only hides every CUDA device. The first card you pick becomes device 0.'
+            "
+          />
         </div>
-        <div id="gpu-mode" class="gpu-mode" role="radiogroup" aria-label="GPU assignment mode" @keydown="onGpuModeKeydown">
+        <div
+          id="gpu-mode"
+          class="gpu-mode"
+          role="radiogroup"
+          aria-label="GPU assignment mode"
+          @keydown="onGpuModeKeydown"
+        >
           <button
             v-for="mode in gpuModeOptions"
             :key="mode.value"
@@ -560,7 +652,7 @@
             role="radio"
             :class="{ selected: (config.gpu_mode || 'inherit') === mode.value }"
             :aria-checked="(config.gpu_mode || 'inherit') === mode.value ? 'true' : 'false'"
-              :tabindex="(config.gpu_mode || 'inherit') === mode.value ? 0 : -1"
+            :tabindex="(config.gpu_mode || 'inherit') === mode.value ? 0 : -1"
             @click="setGpuMode(mode.value)"
           >
             {{ mode.label }}
@@ -584,7 +676,9 @@
             <span class="gpu-card__index" aria-hidden="true">{{ gpu.index }}</span>
             <span class="gpu-card__body">
               <span class="gpu-card__name">{{ gpu.name }}</span>
-              <span class="gpu-card__meta">{{ gpu.order != null ? `Device ${gpu.order}` : 'Not used' }}</span>
+              <span class="gpu-card__meta">{{
+                gpu.order != null ? `Device ${gpu.order}` : 'Not used'
+              }}</span>
             </span>
           </button>
         </div>
@@ -610,243 +704,289 @@
         tabindex="0"
         class="config-tab-panel"
       >
-      <div class="config-card config-launch">
-      <div v-if="showCompanionsCard" class="advanced-block">
-        <div class="section-label section-label--inline">
-          Companions
-          <i class="pi pi-info-circle param-info" tabindex="0" aria-label="About companions" v-tooltip.top="'Attach mmproj, MTP, or DFlash weights. MTP and DFlash cannot be used together.'" />
-        </div>
-        <div v-if="companionsLoading" class="companions-loading">Loading companion options…</div>
-        <div v-else class="companions-grid">
-          <div class="companion-field">
-            <label for="config-mmproj">Projector (mmproj)</label>
-            <div class="companion-field__row">
-              <Select
-                id="config-mmproj"
-                v-model="selectedMmproj"
-                :options="mmprojOptions"
-                optionLabel="label"
-                optionValue="value"
-                class="w-full"
-                :disabled="companionBusy"
-                placeholder="None"
+        <div class="config-card config-launch">
+          <div v-if="showCompanionsCard" class="advanced-block">
+            <div class="section-label section-label--inline">
+              Companions
+              <i
+                class="pi pi-info-circle param-info"
+                tabindex="0"
+                aria-label="About companions"
+                v-tooltip.top="
+                  'Attach mmproj, MTP, or DFlash weights. MTP and DFlash cannot be used together.'
+                "
               />
-              <Button
-                label="Apply"
-                icon="pi pi-save"
-                size="small"
-                severity="success"
-                outlined
-                :loading="companionBusyField === 'mmproj'"
-                :disabled="companionBusy || !mmprojSelectionChanged"
-                @click="applyCompanion('mmproj')"
+            </div>
+            <div v-if="companionsLoading" class="companions-loading">
+              Loading companion options…
+            </div>
+            <div v-else class="companions-grid">
+              <div class="companion-field">
+                <label for="config-mmproj">Projector (mmproj)</label>
+                <div class="companion-field__row">
+                  <Select
+                    id="config-mmproj"
+                    v-model="selectedMmproj"
+                    :options="mmprojOptions"
+                    optionLabel="label"
+                    optionValue="value"
+                    class="w-full"
+                    :disabled="companionBusy"
+                    placeholder="None"
+                  />
+                  <Button
+                    label="Apply"
+                    icon="pi pi-save"
+                    size="small"
+                    severity="success"
+                    outlined
+                    :loading="companionBusyField === 'mmproj'"
+                    :disabled="companionBusy || !mmprojSelectionChanged"
+                    @click="applyCompanion('mmproj')"
+                  />
+                </div>
+              </div>
+              <div class="companion-field">
+                <label for="config-mtp">MTP draft</label>
+                <div class="companion-field__row">
+                  <Select
+                    id="config-mtp"
+                    v-model="selectedMtp"
+                    :options="mtpOptions"
+                    optionLabel="label"
+                    optionValue="value"
+                    class="w-full"
+                    :disabled="companionBusy"
+                    placeholder="None"
+                    @update:model-value="onMtpSelected"
+                  />
+                  <Button
+                    label="Apply"
+                    icon="pi pi-save"
+                    size="small"
+                    severity="success"
+                    outlined
+                    :loading="companionBusyField === 'mtp'"
+                    :disabled="companionBusy || !mtpSelectionChanged"
+                    @click="applyCompanion('mtp')"
+                  />
+                </div>
+              </div>
+              <div class="companion-field">
+                <label for="config-dflash">DFlash draft</label>
+                <div class="companion-field__row">
+                  <Select
+                    id="config-dflash"
+                    v-model="selectedDflash"
+                    :options="dflashOptions"
+                    optionLabel="label"
+                    optionValue="value"
+                    class="w-full"
+                    :disabled="companionBusy"
+                    placeholder="None"
+                    @update:model-value="onDflashSelected"
+                  />
+                  <Button
+                    label="Apply"
+                    icon="pi pi-save"
+                    size="small"
+                    severity="success"
+                    outlined
+                    :loading="companionBusyField === 'dflash'"
+                    :disabled="companionBusy || !dflashSelectionChanged"
+                    @click="applyCompanion('dflash')"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="config-split-grid split-grid">
+            <div class="advanced-field">
+              <label class="advanced-field__label">
+                {{ isAudioEngine ? 'Model ID while running' : 'Stable ID' }}
+              </label>
+              <InputText
+                :model-value="stableModelId"
+                readonly
+                class="w-full"
+                :aria-label="isAudioEngine ? 'Stable model ID' : 'Stable Studio proxy model ID'"
+              />
+            </div>
+
+            <div class="advanced-field">
+              <label class="advanced-field__label">
+                {{ isAudioEngine ? 'Friendly API name' : 'API alias' }}
+                <i
+                  class="pi pi-info-circle param-info"
+                  tabindex="0"
+                  aria-label="About API alias"
+                  v-tooltip.top="
+                    isAudioEngine
+                      ? 'Optional name apps send as model. Running state uses the stable ID.'
+                      : 'Optional id apps send as model. Must be unique. Running state uses the stable ID, not this alias.'
+                  "
+                />
+              </label>
+              <InputText
+                v-model="config.model_alias"
+                placeholder="e.g. my-app-model"
+                class="w-full"
               />
             </div>
           </div>
-          <div class="companion-field">
-            <label for="config-mtp">MTP draft</label>
-            <div class="companion-field__row">
+
+          <RequestAliasesEditor
+            :key="config.engine"
+            v-model="config.set_params_by_id"
+            :base-name="requestAliasBase"
+            @validity="requestAliasesValid = $event"
+          />
+
+          <div class="advanced-block">
+            <div class="section-label section-label--inline">
+              Custom arguments
+              <i
+                class="pi pi-info-circle param-info"
+                tabindex="0"
+                aria-label="About custom arguments"
+                v-tooltip.top="'Raw CLI flags appended to the server command.'"
+              />
+            </div>
+            <Textarea
+              v-model="config.custom_args"
+              rows="2"
+              placeholder="e.g. --some-flag value --another-flag"
+              class="w-full textarea-cli"
+              autoResize
+            />
+            <Button
+              v-if="canImportCommand"
+              label="Parse into parameters"
+              icon="pi pi-sparkles"
+              size="small"
+              severity="secondary"
+              outlined
+              class="mt-2"
+              type="button"
+              @click="openParseCommandDialog(config.custom_args)"
+            />
+          </div>
+          <div class="advanced-block">
+            <div class="section-label section-label--inline">
+              Environment
+              <i
+                class="pi pi-info-circle param-info"
+                tabindex="0"
+                aria-label="About environment variables"
+                v-tooltip.top="
+                  'Environment variables passed to this model process. CUDA_VISIBLE_DEVICES is set from the GPU control when NVIDIA GPUs are detected. LLAMA_STUDIO_* keys are reserved and ignored.'
+                "
+              />
+            </div>
+            <div
+              v-for="item in runtimeEnvRowsDisplayed"
+              :key="item.originalIndex"
+              class="runtime-env-row"
+            >
+              <InputText
+                :model-value="item.row.key"
+                placeholder="VAR_NAME"
+                class="runtime-env-key"
+                aria-label="Environment variable name"
+                @update:model-value="
+                  (v) => {
+                    item.row.key = v
+                    syncRuntimeEnvFromRows()
+                  }
+                "
+              />
               <Select
-                id="config-mtp"
-                v-model="selectedMtp"
-                :options="mtpOptions"
-                optionLabel="label"
-                optionValue="value"
-                class="w-full"
-                :disabled="companionBusy"
-                placeholder="None"
-                @update:model-value="onMtpSelected"
+                :model-value="item.row.mode || 'set'"
+                :options="envModeOptions"
+                option-label="label"
+                option-value="value"
+                class="runtime-env-mode"
+                aria-label="Environment variable mode"
+                @update:model-value="
+                  (v) => {
+                    item.row.mode = v
+                    syncRuntimeEnvFromRows()
+                  }
+                "
+              />
+              <InputText
+                v-if="(item.row.mode || 'set') !== 'unset'"
+                :model-value="item.row.value"
+                placeholder="value"
+                class="runtime-env-value"
+                aria-label="Environment variable value"
+                @update:model-value="
+                  (v) => {
+                    item.row.value = v
+                    syncRuntimeEnvFromRows()
+                  }
+                "
               />
               <Button
-                label="Apply"
-                icon="pi pi-save"
-                size="small"
-                severity="success"
+                icon="pi pi-trash"
+                severity="danger"
+                text
+                rounded
+                type="button"
+                aria-label="Remove variable"
+                @click="removeRuntimeEnvRow(item.originalIndex)"
+              />
+            </div>
+            <Button
+              label="Add variable"
+              icon="pi pi-plus"
+              severity="secondary"
+              outlined
+              type="button"
+              class="mt-2"
+              @click="addRuntimeEnvRow"
+            />
+          </div>
+          <div class="advanced-block">
+            <div class="section-label section-label--inline">Command</div>
+            <div class="config-cmd-actions">
+              <Button
+                label="Live preview"
+                icon="pi pi-eye"
+                severity="secondary"
                 outlined
-                :loading="companionBusyField === 'mtp'"
-                :disabled="companionBusy || !mtpSelectionChanged"
-                @click="applyCompanion('mtp')"
+                :loading="
+                  unsavedCmdPreviewLoading &&
+                  cmdPreviewDialogVisible &&
+                  cmdPreviewDialogMode === 'unsaved'
+                "
+                @click="openCmdPreviewDialog('unsaved')"
+              />
+              <Button
+                label="Saved command"
+                icon="pi pi-terminal"
+                severity="secondary"
+                outlined
+                :loading="
+                  cmdPreviewLoading && cmdPreviewDialogVisible && cmdPreviewDialogMode === 'saved'
+                "
+                @click="openCmdPreviewDialog('saved')"
               />
             </div>
           </div>
-          <div class="companion-field">
-            <label for="config-dflash">DFlash draft</label>
-            <div class="companion-field__row">
-              <Select
-                id="config-dflash"
-                v-model="selectedDflash"
-                :options="dflashOptions"
-                optionLabel="label"
-                optionValue="value"
-                class="w-full"
-                :disabled="companionBusy"
-                placeholder="None"
-                @update:model-value="onDflashSelected"
-              />
-              <Button
-                label="Apply"
-                icon="pi pi-save"
-                size="small"
-                severity="success"
-                outlined
-                :loading="companionBusyField === 'dflash'"
-                :disabled="companionBusy || !dflashSelectionChanged"
-                @click="applyCompanion('dflash')"
-              />
-            </div>
-          </div>
         </div>
-      </div>
-
-      <div class="config-split-grid split-grid">
-        <div class="advanced-field">
-        <label class="advanced-field__label">
-          {{ config.engine === 'audio_cpp' ? 'Model ID while running' : 'Stable ID' }}
-        </label>
-        <InputText
-          :model-value="stableModelId"
-          readonly
-          class="w-full"
-          :aria-label="config.engine === 'audio_cpp' ? 'Stable model ID' : 'Stable Studio proxy model ID'"
-        />
-      </div>
-
-      <div class="advanced-field">
-        <label class="advanced-field__label">
-          {{ config.engine === 'audio_cpp' ? 'Friendly API name' : 'API alias' }}
-          <i
-            class="pi pi-info-circle param-info"
-            tabindex="0"
-            aria-label="About API alias"
-            v-tooltip.top="config.engine === 'audio_cpp'
-              ? 'Optional name apps send as model. Running state uses the stable ID.'
-              : 'Optional id apps send as model. Must be unique. Running state uses the stable ID, not this alias.'"
-          />
-
-        </label>
-        <InputText
-          v-model="config.model_alias"
-          placeholder="e.g. my-app-model"
-          class="w-full"
-        />
-        </div>
-      </div>
-
-        <RequestAliasesEditor
-          :key="config.engine"
-          v-model="config.set_params_by_id"
-          :base-name="requestAliasBase"
-          @validity="requestAliasesValid = $event"
-        />
-
-        <div class="advanced-block">
-          <div class="section-label section-label--inline">
-            Custom arguments
-            <i class="pi pi-info-circle param-info" tabindex="0" aria-label="About custom arguments" v-tooltip.top="'Raw CLI flags appended to the server command.'" />
-          </div>
-        <Textarea
-          v-model="config.custom_args"
-          rows="2"
-          placeholder="e.g. --some-flag value --another-flag"
-          class="w-full textarea-cli"
-          autoResize
-        />
-        <Button
-          v-if="canImportCommand"
-          label="Parse into parameters"
-          icon="pi pi-sparkles"
-          size="small"
-          severity="secondary"
-          outlined
-          class="mt-2"
-          type="button"
-          @click="openParseCommandDialog(config.custom_args)"
-        />
-        </div>
-        <div class="advanced-block">
-          <div class="section-label section-label--inline">
-            Environment
-            <i class="pi pi-info-circle param-info" tabindex="0" aria-label="About environment variables" v-tooltip.top="'Environment variables passed to this model process. CUDA_VISIBLE_DEVICES is set from the GPU control when NVIDIA GPUs are detected. LLAMA_STUDIO_* keys are reserved and ignored.'" />
-          </div>
-        <div
-          v-for="item in runtimeEnvRowsDisplayed"
-          :key="item.originalIndex"
-          class="runtime-env-row"
-        >
-          <InputText
-            :model-value="item.row.key"
-            placeholder="VAR_NAME"
-            class="runtime-env-key"
-            aria-label="Environment variable name"
-            @update:model-value="(v) => { item.row.key = v; syncRuntimeEnvFromRows() }"
-          />
-          <Select
-            :model-value="item.row.mode || 'set'"
-            :options="envModeOptions"
-            option-label="label"
-            option-value="value"
-            class="runtime-env-mode"
-            aria-label="Environment variable mode"
-            @update:model-value="(v) => { item.row.mode = v; syncRuntimeEnvFromRows() }"
-          />
-          <InputText
-            v-if="(item.row.mode || 'set') !== 'unset'"
-            :model-value="item.row.value"
-            placeholder="value"
-            class="runtime-env-value"
-            aria-label="Environment variable value"
-            @update:model-value="(v) => { item.row.value = v; syncRuntimeEnvFromRows() }"
-          />
-          <Button
-            icon="pi pi-trash"
-            severity="danger"
-            text
-            rounded
-            type="button"
-            aria-label="Remove variable"
-            @click="removeRuntimeEnvRow(item.originalIndex)"
-          />
-        </div>
-        <Button
-          label="Add variable"
-          icon="pi pi-plus"
-          severity="secondary"
-          outlined
-          type="button"
-          class="mt-2"
-          @click="addRuntimeEnvRow"
-        />
-        </div>
-        <div class="advanced-block">
-          <div class="section-label section-label--inline">Command</div>
-        <div class="config-cmd-actions">
-          <Button
-            label="Live preview"
-            icon="pi pi-eye"
-            severity="secondary"
-            outlined
-            :loading="unsavedCmdPreviewLoading && cmdPreviewDialogVisible && cmdPreviewDialogMode === 'unsaved'"
-            @click="openCmdPreviewDialog('unsaved')"
-          />
-          <Button
-            label="Saved command"
-            icon="pi pi-terminal"
-            severity="secondary"
-            outlined
-            :loading="cmdPreviewLoading && cmdPreviewDialogVisible && cmdPreviewDialogMode === 'saved'"
-            @click="openCmdPreviewDialog('saved')"
-          />
-
-          </div>
-        </div>
-      </div>
       </div>
 
       <p v-if="persistenceNotice" class="persistence-notice" role="status">
         <strong>{{ persistenceNotice.summary }}.</strong>
         {{ persistenceNotice.detail }}
-        <button v-if="persistenceNotice.retry" type="button" @click="retryPersistence">Try again</button>
-        <button v-if="persistenceNotice.refresh" type="button" @click="refreshPersistedConfig">Refresh</button>
+        <button v-if="persistenceNotice.retry" type="button" @click="retryPersistence">
+          Try again
+        </button>
+        <button v-if="persistenceNotice.refresh" type="button" @click="refreshPersistedConfig">
+          Refresh
+        </button>
       </p>
       <!-- Actions -->
       <div class="config-actions">
@@ -868,29 +1008,33 @@
           v-tooltip.top="applyRuntimeHint"
           @click="requestApply"
         />
-        <details class="config-secondary-actions" @keydown.esc.stop.prevent="closeSecondaryActions"><summary>More actions</summary><div class="config-secondary-actions__menu">        <Button
-          v-if="canImportCommand"
-          label="Import command"
-          icon="pi pi-sparkles"
-          severity="secondary"
-          outlined
-          @click="openParseCommandDialog()"
-        />
-        <Button
-          label="Templates"
-          icon="pi pi-bookmark"
-          severity="secondary"
-          outlined
-          @click="openTemplatesDialog"
-        />
-        <Button
-          label="Reset to Saved"
-          icon="pi pi-refresh"
-          severity="secondary"
-          outlined
-          @click="resetConfig"
-        />
-</div></details>
+        <details class="config-secondary-actions" @keydown.esc.stop.prevent="closeSecondaryActions">
+          <summary>More actions</summary>
+          <div class="config-secondary-actions__menu">
+            <Button
+              v-if="canImportCommand"
+              label="Import command"
+              icon="pi pi-sparkles"
+              severity="secondary"
+              outlined
+              @click="openParseCommandDialog()"
+            />
+            <Button
+              label="Templates"
+              icon="pi pi-bookmark"
+              severity="secondary"
+              outlined
+              @click="openTemplatesDialog"
+            />
+            <Button
+              label="Reset to Saved"
+              icon="pi pi-refresh"
+              severity="secondary"
+              outlined
+              @click="resetConfig"
+            />
+          </div>
+        </details>
       </div>
 
       <Dialog
@@ -923,7 +1067,9 @@
         <Message v-else severity="secondary" :closable="false" class="cmd-preview-message">
           {{ activeCmdPreview.emptyMessage }}
         </Message>
-        <p v-if="activeCmdPreview.revision" class="cmd-preview-dialog-hint">{{ activeCmdPreview.revision }}</p>
+        <p v-if="activeCmdPreview.revision" class="cmd-preview-dialog-hint">
+          {{ activeCmdPreview.revision }}
+        </p>
         <template v-if="activeCmdPreview.launcher">
           <div class="section-label cmd-preview-env-label">Launcher command (diagnostic)</div>
           <Textarea
@@ -935,7 +1081,9 @@
           />
         </template>
         <template v-if="activeCmdPreview.env">
-          <div class="section-label cmd-preview-env-label">Process environment ({{ activeCmdPreview.suffix }})</div>
+          <div class="section-label cmd-preview-env-label">
+            Process environment ({{ activeCmdPreview.suffix }})
+          </div>
           <Textarea
             :model-value="activeCmdPreview.env"
             readonly
@@ -945,7 +1093,9 @@
           />
         </template>
         <template v-if="activeCmdPreview.filters">
-          <div class="section-label cmd-preview-env-label">Request defaults ({{ activeCmdPreview.suffix }})</div>
+          <div class="section-label cmd-preview-env-label">
+            Request defaults ({{ activeCmdPreview.suffix }})
+          </div>
           <Textarea
             :model-value="activeCmdPreview.filters"
             readonly
@@ -955,7 +1105,9 @@
           />
         </template>
         <template v-if="activeCmdPreview.aliases">
-          <div class="section-label cmd-preview-env-label">Model aliases ({{ activeCmdPreview.suffix }})</div>
+          <div class="section-label cmd-preview-env-label">
+            Model aliases ({{ activeCmdPreview.suffix }})
+          </div>
           <Textarea
             :model-value="activeCmdPreview.aliases"
             readonly
@@ -1002,7 +1154,12 @@
             :loading="cmdPreviewLoading"
             @click="fetchSavedCmdPreview"
           />
-          <Button label="Close" severity="secondary" outlined @click="cmdPreviewDialogVisible = false" />
+          <Button
+            label="Close"
+            severity="secondary"
+            outlined
+            @click="cmdPreviewDialogVisible = false"
+          />
         </template>
       </Dialog>
 
@@ -1065,7 +1222,11 @@
             <ToggleSwitch v-model="templateSaveForm.include_routing" input-id="tpl-routing" />
             <label for="tpl-routing">Include routing aliases in template</label>
           </div>
-          <PersistenceAlert :notice="templateSaveNotice" @retry="saveConfigTemplate" @refresh="refreshTemplateSave" />
+          <PersistenceAlert
+            :notice="templateSaveNotice"
+            @retry="saveConfigTemplate"
+            @refresh="refreshTemplateSave"
+          />
           <Button
             label="Save template"
             icon="pi pi-save"
@@ -1115,7 +1276,11 @@
               />
               <label for="tpl-apply-routing">Apply routing aliases from template</label>
             </div>
-            <PersistenceAlert :notice="templateMutationNotice" @retry="retryTemplateMutation" @refresh="refreshTemplateMutation" />
+            <PersistenceAlert
+              :notice="templateMutationNotice"
+              @retry="retryTemplateMutation"
+              @refresh="refreshTemplateMutation"
+            />
             <div class="config-templates-apply-actions">
               <Button
                 label="Apply to form"
@@ -1180,7 +1345,9 @@
               <template v-else>
                 <div class="config-templates-list-main">
                   <strong>{{ tpl.name }}</strong>
-                  <span v-if="tpl.description" class="config-templates-list-desc">{{ tpl.description }}</span>
+                  <span v-if="tpl.description" class="config-templates-list-desc">{{
+                    tpl.description
+                  }}</span>
                   <small class="config-templates-list-meta">
                     {{ (tpl.engine_ids || []).join(', ') || tpl.engine || '—' }}
                     <span v-if="tpl.include_routing"> · includes routing</span>
@@ -1214,7 +1381,12 @@
         </div>
 
         <template #footer>
-          <Button label="Close" severity="secondary" outlined @click="templatesDialogVisible = false" />
+          <Button
+            label="Close"
+            severity="secondary"
+            outlined
+            @click="templatesDialogVisible = false"
+          />
         </template>
       </Dialog>
 
@@ -1251,7 +1423,13 @@
             outlined
             @click="applyingRuntime ? requestApplyStop() : cancelApplyImpact()"
           />
-          <Button :label="applyWithheld ? 'Apply again' : applyRuntimeLabel" icon="pi pi-bolt" severity="warning" :loading="applyingRuntime" @click="confirmApplyImpact" />
+          <Button
+            :label="applyWithheld ? 'Apply again' : applyRuntimeLabel"
+            icon="pi pi-bolt"
+            severity="warning"
+            :loading="applyingRuntime"
+            @click="confirmApplyImpact"
+          />
         </template>
       </Dialog>
 
@@ -1278,7 +1456,11 @@ import { clearDraft, readDraft, useDraftGuard, writeDraft } from '@/composables/
 import { onRovingTabKeydown } from '@/composables/useRovingTabs'
 import { watchDialogFocus } from '@/composables/useFocusReturn'
 import { withheldConfirmation } from '@/composables/actionConfirmation'
-import { classifyPersistenceError, noteDocumentSaveFailure, saveHeldForRefresh } from '@/composables/persistenceOutcome'
+import {
+  classifyPersistenceError,
+  noteDocumentSaveFailure,
+  saveHeldForRefresh,
+} from '@/composables/persistenceOutcome'
 import PersistenceAlert from '@/components/common/PersistenceAlert.vue'
 import { useToast } from 'primevue/usetoast'
 import axios from 'axios'
@@ -1313,10 +1495,21 @@ import { audioTaskDefaultsKey } from '@/composables/useAudioContract'
 import { useModelStore } from '@/stores/models'
 import { useEnginesStore } from '@/stores/engines'
 import { STUDIO_RESERVED_KEYS, studioEnvSkipReason } from '@/utils/parseCliCommand'
+import {
+  ENGINE_DESCRIPTORS,
+  ENGINE_IDS_BY_FALLBACK_FORMAT,
+  FALLBACK_ENGINE_OPTIONS,
+  SGLANG_RUNTIME_UI_IDS,
+  VENV_ENGINE_IDS,
+  isAudioEngineId,
+} from '@/engines/registry'
 
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
+function engineMark(engineId) {
+  return ENGINE_DESCRIPTORS[engineId]?.card?.mark || null
+}
 const modelStore = useModelStore()
 const enginesStore = useEnginesStore()
 
@@ -1337,17 +1530,24 @@ const templateMutationNotice = ref(null)
 const templateMutationHeld = computed(() => saveHeldForRefresh(templateMutationNotice.value))
 const templateMutationKind = ref('apply')
 const templateApplyPersist = ref(false)
-const requestAliasBase = computed(() => String(config.value.model_alias || '').trim().toLowerCase()
-  .replace(/[/\\\s]+/g, '-').replace(/[^a-z0-9._-]/g, '-').replace(/-{2,}/g, '-')
-  .replace(/^[._-]+|[._-]+$/g, '') || stableModelId.value)
+const requestAliasBase = computed(
+  () =>
+    String(config.value.model_alias || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[/\\\s]+/g, '-')
+      .replace(/[^a-z0-9._-]/g, '-')
+      .replace(/-{2,}/g, '-')
+      .replace(/^[._-]+|[._-]+$/g, '') || stableModelId.value,
+)
 const requestAliasesValid = ref(true)
-const configSaveHeld = computed(() => !requestAliasesValid.value || saveHeldForRefresh(persistenceNotice.value))
+const configSaveHeld = computed(
+  () => !requestAliasesValid.value || saveHeldForRefresh(persistenceNotice.value),
+)
 
 async function refreshTemplateSave() {
   const ok = await fetchConfigTemplates()
-  templateSaveNotice.value = ok
-    ? null
-    : classifyPersistenceError(new Error('reload failed'))
+  templateSaveNotice.value = ok ? null : classifyPersistenceError(new Error('reload failed'))
 }
 
 function retryTemplateMutation() {
@@ -1365,9 +1565,8 @@ function retryTemplateMutation() {
 async function refreshTemplateMutation() {
   const templatesOk = await fetchConfigTemplates()
   const configOk = await refreshPersistedConfig()
-  templateMutationNotice.value = templatesOk && configOk
-    ? null
-    : classifyPersistenceError(new Error('reload failed'))
+  templateMutationNotice.value =
+    templatesOk && configOk ? null : classifyPersistenceError(new Error('reload failed'))
 }
 const refreshingModel = ref(false)
 const companionsLoading = ref(false)
@@ -1378,7 +1577,7 @@ const selectedMtp = ref('')
 const selectedDflash = ref('')
 const model = ref(null)
 const config = ref({})
-const savedConfig = ref({})          // for reset
+const savedConfig = ref({}) // for reset
 const paramRegistry = ref({
   sections: [],
   runtime_profiles: {},
@@ -1401,7 +1600,7 @@ const paramSearchQuery = ref('')
 const hideUnsupportedParams = ref(false)
 /** Catalog keys currently shown in the params pane (order = add / derive order). */
 const activeParamKeys = ref([])
-const modelLimits = ref(null)        // engine-agnostic: { max_context_length?, layer_count? } from config runtime_limits
+const modelLimits = ref(null) // engine-agnostic: { max_context_length?, layer_count? } from config runtime_limits
 
 const cmdPreviewText = ref('')
 const cmdPreviewEnvText = ref('')
@@ -1485,31 +1684,20 @@ let unsavedPreviewRequestId = 0
 /** @type {AbortController | null} */
 let unsavedPreviewAbort = null
 
-const fallbackEngineOptions = [
-  { value: 'llama_cpp', label: 'llama.cpp', icon: 'pi-microchip' },
-  { value: 'ik_llama',  label: 'ik_llama.cpp', icon: 'pi-microchip' },
-  { value: 'unsloth_llama', label: 'Unsloth llama.cpp', icon: 'pi-microchip' },
-  { value: 'lmdeploy',  label: 'LMDeploy', icon: 'pi-server' },
-  { value: '1cat_vllm', label: '1Cat-vLLM', icon: 'pi-server' },
-  { value: 'sglang', label: 'SGLang', icon: 'pi-sparkles' },
-  { value: 'sglang_v100', label: 'SGLang V100', icon: 'pi-sparkles' },
-  { value: 'vllm', label: 'vLLM', icon: 'pi-server' },
-  { value: 'audio_cpp', label: 'audio.cpp', icon: 'pi-volume-up' },
-]
+// Engine identity (labels, icons, fallback compatibility) lives in
+// @/engines/registry; these are local aliases for the picker below.
+const fallbackEngineOptions = FALLBACK_ENGINE_OPTIONS
 const curatedPackageKinds = ['prepared_bundle', 'builtin']
-const inferredEnginesByFormat = {
-  gguf: ['llama_cpp', 'ik_llama', 'unsloth_llama'],
-  safetensors: ['lmdeploy', '1cat_vllm', 'vllm', 'sglang', 'sglang_v100'],
-}
+const inferredEnginesByFormat = ENGINE_IDS_BY_FALLBACK_FORMAT
 
 function inferredEnginesForModel(options, fmt, packageKind) {
   if (curatedPackageKinds.includes(packageKind)) return ['audio_cpp']
   const fromDescriptors = options
     .filter((option) => {
       const formats = option.descriptor?.artifact_formats
-      return Array.isArray(formats)
-        && formats.length === 1
-        && String(formats[0]).toLowerCase() === fmt
+      return (
+        Array.isArray(formats) && formats.length === 1 && String(formats[0]).toLowerCase() === fmt
+      )
     })
     .map((option) => option.value)
   return [...new Set([...(inferredEnginesByFormat[fmt] || []), ...fromDescriptors])]
@@ -1521,11 +1709,11 @@ const engineOptions = computed(() => {
     : []
   const options = descriptors.length
     ? descriptors.map((descriptor) => ({
-      value: descriptor.id,
-      label: descriptor.label,
-      runnable: Boolean(descriptor.runnable),
-      descriptor,
-    }))
+        value: descriptor.id,
+        label: descriptor.label,
+        runnable: Boolean(descriptor.runnable),
+        descriptor,
+      }))
     : fallbackEngineOptions
   const verified = Array.isArray(model.value?.compatible_engines)
     ? model.value.compatible_engines.filter(Boolean)
@@ -1540,17 +1728,18 @@ const engineOptions = computed(() => {
     return {
       ...option,
       disabled: !compatible || option.descriptor?.enabled === false,
-      disabledReason: option.descriptor?.enabled === false
-        ? 'Disabled by the AUDIO_CPP_ENABLED feature gate'
-        : compatible
-          ? ''
-          : `Not compatible with this ${packageKind || fmt || 'model'} artifact`,
+      disabledReason:
+        option.descriptor?.enabled === false
+          ? 'Disabled by the AUDIO_CPP_ENABLED feature gate'
+          : compatible
+            ? ''
+            : `Not compatible with this ${packageKind || fmt || 'model'} artifact`,
     }
   })
 })
 
-const isAudioEngine = computed(() => config.value.engine === 'audio_cpp')
-const SGLANG_ENGINES = new Set(['sglang', 'sglang_v100'])
+const isAudioEngine = computed(() => isAudioEngineId(config.value.engine))
+const SGLANG_ENGINES = new Set(SGLANG_RUNTIME_UI_IDS)
 const isSglangEngine = computed(() => SGLANG_ENGINES.has(config.value.engine))
 const sglangRuntimeOptions = [
   { label: 'Language model', value: 'llm' },
@@ -1561,7 +1750,7 @@ function normalizeSglangRuntime(runtime) {
   return runtime === 'diffusion' ? 'diffusion' : 'llm'
 }
 const pageTab = ref('runtime')
-const pageTabs = computed(() => (
+const pageTabs = computed(() =>
   isAudioEngine.value
     ? [
         { id: 'server', label: 'Runtime', icon: 'pi pi-server' },
@@ -1572,8 +1761,8 @@ const pageTabs = computed(() => (
     : [
         { id: 'runtime', label: 'Runtime', icon: 'pi pi-server' },
         { id: 'launch', label: 'Launch', icon: 'pi pi-play' },
-      ]
-))
+      ],
+)
 watch(isAudioEngine, (audio) => {
   const ids = new Set(pageTabs.value.map((tab) => tab.id))
   if (!ids.has(pageTab.value)) pageTab.value = audio ? 'server' : 'runtime'
@@ -1616,9 +1805,13 @@ const showCompanionsCard = computed(
   () => modelFormat.value === 'gguf' && !!model.value?.huggingface_id,
 )
 const companionBusy = computed(() => !!companionBusyField.value)
-const mmprojOptions = computed(() => companionDropdownOptions(companionFiles.value.mmproj_files, 'mmproj'))
+const mmprojOptions = computed(() =>
+  companionDropdownOptions(companionFiles.value.mmproj_files, 'mmproj'),
+)
 const mtpOptions = computed(() => companionDropdownOptions(companionFiles.value.mtp_files, 'mtp'))
-const dflashOptions = computed(() => companionDropdownOptions(companionFiles.value.dflash_files, 'dflash'))
+const dflashOptions = computed(() =>
+  companionDropdownOptions(companionFiles.value.dflash_files, 'dflash'),
+)
 const mmprojSelectionChanged = computed(
   () => (selectedMmproj.value || '') !== (model.value?.mmproj_filename || ''),
 )
@@ -1638,12 +1831,7 @@ function openAudioWorkspace() {
 
 const showNvidiaGpuBind = computed(() => {
   const g = gpuInfo.value || {}
-  return (
-    g.vendor === 'nvidia' &&
-    Array.isArray(g.gpus) &&
-    g.gpus.length > 0 &&
-    !g.cpu_only_mode
-  )
+  return g.vendor === 'nvidia' && Array.isArray(g.gpus) && g.gpus.length > 0 && !g.cpu_only_mode
 })
 
 const nvidiaGpuSelectOptions = computed(() => {
@@ -1674,7 +1862,11 @@ const runtimeEnvRowsDisplayed = computed(() =>
     .map((row, originalIndex) => ({ row, originalIndex }))
     .filter(({ row }) => {
       if (!showNvidiaGpuBind.value) return true
-      return String(row.key || '').trim().toUpperCase() !== 'CUDA_VISIBLE_DEVICES'
+      return (
+        String(row.key || '')
+          .trim()
+          .toUpperCase() !== 'CUDA_VISIBLE_DEVICES'
+      )
     }),
 )
 
@@ -1727,12 +1919,7 @@ const stableModelId = computed(() => {
   return ''
 })
 
-const audioModelConfig = useAudioModelConfig(
-  config,
-  paramRegistry,
-  enginesStore,
-  stableModelId,
-)
+const audioModelConfig = useAudioModelConfig(config, paramRegistry, enginesStore, stableModelId)
 
 const {
   audioEditableParams,
@@ -1741,9 +1928,9 @@ const {
   seedSessionVoiceFromPackagedIds,
 } = audioModelConfig
 
-const currentEngineSection = computed(() => (
-  (config.value.engines && config.value.engines[config.value.engine]) || {}
-))
+const currentEngineSection = computed(
+  () => (config.value.engines && config.value.engines[config.value.engine]) || {},
+)
 
 const AUDIO_STUDIO_KNOWN_KEYS_REF = AUDIO_STUDIO_KNOWN_KEYS
 
@@ -1764,7 +1951,10 @@ const unrecognizedSavedKeys = computed(() => {
   ])
   for (const key of catalogParamByKey.value.keys()) known.add(key)
   if (isSglangEngine.value) {
-    for (const registry of [paramRegistry.value, ...Object.values(paramRegistry.value.runtime_profiles || {})]) {
+    for (const registry of [
+      paramRegistry.value,
+      ...Object.values(paramRegistry.value.runtime_profiles || {}),
+    ]) {
       for (const section of registry?.sections || []) {
         for (const param of section.params || []) known.add(param.key)
       }
@@ -1775,7 +1965,10 @@ const unrecognizedSavedKeys = computed(() => {
 
 const hasUnsavedChanges = computed(() => {
   try {
-    return !requestAliasesValid.value || JSON.stringify(config.value) !== JSON.stringify(savedConfig.value)
+    return (
+      !requestAliasesValid.value ||
+      JSON.stringify(config.value) !== JSON.stringify(savedConfig.value)
+    )
   } catch {
     return false
   }
@@ -1792,7 +1985,11 @@ watchDialogFocus(templatesDialogVisible)
  * Saved model config differs from its published native runtime manifest.
  * Shown only when there are no unsaved edits — save first, then Apply.
  */
-const showApplyRuntime = computed(() => !hasUnsavedChanges.value && ['restart_now', 'publish_next_start'].includes(modelLaunchPlan.value?.action))
+const showApplyRuntime = computed(
+  () =>
+    !hasUnsavedChanges.value &&
+    ['restart_now', 'publish_next_start'].includes(modelLaunchPlan.value?.action),
+)
 
 const gpuModeOptions = [
   { label: 'All GPUs', value: 'inherit' },
@@ -1804,9 +2001,19 @@ function onGpuModeKeydown(event) {
   const keys = ['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End']
   if (!keys.includes(event.key)) return
   event.preventDefault()
-  const index = Math.max(0, gpuModeOptions.findIndex((mode) => mode.value === (config.value.gpu_mode || 'inherit')))
-  const next = event.key === 'Home' ? 0 : event.key === 'End' ? gpuModeOptions.length - 1
-    : (index + (['ArrowRight', 'ArrowDown'].includes(event.key) ? 1 : -1) + gpuModeOptions.length) % gpuModeOptions.length
+  const index = Math.max(
+    0,
+    gpuModeOptions.findIndex((mode) => mode.value === (config.value.gpu_mode || 'inherit')),
+  )
+  const next =
+    event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? gpuModeOptions.length - 1
+        : (index +
+            (['ArrowRight', 'ArrowDown'].includes(event.key) ? 1 : -1) +
+            gpuModeOptions.length) %
+          gpuModeOptions.length
   setGpuMode(gpuModeOptions[next].value)
   event.currentTarget.querySelectorAll('[role="radio"]')[next]?.focus()
 }
@@ -1828,10 +2035,10 @@ const selectiveModelApply = computed(() => {
   const entry = modelLaunchPlan.value
   return Boolean(
     pending?.launch_manifests &&
-      entry &&
-      !pending.requires_proxy_reload &&
-      !entry.requires_proxy_reload &&
-      (entry.action === 'restart_now' || entry.action === 'publish_next_start'),
+    entry &&
+    !pending.requires_proxy_reload &&
+    !entry.requires_proxy_reload &&
+    (entry.action === 'restart_now' || entry.action === 'publish_next_start'),
   )
 })
 
@@ -1851,7 +2058,11 @@ const modelIsRunning = computed(() => {
 })
 
 const publishedStepLabel = computed(() => {
-  if (enginesStore.runtimePlan?.launch_manifests === false || modelRuntimeQuality.value === 'unreachable') return 'Status unknown'
+  if (
+    enginesStore.runtimePlan?.launch_manifests === false ||
+    modelRuntimeQuality.value === 'unreachable'
+  )
+    return 'Status unknown'
   if (modelRuntimeQuality.value === 'stale') {
     return model.value?.is_active ? 'Running · stale' : 'Status stale'
   }
@@ -1859,7 +2070,8 @@ const publishedStepLabel = computed(() => {
 })
 
 const runtimeStateDetail = computed(() => {
-  if (hasUnsavedChanges.value) return 'These edits are only in this form. Save them before they can be applied.'
+  if (hasUnsavedChanges.value)
+    return 'These edits are only in this form. Save them before they can be applied.'
   if (pendingApply.value) {
     const action = modelLaunchPlan.value?.action
     if (action === 'publish_next_start') {
@@ -1870,7 +2082,8 @@ const runtimeStateDetail = computed(() => {
     }
     return 'Pending changes for this model are not in use yet. Apply them with the action below. Saving does not restart the model.'
   }
-  if (enginesStore.runtimePlan?.launch_manifests === false) return 'The native runtime plan is unavailable. Refresh to check whether saved settings are in use.'
+  if (enginesStore.runtimePlan?.launch_manifests === false)
+    return 'The native runtime plan is unavailable. Refresh to check whether saved settings are in use.'
   if (modelRuntimeQuality.value === 'unreachable') {
     return 'Saved settings are on this page, but the proxy could not be reached. This is not a verified stopped or running state.'
   }
@@ -1879,7 +2092,8 @@ const runtimeStateDetail = computed(() => {
       ? 'The proxy is unreachable. The last observation still had this model running.'
       : 'The proxy is unreachable. The last observation did not show this model running.'
   }
-  if (modelIsRunning.value) return 'These saved settings are published and this model is running them.'
+  if (modelIsRunning.value)
+    return 'These saved settings are published and this model is running them.'
   return 'These settings are published. The model is stopped, so they are used the next time it starts.'
 })
 
@@ -1907,11 +2121,9 @@ const applyImpactModels = computed(() => {
   return `Affected: ${name}.`
 })
 
-const basicParams = computed(() => (
-  BASIC_PARAM_KEYS
-    .map((key) => catalogParamByKey.value.get(key))
-    .filter(Boolean)
-))
+const basicParams = computed(() =>
+  BASIC_PARAM_KEYS.map((key) => catalogParamByKey.value.get(key)).filter(Boolean),
+)
 
 function engineIsInstalled(option) {
   const count = option?.descriptor?.installed_versions
@@ -1919,9 +2131,9 @@ function engineIsInstalled(option) {
   return Number(count) > 0
 }
 
-const visibleEngineOptions = computed(() => (
-  engineOptions.value.filter((option) => !option.disabled && engineIsInstalled(option))
-))
+const visibleEngineOptions = computed(() =>
+  engineOptions.value.filter((option) => !option.disabled && engineIsInstalled(option)),
+)
 const unavailableSavedEngine = computed(() => {
   const selected = engineOptions.value.find((option) => option.value === config.value.engine)
   if (!selected) return null
@@ -1937,7 +2149,10 @@ function useParameterDefault(param) {
   delete config.value[param.key]
 }
 function parameterHelp(param) {
-  const value = param.default == null || param.default === '' ? 'chosen by the engine' : JSON.stringify(param.default)
+  const value =
+    param.default == null || param.default === ''
+      ? 'chosen by the engine'
+      : JSON.stringify(param.default)
   return `Engine default: ${value}`
 }
 
@@ -1956,10 +2171,14 @@ function engineTabIndex(eng) {
 function onEngineKeydown(event) {
   const options = visibleEngineOptions.value.filter((option) => !option.disabled)
   if (!options.length) return
-  const index = Math.max(0, options.findIndex((option) => option.value === config.value.engine))
+  const index = Math.max(
+    0,
+    options.findIndex((option) => option.value === config.value.engine),
+  )
   let next
   if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % options.length
-  else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + options.length) % options.length
+  else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp')
+    next = (index - 1 + options.length) % options.length
   else if (event.key === 'Home') next = 0
   else if (event.key === 'End') next = options.length - 1
   else return
@@ -1985,16 +2204,11 @@ function paramMatchesSearch(param, queryRaw) {
   if (hideUnsupportedParams.value && param.supported === false) return false
   const raw = queryRaw.trim().toLowerCase()
   if (!raw) return false
-  const hay = [
-    param.label || '',
-    param.key || '',
-    param.description || '',
-    ...(param.flags || []),
-  ]
+  const hay = [param.label || '', param.key || '', param.description || '', ...(param.flags || [])]
     .join(' ')
     .toLowerCase()
   const tokens = raw.split(/\s+/).filter(Boolean)
-  return tokens.every(t => hay.includes(t))
+  return tokens.every((t) => hay.includes(t))
 }
 
 const searchTagResults = computed(() => {
@@ -2079,13 +2293,17 @@ function normalizeCsvEnumValue(value, param) {
   }
   if (value == null || value === '') return []
   if (typeof value === 'string') {
-    return value.split(delimitedEnumSeparator(param)).map((s) => s.trim()).filter(Boolean)
+    return value
+      .split(delimitedEnumSeparator(param))
+      .map((s) => s.trim())
+      .filter(Boolean)
   }
   return [value]
 }
 
 function defaultValueForParam(param) {
-  if (['repeatable', 'space_list'].includes(param.value_kind)) return Array.isArray(param.default) ? [...param.default] : []
+  if (['repeatable', 'space_list'].includes(param.value_kind))
+    return Array.isArray(param.default) ? [...param.default] : []
   if (isDelimitedEnumParam(param)) {
     return normalizeCsvEnumValue(param.default, param)
   }
@@ -2109,7 +2327,7 @@ function addParamKey(key) {
 }
 
 function removeParamKey(key) {
-  activeParamKeys.value = activeParamKeys.value.filter(k => k !== key)
+  activeParamKeys.value = activeParamKeys.value.filter((k) => k !== key)
   if (Object.prototype.hasOwnProperty.call(config.value, key)) {
     delete config.value[key]
   }
@@ -2142,9 +2360,10 @@ function formatEnvPreviewLines(env) {
 
 function previewEnvLines(data) {
   if (Array.isArray(data?.engine_env) && data.engine_env.length) {
-    const unset = Array.isArray(data.engine_env_unset) && data.engine_env_unset.length
-      ? `\n# unset\n${data.engine_env_unset.join('\n')}`
-      : ''
+    const unset =
+      Array.isArray(data.engine_env_unset) && data.engine_env_unset.length
+        ? `\n# unset\n${data.engine_env_unset.join('\n')}`
+        : ''
     return formatEnvPreviewLines(data.engine_env) + unset
   }
   return formatEnvPreviewLines(data?.env)
@@ -2155,7 +2374,6 @@ function formatRevisionPreview(data) {
   const published = data.published_revision || 'not published'
   return `Saved revision ${data.launch_revision}\nPublished revision ${published}`
 }
-
 
 function formatFiltersPreview(filters) {
   if (!filters || typeof filters !== 'object') return ''
@@ -2217,11 +2435,11 @@ const activeCmdPreview = computed(() => {
     env: unsavedCmdPreviewEnvText.value,
     filters: unsavedCmdPreviewFiltersText.value,
     aliases: unsavedCmdPreviewAliasesText.value,
-      sidecar: unsavedCmdPreviewSidecarText.value,
-      sidecarPath: unsavedCmdPreviewSidecarPath.value,
-      launcher: unsavedCmdPreviewLauncherText.value,
-      revision: unsavedCmdPreviewRevisionText.value,
-      emptyMessage: 'Preview will appear once the current form can be rendered into a command.',
+    sidecar: unsavedCmdPreviewSidecarText.value,
+    sidecarPath: unsavedCmdPreviewSidecarPath.value,
+    launcher: unsavedCmdPreviewLauncherText.value,
+    revision: unsavedCmdPreviewRevisionText.value,
+    emptyMessage: 'Preview will appear once the current form can be rendered into a command.',
     suffix: 'generated',
     loadingText: 'Refreshing preview…',
   }
@@ -2295,16 +2513,15 @@ function updateJsonParam(key, text) {
   }
 }
 
-function _runtimeEnvShallowEqual(
-  a,
-  b,
-) {
+function _runtimeEnvShallowEqual(a, b) {
   const x = a && typeof a === 'object' && !Array.isArray(a) ? a : {}
   const y = b && typeof b === 'object' && !Array.isArray(b) ? b : {}
   const xk = Object.keys(x)
   const yk = Object.keys(y)
   if (xk.length !== yk.length) return false
-  return xk.every((k) => Object.prototype.hasOwnProperty.call(y, k) && String(x[k]) === String(y[k]))
+  return xk.every(
+    (k) => Object.prototype.hasOwnProperty.call(y, k) && String(x[k]) === String(y[k]),
+  )
 }
 
 function _runtimeEnvUnsetEqual(a, b) {
@@ -2327,8 +2544,8 @@ function syncRuntimeEnvFromRows() {
     out[k] = row.value != null ? String(row.value) : ''
   }
   if (
-    _runtimeEnvShallowEqual(config.value.runtime_env, out)
-    && _runtimeEnvUnsetEqual(config.value.runtime_env_unset, unset)
+    _runtimeEnvShallowEqual(config.value.runtime_env, out) &&
+    _runtimeEnvUnsetEqual(config.value.runtime_env_unset, unset)
   ) {
     return
   }
@@ -2417,12 +2634,15 @@ function setGpuMode(mode) {
 function upsertRuntimeEnvRowCanonical(canonicalKey, value) {
   const upper = canonicalKey.toUpperCase()
   const rows = [...runtimeEnvRows.value]
-  let idx = rows.findIndex((r) => String(r.key || '').trim().toUpperCase() === upper)
+  let idx = rows.findIndex(
+    (r) =>
+      String(r.key || '')
+        .trim()
+        .toUpperCase() === upper,
+  )
   if (idx < 0) {
     const onlyBlank =
-      rows.length === 1 &&
-      !String(rows[0].key || '').trim() &&
-      !String(rows[0].value || '').trim()
+      rows.length === 1 && !String(rows[0].key || '').trim() && !String(rows[0].value || '').trim()
     if (onlyBlank) {
       runtimeEnvRows.value = [{ key: canonicalKey, value }]
     } else {
@@ -2438,7 +2658,10 @@ function upsertRuntimeEnvRowCanonical(canonicalKey, value) {
 function removeRuntimeEnvRowByCanonicalKey(canonicalKey) {
   const upper = canonicalKey.toUpperCase()
   const next = runtimeEnvRows.value.filter(
-    (r) => String(r.key || '').trim().toUpperCase() !== upper,
+    (r) =>
+      String(r.key || '')
+        .trim()
+        .toUpperCase() !== upper,
   )
   runtimeEnvRows.value = next.length ? next : [{ key: '', value: '' }]
   syncRuntimeEnvFromRows()
@@ -2508,7 +2731,7 @@ function formatAxiosDetail(e) {
       .map((x) =>
         typeof x === 'object' && x?.msg
           ? `${Array.isArray(x.loc) ? x.loc.join('.') : ''}: ${x.msg}`.replace(/^\.\s*/, '')
-          : String(x)
+          : String(x),
       )
       .filter(Boolean)
       .join('; ')
@@ -2521,11 +2744,16 @@ function findModelById(id) {
   const sid = String(id)
   for (const group of modelStore.models) {
     for (const q of group.quantizations || []) {
-      if (String(q.id) === sid) return { ...q, base_model_name: group.base_model_name, huggingface_id: group.huggingface_id }
+      if (String(q.id) === sid)
+        return {
+          ...q,
+          base_model_name: group.base_model_name,
+          huggingface_id: group.huggingface_id,
+        }
     }
   }
   // Fallback: search allQuantizations
-  return modelStore.allQuantizations.find(m => String(m.id) === sid) ?? null
+  return modelStore.allQuantizations.find((m) => String(m.id) === sid) ?? null
 }
 
 async function fetchGpuListForBind() {
@@ -2543,14 +2771,14 @@ async function fetchGpuListForBind() {
 
 async function fetchParamRegistry(engine, { draftFamily, draftTask, rescan = false } = {}) {
   try {
-    const family = draftFamily ?? (engine === 'audio_cpp' ? config.value?.family : undefined)
-    const task = draftTask ?? (engine === 'audio_cpp' ? config.value?.task : undefined)
+    const family = draftFamily ?? (isAudioEngineId(engine) ? config.value?.family : undefined)
+    const task = draftTask ?? (isAudioEngineId(engine) ? config.value?.task : undefined)
     const { data } = await axios.get('/api/models/param-registry', {
       params: {
         engine,
         ...(model.value?.id ? { model_id: model.value.id } : {}),
-        ...(engine === 'audio_cpp' && family ? { family } : {}),
-        ...(engine === 'audio_cpp' && task ? { task } : {}),
+        ...(isAudioEngineId(engine) && family ? { family } : {}),
+        ...(isAudioEngineId(engine) && task ? { task } : {}),
         ...(rescan ? { rescan: true } : {}),
       },
     })
@@ -2585,11 +2813,11 @@ async function fetchParamRegistry(engine, { draftFamily, draftTask, rescan = fal
       family_dependencies: data.family_dependencies || {},
       packaged_voices: data.packaged_voices || [],
     }
-    if (engine === 'audio_cpp') {
+    if (isAudioEngineId(engine)) {
       pruneStaleAudioRequestDefaults(
         config.value,
-        paramRegistry.value.request_defaults_key
-          || audioTaskDefaultsKey(paramRegistry.value.policy_task || config.value?.task),
+        paramRegistry.value.request_defaults_key ||
+          audioTaskDefaultsKey(paramRegistry.value.policy_task || config.value?.task),
       )
       seedSessionVoiceFromPackagedIds()
     }
@@ -2611,34 +2839,34 @@ function scheduleAudioRegistryRefresh() {
   if (audioRegistryRefreshTimer) clearTimeout(audioRegistryRefreshTimer)
   audioRegistryRefreshTimer = window.setTimeout(() => {
     audioRegistryRefreshTimer = null
-    if (config.value?.engine !== 'audio_cpp' || loading.value) return
+    if (!isAudioEngineId(config.value?.engine) || loading.value) return
     void fetchParamRegistry('audio_cpp')
   }, 250)
 }
 
 function buildWorkingConfigFromApi(cfg) {
   const engines =
-    cfg.engines && typeof cfg.engines === 'object'
-      ? JSON.parse(JSON.stringify(cfg.engines))
-      : {}
+    cfg.engines && typeof cfg.engines === 'object' ? JSON.parse(JSON.stringify(cfg.engines)) : {}
   const engine = cfg.engine ?? 'llama_cpp'
   const sec = engines[engine] || {}
   return {
     engine,
     engines,
     ...sec,
-    ...(SGLANG_ENGINES.has(engine) ? { sglang_runtime: normalizeSglangRuntime(sec.sglang_runtime) } : {}),
+    ...(SGLANG_ENGINES.has(engine)
+      ? { sglang_runtime: normalizeSglangRuntime(sec.sglang_runtime) }
+      : {}),
   }
 }
 
 function buildEngineStashFromForm(sourceConfig = config.value) {
-
-  const preserveUnknownAudioKeys = sourceConfig.engine === 'audio_cpp'
+  const preserveUnknownAudioKeys = isAudioEngineId(sourceConfig.engine)
   const preserveSglangKeys = SGLANG_ENGINES.has(sourceConfig.engine)
   const previous = sourceConfig.engines?.[sourceConfig.engine]
-  const stash = (preserveUnknownAudioKeys || preserveSglangKeys) && previous && typeof previous === 'object'
-    ? JSON.parse(JSON.stringify(previous))
-    : {}
+  const stash =
+    (preserveUnknownAudioKeys || preserveSglangKeys) && previous && typeof previous === 'object'
+      ? JSON.parse(JSON.stringify(previous))
+      : {}
   if (preserveSglangKeys) {
     // Only replace the displayed runtime's editable parameters. Keep settings
     // belonging to the other runtime and keys missing from an older CLI scan.
@@ -2673,7 +2901,9 @@ function buildEngineStashFromForm(sourceConfig = config.value) {
     stash.runtime_env = {}
   }
   if (Array.isArray(sourceConfig.runtime_env_unset) && sourceConfig.runtime_env_unset.length) {
-    stash.runtime_env_unset = sourceConfig.runtime_env_unset.map((name) => String(name)).filter(Boolean)
+    stash.runtime_env_unset = sourceConfig.runtime_env_unset
+      .map((name) => String(name))
+      .filter(Boolean)
   }
   if (sourceConfig.gpu_mode) stash.gpu_mode = sourceConfig.gpu_mode
   if (Array.isArray(sourceConfig.gpu_devices)) {
@@ -2683,10 +2913,11 @@ function buildEngineStashFromForm(sourceConfig = config.value) {
     for (const param of audioEditableParams.value) {
       const nestedKey = AUDIO_NESTED_SCOPE_KEYS[param.scope]
       const value = audioParamValue(param, sourceConfig)
-      const empty = value == null
-        || value === ''
-        || (typeof value === 'number' && Number.isNaN(value))
-        || (Array.isArray(value) && value.length === 0)
+      const empty =
+        value == null ||
+        value === '' ||
+        (typeof value === 'number' && Number.isNaN(value)) ||
+        (Array.isArray(value) && value.length === 0)
       if (nestedKey) {
         if (!stash[nestedKey] || typeof stash[nestedKey] !== 'object') {
           stash[nestedKey] = {}
@@ -2705,22 +2936,25 @@ function buildEngineStashFromForm(sourceConfig = config.value) {
         if (param.required !== true) stash[param.key] = null
         else delete stash[param.key]
       } else {
-        stash[param.key] = Array.isArray(value)
-          ? [...value]
-          : coerceAudioParamValue(param, value)
+        stash[param.key] = Array.isArray(value) ? [...value] : coerceAudioParamValue(param, value)
       }
     }
     for (const nestedKey of ['load_options', 'session_options']) {
       if (
-        stash[nestedKey]
-        && typeof stash[nestedKey] === 'object'
-        && !Object.keys(stash[nestedKey]).length
+        stash[nestedKey] &&
+        typeof stash[nestedKey] === 'object' &&
+        !Object.keys(stash[nestedKey]).length
       ) {
         delete stash[nestedKey]
       }
     }
     const presets = sourceConfig.voice_presets
-    if (presets && typeof presets === 'object' && !Array.isArray(presets) && Object.keys(presets).length) {
+    if (
+      presets &&
+      typeof presets === 'object' &&
+      !Array.isArray(presets) &&
+      Object.keys(presets).length
+    ) {
       stash.voice_presets = JSON.parse(JSON.stringify(presets))
     } else {
       delete stash.voice_presets
@@ -2733,10 +2967,10 @@ function buildEngineStashFromForm(sourceConfig = config.value) {
     }
     const speechDefaults = sourceConfig.speech_defaults
     if (
-      speechDefaults
-      && typeof speechDefaults === 'object'
-      && !Array.isArray(speechDefaults)
-      && Object.keys(speechDefaults).length
+      speechDefaults &&
+      typeof speechDefaults === 'object' &&
+      !Array.isArray(speechDefaults) &&
+      Object.keys(speechDefaults).length
     ) {
       stash.speech_defaults = JSON.parse(JSON.stringify(speechDefaults))
     } else {
@@ -2744,10 +2978,10 @@ function buildEngineStashFromForm(sourceConfig = config.value) {
     }
     const transcriptionDefaults = sourceConfig.transcription_defaults
     if (
-      transcriptionDefaults
-      && typeof transcriptionDefaults === 'object'
-      && !Array.isArray(transcriptionDefaults)
-      && Object.keys(transcriptionDefaults).length
+      transcriptionDefaults &&
+      typeof transcriptionDefaults === 'object' &&
+      !Array.isArray(transcriptionDefaults) &&
+      Object.keys(transcriptionDefaults).length
     ) {
       stash.transcription_defaults = JSON.parse(JSON.stringify(transcriptionDefaults))
     } else {
@@ -2755,10 +2989,10 @@ function buildEngineStashFromForm(sourceConfig = config.value) {
     }
     const taskDefaults = sourceConfig.task_defaults
     if (
-      taskDefaults
-      && typeof taskDefaults === 'object'
-      && !Array.isArray(taskDefaults)
-      && Object.keys(taskDefaults).length
+      taskDefaults &&
+      typeof taskDefaults === 'object' &&
+      !Array.isArray(taskDefaults) &&
+      Object.keys(taskDefaults).length
     ) {
       stash.task_defaults = JSON.parse(JSON.stringify(taskDefaults))
     } else {
@@ -2815,9 +3049,10 @@ function stashCurrentEngineIntoEngines(engineKey) {
 
 function applyEngineSectionToForm(engine) {
   const sec = (config.value.engines && config.value.engines[engine]) || {}
-  if (SGLANG_ENGINES.has(engine)) config.value.sglang_runtime = normalizeSglangRuntime(sec.sglang_runtime)
+  if (SGLANG_ENGINES.has(engine))
+    config.value.sglang_runtime = normalizeSglangRuntime(sec.sglang_runtime)
   const params = catalogParamList.value
-  if (engine === 'audio_cpp') {
+  if (isAudioEngineId(engine)) {
     const eng = config.value.engine
     const engMap = config.value.engines
     for (const key of Object.keys(config.value)) {
@@ -2838,10 +3073,10 @@ function applyEngineSectionToForm(engine) {
       const nestedKey = AUDIO_NESTED_SCOPE_KEYS[param.scope]
       if (nestedKey) {
         if (config.value[nestedKey][param.key] == null) {
-        config.value[nestedKey][param.key] = defaultValueForAudioParam(param)
-      }
-    } else if (config.value[param.key] == null) {
-      config.value[param.key] = defaultValueForAudioParam(param)
+          config.value[nestedKey][param.key] = defaultValueForAudioParam(param)
+        }
+      } else if (config.value[param.key] == null) {
+        config.value[param.key] = defaultValueForAudioParam(param)
       }
     }
     activeParamKeys.value = []
@@ -2859,7 +3094,8 @@ function applyEngineSectionToForm(engine) {
     Object.assign(config.value, sec)
     config.value.engine = eng
     config.value.engines = engMap
-    if (SGLANG_ENGINES.has(engine)) config.value.sglang_runtime = normalizeSglangRuntime(sec.sglang_runtime)
+    if (SGLANG_ENGINES.has(engine))
+      config.value.sglang_runtime = normalizeSglangRuntime(sec.sglang_runtime)
     initRuntimeEnvRowsFromConfig()
 
     syncCudaSelectionFromEnv()
@@ -2882,7 +3118,8 @@ function applyEngineSectionToForm(engine) {
   for (const k of Object.keys(config.value)) {
     if (!allowed.has(k)) delete config.value[k]
   }
-  if (Array.isArray(sec.set_params_by_id)) config.value.set_params_by_id = JSON.parse(JSON.stringify(sec.set_params_by_id))
+  if (Array.isArray(sec.set_params_by_id))
+    config.value.set_params_by_id = JSON.parse(JSON.stringify(sec.set_params_by_id))
   else delete config.value.set_params_by_id
   if (Array.isArray(sec.swap_aliases)) config.value.swap_aliases = [...sec.swap_aliases]
   else delete config.value.swap_aliases
@@ -2921,8 +3158,11 @@ function applyEngineSectionToForm(engine) {
       config.value[p.key] = normalized.length ? normalized : defaultValueForParam(p)
       continue
     }
-    config.value[p.key] =
-      Array.isArray(v) ? [...v] : (v !== undefined && v !== null && v !== '' ? v : defaultValueForParam(p))
+    config.value[p.key] = Array.isArray(v)
+      ? [...v]
+      : v !== undefined && v !== null && v !== ''
+        ? v
+        : defaultValueForParam(p)
   }
   initRuntimeEnvRowsFromConfig()
 
@@ -2935,7 +3175,9 @@ async function changeEngine(engine) {
   stashCurrentEngineIntoEngines(config.value.engine)
   config.value.engine = engine
   if (SGLANG_ENGINES.has(engine)) {
-    config.value.sglang_runtime = normalizeSglangRuntime(config.value.engines?.[engine]?.sglang_runtime)
+    config.value.sglang_runtime = normalizeSglangRuntime(
+      config.value.engines?.[engine]?.sglang_runtime,
+    )
   } else {
     delete config.value.sglang_runtime
   }
@@ -3125,14 +3367,19 @@ async function loadAll() {
   try {
     if (!modelStore.models.length) await modelStore.fetchModels()
     const found = findModelById(route.params.id)
-    if (!found) { loading.value = false; return }
+    if (!found) {
+      loading.value = false
+      return
+    }
     model.value = found
     syncCompanionSelectionsFromModel()
 
     const cfgResp = await axios.get(modelApiUrl('/config'))
     const cfg = cfgResp.data
     let engine = cfg.engine ?? found.engine ?? 'llama_cpp'
-    if (found.format !== 'safetensors' && ['lmdeploy', '1cat_vllm', 'vllm', 'sglang', 'sglang_v100'].includes(engine)) {
+    // R91: the venv-engine family comes from the descriptors, not a literal list
+    // (audio.cpp is cmake, so it stays excluded exactly as before).
+    if (found.format !== 'safetensors' && VENV_ENGINE_IDS.includes(engine)) {
       engine = 'llama_cpp'
     }
 
@@ -3156,7 +3403,12 @@ async function loadAll() {
     lookForDraft()
   } catch (e) {
     loadError.value = formatAxiosDetail(e) || 'Could not load configuration'
-    toast.add({ severity: 'error', summary: 'Failed to load config', detail: loadError.value, life: 4000 })
+    toast.add({
+      severity: 'error',
+      summary: 'Failed to load config',
+      detail: loadError.value,
+      life: 4000,
+    })
   } finally {
     suppressAudioRegistryWatch = false
     loading.value = false
@@ -3183,7 +3435,11 @@ function applyParsedCommand({ params = [], env = [], customArgs } = {}) {
     if (isDelimitedEnumParam(param) && !Array.isArray(item.value)) {
       config.value[item.key] = normalizeCsvEnumValue(item.value, param)
     } else if (['repeatable', 'space_list'].includes(param?.value_kind)) {
-      config.value[item.key] = Array.isArray(item.value) ? [...item.value] : item.value == null ? [] : [item.value]
+      config.value[item.key] = Array.isArray(item.value)
+        ? [...item.value]
+        : item.value == null
+          ? []
+          : [item.value]
     } else {
       config.value[item.key] = item.value
     }
@@ -3329,7 +3585,8 @@ async function applyConfigTemplate(persist) {
           ? { ...outcome, refresh: false, retry: false }
           : {
               ...outcome,
-              detail: 'The document was replaced, but it could not be reloaded. Your edits are still here. Refresh before trying again.',
+              detail:
+                'The document was replaced, but it could not be reloaded. Your edits are still here. Refresh before trying again.',
               refresh: true,
               retry: false,
             }
@@ -3448,7 +3705,8 @@ async function refreshPersistedConfig() {
       outcome: 'unknown',
       committed: 'unknown',
       summary: 'Outcome unknown',
-      detail: 'The saved configuration could not be reloaded. Your edits are still here. Refresh before trying again.',
+      detail:
+        'The saved configuration could not be reloaded. Your edits are still here. Refresh before trying again.',
       refresh: true,
       retry: false,
       preserveEdits: true,
@@ -3479,7 +3737,8 @@ function reportPersistenceFailure(error, action) {
       ...outcome,
       retry: false,
       refresh: true,
-      detail: 'The change was stored, but acknowledgement failed. Refresh before trying the action again.',
+      detail:
+        'The change was stored, but acknowledgement failed. Refresh before trying the action again.',
     }
   }
   toast.add({
@@ -3523,7 +3782,8 @@ async function saveConfig() {
           config.value = draft
           persistenceNotice.value = {
             ...notice,
-            detail: 'The document was replaced, but it could not be reloaded. Your edits are still here. Refresh before trying again.',
+            detail:
+              'The document was replaced, but it could not be reloaded. Your edits are still here. Refresh before trying again.',
             refresh: true,
             retry: false,
           }
@@ -3721,7 +3981,12 @@ function restoreSavedConfig() {
 function resetConfig() {
   restoreSavedConfig()
   draftOffer.value = null
-  toast.add({ severity: 'info', summary: 'Reset', detail: 'Config reset to saved values', life: 2000 })
+  toast.add({
+    severity: 'info',
+    summary: 'Reset',
+    detail: 'Config reset to saved values',
+    life: 2000,
+  })
 }
 
 async function fetchSavedCmdPreview() {
@@ -3840,15 +4105,11 @@ watch(
 )
 
 watch(
-  [
-    () => config.value?.engine,
-    () => config.value?.family,
-    () => config.value?.task,
-  ],
+  [() => config.value?.engine, () => config.value?.family, () => config.value?.task],
   ([engine], [prevEngine]) => {
     if (suppressAudioRegistryWatch || loading.value) return
-    if (engine !== 'audio_cpp') return
-    if (prevEngine && prevEngine !== 'audio_cpp') {
+    if (!isAudioEngineId(engine)) return
+    if (prevEngine && !isAudioEngineId(prevEngine)) {
       void fetchParamRegistry('audio_cpp')
       return
     }
@@ -3856,8 +4117,20 @@ watch(
   },
 )
 
-watch(config, () => { persistDraftNow() }, { deep: true })
-watch(activeParamKeys, () => { persistDraftNow() }, { deep: true })
+watch(
+  config,
+  () => {
+    persistDraftNow()
+  },
+  { deep: true },
+)
+watch(
+  activeParamKeys,
+  () => {
+    persistDraftNow()
+  },
+  { deep: true },
+)
 
 // ── Lifecycle ──────────────────────────────────────────────
 onMounted(loadAll)

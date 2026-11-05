@@ -156,16 +156,6 @@ async def observe(
     )
 
 
-def normalize(value: Any) -> Any:
-    """Remove process-local values while retaining API shape and semantics."""
-    if isinstance(value, list):
-        return [normalize(item) for item in value]
-    if isinstance(value, dict):
-        ignored = {"pid", "port", "created_at", "started_at", "observed_at"}
-        return {key: normalize(item) for key, item in sorted(value.items()) if key not in ignored}
-    return value
-
-
 async def main(args: argparse.Namespace) -> int:
     headers = {"Authorization": f"Bearer {args.api_key}"} if args.api_key else {}
     checks: list[tuple[str, str, str, dict | None]] = [

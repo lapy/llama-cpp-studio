@@ -25,7 +25,7 @@ from backend import data_store
 from backend.engines import params as engine_param_catalog
 
 
-from backend.engines.registry import GGUF_ENGINE_IDS, get_engine_spec
+from backend.engines.registry import ENGINE_REGISTRY, GGUF_ENGINE_IDS, get_engine_spec
 
 
 from backend.models.hub import resolve_gguf_model_path
@@ -91,29 +91,29 @@ _RUNTIME_TOKEN_RE = re.compile(r"^\$\{[A-Za-z0-9_-]+\}$")
 
 
 CAPCOMPAT_ENGINE_IDS = frozenset(
-    {
-        "llama_cpp",
-        "ik_llama",
-        "unsloth_llama",
-        "vllm",
-        "1cat_vllm",
-    }
+    engine_id
+    for engine_id, spec in ENGINE_REGISTRY.items()
+    if dict(spec.launch_policy).get("capcompat") is True
 )
 
 
 _MODEL_MODALITIES = ("text", "audio", "image", "video")
 
 
-_RUNTIME_CONTEXT_KEYS = {
-    "llama_cpp": ("ctx_size",),
-    "ik_llama": ("ctx_size",),
-    "unsloth_llama": ("ctx_size",),
-    "lmdeploy": ("session_len",),
-    "vllm": ("max_model_len",),
-    "1cat_vllm": ("max_model_len",),
-    "sglang": ("context_length",),
-    "sglang_v100": ("context_length",),
-}
+def _runtime_context_key(engine: Optional[str]) -> tuple:
+    """The model-config key carrying this engine's runtime context (R5).
+
+    Read from the engine's declared ``launch_policy``; no engine-id set here.
+    """
+    if not engine:
+        return ()
+    from backend.engines.registry import get_engine_spec
+
+    spec = get_engine_spec(str(engine))
+    if spec is None:
+        return ()
+    key = str(dict(spec.launch_policy).get("runtime_context_key") or "")
+    return (key,) if key else ()
 
 
 _PIPELINE_MODEL_MODALITIES = {
@@ -304,7 +304,7 @@ def _capability_context(
 ) -> Optional[int]:
     from backend.utils.coercion import coerce_positive_int
 
-    for key in _RUNTIME_CONTEXT_KEYS.get(str(engine or ""), ()):
+    for key in _runtime_context_key(engine):
         context = coerce_positive_int((config or {}).get(key))
         if context:
             return context
@@ -809,85 +809,6 @@ def _resolve_cuda_library_path(build_dir: str) -> str:
         logger.debug("Could not get CUDA library path: %s", e)
     _cuda_library_path_cache[cache_key] = library_path
     return library_path
-
-
-def _resolve_lmdeploy_bin() -> Optional[str]:
-    try:
-        store = data_store.get_store()
-        active = store.get_active_engine_version("lmdeploy")
-        venv = active.get("venv_path") if active else None
-        if not venv:
-            return None
-        if not os.path.isabs(venv):
-            venv = os.path.join("/app", venv)
-        if not os.path.isdir(venv):
-            return None
-        candidate = os.path.join(venv, "bin", "lmdeploy")
-        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            return candidate
-    except Exception as e:
-        logger.debug("Could not resolve LMDeploy binary: %s", e)
-    return None
-
-
-def _resolve_onecat_vllm_bin() -> Optional[str]:
-    """Resolve the venv python used to launch 1Cat-vLLM's OpenAI api_server."""
-    try:
-        store = data_store.get_store()
-        active = store.get_active_engine_version("1cat_vllm")
-        venv = active.get("venv_path") if active else None
-        if not venv:
-            return None
-        if not os.path.isabs(venv):
-            venv = os.path.join("/app", venv)
-        if not os.path.isdir(venv):
-            return None
-        candidate = os.path.join(venv, "bin", "python")
-        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            return candidate
-    except Exception as e:
-        logger.debug("Could not resolve 1Cat-vLLM binary: %s", e)
-    return None
-
-
-def _resolve_sglang_bin(engine: str) -> Optional[str]:
-    """Resolve the active interpreter for an SGLang engine variant."""
-    if engine not in {"sglang", "sglang_v100", "vllm"}:
-        return None
-    try:
-        active = data_store.get_store().get_active_engine_version(engine)
-        venv = active.get("venv_path") if active else None
-        if not venv:
-            return None
-        if not os.path.isabs(venv):
-            venv = os.path.join("/app", venv)
-        candidate = os.path.join(
-            venv,
-            "Scripts" if os.name == "nt" else "bin",
-            "python.exe" if os.name == "nt" else "python",
-        )
-        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            return candidate
-    except Exception as exc:
-        logger.debug("Could not resolve %s environment: %s", engine, exc)
-    return None
-
-
-def _resolve_sglang_cuda_env(engine: str) -> Dict[str, str]:
-    """Resolve the Studio-managed CUDA environment bound to SGLang."""
-    if engine not in {"sglang", "sglang_v100", "vllm"}:
-        return {}
-    try:
-        active = data_store.get_store().get_active_engine_version(engine) or {}
-        version = active.get("cuda_version")
-        if engine == "sglang_v100":
-            version = version or "12.8"
-        from backend.cuda_installer import get_cuda_installer
-
-        return get_cuda_installer().get_cuda_env(str(version) if version else None)
-    except Exception as exc:
-        logger.debug("Could not resolve Studio CUDA environment for %s: %s", engine, exc)
-        return {}
 
 
 def _model_attr(model: Any, key: str, default: Any = None) -> Any:

@@ -8,9 +8,7 @@ const { confirmRequire, store, toastAdd } = vi.hoisted(() => ({
     sglangVersions: [],
     sglangV100Versions: [],
     vllmVersions: [],
-    sglangStatus: {},
-    sglangV100Status: {},
-    vllmStatus: {},
+    engineStatusById: {},
     fetchLlamaVersions: vi.fn().mockResolvedValue([]),
     fetchSglangStatus: vi.fn().mockResolvedValue({}),
     fetchSglangBuildSettings: vi.fn().mockResolvedValue({
@@ -24,6 +22,15 @@ const { confirmRequire, store, toastAdd } = vi.hoisted(() => ({
     deleteVersion: vi.fn().mockResolvedValue({}),
   },
 }))
+
+// R82: the panel reads through the store's generic keyed accessors.
+store.versionsForEngine = (engineId) =>
+  engineId === 'vllm'
+    ? store.vllmVersions
+    : engineId === 'sglang_v100'
+      ? store.sglangV100Versions
+      : store.sglangVersions
+store.statusForEngine = () => ({})
 
 vi.mock('@/stores/engines', () => ({
   useEnginesStore: () => store,

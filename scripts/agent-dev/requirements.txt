@@ -1,0 +1,4 @@
+# The control plane is stdlib-only and runs from the development checkout.
+# Its MCP transport is implemented directly over JSON-RPC 2.0 stdio, so no
+# host-side package is required. Application/dev dependencies live in the
+# image (requirements-dev.lock).

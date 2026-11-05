@@ -19,32 +19,36 @@ from contextvars import ContextVar
 from typing import Mapping, Optional
 
 _ACTIVE = frozenset({"queued", "running", "cancelling"})
-_GATED_KINDS = frozenset({
-    "build",
-    "install",
-    "install_source",
-    "activate",
-    "remove",
-    "runtime_apply",
-    "download",
-    "audio_model_install",
-    "audio_model_import",
-    "model_start",
-    "model_stop",
-    "sync_source",
-    "update",
-    "uninstall",
-})
+_GATED_KINDS = frozenset(
+    {
+        "build",
+        "install",
+        "install_source",
+        "activate",
+        "remove",
+        "runtime_apply",
+        "download",
+        "audio_model_install",
+        "audio_model_import",
+        "model_start",
+        "model_stop",
+        "sync_source",
+        "update",
+        "uninstall",
+    }
+)
 PROXY_RUNTIME_KEY = "proxy:runtime"
 CUDA_TOOLKIT_KEY = "cuda:toolkit"
 # These kinds use the studio CUDA tree. They conflict with CUDA uninstall.
-CUDA_DEPENDENT_KINDS = frozenset({
-    "build",
-    "install",
-    "install_source",
-    "sync_source",
-    "update",
-})
+CUDA_DEPENDENT_KINDS = frozenset(
+    {
+        "build",
+        "install",
+        "install_source",
+        "sync_source",
+        "update",
+    }
+)
 
 
 def keys_overlap(left: str, right: str) -> bool:
@@ -111,6 +115,33 @@ def resource_names(resource_key: str = "", depends_on: Optional[object] = None) 
     return names
 
 
+def reservation_keys(resource_key: str, depends_on: Optional[object], operation_id: str) -> list:
+    """Exclusive target plus independently owned shared dependency reservations.
+
+    These keys are in-memory only. Durable rows retain their target and
+    ``depends_on`` fields, so recovery can reconstruct the same reservations.
+    """
+    target = str(resource_key or "").strip()
+    return ([target] if target else []) + [
+        "@dependency:" + json.dumps([operation_id, name])
+        for name in resource_names("", depends_on)
+        if name != target
+    ]
+
+
+def reservation_resource(key: str) -> str:
+    if key.startswith("@dependency:"):
+        return str(json.loads(key[len("@dependency:") :])[1])
+    return key
+
+
+def reservations_overlap(left: str, right: str) -> bool:
+    """Readers share dependencies; a writer conflicts with readers or writers."""
+    if left.startswith("@dependency:") and right.startswith("@dependency:"):
+        return False
+    return keys_overlap(reservation_resource(left), reservation_resource(right))
+
+
 def huggingface_resource_key(repo_id: str, filename: Optional[str] = None) -> str:
     """One key for a Hugging Face repo, or for one file inside it."""
     repo = str(repo_id or "").strip()
@@ -118,6 +149,8 @@ def huggingface_resource_key(repo_id: str, filename: Optional[str] = None) -> st
     if name:
         return f"hf:{repo}:{name}"
     return f"hf:{repo}"
+
+
 _confirmation: ContextVar[Optional[dict]] = ContextVar("action_confirmation", default=None)
 
 
@@ -127,10 +160,12 @@ def bind_action_confirmation(payload: Optional[Mapping]) -> None:
     operation_id = body.get("confirm_operation_id")
     token = body.get("confirm_state")
     if operation_id and token:
-        _confirmation.set({
-            "operation_id": str(operation_id),
-            "state_token": str(token),
-        })
+        _confirmation.set(
+            {
+                "operation_id": str(operation_id),
+                "state_token": str(token),
+            }
+        )
         return
     _confirmation.set(None)
 
@@ -138,21 +173,24 @@ def bind_action_confirmation(payload: Optional[Mapping]) -> None:
 def current_confirmation() -> Optional[dict]:
     return _confirmation.get()
 
+
 # Explicit False means this process recorded the action before any side effect.
 # Missing means the side effect may already have started.
 _EFFECT_NOT_STARTED = "effect_started"
 
 # Apply phases that are already settled and must not be rewritten.
-SETTLED_APPLY_PHASES = frozenset({
-    "ready",
-    "unchanged",
-    "succeeded",
-    "failed",
-    "cancelled",
-    "rolled_back",
-    "interrupted",
-    "unknown",
-})
+SETTLED_APPLY_PHASES = frozenset(
+    {
+        "ready",
+        "unchanged",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "rolled_back",
+        "interrupted",
+        "unknown",
+    }
+)
 
 
 def classify_action(
@@ -175,16 +213,11 @@ def classify_action(
     if evidence == "negative":
         status = "interrupted"
         retry = "safe"
-        message = (
-            "The action had not started. It was not run again. "
-            "You can retry it."
-        )
+        message = "The action had not started. It was not run again. You can retry it."
     elif evidence == "completed":
         status = "succeeded"
         retry = "unnecessary"
-        message = (
-            "The action's result was already observed. It was not run again."
-        )
+        message = "The action's result was already observed. It was not run again."
     else:
         status = "unknown"
         retry = _fresh_retry(str(kind or "operation"), observed)
@@ -283,10 +316,16 @@ def state_token(row: Mapping) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def _resources_conflict(row: Mapping, requested: list) -> bool:
+def _resources_conflict(row: Mapping, resource_key: str, depends_on: Optional[object]) -> bool:
     detail = row.get("detail") if isinstance(row.get("detail"), dict) else {}
-    existing = resource_names(str(row.get("resource_key") or ""), detail.get("depends_on"))
-    return any(keys_overlap(left, right) for left in existing for right in requested)
+    target = str(row.get("resource_key") or "")
+    # Shared dependencies conflict only with an operation that mutates them,
+    # never with another operation that merely uses them.
+    return any(
+        keys_overlap(target, key) for key in resource_names(resource_key, depends_on)
+    ) or any(
+        keys_overlap(resource_key, key) for key in resource_names("", detail.get("depends_on"))
+    )
 
 
 def admit_action(
@@ -303,10 +342,10 @@ def admit_action(
     allows a retry. An unproven attempt needs a confirmation of that operation
     id and this state token; a token from an older state does not match.
     """
-    requested = resource_names(resource_key, depends_on)
     relevant = [
-        row for row in rows
-        if _resources_conflict(row, requested)
+        row
+        for row in rows
+        if _resources_conflict(row, resource_key, depends_on)
         and not (isinstance(row.get("detail"), dict) and row["detail"].get("confirmation_consumed"))
     ]
     active = [row for row in relevant if str(row.get("status") or "") in _ACTIVE]
@@ -318,14 +357,11 @@ def admit_action(
             message="Another attempt for this resource is still in progress. It was not started again.",
         )
     unknown = [row for row in relevant if str(row.get("status") or "") == "unknown"]
-    interrupted = [
-        row for row in relevant if str(row.get("status") or "") == "interrupted"
-    ]
+    interrupted = [row for row in relevant if str(row.get("status") or "") == "interrupted"]
     negative = [
         row
         for row in interrupted
-        if isinstance(row.get("detail"), dict)
-        and row["detail"].get("effect_started") is False
+        if isinstance(row.get("detail"), dict) and row["detail"].get("effect_started") is False
     ]
     unproven_interrupted = [row for row in interrupted if row not in negative]
     if unknown or unproven_interrupted:
@@ -373,9 +409,8 @@ def admit_action(
             (
                 row
                 for row in rows
-                if str(row.get("operation_id") or "")
-                == str(confirm_operation_id or "")
-                and _resources_conflict(row, requested)
+                if str(row.get("operation_id") or "") == str(confirm_operation_id or "")
+                and _resources_conflict(row, resource_key, depends_on)
             ),
             None,
         )
@@ -397,7 +432,8 @@ def admit_action(
 def open_action(rows: list, resource_key: str) -> Optional[dict]:
     """Latest reconciled start/stop row that still governs a retry."""
     matches = [
-        row for row in rows
+        row
+        for row in rows
         if str(row.get("resource_key") or "") == resource_key
         and str(row.get("status") or "") in {"unknown", "interrupted"}
         and not (isinstance(row.get("detail"), dict) and row["detail"].get("confirmation_consumed"))
@@ -449,7 +485,9 @@ def _fresh_retry(kind: str, observation: Mapping) -> str:
     return "withheld"
 
 
-def _denied(row: Mapping, *, code: str, message: str, state_token_value: Optional[str] = None) -> dict:
+def _denied(
+    row: Mapping, *, code: str, message: str, state_token_value: Optional[str] = None
+) -> dict:
     token = state_token_value if state_token_value is not None else state_token(row)
     return {
         "admit": False,

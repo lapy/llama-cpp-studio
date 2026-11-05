@@ -35,7 +35,6 @@ export const formatBytesIEC = (bytes) => {
  * @param {number} bytes - Bytes to format
  * @returns {string} Formatted string
  */
-export const formatFileSize = formatBytes
 
 /**
  * Format date to locale string
