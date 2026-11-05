@@ -294,6 +294,15 @@ export const CMAKE_ENGINE_IDS = byField('cmakeCapable')
 /** SGLang-runtime-UI family (ModelConfig) — deliberately excludes vllm. */
 export const SGLANG_RUNTIME_UI_IDS = byField('sglangRuntimeUi')
 
+/** Labels for the SGLang runtime selector; UI copy lives with the descriptors. */
+export const SGLANG_RUNTIME_OPTIONS = Object.freeze([
+  Object.freeze({ label: 'Language model', value: 'llm' }),
+  Object.freeze({ label: 'Image / video (diffusion)', value: 'diffusion' }),
+])
+
+/** Audio config-panel family; no view compares an engine id by hand. */
+export const AUDIO_ENGINE_IDS = byField('configPanel', 'audio')
+
 /** Shared installer-panel family (SglangEnginePanel/store trio) — includes vllm. */
 export const SG_PANEL_ENGINE_IDS = byField('panelFamily', 'sglang')
 

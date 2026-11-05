@@ -693,7 +693,7 @@
         :param-registry="paramRegistry"
         :stable-model-id="stableModelId"
         :model-id="model?.id || ''"
-        @rescan-complete="fetchParamRegistry('audio_cpp', { rescan: true })"
+        @rescan-complete="fetchParamRegistry(audioEngineId, { rescan: true })"
       />
 
       <div
@@ -1496,13 +1496,17 @@ import { useModelStore } from '@/stores/models'
 import { useEnginesStore } from '@/stores/engines'
 import { STUDIO_RESERVED_KEYS, studioEnvSkipReason } from '@/utils/parseCliCommand'
 import {
+  AUDIO_ENGINE_IDS,
   ENGINE_DESCRIPTORS,
   ENGINE_IDS_BY_FALLBACK_FORMAT,
   FALLBACK_ENGINE_OPTIONS,
+  SGLANG_RUNTIME_OPTIONS,
   SGLANG_RUNTIME_UI_IDS,
   VENV_ENGINE_IDS,
   isAudioEngineId,
 } from '@/engines/registry'
+
+const audioEngineId = AUDIO_ENGINE_IDS[0] || ''
 
 const route = useRoute()
 const router = useRouter()
@@ -1741,10 +1745,7 @@ const engineOptions = computed(() => {
 const isAudioEngine = computed(() => isAudioEngineId(config.value.engine))
 const SGLANG_ENGINES = new Set(SGLANG_RUNTIME_UI_IDS)
 const isSglangEngine = computed(() => SGLANG_ENGINES.has(config.value.engine))
-const sglangRuntimeOptions = [
-  { label: 'Language model', value: 'llm' },
-  { label: 'Image / video (diffusion)', value: 'diffusion' },
-]
+const sglangRuntimeOptions = SGLANG_RUNTIME_OPTIONS
 const sglangRuntime = computed(() => normalizeSglangRuntime(config.value.sglang_runtime))
 function normalizeSglangRuntime(runtime) {
   return runtime === 'diffusion' ? 'diffusion' : 'llm'
@@ -2840,7 +2841,7 @@ function scheduleAudioRegistryRefresh() {
   audioRegistryRefreshTimer = window.setTimeout(() => {
     audioRegistryRefreshTimer = null
     if (!isAudioEngineId(config.value?.engine) || loading.value) return
-    void fetchParamRegistry('audio_cpp')
+    void fetchParamRegistry(audioEngineId)
   }, 250)
 }
 
@@ -4110,7 +4111,7 @@ watch(
     if (suppressAudioRegistryWatch || loading.value) return
     if (!isAudioEngineId(engine)) return
     if (prevEngine && !isAudioEngineId(prevEngine)) {
-      void fetchParamRegistry('audio_cpp')
+      void fetchParamRegistry(audioEngineId)
       return
     }
     scheduleAudioRegistryRefresh()
