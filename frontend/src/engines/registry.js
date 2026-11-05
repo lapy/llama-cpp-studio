@@ -232,7 +232,7 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     label: 'audio.cpp',
     card: Object.freeze({
       mark: Object.freeze({ text: 'A', className: 'engine-mark--audio' }),
-      badge: Object.freeze({ kind: 'audio-maturity' }),
+      badge: Object.freeze({ kind: 'maturity' }),
       subtitle: 'Speech, music, and other audio tasks.',
       update: Object.freeze({ key: 'audioCpp', formatter: 'version' }),
       featureFlag: 'audio_cpp',
@@ -266,6 +266,21 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
       Object.freeze({ id: 'launch', label: 'Launch', icon: 'pi pi-play' }),
     ]),
     configCapabilities: Object.freeze({ commandImport: false, modelUpdates: false }),
+    featureBadge: Object.freeze({
+      disabledLabel: 'Disabled',
+      disabledTooltip: 'Disabled by AUDIO_CPP_ENABLED',
+      tagRules: Object.freeze([
+        Object.freeze({ surface: 'speech_asr', equals: 'stable', label: 'Speech/ASR ready' }),
+        Object.freeze({ surface: 'generic_tasks', equals: 'limited', label: 'Limited' }),
+      ]),
+      fallbackLabel: 'Audio',
+      tooltipFields: Object.freeze([
+        Object.freeze({ surface: 'speech_asr', label: 'Speech/ASR' }),
+        Object.freeze({ surface: 'generic_tasks', label: 'Generic tasks' }),
+        Object.freeze({ surface: 'heuristic_discovery', label: 'Heuristic discovery' }),
+      ]),
+      fallbackTooltip: 'Native audio engine for prepared bundles',
+    }),
   }),
 })
 

@@ -1305,12 +1305,14 @@ const engineSummaryCards = computed(() =>
     const versions = versionsFor(engineId)
     const active = engineActive[engineId]?.value || null
     const update = card.update ? ENGINE_UPDATE_SOURCES[card.update.key]?.() || null : null
-    const disabled = card.featureFlag ? !featureEnabled(card.featureFlag) : false
+    const enabled = card.featureFlag ? featureEnabled(card.featureFlag) : true
+    const disabled = !enabled
+    const featureBadge = card.featureFlag ? featureBadgeFor(card.featureFlag) : null
     let badge = card.badge || null
-    if (badge?.kind === 'audio-maturity') {
-      badge = featureEnabled(card.featureFlag)
-        ? { value: audioCppMaturityTag.value, severity: 'success' }
-        : { value: 'Disabled', severity: 'secondary' }
+    if (badge?.kind === 'maturity' && featureBadge) {
+      badge = enabled
+        ? { value: maturityTag(card.featureFlag, featureBadge), severity: 'success' }
+        : { value: featureBadge.disabledLabel || 'Disabled', severity: 'secondary' }
     }
     return {
       id: engineId,
@@ -1328,9 +1330,9 @@ const engineSummaryCards = computed(() =>
           : '',
       disabled,
       tooltip: disabled
-        ? 'Disabled by AUDIO_CPP_ENABLED'
-        : card.featureFlag
-          ? audioCppMaturityTooltip.value
+        ? featureBadge?.disabledTooltip
+        : featureBadge
+          ? maturityTooltip(card.featureFlag, featureBadge)
           : undefined,
     }
   }),
@@ -1504,30 +1506,33 @@ function featureEnabled(featureFlag) {
   return descriptor?.enabled !== false
 }
 
-const audioCppMaturitySurfaces = computed(() => {
+function featureBadgeFor(featureFlag) {
+  return ENGINE_DESCRIPTORS[featureFlag]?.featureBadge || null
+}
+
+function maturitySurfacesFor(featureFlag) {
   const descriptor = (enginesStore.engineDescriptors || []).find(
-    (engine) => engine.id === audioEngineId,
+    (engine) => engine.id === featureFlag,
   )
   return descriptor?.maturity_surfaces || {}
-})
+}
 
-const audioCppMaturityTag = computed(() => {
-  const surfaces = audioCppMaturitySurfaces.value
-  if (surfaces.speech_asr === 'stable') return 'Speech/ASR ready'
-  if (surfaces.generic_tasks === 'limited') return 'Limited'
-  return 'Audio'
-})
-
-const audioCppMaturityTooltip = computed(() => {
-  const surfaces = audioCppMaturitySurfaces.value
-  const parts = []
-  if (surfaces.speech_asr) parts.push(`Speech/ASR: ${surfaces.speech_asr}`)
-  if (surfaces.generic_tasks) parts.push(`Generic tasks: ${surfaces.generic_tasks}`)
-  if (surfaces.heuristic_discovery) {
-    parts.push(`Heuristic discovery: ${surfaces.heuristic_discovery}`)
+function maturityTag(featureFlag, featureBadge) {
+  const surfaces = maturitySurfacesFor(featureFlag)
+  for (const rule of featureBadge.tagRules || []) {
+    if (surfaces[rule.surface] === rule.equals) return rule.label
   }
-  return parts.length ? parts.join(' · ') : 'Native audio engine for prepared bundles'
-})
+  return featureBadge.fallbackLabel || ''
+}
+
+function maturityTooltip(featureFlag, featureBadge) {
+  const surfaces = maturitySurfacesFor(featureFlag)
+  const parts = []
+  for (const field of featureBadge.tooltipFields || []) {
+    if (surfaces[field.surface]) parts.push(`${field.label}: ${surfaces[field.surface]}`)
+  }
+  return parts.length ? parts.join(' · ') : featureBadge.fallbackTooltip || ''
+}
 
 // ── Version activate / delete ──────────────────────────────
 const activating = ref(null)
