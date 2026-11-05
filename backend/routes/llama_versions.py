@@ -1561,7 +1561,7 @@ async def retry_version_body(payload: dict = Body(...)):
             or frozen.get("release_tag")
             or frozen.get("requested_version")
         )
-        return await get_release_installer("unsloth_llama").install_release(
+        return await get_release_installer(engine).install_release(
             tag_name=str(tag).strip() if tag else None
         )
 

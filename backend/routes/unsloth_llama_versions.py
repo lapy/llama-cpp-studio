@@ -5,9 +5,9 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Body, HTTPException
 
 from backend.data_store import get_store
-from backend.engines.python.release_host import get_release_installer
+from backend.engines.python.release_host import get_release_installer, release_engine_id
 
-ENGINE_ID = "unsloth_llama"
+ENGINE_ID = release_engine_id()
 from backend.engines.unsloth_llama.prebuilt import is_behind
 from backend.routes.engine_versions import LIFECYCLE, EngineLifecycle
 

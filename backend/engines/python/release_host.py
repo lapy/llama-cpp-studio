@@ -539,6 +539,18 @@ class GenericReleaseInstaller(GenericNativeInstaller):
 _RELEASE_INSTALLERS: Dict[str, GenericReleaseInstaller] = {}
 
 
+def release_engine_id() -> str:
+    """The definition declaring the release-assets host."""
+    from backend.engines.definitions.loader import load_default_engine_definitions
+
+    for engine_id, definition in sorted(
+        load_default_engine_definitions().definitions.items()
+    ):
+        if str(getattr(definition, "native_host", "") or "") == "release_assets":
+            return engine_id
+    raise RuntimeError("no definition declares native_host: release_assets")
+
+
 def get_release_installer(engine_id: str) -> GenericReleaseInstaller:
     """Singleton generic release host for a definition declaring release_assets."""
     from backend.engines.definitions.loader import load_default_engine_definitions
