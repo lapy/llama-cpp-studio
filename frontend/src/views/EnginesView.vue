@@ -1305,10 +1305,10 @@ const engineSummaryCards = computed(() =>
     const versions = versionsFor(engineId)
     const active = engineActive[engineId]?.value || null
     const update = card.update ? ENGINE_UPDATE_SOURCES[card.update.key]?.() || null : null
-    const disabled = card.featureFlag === audioEngineId ? !audioCppFeatureEnabled.value : false
+    const disabled = card.featureFlag ? !featureEnabled(card.featureFlag) : false
     let badge = card.badge || null
     if (badge?.kind === 'audio-maturity') {
-      badge = audioCppFeatureEnabled.value
+      badge = featureEnabled(card.featureFlag)
         ? { value: audioCppMaturityTag.value, severity: 'success' }
         : { value: 'Disabled', severity: 'secondary' }
     }
@@ -1497,12 +1497,12 @@ const audioCppActiveStatusRows = computed(() => {
   }
   return rows
 })
-const audioCppFeatureEnabled = computed(() => {
+function featureEnabled(featureFlag) {
   const descriptor = (enginesStore.engineDescriptors || []).find(
-    (engine) => engine.id === audioEngineId,
+    (engine) => engine.id === featureFlag,
   )
   return descriptor?.enabled !== false
-})
+}
 
 const audioCppMaturitySurfaces = computed(() => {
   const descriptor = (enginesStore.engineDescriptors || []).find(
