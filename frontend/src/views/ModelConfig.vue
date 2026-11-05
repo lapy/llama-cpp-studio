@@ -2791,16 +2791,20 @@ async function fetchGpuListForBind() {
   }
 }
 
+function paramRegistryFlag(engineId, key) {
+  return ENGINE_DESCRIPTORS[engineId]?.paramRegistry?.[key] === true
+}
+
 async function fetchParamRegistry(engine, { draftFamily, draftTask, rescan = false } = {}) {
   try {
-    const family = draftFamily ?? (isAudioEngineId(engine) ? config.value?.family : undefined)
-    const task = draftTask ?? (isAudioEngineId(engine) ? config.value?.task : undefined)
+    const family = draftFamily ?? (paramRegistryFlag(engine, 'family') ? config.value?.family : undefined)
+    const task = draftTask ?? (paramRegistryFlag(engine, 'task') ? config.value?.task : undefined)
     const { data } = await axios.get('/api/models/param-registry', {
       params: {
         engine,
         ...(model.value?.id ? { model_id: model.value.id } : {}),
-        ...(isAudioEngineId(engine) && family ? { family } : {}),
-        ...(isAudioEngineId(engine) && task ? { task } : {}),
+        ...(paramRegistryFlag(engine, 'family') && family ? { family } : {}),
+        ...(paramRegistryFlag(engine, 'task') && task ? { task } : {}),
         ...(rescan ? { rescan: true } : {}),
       },
     })
@@ -2835,7 +2839,7 @@ async function fetchParamRegistry(engine, { draftFamily, draftTask, rescan = fal
       family_dependencies: data.family_dependencies || {},
       packaged_voices: data.packaged_voices || [],
     }
-    if (isAudioEngineId(engine)) {
+    if (paramRegistryFlag(engine, 'pruneRequestDefaults')) {
       pruneStaleAudioRequestDefaults(
         config.value,
         paramRegistry.value.request_defaults_key ||
