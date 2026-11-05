@@ -29,6 +29,9 @@ what is still transitional. It is a snapshot of the committed engine tree after 
   `audio_cpp`, or `release_assets`). There is no engine-id host map.
 - Unsloth's installer class is gone; its release flow runs through the generic
   `backend/engines/python/release_host.py` configured by `release_assets`.
+- `LlamaManager`'s build/CUDA helper surface moved to
+  `backend/engines/python/cmake_build.py`; the llama module is now a thin
+  compatibility re-export and `CmakeSourceInstaller` no longer imports it.
 - `audio_cpp_versions.py`: declared audio extension surface, now mounted once
   per engine declaring `runtime_kind: audio_cpp` with request-scoped identity.
 - Native source orchestration runs through the shared
