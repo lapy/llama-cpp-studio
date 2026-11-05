@@ -1,8 +1,7 @@
-"""Install Unsloth's published llama-server mix builds.
+"""Generic GitHub-release native host.
 
-These are upstream llama.cpp nightlies plus Unsloth's pinned patch set, shipped
-as ready ``llama-server`` archives. Fork ``master`` is not the mix; only the
-release assets are.
+Selections and asset policy come from the engine definition's
+``release_assets`` block; the manifest algorithms remain shared helpers.
 """
 
 from __future__ import annotations
@@ -20,7 +19,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from backend.data_store import get_store, studio_data_dir
+from backend.data_store import get_store
 from backend.engines.python.native import GenericNativeInstaller
 from backend.engines.unsloth_llama.prebuilt import (
     CHECKSUM_ASSET_NAME,
@@ -39,22 +38,8 @@ from backend.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-ENGINE_ID = "unsloth_llama"
-REPOSITORY_SOURCE = "Unsloth llama.cpp"
-UNSLOTH_LLAMA_REPO = "https://github.com/unslothai/llama.cpp.git"
-RELEASES_API = "https://api.github.com/repos/unslothai/llama.cpp/releases"
 GITHUB_ACCEPT = "application/vnd.github+json"
 GITHUB_TIMEOUT = 30.0
-
-_manager_instance: Optional["UnslothLlamaInstaller"] = None
-
-
-def get_unsloth_llama_manager() -> "UnslothLlamaInstaller":
-    global _manager_instance
-    if _manager_instance is None:
-        _manager_instance = UnslothLlamaInstaller()
-    return _manager_instance
-
 
 def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -157,22 +142,19 @@ def _safe_extract_tar(archive: tarfile.TarFile, dest: str) -> None:
     archive.extractall(dest)
 
 
-class UnslothLlamaInstaller(GenericNativeInstaller):
-    MANAGER_NAME = "unsloth_llama"
+class GenericReleaseInstaller(GenericNativeInstaller):
+    """Release-archive host configured by ``definition.release_assets``."""
 
-    def __init__(self, *, base_dir: Optional[str] = None) -> None:
-        from backend.engines.definitions.loader import load_default_engine_definitions
-
-        definition = load_default_engine_definitions().definitions.get(ENGINE_ID)
-        if definition is None:
-            raise RuntimeError(f"{ENGINE_ID} engine definition is unavailable")
+    def __init__(self, definition, *, base_dir: Optional[str] = None) -> None:
+        self.engine_id = definition.id
+        self._repository_source = definition.repository_source
         policy = dict(definition.release_assets)
         super().__init__(
             definition,
-            install_root=base_dir or os.path.join(studio_data_dir(), "unsloth-llama"),
+            install_root=base_dir or None,
         )
-        self._repository = str(policy.get("repository") or "unslothai/llama.cpp")
-        self._repository_url = str(policy.get("repository_url") or UNSLOTH_LLAMA_REPO)
+        self._repository = str(policy.get("repository") or "")
+        self._repository_url = str(policy.get("repository_url") or "")
         self._manifest_asset = str(policy.get("manifest_asset") or MANIFEST_ASSET_NAME)
         self._checksum_asset = str(policy.get("checksum_asset") or CHECKSUM_ASSET_NAME)
         self._max_walkback = int(policy.get("max_walkback") or MAX_RELEASE_WALKBACK)
@@ -207,10 +189,10 @@ class UnslothLlamaInstaller(GenericNativeInstaller):
         return host_target_from_gpu_info(gpu_info, cuda_major=self._cuda_major())
 
     def status(self) -> Dict[str, Any]:
-        active = get_store().get_active_engine_version(ENGINE_ID) or {}
+        active = get_store().get_active_engine_version(self.engine_id) or {}
         binary = str(active.get("binary_path") or "")
         return {
-            "engine": ENGINE_ID,
+            "engine": self.engine_id,
             "installed": bool(binary and os.path.isfile(binary)),
             "version": active.get("version"),
             "binary_path": binary or None,
@@ -349,7 +331,7 @@ class UnslothLlamaInstaller(GenericNativeInstaller):
     def _unique_version_name(self, tag: str) -> str:
         existing = {
             str(row.get("version") or "")
-            for row in get_store().get_engine_versions(ENGINE_ID) or []
+            for row in get_store().get_engine_versions(self.engine_id) or []
         }
         if tag not in existing:
             return tag
@@ -360,12 +342,12 @@ class UnslothLlamaInstaller(GenericNativeInstaller):
 
         mark_engine_version_building(
             get_store(),
-            ENGINE_ID,
+            self.engine_id,
             {
                 "version": version_name,
                 "type": "release",
                 "install_type": "release",
-                "repository_source": REPOSITORY_SOURCE,
+                "repository_source": self._repository_source,
                 "source_repo": self._repository_url,
                 "installed_at": utcnow(),
                 **extra,
@@ -380,7 +362,7 @@ class UnslothLlamaInstaller(GenericNativeInstaller):
 
         mark_engine_version_failed(
             get_store(),
-            ENGINE_ID,
+            self.engine_id,
             version_name,
             error=str(error),
             extra=extra or {},
@@ -389,7 +371,7 @@ class UnslothLlamaInstaller(GenericNativeInstaller):
     def _register_pending_install(self, version_name: str, install_dir: str, task_id: str) -> None:
         self._register_pending(
             version_name,
-            {"install_dir": install_dir, "repository_source": REPOSITORY_SOURCE},
+            {"install_dir": install_dir, "repository_source": self._repository_source},
         )
 
     def _install_failed(self, version_name: str, error: str, install_dir: str) -> None:
@@ -529,12 +511,12 @@ class UnslothLlamaInstaller(GenericNativeInstaller):
         try:
             from backend.engines.definitions.loader import load_default_engine_definitions
 
-            definition = load_default_engine_definitions().get(ENGINE_ID)
+            definition = load_default_engine_definitions().get(self.engine_id)
             digest = str(getattr(definition, "definition_digest", "") or "")
             if not digest:
                 return
             get_store().record_install_snapshot(
-                ENGINE_ID,
+                self.engine_id,
                 definition_digest=digest,
                 recipe_version=f"schema-v{getattr(definition, 'schema_version', 2)}",
                 resolved_inputs=resolved,
@@ -542,13 +524,35 @@ class UnslothLlamaInstaller(GenericNativeInstaller):
                 phase="published",
             )
         except Exception:  # noqa: BLE001 — bookkeeping must not fail installs
-            logger.debug("install snapshot publish failed for %s", ENGINE_ID, exc_info=True)
+            logger.debug("install snapshot publish failed for %s", self.engine_id, exc_info=True)
 
     async def _start_operation(
         self, operation: str, metadata: Optional[Dict[str, Any]] = None
     ) -> str:
         return await self._begin_operation(
             operation,
-            "Install Unsloth llama.cpp",
-            {"engine": ENGINE_ID, **(metadata or {})},
+            f"Install {self.label}",
+            {"engine": self.engine_id, **(metadata or {})},
         )
+
+
+_RELEASE_INSTALLERS: Dict[str, GenericReleaseInstaller] = {}
+
+
+def get_release_installer(engine_id: str) -> GenericReleaseInstaller:
+    """Singleton generic release host for a definition declaring release_assets."""
+    from backend.engines.definitions.loader import load_default_engine_definitions
+
+    key = str(engine_id or "")
+    installer = _RELEASE_INSTALLERS.get(key)
+    if installer is None:
+        definition = load_default_engine_definitions().definitions.get(key)
+        if definition is None or not definition.release_assets:
+            raise RuntimeError(f"{key!r} has no release_assets definition")
+        installer = GenericReleaseInstaller(definition)
+        _RELEASE_INSTALLERS[key] = installer
+    return installer
+
+
+def reset_release_installers() -> None:
+    _RELEASE_INSTALLERS.clear()

@@ -6,7 +6,7 @@ import pytest
 
 import backend.proxy.commands as runtime_commands
 from backend.engines.registry import ENGINE_REGISTRY, inferred_engines_for_artifact_format
-from backend.engines.unsloth_llama.installer import (
+from backend.engines.python.release_host import (
     CHECKSUM_ASSET_NAME,
     expected_sha256,
     linux_x64_asset_name,
@@ -345,7 +345,7 @@ def test_unsloth_preview_uses_llama_server(monkeypatch, tmp_path):
 
 def test_unsloth_routes_and_status(client, monkeypatch, tmp_path):
     from backend import data_store
-    from backend.engines.unsloth_llama.installer import get_unsloth_llama_manager
+    from backend.tests.release_fixtures import get_unsloth_llama_manager
 
     store = data_store.DataStore(config_dir=str(tmp_path / "config"))
     monkeypatch.setattr(data_store, "_store", store)
@@ -360,7 +360,7 @@ def test_unsloth_routes_and_status(client, monkeypatch, tmp_path):
 
 def test_unsloth_check_updates_uses_mix_freshness(client, monkeypatch, tmp_path):
     from backend import data_store
-    from backend.engines.unsloth_llama.installer import UnslothLlamaInstaller
+    import backend.routes.unsloth_llama_versions as uv
 
     store = data_store.DataStore(config_dir=str(tmp_path / "config"))
     monkeypatch.setattr(data_store, "_store", store)
@@ -374,10 +374,11 @@ def test_unsloth_check_updates_uses_mix_freshness(client, monkeypatch, tmp_path)
     )
     store.set_active_engine_version("unsloth_llama", "b11160-mix-a6922cc")
 
-    async def latest(_self):
-        return "b11160"
+    class StubManager:
+        async def latest_published_tag(self):
+            return "b11160"
 
-    monkeypatch.setattr(UnslothLlamaInstaller, "latest_published_tag", latest)
+    monkeypatch.setattr(uv, "get_release_installer", lambda *_: StubManager())
     response = client.get("/api/unsloth-llama/check-updates")
     assert response.status_code == 200
     body = response.json()

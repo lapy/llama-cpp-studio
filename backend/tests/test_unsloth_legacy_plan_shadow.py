@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.engines.unsloth_llama.installer import UnslothLlamaInstaller
+from backend.tests.release_fixtures import UnslothLlamaInstaller
 from backend.engines.unsloth_llama.prebuilt import (
     CHECKSUM_ASSET_NAME,
     HostTarget,
@@ -266,7 +266,7 @@ def _drive_activate(monkeypatch, calls):
 async def test_release_requires_linux_x64_host(tmp_path: Path, monkeypatch):
     calls: list = []
     installer, _ = _make_installer(tmp_path, calls)
-    import backend.engines.unsloth_llama.installer as module
+    import backend.engines.python.release_host as module
 
     monkeypatch.setattr(module, "host_is_linux_x64", lambda: False)
     with pytest.raises(RuntimeError, match="Linux x64 only"):
@@ -410,7 +410,7 @@ async def test_release_cancellation_fails_pending_and_reraises(tmp_path: Path, m
 
 def test_release_asset_policy_comes_from_the_definition(tmp_path: Path):
     from backend.engines.definitions.loader import load_default_engine_definitions
-    from backend.engines.unsloth_llama.installer import UnslothLlamaInstaller
+    from backend.tests.release_fixtures import UnslothLlamaInstaller
 
     policy = dict(load_default_engine_definitions().definitions["unsloth_llama"].release_assets)
     assert policy == {
@@ -430,7 +430,7 @@ def test_release_asset_policy_comes_from_the_definition(tmp_path: Path):
 
 
 def test_published_snapshot_records_the_definition_digest(tmp_path: Path, monkeypatch):
-    import backend.engines.unsloth_llama.installer as unsloth_installer
+    from backend.tests import release_fixtures as unsloth_installer
 
     installer = unsloth_installer.UnslothLlamaInstaller(base_dir=str(tmp_path / "unsloth"))
     captured: dict = {}
@@ -439,7 +439,7 @@ def test_published_snapshot_records_the_definition_digest(tmp_path: Path, monkey
         def record_install_snapshot(self, engine, **kwargs):
             captured.update(engine=engine, **kwargs)
 
-    monkeypatch.setattr(unsloth_installer, "get_store", lambda: Store())
+    monkeypatch.setattr("backend.engines.python.release_host.get_store", lambda: Store())
     installer._record_published_snapshot(
         "b9999",
         {
@@ -460,7 +460,7 @@ def test_sha256_helpers_still_pinned_by_module_functions(
     tmp_path: Path,
 ):  # verify_sha256 remains importable for existing integration tests; the
     # shared primitive must raise the SAME message on mismatch.
-    from backend.engines.unsloth_llama.installer import verify_sha256
+    from backend.engines.python.release_host import verify_sha256
 
     target = tmp_path / "x.bin"
     target.write_bytes(ARCHIVE_BYTES)

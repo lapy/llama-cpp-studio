@@ -76,11 +76,18 @@ def _audio_cpp_host(engine_id: str) -> object:
     return AudioCppInstaller(install_root=get_audio_cpp_manager().builds_dir)
 
 
+def _release_assets_host(engine_id: str) -> object:
+    from backend.engines.python.release_host import get_release_installer
+
+    return get_release_installer(engine_id)
+
+
 # Host mechanisms are selected by the definition's `native_host`, not by
 # engine id. Adding a new engine that uses an existing host needs YAML only.
 _NATIVE_HOST_FACTORIES: Dict[str, Callable[[str], object]] = {
     "cmake_source": _cmake_source_host,
     "audio_cpp": _audio_cpp_host,
+    "release_assets": _release_assets_host,
 }
 
 

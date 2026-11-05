@@ -508,9 +508,9 @@ def discover_engine_install_roots() -> Dict[str, str]:
     except Exception as exc:
         logger.debug("Could not resolve llama.cpp install root: %s", exc)
     try:
-        from backend.engines.unsloth_llama.installer import get_unsloth_llama_manager
+        from backend.engines.python.release_host import get_release_installer
 
-        roots["unsloth_llama"] = get_unsloth_llama_manager().root_dir
+        roots["unsloth_llama"] = get_release_installer("unsloth_llama").root_dir
     except Exception as exc:
         logger.debug("Could not resolve Unsloth llama.cpp install root: %s", exc)
     try:

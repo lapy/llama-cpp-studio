@@ -41,7 +41,7 @@ from backend.engines.spec import EngineSpec
 
 SCHEMA_VERSION = 1
 SUPPORTED_SCHEMA_VERSIONS = frozenset({1, 2})
-NATIVE_HOST_KINDS = frozenset({"cmake_source", "audio_cpp"})
+NATIVE_HOST_KINDS = frozenset({"cmake_source", "audio_cpp", "release_assets"})
 
 # Schema v2 adds the recipe/profile/settings sections validated by the
 # reference-definition spike (docs/config-driven-engine-refactoring-plan.md
