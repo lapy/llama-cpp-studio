@@ -1500,7 +1500,6 @@ import {
   FALLBACK_ENGINE_OPTIONS,
   SGLANG_RUNTIME_OPTIONS,
   VENV_ENGINE_IDS,
-  isAudioEngineId,
 } from '@/engines/registry'
 
 const audioEngineId = AUDIO_ENGINE_IDS[0] || ''
@@ -1739,7 +1738,10 @@ const engineOptions = computed(() => {
   })
 })
 
-const isAudioEngine = computed(() => isAudioEngineId(config.value.engine))
+function isAudioPanel(engineId) {
+  return ENGINE_DESCRIPTORS[engineId]?.configPanel === 'audio'
+}
+const isAudioEngine = computed(() => isAudioPanel(config.value.engine))
 const engineConfigCopy = computed(
   () => ENGINE_DESCRIPTORS[config.value.engine]?.configCopy || {},
 )
@@ -2865,7 +2867,7 @@ function scheduleAudioRegistryRefresh() {
   if (audioRegistryRefreshTimer) clearTimeout(audioRegistryRefreshTimer)
   audioRegistryRefreshTimer = window.setTimeout(() => {
     audioRegistryRefreshTimer = null
-    if (!isAudioEngineId(config.value?.engine) || loading.value) return
+    if (!paramRegistryFlag(config.value?.engine, 'refreshOnChange') || loading.value) return
     void fetchParamRegistry(audioEngineId)
   }, 250)
 }
@@ -2886,7 +2888,9 @@ function buildWorkingConfigFromApi(cfg) {
 }
 
 function buildEngineStashFromForm(sourceConfig = config.value) {
-  const preserveUnknownAudioKeys = isAudioEngineId(sourceConfig.engine)
+  const preserveUnknownAudioKeys = Boolean(
+    ENGINE_DESCRIPTORS[sourceConfig.engine]?.configCapabilities?.preserveUnknownKeys,
+  )
   const preserveSglangKeys = Boolean(runtimeKeyFor(sourceConfig.engine))
   const previous = sourceConfig.engines?.[sourceConfig.engine]
   const stash =
@@ -3080,7 +3084,7 @@ function applyEngineSectionToForm(engine) {
   if (runtimeKeyFor(engine))
     config.value[runtimeKeyFor(engine)] = normalizeSglangRuntime(sec[runtimeKeyFor(engine)])
   const params = catalogParamList.value
-  if (isAudioEngineId(engine)) {
+  if (isAudioPanel(engine)) {
     const eng = config.value.engine
     const engMap = config.value.engines
     for (const key of Object.keys(config.value)) {
@@ -4136,8 +4140,8 @@ watch(
   [() => config.value?.engine, () => config.value?.family, () => config.value?.task],
   ([engine], [prevEngine]) => {
     if (suppressAudioRegistryWatch || loading.value) return
-    if (!isAudioEngineId(engine)) return
-    if (prevEngine && !isAudioEngineId(prevEngine)) {
+    if (!paramRegistryFlag(engine, 'refreshOnChange')) return
+    if (prevEngine && !paramRegistryFlag(prevEngine, 'refreshOnChange')) {
       void fetchParamRegistry(audioEngineId)
       return
     }

@@ -265,8 +265,17 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
       Object.freeze({ id: 'api', label: 'Defaults', icon: 'pi pi-sliders-h' }),
       Object.freeze({ id: 'launch', label: 'Launch', icon: 'pi pi-play' }),
     ]),
-    configCapabilities: Object.freeze({ commandImport: false, modelUpdates: false }),
-    paramRegistry: Object.freeze({ family: true, task: true, pruneRequestDefaults: true }),
+    configCapabilities: Object.freeze({
+      commandImport: false,
+      modelUpdates: false,
+      preserveUnknownKeys: true,
+    }),
+    paramRegistry: Object.freeze({
+      family: true,
+      task: true,
+      pruneRequestDefaults: true,
+      refreshOnChange: true,
+    }),
     featureBadge: Object.freeze({
       disabledLabel: 'Disabled',
       disabledTooltip: 'Disabled by AUDIO_CPP_ENABLED',
