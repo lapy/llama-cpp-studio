@@ -25,8 +25,10 @@ what is still transitional. It is a snapshot of the committed engine tree after 
 - The per-engine venv modules (`lmdeploy`, `vllm`, `sglang`) and their
   installer maps are deleted. Venv installers resolve through the definition's
   lifecycle; old test-only constructors live under `backend/tests`.
-- Native host selection is declared as `native_host` (`cmake_source` or
-  `audio_cpp`). There is no engine-id host map.
+- Native host selection is declared as `native_host` (`cmake_source`,
+  `audio_cpp`, or `release_assets`). There is no engine-id host map.
+- Unsloth's installer class is gone; its release flow runs through the generic
+  `backend/engines/python/release_host.py` configured by `release_assets`.
 - `audio_cpp_versions.py`: declared audio extension surface, now mounted once
   per engine declaring `runtime_kind: audio_cpp` with request-scoped identity.
 - Native source orchestration runs through the shared
