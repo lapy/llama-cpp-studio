@@ -500,9 +500,9 @@ def discover_engine_install_roots() -> Dict[str, str]:
     """Resolve on-disk roots for each engine's versioned install folders."""
     roots: Dict[str, str] = {}
     try:
-        from backend.engines.llama_cpp.manager import LlamaManager
+        from backend.engines.python.cmake_build import CmakeBuildHost
 
-        llama_dir = LlamaManager().llama_dir
+        llama_dir = CmakeBuildHost().llama_dir
         roots["llama_cpp"] = llama_dir
         roots["ik_llama"] = llama_dir
     except Exception as exc:

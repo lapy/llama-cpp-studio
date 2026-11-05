@@ -37,6 +37,11 @@ def test_venv_engine_modules_and_installer_map_are_gone():
     ):
         assert not list((ROOT / relative).glob("*.py")), relative
     assert not (ROOT / "backend/engines/unsloth_llama/installer.py").exists()
+    manager_source = (ROOT / "backend/engines/llama_cpp/manager.py").read_text(encoding="utf-8")
+    assert "class LlamaManager" not in manager_source
+    assert "backend.engines.llama_cpp.manager" not in (
+        ROOT / "backend/engines/python/cmake_source.py"
+    ).read_text(encoding="utf-8")
     import backend.engines.adapters as adapters
 
     assert not hasattr(adapters, "_INSTALLERS")

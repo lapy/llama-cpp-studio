@@ -5,7 +5,7 @@ Phase 7 cutover: the ``source`` recipe declared by ``llama_cpp.yaml`` /
 (``execute_operation``), exactly like audio.cpp's recipes. This module supplies
 ONLY the two llama-family engines' differences, delegating every toolchain seam
 (CMake discovery, CUDA validation, build environment, thread count, patch
-application, binary validation) to the shared :class:`LlamaManager`:
+application, binary validation) to the generic :class:`CmakeBuildHost`:
 
 - ``vcs.workspace_checkout``: version directory + managed ``BuildWorkspace``
   or a plain clone/checkout (init/clone/checkout stages);
@@ -38,7 +38,7 @@ from typing import Any, Dict, List, Optional
 from backend.engines.definitions import load_default_engine_definitions
 from backend.engines.definitions.executor import EXECUTION_COMPLETED
 from backend.engines.definitions.schema import EngineDefinition
-from backend.engines.llama_cpp.manager import BuildConfig, LlamaManager
+from backend.engines.python.cmake_build import BuildConfig, CmakeBuildHost
 from backend.engines.python.native import (
     GenericNativeInstaller,
     checked_command,
@@ -82,11 +82,11 @@ class CmakeSourceInstaller(GenericNativeInstaller):
         self,
         engine_id: str = "llama_cpp",
         *,
-        manager: Optional[LlamaManager] = None,
+        manager: Optional[CmakeBuildHost] = None,
         install_root: Optional[str] = None,
         log_path: Optional[str] = None,
     ) -> None:
-        self.manager = manager if manager is not None else LlamaManager()
+        self.manager = manager if manager is not None else CmakeBuildHost()
         super().__init__(
             definition_for(engine_id),
             install_root=install_root or self.manager.llama_dir,
