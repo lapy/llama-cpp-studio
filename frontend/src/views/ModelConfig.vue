@@ -804,27 +804,25 @@
           <div class="config-split-grid split-grid">
             <div class="advanced-field">
               <label class="advanced-field__label">
-                {{ isAudioEngine ? 'Model ID while running' : 'Stable ID' }}
+                {{ stableIdLabel }}
               </label>
               <InputText
                 :model-value="stableModelId"
                 readonly
                 class="w-full"
-                :aria-label="isAudioEngine ? 'Stable model ID' : 'Stable Studio proxy model ID'"
+                :aria-label="stableIdAria"
               />
             </div>
 
             <div class="advanced-field">
               <label class="advanced-field__label">
-                {{ isAudioEngine ? 'Friendly API name' : 'API alias' }}
+                {{ aliasLabel }}
                 <i
                   class="pi pi-info-circle param-info"
                   tabindex="0"
                   aria-label="About API alias"
                   v-tooltip.top="
-                    isAudioEngine
-                      ? 'Optional name apps send as model. Running state uses the stable ID.'
-                      : 'Optional id apps send as model. Must be unique. Running state uses the stable ID, not this alias.'
+                    aliasTooltip
                   "
                 />
               </label>
@@ -1742,6 +1740,19 @@ const engineOptions = computed(() => {
 })
 
 const isAudioEngine = computed(() => isAudioEngineId(config.value.engine))
+const engineConfigCopy = computed(
+  () => ENGINE_DESCRIPTORS[config.value.engine]?.configCopy || {},
+)
+const stableIdLabel = computed(() => engineConfigCopy.value.stableIdLabel || 'Stable ID')
+const stableIdAria = computed(
+  () => engineConfigCopy.value.stableIdAria || 'Stable Studio proxy model ID',
+)
+const aliasLabel = computed(() => engineConfigCopy.value.aliasLabel || 'API alias')
+const aliasTooltip = computed(
+  () =>
+    engineConfigCopy.value.aliasTooltip ||
+    'Optional id apps send as model. Must be unique. Running state uses the stable ID, not this alias.',
+)
 function runtimeKeyFor(engineId) {
   return ENGINE_DESCRIPTORS[engineId]?.runtimeKey || ''
 }

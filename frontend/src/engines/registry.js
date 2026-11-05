@@ -251,6 +251,14 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     cancelPath: '/api/audio-cpp/cancel',
     // No fallbackFormats: curated audio packages are gated by package_kind,
     // not by artifact format (see inferredEnginesForModel).
+    configCopy: Object.freeze({
+      stableIdLabel: 'Model ID while running',
+      stableIdAria: 'Stable model ID',
+      aliasLabel: 'Friendly API name',
+      aliasTooltip:
+        'Optional name apps send as model. Running state uses the stable ID.',
+      unknownKeysPrefix: 'Unrecognized audio.cpp keys are preserved on save:',
+    }),
   }),
 })
 
