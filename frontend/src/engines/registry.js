@@ -259,6 +259,13 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
         'Optional name apps send as model. Running state uses the stable ID.',
       unknownKeysPrefix: 'Unrecognized audio.cpp keys are preserved on save:',
     }),
+    configTabs: Object.freeze([
+      Object.freeze({ id: 'server', label: 'Runtime', icon: 'pi pi-server' }),
+      Object.freeze({ id: 'assets', label: 'Assets', icon: 'pi pi-folder-open' }),
+      Object.freeze({ id: 'api', label: 'Defaults', icon: 'pi pi-sliders-h' }),
+      Object.freeze({ id: 'launch', label: 'Launch', icon: 'pi pi-play' }),
+    ]),
+    configCapabilities: Object.freeze({ commandImport: false, modelUpdates: false }),
   }),
 })
 

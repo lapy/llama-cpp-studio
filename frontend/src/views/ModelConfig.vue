@@ -1765,25 +1765,28 @@ const sglangRuntime = computed(() =>
 function normalizeSglangRuntime(runtime) {
   return runtime === 'diffusion' ? 'diffusion' : 'llm'
 }
+const DEFAULT_CONFIG_TABS = Object.freeze([
+  Object.freeze({ id: 'runtime', label: 'Runtime', icon: 'pi pi-server' }),
+  Object.freeze({ id: 'launch', label: 'Launch', icon: 'pi pi-play' }),
+])
 const pageTab = ref('runtime')
-const pageTabs = computed(() =>
-  isAudioEngine.value
-    ? [
-        { id: 'server', label: 'Runtime', icon: 'pi pi-server' },
-        { id: 'assets', label: 'Assets', icon: 'pi pi-folder-open' },
-        { id: 'api', label: 'Defaults', icon: 'pi pi-sliders-h' },
-        { id: 'launch', label: 'Launch', icon: 'pi pi-play' },
-      ]
-    : [
-        { id: 'runtime', label: 'Runtime', icon: 'pi pi-server' },
-        { id: 'launch', label: 'Launch', icon: 'pi pi-play' },
-      ],
+const pageTabs = computed(
+  () => ENGINE_DESCRIPTORS[config.value.engine]?.configTabs || DEFAULT_CONFIG_TABS,
 )
-watch(isAudioEngine, (audio) => {
-  const ids = new Set(pageTabs.value.map((tab) => tab.id))
-  if (!ids.has(pageTab.value)) pageTab.value = audio ? 'server' : 'runtime'
-})
-const canImportCommand = computed(() => !isAudioEngine.value && catalogSections.value.length > 0)
+watch(
+  () => pageTabs.value,
+  (tabs) => {
+    const ids = new Set(tabs.map((tab) => tab.id))
+    if (!ids.has(pageTab.value)) pageTab.value = tabs[0]?.id || 'runtime'
+  },
+)
+function configCapability(name, fallback = true) {
+  const value = ENGINE_DESCRIPTORS[config.value.engine]?.configCapabilities?.[name]
+  return value === undefined ? fallback : value
+}
+const canImportCommand = computed(
+  () => configCapability('commandImport') && catalogSections.value.length > 0,
+)
 
 const parseCatalogParams = computed(() => {
   const out = []
@@ -1814,7 +1817,7 @@ const modelFormat = computed(() =>
 )
 const canCheckForUpdates = computed(() => {
   if (!model.value?.huggingface_id) return false
-  if (isAudioEngine.value) return false
+  if (!configCapability('modelUpdates')) return false
   return modelFormat.value === 'gguf' || modelFormat.value === 'safetensors'
 })
 const showCompanionsCard = computed(
