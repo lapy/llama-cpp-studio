@@ -167,6 +167,8 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     managerKey: 'sglang',
     sglangRuntimeUi: true,
     panelFamily: 'sglang',
+    runtimeProfiles: Object.freeze({ llm: 'default', diffusion: 'diffusion' }),
+    runtimeKey: 'sglang_runtime',
     buildHint:
       'Set the default PyPI version and source repo/branch before installing. Upstream SGLang currently requires a CUDA 13-capable environment.',
   }),
@@ -194,6 +196,8 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     managerKey: 'sglang_v100',
     sglangRuntimeUi: true,
     panelFamily: 'sglang',
+    runtimeProfiles: Object.freeze({ llm: 'default', diffusion: 'diffusion' }),
+    runtimeKey: 'sglang_runtime',
     buildHint:
       'Set the V100 fork repo and branch. Install Studio-managed CUDA 12.8 first; the fork then builds only its SM70-specific dependencies.',
   }),
