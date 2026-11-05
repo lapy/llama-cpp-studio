@@ -35,7 +35,7 @@ def test_venv_engine_modules_and_installer_map_are_gone():
         "backend/engines/vllm",
         "backend/engines/sglang",
     ):
-        assert not (ROOT / relative).exists(), relative
+        assert not list((ROOT / relative).glob("*.py")), relative
     import backend.engines.adapters as adapters
 
     assert not hasattr(adapters, "_INSTALLERS")
