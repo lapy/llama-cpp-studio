@@ -157,7 +157,7 @@ def test_upstream_sglang_has_one_manager_everywhere():
     invisible to the status/cancel path.
     """
     from backend.engines.adapters import get_engine_installer
-    from backend.engines.sglang import get_sglang_manager, get_sglang_upstream_manager
+    from backend.tests.venv_fixtures import get_sglang_manager, get_sglang_upstream_manager
 
     upstream = get_sglang_upstream_manager()
     assert get_sglang_manager("sglang") is upstream
@@ -167,7 +167,7 @@ def test_upstream_sglang_has_one_manager_everywhere():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("flow", ("source", "sync"))
 async def test_v100_flow_executes_its_recipe_with_shared_primitives(tmp_path, monkeypatch, flow):
-    from backend.engines.sglang import get_sglang_v100_manager
+    from backend.tests.venv_fixtures import get_sglang_v100_manager
 
     V100_HANDLERS = {
         "source": [

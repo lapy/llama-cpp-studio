@@ -245,7 +245,7 @@ def test_studio_data_dir_environment_is_authoritative(tmp_path, monkeypatch):
     from backend.paths import studio_data_dir
     from backend.engines.audio_cpp.manager import _data_root
     from backend.engines.llama_cpp.manager import LlamaManager
-    from backend.engines.lmdeploy.installer import LMDeployInstaller
+    from backend.tests.venv_fixtures import LMDeployInstaller
 
     isolated = tmp_path / "isolated"
     monkeypatch.setenv("STUDIO_DATA_DIR", str(isolated))

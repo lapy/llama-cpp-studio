@@ -19,7 +19,7 @@ from backend.engines.python.rust_toolchain import (
     discover_rust_bin_dir,
     ensure_rust,
 )
-from backend.engines.vllm import OneCatVllmManager
+from backend.tests.venv_fixtures import OneCatVllmManager
 
 
 def _manager(tmp_path: Path) -> OneCatVllmManager:

@@ -54,13 +54,14 @@ def test_scanner_vocabulary_matches_scanner_dispatch():
     assert set(SCANNER_KINDS) == set(SCANNER_KIND_DISPATCH) | set(DEFINITION_HELP_PARSERS)
 
 
-def test_python_installer_adapters_are_within_install_vocabulary():
-    from backend.engines.adapters import _INSTALLERS
+def test_definition_installer_resolves_every_python_venv_engine():
+    from backend.engines.adapters import get_engine_installer
 
-    # All adapter-backed engines are install_kind python_venv; cmake/prebuilt
-    # engines are driven by their native routes, never this map.
-    for engine_id in _INSTALLERS:
-        assert ENGINE_REGISTRY[engine_id].install_kind == "python_venv"
+    for engine_id, spec in ENGINE_REGISTRY.items():
+        if spec.install_kind != "python_venv":
+            continue
+        installer = get_engine_installer(engine_id)
+        assert installer.engine_id == engine_id
 
 
 def test_registry_api_payload_shape_unchanged():

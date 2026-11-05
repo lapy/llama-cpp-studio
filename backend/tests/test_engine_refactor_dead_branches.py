@@ -29,23 +29,17 @@ def test_no_runtime_branch_reads_the_exporter_tier():
         assert "GENERATED_ENGINE_IDS" not in source, relative
 
 
-def test_venv_compatibility_classes_only_construct():
-    checked = 0
+def test_venv_engine_modules_and_installer_map_are_gone():
     for relative in (
-        "backend/engines/lmdeploy/installer.py",
-        "backend/engines/vllm/onecat.py",
-        "backend/engines/sglang/installer.py",
+        "backend/engines/lmdeploy",
+        "backend/engines/vllm",
+        "backend/engines/sglang",
     ):
-        for node in ast.walk(_tree(relative)):
-            if not isinstance(node, ast.ClassDef):
-                continue
-            bases = {base.id for base in node.bases if isinstance(base, ast.Name)}
-            if "GenericVenvInstaller" not in bases:
-                continue
-            checked += 1
-            assert _class_methods(node) <= {"__init__", "__new__"}, (relative, node.name)
-    assert checked >= 2
+        assert not (ROOT / relative).exists(), relative
+    import backend.engines.adapters as adapters
 
+    assert not hasattr(adapters, "_INSTALLERS")
+    assert not hasattr(adapters, "_NATIVE_HOSTS")
 
 def test_compatibility_route_modules_are_thin_delegates():
     for relative in (

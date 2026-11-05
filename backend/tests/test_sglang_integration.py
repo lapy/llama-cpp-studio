@@ -25,7 +25,7 @@ from backend.engines.python.fork_build import prepare_fork_build
 from backend.engines.python.generic import GenericVenvInstaller
 from backend.engines.python.log_streaming import progress_milestone
 from backend.engines.registry import ENGINE_REGISTRY
-from backend.engines.sglang import SglangManager
+from backend.tests.venv_fixtures import SglangManager
 from backend.models.schema import compatible_engines_for_record
 from backend.operations.progress import get_progress_manager
 from backend.venv_install_settings import default_install_settings
