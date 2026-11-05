@@ -220,6 +220,28 @@ def test_audio_runtime_injects_model_specs_override_from_source_tree(
     assert runtime["cmd_cwd"] == str(tmp_path)
 
 
+def test_audio_runtime_omits_specs_override_when_family_spec_is_absent(
+    tmp_path, monkeypatch
+):
+    store, model, config = _fixture(tmp_path)
+    specs = tmp_path / "model_specs"
+    specs.mkdir()
+    # demo_tts has no spec file (bundled/embedded families such as silero_vad).
+    monkeypatch.setattr(audio_runtime, "_sidecar_root", lambda: str(tmp_path / "sidecars"))
+    monkeypatch.setattr(
+        audio_runtime, "validate_audio_model_config", lambda *args, **kwargs: {}
+    )
+    monkeypatch.setattr(audio_runtime, "get_version_entry", lambda *args: None)
+
+    runtime = audio_runtime.build_audio_cpp_runtime(
+        store, model, config, "audio-demo"
+    )
+
+    assert "model_spec_override" not in runtime["sidecar"]
+    assert "model_spec_override" not in runtime["sidecar"]["models"][0]
+    assert "--model-spec-override" not in runtime["cmd_argv"]
+
+
 def test_audio_runtime_config_model_spec_override_wins(tmp_path, monkeypatch):
     store, model, config = _fixture(tmp_path)
     discovered = tmp_path / "model_specs"

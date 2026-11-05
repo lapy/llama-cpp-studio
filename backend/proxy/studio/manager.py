@@ -313,7 +313,11 @@ class StudioProxyManager:
         if model is None:
             raise ValueError(f"unknown model: {model_id}")
         compiled = await asyncio.to_thread(compile_model_runtime, model)
-        document = manifest_document(compiled.launch, compiled.revision)
+        document = manifest_document(
+            compiled.launch,
+            compiled.revision,
+            profile_digest=compiled.profile_digest,
+        )
         self.manifests.stage(compiled.proxy.model_id, document)
         generation = self.manifests.generation_dir(compiled.proxy.model_id, compiled.revision)
         return compiled.launch, compiled.revision, os.path.join(generation, "artifacts")

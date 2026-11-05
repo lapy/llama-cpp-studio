@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 
 import pytest
 
@@ -23,6 +22,81 @@ def _install_temp_store(monkeypatch, tmp_path):
 @pytest.fixture
 def store(client, monkeypatch, tmp_path):
     return _install_temp_store(monkeypatch, tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_retry_refuses_a_changed_definition(store, monkeypatch, tmp_path):
+    from fastapi import HTTPException
+
+    from backend.routes import audio_cpp_versions as routes
+
+    store.record_install_snapshot(
+        "audio_cpp",
+        definition_digest="stale-digest",
+        resolved_inputs={"version": "v1"},
+        version="v1",
+    )
+
+    class Manager:
+        engine_id = "audio_cpp"
+        builds_dir = str(tmp_path / "builds")
+
+    monkeypatch.setattr(routes, "get_store", lambda: store)
+    monkeypatch.setattr(routes, "get_audio_cpp_manager", lambda: Manager())
+    with pytest.raises(HTTPException) as raised:
+        await routes.schedule_audio_cpp_retry({"version": "v1", "source_ref": "main"})
+    assert raised.value.status_code == 400
+    assert "definition changed" in str(raised.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_failed_audio_build_records_a_pending_snapshot(store, monkeypatch, tmp_path):
+    """The audio source route runs the recipe directly; it must still associate
+    the pending version with the definition before execution so a failed build
+    cannot be retried after the definition changed."""
+    from types import SimpleNamespace
+
+    from backend.engines.audio_cpp.installer import AudioCppInstaller as RealInstaller
+    from backend.routes import audio_cpp_versions as routes
+
+    class FakeInstaller(RealInstaller):
+        def __init__(self, install_root=None):
+            super().__init__(install_root=install_root)
+
+        async def execute_operation(self, *args, **kwargs):
+            raise RuntimeError("compile failed")
+
+        def _release_active_workspace(self):
+            pass
+
+    class PM:
+        def fail_task(self, *args, **kwargs):
+            pass
+
+        async def send_notification(self, *args, **kwargs):
+            pass
+
+    manager = SimpleNamespace(builds_dir=str(tmp_path / "builds"), engine_id="audio_cpp")
+    monkeypatch.setattr(routes, "get_store", lambda: store)
+    monkeypatch.setattr(routes, "get_audio_cpp_manager", lambda: manager)
+    monkeypatch.setattr(routes, "get_progress_manager", lambda: PM())
+    monkeypatch.setattr("backend.engines.audio_cpp.installer.AudioCppInstaller", FakeInstaller)
+
+    await routes._build_task(
+        task_id="build-test",
+        version_name="source-main-abc",
+        source_ref="main",
+        source_ref_type="branch",
+        repository_url="https://example.test/audio.cpp.git",
+        build_config=AudioCppBuildConfig(),
+        auto_activate=False,
+    )
+
+    snaps = store.list_install_snapshots("audio_cpp")
+    assert snaps, "a failed audio build must leave a pending snapshot"
+    assert snaps[-1]["version"] == "source-main-abc"
+    assert snaps[-1]["resolved_inputs"]["source_ref"] == "main"
+    assert snaps[-1]["resolved_inputs"]["source_repo"] == "https://example.test/audio.cpp.git"
 
 
 def test_build_settings_round_trip_preserves_tracking_ref(client, store, monkeypatch):
@@ -141,9 +215,7 @@ def test_check_updates_uses_fork_repository_url(client, store, monkeypatch):
     assert r.json()["repository_url"].endswith("lapy/audio.cpp.git")
 
 
-def test_explicit_branch_check_is_not_overridden_by_active_release(
-    client, store, monkeypatch
-):
+def test_explicit_branch_check_is_not_overridden_by_active_release(client, store, monkeypatch):
     store.update_engine_build_settings(
         "audio_cpp",
         {"tracking_ref": "release-0.4", "backend": "cpu"},
@@ -234,20 +306,12 @@ def test_check_updates_detects_newer_release_tag(client, store, monkeypatch):
 def test_github_api_repo_slug_parses_https_and_ssh():
     from backend.routes.audio_cpp_versions import _github_api_repo_slug
 
-    assert (
-        _github_api_repo_slug("https://github.com/lapy/audio.cpp.git")
-        == "lapy/audio.cpp"
-    )
-    assert (
-        _github_api_repo_slug("git@github.com:0xShug0/audio.cpp.git")
-        == "0xShug0/audio.cpp"
-    )
+    assert _github_api_repo_slug("https://github.com/lapy/audio.cpp.git") == "lapy/audio.cpp"
+    assert _github_api_repo_slug("git@github.com:0xShug0/audio.cpp.git") == "0xShug0/audio.cpp"
     assert _github_api_repo_slug("https://gitlab.com/org/audio.cpp.git") is None
 
 
-def test_update_prefers_in_place_sync_when_branch_matches(
-    client, store, monkeypatch, tmp_path
-):
+def test_update_prefers_in_place_sync_when_branch_matches(client, store, monkeypatch, tmp_path):
     source_dir = tmp_path / "src"
     source_dir.mkdir()
     store.update_engine_build_settings(
@@ -437,9 +501,7 @@ def test_update_from_release_installs_prebuilt_when_host_cuda_is_new_enough(
     assert "built" not in called
 
 
-def test_uncovered_gpu_source_builds_the_release_tag_with_cuda(
-    client, store, monkeypatch
-):
+def test_uncovered_gpu_source_builds_the_release_tag_with_cuda(client, store, monkeypatch):
     store.update_engine_build_settings(
         "audio_cpp",
         {"tracking_ref": "main", "backend": "cpu", "cuda": False},
@@ -455,8 +517,7 @@ def test_uncovered_gpu_source_builds_the_release_tag_with_cuda(
 
     async def fake_choose(tag: str):
         return None, (
-            "No published CUDA prebuilt covers this GPU, so this release "
-            "will be built from source."
+            "No published CUDA prebuilt covers this GPU, so this release will be built from source."
         )
 
     async def fake_host():
@@ -502,9 +563,7 @@ def test_uncovered_gpu_source_builds_the_release_tag_with_cuda(
 
 
 @pytest.mark.asyncio
-async def test_source_build_of_a_release_registers_like_the_prebuilt(
-    monkeypatch, tmp_path
-):
+async def test_source_build_of_a_release_registers_like_the_prebuilt(monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
     from backend.engines.audio_cpp.manager import AudioCppManager
     from backend.engines.audio_cpp.prebuilt import PrebuiltPlan
@@ -569,9 +628,7 @@ async def test_source_build_of_a_release_registers_like_the_prebuilt(
     assert rows["v0.9.2"]["build_config"]["release_tag"] == "v0.9.2"
 
 
-def test_update_rebuilds_branch_install_when_no_matching_checkout(
-    client, store, monkeypatch
-):
+def test_update_rebuilds_branch_install_when_no_matching_checkout(client, store, monkeypatch):
     store.update_engine_build_settings(
         "audio_cpp",
         {"tracking_ref": "release-0.3", "backend": "cpu"},
@@ -783,12 +840,8 @@ async def test_activate_audio_cpp_runs_in_background_and_reports_progress(
             "capabilities": {"families": ["old_fam"], "tasks": ["tts"]},
         }
 
-    monkeypatch.setattr(
-        "backend.engines.scan.scanner.scan_engine_version", fake_scan
-    )
-    monkeypatch.setattr(
-        "backend.proxy.control.mark_runtime_changed", lambda: None
-    )
+    monkeypatch.setattr("backend.engines.scan.scanner.scan_engine_version", fake_scan)
+    monkeypatch.setattr("backend.proxy.control.mark_runtime_changed", lambda: None)
 
     class FakeSwap:
         async def start_proxy(self):
@@ -883,19 +936,59 @@ def _audio_sync_binaries(tmp_path):
     return str(server), str(cli)
 
 
+def _stub_sync_host(monkeypatch, tmp_path, *, source_dir, build_dir):
+    """Fast step stubs for the native-host sync flow (no git/toolchain)."""
+    from backend.engines.audio_cpp import manager as audio_manager_module
+    from backend.engines.audio_cpp.installer import AudioCppInstaller
+
+    fake_audio_binaries(build_dir)
+
+    class FakeManager:
+        builds_dir = str(tmp_path / "builds")
+
+    async def fake_inspect(self, step, requirements, context):
+        return {"checkout_work": str(source_dir), "build_work": str(build_dir)}
+
+    async def fake_sync(self, step, requirements, context):
+        return {}
+
+    async def fake_configure(self, step, requirements, context):
+        return {"build_env": {}}
+
+    async def fake_build(self, step, requirements, context):
+        return {}
+
+    async def fake_validate(self, step, requirements, context):
+        return {}
+
+    monkeypatch.setattr(audio_manager_module, "get_audio_cpp_manager", lambda: FakeManager())
+    from backend.routes import audio_cpp_versions as routes
+
+    monkeypatch.setattr(routes, "get_audio_cpp_manager", lambda: FakeManager())
+    monkeypatch.setattr(AudioCppInstaller, "_inspect_sync_target", fake_inspect)
+    monkeypatch.setattr(AudioCppInstaller, "_sync_checkout", fake_sync)
+    monkeypatch.setattr(AudioCppInstaller, "_configure_source", fake_configure)
+    monkeypatch.setattr(AudioCppInstaller, "_build_source_tree", fake_build)
+    monkeypatch.setattr(AudioCppInstaller, "_validate_binary", fake_validate)
+    return FakeManager
+
+
 @pytest.mark.asyncio
-async def test_sync_task_defers_scan_to_activate_for_active_version(
-    monkeypatch, tmp_path
-):
+async def test_sync_task_defers_scan_to_activate_for_active_version(monkeypatch, tmp_path):
     """Rebuild of the active install must not open two parameter-scan tray cards."""
     store = _install_temp_store(monkeypatch, tmp_path)
     server, cli = _audio_sync_binaries(tmp_path)
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    build_dir = tmp_path / "build"
+    build_dir.mkdir()
     store.add_engine_version(
         "audio_cpp",
         {
             "version": "source-main",
             "server_binary_path": server,
             "cli_binary_path": cli,
+            "source_path": str(source_dir),
             "repository_source": "audio.cpp",
             "source_repo": "https://github.com/0xShug0/audio.cpp.git",
         },
@@ -908,14 +1001,7 @@ async def test_sync_task_defers_scan_to_activate_for_active_version(
     scans = []
     activates = []
 
-    class FakeManager:
-        async def sync_source(self, **kwargs):
-            return {
-                "version": "source-main",
-                "source_repo": "https://github.com/0xShug0/audio.cpp.git",
-                "server_binary_path": server,
-                "cli_binary_path": cli,
-            }
+    _stub_sync_host(monkeypatch, tmp_path, source_dir=source_dir, build_dir=build_dir)
 
     def fake_scan(*_a, **_k):
         scans.append("scan")
@@ -925,14 +1011,9 @@ async def test_sync_task_defers_scan_to_activate_for_active_version(
         activates.append(version)
         return {}
 
-    monkeypatch.setattr(routes, "get_audio_cpp_manager", lambda: FakeManager())
-    monkeypatch.setattr(
-        "backend.engines.scan.scanner.scan_engine_version", fake_scan
-    )
+    monkeypatch.setattr("backend.engines.scan.scanner.scan_engine_version", fake_scan)
     monkeypatch.setattr(routes, "_activate", fake_activate)
-    monkeypatch.setattr(
-        "backend.proxy.control.mark_runtime_changed", lambda: None
-    )
+    monkeypatch.setattr("backend.proxy.control.mark_runtime_changed", lambda: None)
 
     pm = get_progress_manager()
     task_id = "build_sync_audio_once"
@@ -948,17 +1029,20 @@ async def test_sync_task_defers_scan_to_activate_for_active_version(
 
 
 @pytest.mark.asyncio
-async def test_sync_task_scans_inactive_version_without_activating(
-    monkeypatch, tmp_path
-):
+async def test_sync_task_scans_inactive_version_without_activating(monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
     server, cli = _audio_sync_binaries(tmp_path)
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    build_dir = tmp_path / "build"
+    build_dir.mkdir()
     store.add_engine_version(
         "audio_cpp",
         {
             "version": "source-main",
             "server_binary_path": server,
             "cli_binary_path": cli,
+            "source_path": str(source_dir),
             "repository_source": "audio.cpp",
             "source_repo": "https://github.com/0xShug0/audio.cpp.git",
         },
@@ -980,14 +1064,7 @@ async def test_sync_task_scans_inactive_version_without_activating(
     scans = []
     activates = []
 
-    class FakeManager:
-        async def sync_source(self, **kwargs):
-            return {
-                "version": "source-main",
-                "source_repo": "https://github.com/0xShug0/audio.cpp.git",
-                "server_binary_path": server,
-                "cli_binary_path": cli,
-            }
+    _stub_sync_host(monkeypatch, tmp_path, source_dir=source_dir, build_dir=build_dir)
 
     def fake_scan(*_a, **_k):
         scans.append("scan")
@@ -997,14 +1074,9 @@ async def test_sync_task_scans_inactive_version_without_activating(
         activates.append(version)
         return {}
 
-    monkeypatch.setattr(routes, "get_audio_cpp_manager", lambda: FakeManager())
-    monkeypatch.setattr(
-        "backend.engines.scan.scanner.scan_engine_version", fake_scan
-    )
+    monkeypatch.setattr("backend.engines.scan.scanner.scan_engine_version", fake_scan)
     monkeypatch.setattr(routes, "_activate", fake_activate)
-    monkeypatch.setattr(
-        "backend.proxy.control.mark_runtime_changed", lambda: None
-    )
+    monkeypatch.setattr("backend.proxy.control.mark_runtime_changed", lambda: None)
 
     pm = get_progress_manager()
     task_id = "build_sync_audio_inactive"
@@ -1020,48 +1092,55 @@ async def test_sync_task_scans_inactive_version_without_activating(
 
 
 @pytest.mark.asyncio
-async def test_auto_activate_runs_while_the_build_still_holds_the_engine(
-    monkeypatch, tmp_path
-):
+async def test_auto_activate_runs_while_the_build_still_holds_the_engine(monkeypatch, tmp_path):
     """A finished compile must activate under the build lock, not fail with 409."""
     store = _install_temp_store(monkeypatch, tmp_path)
-    server_path, cli_path = fake_audio_binaries(tmp_path)
-    server = Path(server_path)
-    cli = Path(cli_path)
-    install_dir = str(tmp_path / "install")
+    install_dir = str(tmp_path / "builds" / "source-v0.9.1-cf124a67")
 
     from backend.operations.action_recovery import CUDA_TOOLKIT_KEY, engine_installation_key
     from backend.operations.progress import get_progress_manager
     from backend.routes import audio_cpp_versions as routes
+    from backend.engines.audio_cpp import manager as audio_manager_module
+    from backend.engines.audio_cpp.installer import AudioCppInstaller
+
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    build_dir = tmp_path / "build"
+    build_dir.mkdir()
+    fake_audio_binaries(build_dir)
 
     class FakeManager:
         builds_dir = str(tmp_path / "builds")
 
-        async def build_source(self, **kwargs):
-            return {
-                "version": kwargs["version_name"],
-                "source_ref": kwargs["source_ref"],
-                "source_repo": kwargs["repository_url"],
-                "server_binary_path": str(server),
-                "cli_binary_path": str(cli),
-                "install_dir": install_dir,
-            }
+    async def fake_checkout(self, step, requirements, context):
+        return {"checkout_work": str(source_dir), "build_work": str(build_dir)}
+
+    async def fake_configure(self, step, requirements, context):
+        return {"build_env": {}}
+
+    async def fake_build(self, step, requirements, context):
+        return {}
+
+    async def fake_validate(self, step, requirements, context):
+        return {}
+
+    monkeypatch.setattr(routes, "get_audio_cpp_manager", lambda: FakeManager())
+    monkeypatch.setattr(audio_manager_module, "get_audio_cpp_manager", lambda: FakeManager())
+    monkeypatch.setattr(AudioCppInstaller, "_checkout_source", fake_checkout)
+    monkeypatch.setattr(AudioCppInstaller, "_configure_source", fake_configure)
+    monkeypatch.setattr(AudioCppInstaller, "_build_source_tree", fake_build)
+    monkeypatch.setattr(AudioCppInstaller, "_validate_binary", fake_validate)
 
     class FakeSwap:
         async def start_proxy(self):
             return None
 
-    monkeypatch.setattr(routes, "get_audio_cpp_manager", lambda: FakeManager())
-    monkeypatch.setattr(
-        "backend.engines.scan.scanner.scan_engine_version", lambda *_a, **_k: {}
-    )
+    monkeypatch.setattr("backend.engines.scan.scanner.scan_engine_version", lambda *_a, **_k: {})
     monkeypatch.setattr(
         "backend.engines.scan.scanner.scan_audio_cpp_model_profile",
         lambda *_a, **_k: {},
     )
-    monkeypatch.setattr(
-        "backend.proxy.control.mark_runtime_changed", lambda: None
-    )
+    monkeypatch.setattr("backend.proxy.control.mark_runtime_changed", lambda: None)
     monkeypatch.setattr(
         "backend.proxy.control.get_proxy_controller",
         lambda: FakeSwap(),
@@ -1094,9 +1173,7 @@ async def test_auto_activate_runs_while_the_build_still_holds_the_engine(
     assert active is not None
     assert active.get("version") == version_name
     saved = next(
-        row
-        for row in store.get_engine_versions("audio_cpp")
-        if row.get("version") == version_name
+        row for row in store.get_engine_versions("audio_cpp") if row.get("version") == version_name
     )
     assert saved.get("build_status") == "ready"
     assert saved.get("install_type") == "release"

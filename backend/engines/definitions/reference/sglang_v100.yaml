@@ -1,0 +1,269 @@
+# Reference definition (schema_version 2) — the WORST case: SM70-only fork,
+# Studio-managed CUDA 12.8, source patches, memory-aware build concurrency,
+# and TWO runtime profiles with separate parameter scans. If this file
+# validates and its golden tests hold, the schema can express the hardest
+# engine in the fleet. See reference/README.md.
+#
+# Shadow-mode only: not read at runtime. Equivalence with the Python
+# registry and today's launch/install behavior is enforced by
+# backend/tests/test_engine_definitions_v2.py.
+schema_version: 2
+id: sglang_v100
+label: SGLang V100
+repository_source: SGLang-V100
+install_kind: python_venv
+runtime_kind: sglang
+scanner_kind: sglang_help
+active_path_fields:
+  - venv_path
+artifact_formats:
+  - safetensors
+package_kinds:
+  - hf_snapshot
+tasks:
+  - embeddings
+  - reranking
+  - text-generation
+  - text2text-generation
+input_modalities:
+  - image
+  - text
+  - video
+output_modalities:
+  - embedding
+  - score
+  - text
+supports_embeddings: true
+experimental: true
+maturity_surfaces:
+  nvidia_sm70: specialized
+
+# R78: the SM70-only capability and GPU-only env invariants are declared here so
+# the descriptor payload and the frontend hardware filter need no engine ids.
+launch_policy:
+  gpu_archs:
+    - sm70
+  gpu_only_invariants:
+    - CUDA_HOME
+    - TORCH_CUDA_ARCH_LIST
+    - FLASHINFER_DISABLE_VERSION_CHECK
+
+model_sources:
+  - hf_repo
+
+discovery:
+  parser: sglang_help
+  primary_runtime: llm
+  cwd: venv_root
+  cuda_env: "12.8"
+  probe_variants:
+    - executable:
+        kind: venv_python
+        name: python
+      argv_prefix:
+        - -m
+        - sglang.launch_server
+        - --help
+
+# backend/venv_install_settings.py:SGLANG_V100_DEFAULTS. There is NO release
+# channel for this fork — source_branch only — which is why this definition
+# has a `source` recipe and deliberately no `release` recipe.
+settings_defaults:
+  source_repo: https://github.com/haohervchb/sglang-V100.git
+  source_branch: main
+
+runtime_profiles:
+  # launch_spec._compile_module for {sglang, sglang_v100} via
+  # engines/sglang/runtime.py:sglang_server_argv. CUDA_HOME must resolve to
+  # Studio-managed CUDA 12.8 or launch is refused; the three defaults below
+  # are the v100-specific engine_defaults in _compile_module.
+  llm:
+    default: true
+    description: sglang.launch_server (language models)
+    executable:
+      kind: venv_python
+    argv_prefix:
+      - -m
+      - sglang.launch_server
+    model_binding:
+      mode: flag
+      flag: --model-path
+      source: huggingface_id
+    port_binding:
+      flag: --port
+    env:
+      required:
+        - CUDA_HOME
+      defaults:
+        FLASHINFER_DISABLE_VERSION_CHECK: "1"
+        TORCH_CUDA_ARCH_LIST: "7.0"
+        CUDA_DEVICE_ORDER: PCI_BUS_ID
+      prepend_bin_to_path: true
+      cwd: venv_root
+  # Second profile = the hardest structural case: separate console entry
+  # (cli.main has no __main__ guard, so launch goes through -c), separate
+  # scanned parameter index, and availability gated on fork dependencies.
+  diffusion:
+    description: sglang diffusion server (fork diffusion dependencies required)
+    executable:
+      kind: venv_python
+    argv_prefix:
+      - -c
+      - from sglang.cli.main import main; main()
+      - serve
+      - --model-type
+      - diffusion
+    model_binding:
+      mode: flag
+      flag: --model-path
+      source: huggingface_id
+    port_binding:
+      flag: --port
+    env:
+      required:
+        - CUDA_HOME
+      defaults:
+        FLASHINFER_DISABLE_VERSION_CHECK: "1"
+        TORCH_CUDA_ARCH_LIST: "7.0"
+        CUDA_DEVICE_ORDER: PCI_BUS_ID
+      prepend_bin_to_path: true
+      cwd: venv_root
+    scan:
+      unavailable_hint: >-
+        Rescan engine parameters after installing the fork's diffusion
+        dependencies.
+
+recipes:
+  source:
+    - id: inspect_host
+      uses: host.inspect
+      produces:
+        - host
+    # engines/sglang/installer.py: the fork builds only against Studio's
+    # managed CUDA 12.8 (V100_CUDA_VERSION); refuse cleanly otherwise.
+    - id: require_cuda_12_8
+      uses: prereqs.resolve_version
+      when:
+        version_range:
+          field: host.managed_cuda_version
+          min: "12.8"
+          max: "12.8"
+      requires:
+        - host
+      with:
+        channel: studio_managed
+        package: nvidia-cuda-toolkit
+      produces:
+        - cuda
+    # g++-12 is required for the fork's CUDA 12.8 kernels (installer.py
+    # surfaces this exact remedy when the compiler is too old).
+    - id: require_gcc12
+      uses: host.inspect
+      when:
+        capability_contains:
+          field: host.compilers
+          value: g++-12
+      requires:
+        - host
+      produces:
+        - compiler
+    - id: clone_repository
+      uses: vcs.clone
+      with:
+        repository_from: settings.source_repo
+      produces:
+        - checkout
+    - id: checkout_branch
+      uses: vcs.checkout
+      requires:
+        - checkout
+      with:
+        ref_from: settings.source_branch
+    # Studio re-pins the fork's Python CUDA bindings to match managed CUDA
+    # (python/pyproject.toml: cuda-python>=13.0 -> ==12.8.0).
+    - id: pin_cuda_python
+      uses: vcs.apply_patch
+      requires:
+        - checkout
+        - cuda
+      with:
+        patch_id: studio-cuda-python-pin
+        path: python/pyproject.toml
+    # SM70 headers omit BF16 helpers the vendored marlin expects; Studio
+    # ships a compatibility header (installer.py marlin step).
+    - id: marlin_bf16_compat
+      uses: vcs.apply_patch
+      requires:
+        - checkout
+      with:
+        patch_id: marlin-bf16-compat
+        reason: legacy BF16 compatibility header conflicts with CUDA 12.8
+    - id: allreduce_jit_fix
+      uses: vcs.apply_patch
+      requires:
+        - checkout
+      with:
+        patch_id: allreduce-jit-nvcc128
+        reason: avoid NVCC 12.8 deduction failure in custom all-reduce JIT
+    # Build parallelism is bounded by host memory: installer.py caps
+    # MAX_JOBS / CMAKE_BUILD_PARALLEL_LEVEL instead of using all cores.
+    - id: select_concurrency
+      uses: cgroup.select_concurrency
+      requires:
+        - host
+      produces:
+        - jobs_env
+    - id: create_venv
+      uses: venv.create
+      requires:
+        - input.engine_root
+      produces:
+        - venv
+    - id: compile_env
+      uses: env.compose
+      requires:
+        - cuda
+        - jobs_env
+        - venv
+      produces:
+        - build_env
+    # Studio's patched requirements install (CUDA bindings aligned to 12.8).
+    - id: install_requirements
+      uses: pip.install_requirements
+      requires:
+        - checkout
+        - venv
+        - build_env
+      with:
+        path: python/pyproject.toml
+        studio_cuda_alignment: true
+    - id: build_wheel
+      uses: pip.build_wheel
+      requires:
+        - checkout
+        - venv
+        - build_env
+      produces:
+        - wheels
+    - id: install_wheels
+      uses: pip.install_wheels
+      requires:
+        - venv
+        - wheels
+    - id: smoke_test
+      uses: smoke.test
+      requires:
+        - venv
+      with:
+        profile: llm
+    - id: capture_metadata
+      uses: pip.capture_metadata
+      requires:
+        - venv
+      produces:
+        - metadata
+    - id: publish
+      uses: publish.install
+      requires:
+        - venv
+        - metadata

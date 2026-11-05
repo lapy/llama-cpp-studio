@@ -1,22 +1,20 @@
-const ENGINE_LABELS = {
-  llama_cpp: 'llama.cpp',
-  ik_llama: 'ik_llama.cpp',
-  unsloth_llama: 'Unsloth llama.cpp',
-  lmdeploy: 'LMDeploy',
-  '1cat_vllm': '1Cat-vLLM',
-  sglang: 'SGLang',
-  sglang_v100: 'SGLang V100',
-  vllm: 'vLLM',
-  audio_cpp: 'audio.cpp',
-}
+import { ENGINE_LABELS, serverEngineLabel } from '../engines/registry.js'
 
 export function engineLabel(engineId) {
-  return ENGINE_LABELS[engineId] || engineId || 'another engine'
+  // YAML campaign S5: live server descriptors win the name (identity is
+  // one system); the local table + raw id are the offline fallback. For
+  // the nine, the two sources carry byte-identical labels by backend
+  // registry-equivalence pin, so rendered copy is stable either way.
+  return serverEngineLabel(engineId) || ENGINE_LABELS[engineId] || engineId || 'another engine'
 }
 
 export function activeVersionDeletePlan(version) {
-  const selected = Array.isArray(version?.selected_models) ? version.selected_models.filter(Boolean) : []
-  const dormant = Array.isArray(version?.dormant_models) ? version.dormant_models.filter((row) => row?.name) : []
+  const selected = Array.isArray(version?.selected_models)
+    ? version.selected_models.filter(Boolean)
+    : []
+  const dormant = Array.isArray(version?.dormant_models)
+    ? version.dormant_models.filter((row) => row?.name)
+    : []
   if (version?.is_active && selected.length) {
     return {
       allowed: false,
@@ -28,9 +26,10 @@ export function activeVersionDeletePlan(version) {
     const lead = version?.is_active
       ? `Delete the active version "${version.version}"?`
       : `Delete version "${version.version}"?`
-    const detail = dormantLines.length === 1
-      ? `${dormantLines[0]} still has saved settings for this engine, but that model is using another engine.`
-      : `These models still have saved settings for this engine, but each is using another engine: ${dormantLines.join('; ')}.`
+    const detail =
+      dormantLines.length === 1
+        ? `${dormantLines[0]} still has saved settings for this engine, but that model is using another engine.`
+        : `These models still have saved settings for this engine, but each is using another engine: ${dormantLines.join('; ')}.`
     return {
       allowed: true,
       message: `${lead} ${detail} Delete it anyway?`,

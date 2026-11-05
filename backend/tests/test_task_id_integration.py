@@ -38,9 +38,7 @@ FORBIDDEN_SYNTHETIC_TASK_IDS = frozenset(
         "onecat_vllm_operation",
     }
 )
-FORBIDDEN_SYNTHETIC_PATTERN = re.compile(
-    r"^(cuda|lmdeploy|onecat_vllm|download|build)_operation$"
-)
+FORBIDDEN_SYNTHETIC_PATTERN = re.compile(r"^(cuda|lmdeploy|onecat_vllm|download|build)_operation$")
 INSTALL_TASK_ID = re.compile(r"^install_(cuda|lmdeploy|onecat_vllm)_[a-z0-9_]+_\d+$")
 BUILD_TASK_ID = re.compile(r"^build(?:_sync)?_[a-zA-Z0-9_.-]+_\d+$")
 DOWNLOAD_TASK_ID = re.compile(r"^download_[a-zA-Z0-9_.-]+_\d+$")
@@ -96,19 +94,81 @@ def isolated_progress_manager():
     pm_mod._progress_manager = None
 
 
+def _quiesce(instance) -> None:
+    """Drop any operation/task state a manager instance left behind.
+
+    A migrated manager can be constructed by a route AFTER the singleton was
+    recorded, so clearing only the module globals is not enough: stale
+    instances with a live `_operation` make the NEXT test's `_begin_operation`
+    raise and every later failure cascades.
+    """
+    if instance is None:
+        return
+    task_id = getattr(instance, "_progress_task_id", None)
+    if task_id:
+        try:
+            from backend.operations.supervisor import get_supervisor
+
+            get_supervisor().finish_operation(task_id, "failed", "test cleanup")
+        except Exception:
+            pass
+    for attribute, value in (
+        ("_operation", None),
+        ("_current_task", None),
+        ("_progress_task_id", None),
+        ("_operation_started_at", None),
+        ("_cancelling", False),
+    ):
+        try:
+            setattr(instance, attribute, value)
+        except Exception:
+            pass
+
+
 @pytest.fixture(autouse=True)
 def reset_manager_singletons():
     import backend.cuda_installer as cuda_mod
     import backend.engines.lmdeploy.installer as lm_mod
     import backend.engines.vllm.onecat as oc_mod
 
-    cuda_mod._installer_instance = None
-    lm_mod._manager_instance = None
-    oc_mod._manager_instance = None
+    pairs = (
+        (cuda_mod, "_installer_instance"),
+        (lm_mod, "_manager_instance"),
+        (oc_mod, "_manager_instance"),
+    )
+    for module, attribute in pairs:
+        _quiesce(getattr(module, attribute, None))
+        setattr(module, attribute, None)
     yield
-    cuda_mod._installer_instance = None
-    lm_mod._manager_instance = None
-    oc_mod._manager_instance = None
+    for module, attribute in pairs:
+        instance = getattr(module, attribute, None)
+        _quiesce(instance)
+        setattr(module, attribute, None)
+
+
+@pytest.fixture(autouse=True)
+def release_supervisor_resources():
+    """Force-release every supervisor admission between tests.
+
+    Direct-manager tests construct managers that are NOT the module
+    singleton, so instance-level quiescing cannot see their task ids. Their
+    rows and resource claims persisted in the supervisor and blocked later
+    tests (ResourceBusyError cascade). This fixture closes them by owner.
+    """
+    yield
+    try:
+        from backend.operations.supervisor import get_supervisor
+
+        supervisor = get_supervisor()
+        with supervisor._lock:
+            owners = set(supervisor._resources.values())
+        for operation_id in owners:
+            try:
+                supervisor.finish_operation(operation_id, "failed", "test cleanup")
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 
 @pytest.fixture(autouse=True)
@@ -190,9 +250,7 @@ def _release_task(task_id: str) -> None:
     "repository_source",
     ["llama.cpp", "ik_llama.cpp"],
 )
-def test_build_source_returns_registered_task_id(
-    client, monkeypatch, tmp_path, repository_source
-):
+def test_build_source_returns_registered_task_id(client, monkeypatch, tmp_path, repository_source):
     _install_temp_store(monkeypatch, tmp_path)
 
     from backend.routes import llama_versions as llama_routes
@@ -316,6 +374,21 @@ def test_sync_engine_branch_returns_registered_task_id(
 # --- Install manager tasks (API + direct cancel round-trip) -------------------
 
 
+def _stub_route_installer(monkeypatch, engine_id, route_module, manager):
+    """Point an engine's HTTP surface at a test manager.
+
+    Every converted engine's compatibility prefix delegates to the shared
+    lifecycle record; inject the stub at that one seam.
+    """
+    from dataclasses import replace
+
+    from backend.routes import engine_versions as ev
+
+    lifecycle_id = "1cat_vllm" if engine_id == "onecat_vllm" else engine_id
+    current = ev.LIFECYCLE[lifecycle_id]
+    monkeypatch.setitem(ev.LIFECYCLE, lifecycle_id, replace(current, get_installer=lambda: manager))
+
+
 @pytest.mark.parametrize(
     "route,manager_name,manager_cls",
     [
@@ -326,15 +399,6 @@ def test_sync_engine_branch_returns_registered_task_id(
 def test_install_release_api_returns_real_task_id(
     client, monkeypatch, tmp_path, route, manager_name, manager_cls
 ):
-    routes = __import__(
-        f"backend.routes.{'lmdeploy' if manager_name == 'lmdeploy' else 'onecat_vllm'}_versions",
-        fromlist=["get_lmdeploy_manager", "get_onecat_vllm_manager"],
-    )
-    getter = (
-        routes.get_lmdeploy_manager
-        if manager_name == "lmdeploy"
-        else routes.get_onecat_vllm_manager
-    )
     manager = _prevent_background_task(
         manager_cls(
             log_path=str(tmp_path / f"{manager_name}.log"),
@@ -342,7 +406,12 @@ def test_install_release_api_returns_real_task_id(
             base_dir=str(tmp_path / manager_name),
         )
     )
-    monkeypatch.setattr(routes, getter.__name__, lambda: manager)
+    _stub_route_installer(
+        monkeypatch,
+        manager_name,
+        "lmdeploy_versions" if manager_name == "lmdeploy" else "onecat_vllm_versions",
+        manager,
+    )
 
     r = client.post(route, json={})
     assert r.status_code == 200
@@ -360,15 +429,6 @@ def test_install_release_api_returns_real_task_id(
 def test_install_from_source_api_returns_real_task_id(
     client, monkeypatch, tmp_path, route, manager_name, manager_cls
 ):
-    routes = __import__(
-        f"backend.routes.{'lmdeploy' if manager_name == 'lmdeploy' else 'onecat_vllm'}_versions",
-        fromlist=["get_lmdeploy_manager", "get_onecat_vllm_manager"],
-    )
-    getter = (
-        routes.get_lmdeploy_manager
-        if manager_name == "lmdeploy"
-        else routes.get_onecat_vllm_manager
-    )
     manager = _prevent_background_task(
         manager_cls(
             log_path=str(tmp_path / f"{manager_name}.log"),
@@ -376,7 +436,12 @@ def test_install_from_source_api_returns_real_task_id(
             base_dir=str(tmp_path / manager_name),
         )
     )
-    monkeypatch.setattr(routes, getter.__name__, lambda: manager)
+    _stub_route_installer(
+        monkeypatch,
+        manager_name,
+        "lmdeploy_versions" if manager_name == "lmdeploy" else "onecat_vllm_versions",
+        manager,
+    )
 
     r = client.post(route, json={"branch": "main"})
     assert r.status_code == 200
@@ -394,15 +459,6 @@ def test_install_from_source_api_returns_real_task_id(
 def test_remove_api_returns_real_task_id(
     client, monkeypatch, tmp_path, route, manager_name, manager_cls
 ):
-    routes = __import__(
-        f"backend.routes.{'lmdeploy' if manager_name == 'lmdeploy' else 'onecat_vllm'}_versions",
-        fromlist=["get_lmdeploy_manager", "get_onecat_vllm_manager"],
-    )
-    getter = (
-        routes.get_lmdeploy_manager
-        if manager_name == "lmdeploy"
-        else routes.get_onecat_vllm_manager
-    )
     manager = _prevent_background_task(
         manager_cls(
             log_path=str(tmp_path / f"{manager_name}.log"),
@@ -410,7 +466,12 @@ def test_remove_api_returns_real_task_id(
             base_dir=str(tmp_path / manager_name),
         )
     )
-    monkeypatch.setattr(routes, getter.__name__, lambda: manager)
+    _stub_route_installer(
+        monkeypatch,
+        manager_name,
+        "lmdeploy_versions" if manager_name == "lmdeploy" else "onecat_vllm_versions",
+        manager,
+    )
 
     r = client.post(route, json={})
     assert r.status_code == 200
@@ -419,44 +480,47 @@ def test_remove_api_returns_real_task_id(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("manager_cls,manager_name,start_method,start_kwargs", [
-    (LMDeployManager, "lmdeploy", "install_release", {}),
-    (LMDeployManager, "lmdeploy", "install_from_source", {"branch": "main"}),
-    (
-        LMDeployManager,
-        "lmdeploy",
-        "sync_source_version",
-        {
-            "version_entry": {
-                "version": "source-main",
-                "type": "source",
-                "install_type": "source",
-                "source_branch": "main",
-                "source_repo": "https://example.test/lmdeploy.git",
-                "venv_path": "/tmp/lmdeploy-venv",
-            }
-        },
-    ),
-    (LMDeployManager, "lmdeploy", "remove", {}),
-    (OneCatVllmManager, "onecat_vllm", "install_release", {}),
-    (OneCatVllmManager, "onecat_vllm", "install_from_source", {"branch": "main"}),
-    (
-        OneCatVllmManager,
-        "onecat_vllm",
-        "sync_source_version",
-        {
-            "version_entry": {
-                "version": "source-main",
-                "type": "source",
-                "install_type": "source",
-                "source_branch": "main",
-                "source_repo": "https://example.test/1cat.git",
-                "venv_path": "/tmp/onecat-venv",
-            }
-        },
-    ),
-    (OneCatVllmManager, "onecat_vllm", "remove", {}),
-])
+@pytest.mark.parametrize(
+    "manager_cls,manager_name,start_method,start_kwargs",
+    [
+        (LMDeployManager, "lmdeploy", "install_release", {}),
+        (LMDeployManager, "lmdeploy", "install_from_source", {"branch": "main"}),
+        (
+            LMDeployManager,
+            "lmdeploy",
+            "sync_source_version",
+            {
+                "version_entry": {
+                    "version": "source-main",
+                    "type": "source",
+                    "install_type": "source",
+                    "source_branch": "main",
+                    "source_repo": "https://example.test/lmdeploy.git",
+                    "venv_path": "/tmp/lmdeploy-venv",
+                }
+            },
+        ),
+        (LMDeployManager, "lmdeploy", "remove", {}),
+        (OneCatVllmManager, "onecat_vllm", "install_release", {}),
+        (OneCatVllmManager, "onecat_vllm", "install_from_source", {"branch": "main"}),
+        (
+            OneCatVllmManager,
+            "onecat_vllm",
+            "sync_source_version",
+            {
+                "version_entry": {
+                    "version": "source-main",
+                    "type": "source",
+                    "install_type": "source",
+                    "source_branch": "main",
+                    "source_repo": "https://example.test/1cat.git",
+                    "venv_path": "/tmp/onecat-venv",
+                }
+            },
+        ),
+        (OneCatVllmManager, "onecat_vllm", "remove", {}),
+    ],
+)
 async def test_install_manager_operations_return_real_task_ids(
     tmp_path, manager_cls, manager_name, start_method, start_kwargs
 ):
@@ -512,9 +576,7 @@ async def test_wait_for_cancellation_clears_the_resource_on_disk(tmp_path):
         )
     )
     followed = await second.install_from_source(branch="main")
-    task_id = _assert_started_task(
-        followed, task_type="install_source", manager="lmdeploy"
-    )
+    task_id = _assert_started_task(followed, task_type="install_source", manager="lmdeploy")
     assert second.cancel_task(task_id)["ok"] is True
     await second.wait_for_cancellation()
 
@@ -526,6 +588,7 @@ def test_cuda_install_api_returns_real_task_id(client, monkeypatch, tmp_path):
             state_path=str(tmp_path / "cuda_state.json"),
         )
     )
+
     async def fake_fetch(_version):
         return "https://example.test/cuda.run"
 
@@ -596,9 +659,7 @@ def test_single_file_download_returns_real_task_id(monkeypatch, payload, expecte
     monkeypatch.setattr(models_routes.time, "time", lambda: 1_700_000_000.123)
 
     try:
-        result = asyncio.run(
-            models_routes.download_huggingface_model(payload, background_tasks)
-        )
+        result = asyncio.run(models_routes.download_huggingface_model(payload, background_tasks))
         task_id = _assert_started_task(result, task_type="download")
         assert task_id.startswith(expected_prefix)
         assert task_id in model_downloads.active_downloads

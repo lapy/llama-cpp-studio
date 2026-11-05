@@ -1,0 +1,23 @@
+Port 2222
+ListenAddress 0.0.0.0
+PidFile /state/sshd.pid
+
+HostKey /etc/ssh/ssh_host_ed25519_key
+HostKey /etc/ssh/ssh_host_rsa_key
+
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+AuthorizedKeysFile /state/authorized_keys
+AllowUsers agent
+StrictModes no
+UsePAM no
+
+AllowAgentForwarding no
+AllowTcpForwarding yes
+X11Forwarding no
+PermitTunnel no
+PrintMotd no
+Subsystem sftp internal-sftp
+LogLevel INFO

@@ -1,6 +1,9 @@
 <template>
   <div class="model-library page-shell page-shell--wide">
-    <PageHeader title="Model library" description="Manage local models, configure their engines, and connect your apps.">
+    <PageHeader
+      title="Model library"
+      description="Manage local models, configure their engines, and connect your apps."
+    >
       <template #meta>
         <Tag
           v-if="totalModels"
@@ -99,32 +102,42 @@
             <option value="attention">Needs attention</option>
           </select>
         </div>
-        <button class="library-filters-toggle" type="button" :aria-expanded="filtersOpen" aria-controls="library-secondary-filters" @click="filtersOpen = !filtersOpen">Filters<span v-if="secondaryFilterCount"> ({{ secondaryFilterCount }})</span></button>
+        <button
+          class="library-filters-toggle"
+          type="button"
+          :aria-expanded="filtersOpen"
+          aria-controls="library-secondary-filters"
+          @click="filtersOpen = !filtersOpen"
+        >
+          Filters<span v-if="secondaryFilterCount"> ({{ secondaryFilterCount }})</span>
+        </button>
         <div id="library-secondary-filters" class="library-secondary-filters" v-show="filtersOpen">
-        <div class="library-filter">
-          <label for="library-engine">Engine</label>
-          <select id="library-engine" v-model="engineFilter">
-            <option value="all">Any engine</option>
-            <option v-for="engine in engineChoices" :key="engine" :value="engine">
-              {{ prettyEngine(engine) }}
-            </option>
-          </select>
-        </div>
-        <div class="library-filter">
-          <label for="library-task">Task</label>
-          <select id="library-task" v-model="taskFilter">
-            <option value="all">Any task</option>
-            <option v-for="task in taskChoices" :key="task" :value="taskLabel(task)">{{ taskLabel(task) }}</option>
-          </select>
-        </div>
-        <div class="library-filter">
-          <label for="library-sort">Sort</label>
-          <select id="library-sort" v-model="sortBy">
-            <option value="name">Name</option>
-            <option value="size">Size</option>
-            <option value="recent">Recent use</option>
-          </select>
-        </div>
+          <div class="library-filter">
+            <label for="library-engine">Engine</label>
+            <select id="library-engine" v-model="engineFilter">
+              <option value="all">Any engine</option>
+              <option v-for="engine in engineChoices" :key="engine" :value="engine">
+                {{ prettyEngine(engine) }}
+              </option>
+            </select>
+          </div>
+          <div class="library-filter">
+            <label for="library-task">Task</label>
+            <select id="library-task" v-model="taskFilter">
+              <option value="all">Any task</option>
+              <option v-for="task in taskChoices" :key="task" :value="taskLabel(task)">
+                {{ taskLabel(task) }}
+              </option>
+            </select>
+          </div>
+          <div class="library-filter">
+            <label for="library-sort">Sort</label>
+            <select id="library-sort" v-model="sortBy">
+              <option value="name">Name</option>
+              <option value="size">Size</option>
+              <option value="recent">Recent use</option>
+            </select>
+          </div>
         </div>
         <div class="library-view" role="group" aria-label="Library layout">
           <button type="button" :aria-pressed="viewMode === 'cards'" @click="setViewMode('cards')">
@@ -138,20 +151,46 @@
 
       <div class="library-results-summary" role="status">
         <span>{{ visibleModelCount }} of {{ totalModels }} models</span>
-        <button v-if="hasLibraryFilters" type="button" @click="clearLibraryFilters">Clear filters</button>
+        <button v-if="hasLibraryFilters" type="button" @click="clearLibraryFilters">
+          Clear filters
+        </button>
       </div>
       <div v-if="hasLibraryFilters" class="search-chips" aria-label="Active library filters">
-        <button v-if="libraryQuery" type="button" class="search-chip" @click="libraryQuery = ''">Name: {{ libraryQuery }} ×</button>
-        <button v-if="statusFilter !== 'all'" type="button" class="search-chip" @click="statusFilter = 'all'">Status: {{ statusFilter }} ×</button>
-        <button v-if="engineFilter !== 'all'" type="button" class="search-chip" @click="engineFilter = 'all'">Engine: {{ prettyEngine(engineFilter) }} ×</button>
-        <button v-if="taskFilter !== 'all'" type="button" class="search-chip" @click="taskFilter = 'all'">Task: {{ taskLabel(taskFilter) }} ×</button>
+        <button v-if="libraryQuery" type="button" class="search-chip" @click="libraryQuery = ''">
+          Name: {{ libraryQuery }} ×
+        </button>
+        <button
+          v-if="statusFilter !== 'all'"
+          type="button"
+          class="search-chip"
+          @click="statusFilter = 'all'"
+        >
+          Status: {{ statusFilter }} ×
+        </button>
+        <button
+          v-if="engineFilter !== 'all'"
+          type="button"
+          class="search-chip"
+          @click="engineFilter = 'all'"
+        >
+          Engine: {{ prettyEngine(engineFilter) }} ×
+        </button>
+        <button
+          v-if="taskFilter !== 'all'"
+          type="button"
+          class="search-chip"
+          @click="taskFilter = 'all'"
+        >
+          Task: {{ taskLabel(taskFilter) }} ×
+        </button>
       </div>
       <EmptyState
         v-if="!displayGroups.length"
         icon="pi pi-filter"
         title="No models match"
         description="Try a different name, status, engine, or task."
-      ><Button label="Clear filters" severity="secondary" outlined @click="clearLibraryFilters" /></EmptyState>
+        ><Button label="Clear filters" severity="secondary" outlined @click="clearLibraryFilters"
+      /></EmptyState>
 
       <!-- Model groups (GGUF + Safetensors) -->
       <div
@@ -179,15 +218,21 @@
           <div class="library-list__model" role="cell">
             <div class="library-list__title">
               <span class="library-list__name" :title="line.title">{{ line.title }}</span>
-
             </div>
             <div v-if="line.meta" class="library-list__meta">{{ line.meta }}</div>
           </div>
           <div class="library-list__state" role="cell">
-            <span v-if="line.status" class="library-list__status" :data-status="line.statusKey">{{ line.status }}</span>
-            <span v-else class="library-list__status library-list__status--quiet">{{ line.kind === 'group' ? 'Variants' : 'Stopped' }}</span>
+            <span v-if="line.status" class="library-list__status" :data-status="line.statusKey">{{
+              line.status
+            }}</span>
+            <span v-else class="library-list__status library-list__status--quiet">{{
+              line.kind === 'group' ? 'Variants' : 'Stopped'
+            }}</span>
           </div>
-          <div class="library-list__size" role="cell"><span>{{ line.size || '—' }}</span><small v-if="line.kind === 'group'">Total on disk</small></div>
+          <div class="library-list__size" role="cell">
+            <span>{{ line.size || '—' }}</span
+            ><small v-if="line.kind === 'group'">Total on disk</small>
+          </div>
           <div class="library-list__actions" role="cell">
             <template v-if="line.quant">
               <ModelStartStopButton
@@ -292,7 +337,11 @@
                   >
                     {{ formatBytes(groupTotalFileSize(group)) }}
                   </span>
-                  <Tag :value="groupRuntimeState(group).label" :severity="groupRuntimeState(group).severity" class="running-badge" />
+                  <Tag
+                    :value="groupRuntimeState(group).label"
+                    :severity="groupRuntimeState(group).severity"
+                    class="running-badge"
+                  />
                 </span>
                 <span class="group-tags">
                   <Tag
@@ -348,7 +397,11 @@
                 <span v-if="primaryQuant(group) && primaryQuant(group).file_size" class="file-size">
                   {{ formatBytes(primaryQuant(group).file_size) }}
                 </span>
-                <Tag :value="groupRuntimeState(group).label" :severity="groupRuntimeState(group).severity" class="running-badge" />
+                <Tag
+                  :value="groupRuntimeState(group).label"
+                  :severity="groupRuntimeState(group).severity"
+                  class="running-badge"
+                />
               </div>
               <div class="group-tags">
                 <Tag
@@ -424,13 +477,13 @@
               />
               <details class="row-menu" @click.stop>
                 <summary :aria-label="`More actions for ${groupTitle(group)}`">More</summary>
-              <ModelWarmupButton
-                v-if="primaryQuant(group)"
-                :model="primaryQuant(group)"
-                :disabled="
-                  isQuantStarting(primaryQuant(group)) || isQuantStopping(primaryQuant(group))
-                "
-              />
+                <ModelWarmupButton
+                  v-if="primaryQuant(group)"
+                  :model="primaryQuant(group)"
+                  :disabled="
+                    isQuantStarting(primaryQuant(group)) || isQuantStopping(primaryQuant(group))
+                  "
+                />
                 <button
                   type="button"
                   @click="
@@ -539,7 +592,13 @@
 </template>
 
 <script setup>
-import { modelRuntimeState, groupRuntimeState, taskLabel, formatLabel } from '@/utils/modelPresentation'
+import {
+  modelRuntimeState,
+  groupRuntimeState,
+  taskLabel,
+  formatLabel,
+} from '@/utils/modelPresentation'
+import { isAudioPackage } from '@/utils/audioModel'
 import { useQueryState } from '@/composables/useQueryState'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { watchDialogFocus } from '@/composables/useFocusReturn'
@@ -562,6 +621,7 @@ import ModelWarmupButton from '@/components/ModelWarmupButton.vue'
 import { useModelStore } from '@/stores/models'
 import { useProgressStore } from '@/stores/progress'
 import { audioTabFromConfig } from '@/composables/useAudioInferenceClient'
+import { defaultEngineForFormat } from '@/engines/registry'
 import { engineLabel } from '@/composables/engineVersionDelete'
 import { requireSingleConfirmation } from '@/composables/singleConfirm'
 import {
@@ -616,9 +676,23 @@ const viewMode = ref(
     ? 'list'
     : 'cards',
 )
-const secondaryFilterCount = computed(() => Number(engineFilter.value !== 'all') + Number(taskFilter.value !== 'all') + Number(sortBy.value !== 'name'))
-const hasLibraryFilters = computed(() => Boolean(libraryQuery.value || statusFilter.value !== 'all' || engineFilter.value !== 'all' || taskFilter.value !== 'all'))
-const visibleModelCount = computed(() => displayGroups.value.reduce((sum, group) => sum + (group.quantizations?.length || 0), 0))
+const secondaryFilterCount = computed(
+  () =>
+    Number(engineFilter.value !== 'all') +
+    Number(taskFilter.value !== 'all') +
+    Number(sortBy.value !== 'name'),
+)
+const hasLibraryFilters = computed(() =>
+  Boolean(
+    libraryQuery.value ||
+    statusFilter.value !== 'all' ||
+    engineFilter.value !== 'all' ||
+    taskFilter.value !== 'all',
+  ),
+)
+const visibleModelCount = computed(() =>
+  displayGroups.value.reduce((sum, group) => sum + (group.quantizations?.length || 0), 0),
+)
 function clearLibraryFilters() {
   libraryQuery.value = ''
   statusFilter.value = engineFilter.value = taskFilter.value = 'all'
@@ -748,8 +822,7 @@ const catalogFailed = computed(() => Boolean(modelStore.modelsError) && !modelSt
 function groupEngine(group) {
   const quant = primaryQuant(group)
   return (
-    (quant?.config && quant.config.engine) ||
-    (quant?.format === 'safetensors' ? 'lmdeploy' : quant ? 'llama_cpp' : '')
+    (quant?.config && quant.config.engine) || (quant ? defaultEngineForFormat(quant.format) : '')
   )
 }
 
@@ -1209,8 +1282,7 @@ function configureModel(modelId) {
 
 function isAudioQuant(quant) {
   if (!quant) return false
-  const engine = quant.config?.engine || quant.engine
-  return engine === 'audio_cpp' || quant.format === 'audio_cpp'
+  return isAudioPackage(quant)
 }
 
 function openAudio(modelId) {
@@ -1693,11 +1765,7 @@ onUnmounted(() => {
 }
 
 :deep(.quant-row.is-active) {
-  border-color: color-mix(
-    in srgb,
-    var(--accent-green) 70%,
-    var(--border-primary)
-  );
+  border-color: color-mix(in srgb, var(--accent-green) 70%, var(--border-primary));
   background: color-mix(in srgb, var(--accent-green) 14%, var(--bg-surface));
   box-shadow:
     var(--glow-success),
@@ -1950,10 +2018,20 @@ onUnmounted(() => {
   gap: 0.15rem;
   white-space: nowrap;
 }
-.library-list__size small { font-size: var(--text-xs); font-weight: 400; }
-.library-list__size-heading { text-align: right; }
-.library-list__status--quiet { color: var(--text-secondary); font-weight: 400; }
-.library-list__actions-heading { padding-left: 1rem; }
+.library-list__size small {
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+.library-list__size-heading {
+  text-align: right;
+}
+.library-list__status--quiet {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+.library-list__actions-heading {
+  padding-left: 1rem;
+}
 
 .library-list__actions {
   display: flex;
@@ -1995,16 +2073,27 @@ onUnmounted(() => {
 }
 
 @media (max-width: 1100px) {
-  .library-list__head, .library-list__row {
+  .library-list__head,
+  .library-list__row {
     grid-template-columns: minmax(0, 1fr) 8rem 7.5rem;
     grid-template-areas: 'model state size' 'actions actions actions';
     gap: 0.65rem 1rem;
   }
-  .library-list__head { grid-template-areas: 'model state size'; }
-  .library-list__actions-heading { display: none; }
-  .library-list__model { grid-area: model; }
-  .library-list__state { grid-area: state; }
-  .library-list__size { grid-area: size; }
+  .library-list__head {
+    grid-template-areas: 'model state size';
+  }
+  .library-list__actions-heading {
+    display: none;
+  }
+  .library-list__model {
+    grid-area: model;
+  }
+  .library-list__state {
+    grid-area: state;
+  }
+  .library-list__size {
+    grid-area: size;
+  }
   .library-list__actions {
     grid-area: actions;
     justify-content: flex-start;
@@ -2019,16 +2108,27 @@ onUnmounted(() => {
 }
 
 @media (max-width: 520px) {
-  .library-list__head { display: none; }
+  .library-list__head {
+    display: none;
+  }
   .library-list__row {
     grid-template-columns: minmax(0, 1fr) 6.5rem;
     grid-template-areas: 'model size' 'state size' 'actions actions';
     padding: 1rem;
     gap: 0.5rem 0.75rem;
   }
-  .library-list__size { align-self: start; }
-  .library-list__size::before { content: 'File size'; font-size: var(--text-xs); color: var(--text-secondary); }
-  .library-list__meta { white-space: normal; overflow-wrap: anywhere; }
+  .library-list__size {
+    align-self: start;
+  }
+  .library-list__size::before {
+    content: 'File size';
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+  }
+  .library-list__meta {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }
 
 /* ── Token dialog ─────────────────────────────────────── */
@@ -2227,5 +2327,7 @@ onUnmounted(() => {
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
 }
-.library-list__menu-items > button:not(.p-button) { color: var(--status-error); }
+.library-list__menu-items > button:not(.p-button) {
+  color: var(--status-error);
+}
 </style>

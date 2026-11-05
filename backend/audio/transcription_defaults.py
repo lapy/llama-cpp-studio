@@ -4,28 +4,37 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from backend.engines.audio_cpp.request_vocab import request_defaults_vocab
+
 
 def normalize_transcription_defaults(value: Any) -> Dict[str, Any]:
     if not isinstance(value, dict):
         return {}
+    vocab = request_defaults_vocab("transcription")
+    bool_keys = list(vocab.get("bool_keys") or ())
+    int_keys = set(vocab.get("int_keys") or ())
+    float_keys = set(vocab.get("float_keys") or ())
     out: Dict[str, Any] = {}
     if "language" in value:
         text = str(value.get("language") or "").strip()
         if text:
             out["language"] = text
-    if "stream" in value:
-        out["stream"] = bool(value.get("stream"))
+    # Boolean defaults: exactly the DECLARED keys, always coerced when present.
+    for key in bool_keys:
+        if key in value:
+            out[key] = bool(value.get(key))
     if "prompt" in value:
         text = str(value.get("prompt") or "").strip()
         if text:
             out["prompt"] = text
-    for key in ("max_tokens", "temperature", "top_p", "top_k", "seed"):
-        if key not in value:
+    for key, raw in value.items():
+        if key in ("language", "prompt", "options") or key in bool_keys:
             continue
-        raw = value.get(key)
+        if key not in int_keys and key not in float_keys:
+            continue
         if raw is None or raw == "":
             continue
-        if key in {"max_tokens", "top_k", "seed"}:
+        if key in int_keys:
             try:
                 out[key] = int(raw)
             except (TypeError, ValueError):

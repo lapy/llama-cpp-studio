@@ -1,0 +1,275 @@
+# AUTHORITATIVE engine definition (hand-authored; NOT exported).
+#
+# LMDeploy is the first SHIPPED engine converted to definition-owned
+# configuration (docs/config-driven-engine-refactoring-plan.md, priority 1).
+# It was chosen first because its installer, launch compiler and lifecycle had
+# already been reduced to shared machinery: the definition was the only
+# remaining source-of-truth gap, so converting it removed Python tables and a
+# thin engine subclass without adding a new mechanism.
+#
+# Editing this file changes production behavior directly: the registry boot
+# (backend/engines/registry.py) builds the typed EngineSpec from it at import,
+# the generic venv installer executes these recipes, the launch compiler reads
+# `runtime_profiles`, and discovery scans `discovery`. Nothing in Python
+# mirrors these values.
+schema_version: 2
+id: lmdeploy
+extends:
+- text_generation_tasks
+- python_venv_safetensors
+label: LMDeploy
+repository_source: LMDeploy
+runtime_kind: lmdeploy
+scanner_kind: lmdeploy_help
+input_modalities:
+- image
+- text
+output_modalities:
+- embedding
+- text
+recipes:
+  release:
+  - id: resolve_version
+    uses: prereqs.resolve_version
+    with:
+      channel: pypi
+      package: lmdeploy
+    produces:
+    - version
+  - id: create_venv
+    uses: venv.create
+    requires:
+    - input.engine_root
+    produces:
+    - venv
+  - id: install_package
+    uses: pip.install_package
+    requires:
+    - venv
+    - version
+    - input.force_reinstall
+    with:
+      package: lmdeploy
+      version_from: version
+      stage: install
+      error: pip exited with status {code}
+  - id: capture_metadata
+    uses: pip.capture_metadata
+    requires:
+    - venv
+    produces:
+    - metadata
+  - id: publish
+    uses: publish.install
+    requires:
+    - venv
+    - metadata
+  source:
+  - id: ensure_venv
+    uses: venv.create
+    requires:
+    - input.engine_root
+    produces:
+    - venv
+  - id: fetch_source
+    uses: vcs.workspace_checkout
+    requires:
+    - input.engine_root
+    - input.repo_url
+    - input.branch
+    - input.reuse_mode
+    with:
+      repository_from: input.repo_url
+      branch_from: input.branch
+      reuse_from: input.reuse_mode
+    produces:
+    - checkout
+  - id: install_editable
+    uses: pip.install_package
+    requires:
+    - checkout
+    - venv
+    with:
+      package: .
+      editable: true
+      stage: install_source
+      cwd_from: checkout
+      env: ccache
+      error: pip install -e -v . failed with code {code}
+  - id: seal_checkout
+    uses: vcs.seal_checkout
+    requires:
+    - checkout
+    - venv
+    when:
+      equals:
+        field: input.reuse_mode
+        value: false
+    produces:
+    - checkout_sealed
+  - id: capture_metadata
+    uses: pip.capture_metadata
+    requires:
+    - venv
+    produces:
+    - metadata
+  - id: publish
+    uses: publish.install
+    requires:
+    - venv
+    - metadata
+    with:
+      variant: source
+  sync:
+  - id: ensure_venv
+    uses: venv.create
+    requires:
+    - input.engine_root
+    produces:
+    - venv
+  - id: sync_checkout
+    uses: vcs.sync
+    requires:
+    - input.engine_root
+    - input.branch
+    with:
+      branch_from: input.branch
+    produces:
+    - checkout
+  - id: reinstall_editable
+    uses: pip.install_package
+    requires:
+    - checkout
+    - venv
+    with:
+      package: .
+      editable: true
+      stage: sync_source
+      append: true
+      cwd_from: checkout
+      env: ccache
+      error: pip install -e -v . failed with code {code}
+  - id: capture_metadata
+    uses: pip.capture_metadata
+    requires:
+    - venv
+    produces:
+    - metadata
+  - id: record_update
+    uses: publish.record_update
+    requires:
+    - checkout
+    - metadata
+    - input.version_name
+    with:
+      source_repo_from: input.source_repo
+  remove:
+  - id: uninstall_package
+    uses: pip.uninstall
+    requires:
+    - input.engine_root
+    when:
+      equals:
+        field: input.venv_python_exists
+        value: true
+    with:
+      package: lmdeploy
+      stage: remove
+  - id: remove_venv_tree
+    uses: fs.remove_tree
+    requires:
+    - input.venv_path
+    - input.retire_references
+    with:
+      path_from: input.venv_path
+      retire_references_from: input.retire_references
+  - id: forget_install
+    uses: publish.forget
+    requires:
+    - input.version_name
+  remove_version:
+  - id: remove_install_dir
+    uses: fs.remove_tree
+    requires:
+    - input.delete_target
+    - input.retire_references
+    with:
+      path_from: input.delete_target
+      retire_references_from: input.retire_references
+  - id: forget_row
+    uses: publish.forget
+    requires:
+    - input.registered
+    - input.version_name
+lifecycle:
+  binary_name: lmdeploy
+  distribution_names:
+  - lmdeploy
+  root_name: lmdeploy
+  log_name: lmdeploy_install.log
+  state_name: lmdeploy_manager.json
+  default_repo_url: https://github.com/InternLM/lmdeploy.git
+  default_branch: main
+  version_setting_key: pip_version
+  # `LMDEPLOY_BIN` keeps its documented override; the generic installer owns
+  # the resolution mechanism, the definition only selects the variable.
+  binary_override_env: LMDEPLOY_BIN
+  update_source:
+    kind: pypi
+    package: lmdeploy
+    # Compatibility response contract of the historic legacy route.
+    timeout: 10.0
+    error_status: 500
+  status_fallback:
+    installed_at: null
+    removed_at: null
+    log_path: null
+discovery:
+  parser: lmdeploy_help
+  probe_argv_prefix:
+  - serve
+  - api_server
+  - --help
+  # Probe from the venv root, like the legacy scanner did, so the console
+  # script resolves its environment exactly as it does when launched.
+  cwd: venv_root
+runtime_profiles:
+  default:
+    default: true
+    description: lmdeploy serve api_server (OpenAI-compatible)
+    executable:
+      kind: venv_console_script
+      name: lmdeploy
+    argv_prefix:
+    - serve
+    - api_server
+    model_binding:
+      mode: positional
+      source: huggingface_id
+    port_binding:
+      flag: --server-port
+    env:
+      prepend_bin_to_path: true
+launch_policy:
+  cpu_supported: false
+  runtime_context_key: session_len
+catalog:
+  providers:
+  - huggingface
+upstream:
+  repository_url: https://github.com/InternLM/lmdeploy.git
+settings_defaults:
+  source_repo: https://github.com/InternLM/lmdeploy.git
+  source_branch: main
+  pip_version: ''
+  # Optional V100/sm70 INSTALL compatibility: the default CUDA 13 torch wheel
+  # has no Volta kernels. Runtime backend/eager-mode choices belong to the
+  # model's LMDeploy runtime params, not this install settings document.
+  compat_sm70: false
+  compat_torch_spec: torch==2.8.0+cu126 torchvision==0.23.0+cu126
+  compat_torch_index_url: https://download.pytorch.org/whl/cu126
+data_dirs:
+- lmdeploy
+model_compat:
+  default_for_formats:
+  - safetensors

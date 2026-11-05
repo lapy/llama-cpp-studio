@@ -1,0 +1,6 @@
+# Optional read-only model directory. Omit this file to keep /models entirely
+# inside the container's named volume.
+services:
+  studio:
+    volumes:
+      - ${STUDIO_MODELS_DIR:-/srv/llama-cpp-studio-models}:/models:ro

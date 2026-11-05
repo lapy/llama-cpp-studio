@@ -87,6 +87,7 @@
 <script setup>
 import { computed, toRefs } from 'vue'
 import { modelRuntimeState, taskLabel, formatLabel } from '@/utils/modelPresentation'
+import { isAudioPackage } from '@/utils/audioModel'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import ModelStartStopButton from '@/components/ModelStartStopButton.vue'
@@ -118,10 +119,7 @@ const props = defineProps({
 const { quant, isStarting, isStopping } = toRefs(props)
 const proxyStatus = computed(() => String(quant.value?.status || quant.value?.run_state || '').toLowerCase())
 const runtimeState = computed(() => modelRuntimeState(quant.value))
-const isAudioModel = computed(() => {
-  const engine = quant.value?.config?.engine || quant.value?.engine
-  return engine === 'audio_cpp' || quant.value?.format === 'audio_cpp'
-})
+const isAudioModel = computed(() => isAudioPackage(quant.value))
 
 const emit = defineEmits(['start', 'stop', 'configure', 'audio', 'delete', 'connect'])
 </script>

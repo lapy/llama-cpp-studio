@@ -12,11 +12,7 @@ import asyncio
 import aiohttp
 from backend.logging_config import get_logger
 from backend.paths import studio_data_dir
-from backend.task_cancel_registry import (
-    TaskCancelledError,
-    register_task_cancel,
-    unregister_task_cancel,
-)
+from backend.task_cancel_registry import TaskCancelledError
 
 logger = get_logger(__name__)
 
@@ -63,9 +59,7 @@ class BuildConfig:
     enable_cuda_no_vmm: bool = _BC["enable_cuda_no_vmm"]
     enable_cuda_nccl: bool = _BC["enable_cuda_nccl"]
     cuda_architectures: str = _BC["cuda_architectures"]
-    cuda_fa_quants: str = _BC.get(
-        "cuda_fa_quants", "q4_0-q4_0;q8_0-q8_0;f16-f16;bf16-bf16"
-    )
+    cuda_fa_quants: str = _BC.get("cuda_fa_quants", "q4_0-q4_0;q8_0-q8_0;f16-f16;bf16-bf16")
     cuda_peer_max_batch_size: str = _BC["cuda_peer_max_batch_size"]
     cuda_min_batch_offload: str = _BC.get("cuda_min_batch_offload", "32")
     cuda_dmmv_x: str = _BC.get("cuda_dmmv_x", "32")
@@ -181,9 +175,7 @@ class LlamaManager:
     LLAMA_CPP_REPO = "https://github.com/ggerganov/llama.cpp.git"
     IK_LLAMA_CPP_REPO = "https://github.com/ikawrakow/ik_llama.cpp.git"
     # Pre-built CUDA releases (ai-dock builds; used for "Install Release")
-    LLAMA_CPP_CUDA_RELEASES_API = (
-        "https://api.github.com/repos/ai-dock/llama.cpp-cuda/releases"
-    )
+    LLAMA_CPP_CUDA_RELEASES_API = "https://api.github.com/repos/ai-dock/llama.cpp-cuda/releases"
 
     REPOSITORY_SOURCES = {
         "llama.cpp": LLAMA_CPP_REPO,
@@ -205,11 +197,7 @@ class LlamaManager:
 
             os.chmod(
                 self.llama_dir,
-                stat.S_IRWXU
-                | stat.S_IRGRP
-                | stat.S_IXGRP
-                | stat.S_IROTH
-                | stat.S_IXOTH,
+                stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
             )
         except Exception as e:
             logger.warning(f"Could not set permissions on {self.llama_dir}: {e}")
@@ -280,9 +268,7 @@ class LlamaManager:
             if is_complete:
                 return (True, cuda_root, None)
             else:
-                logger.warning(
-                    f"CUDA toolkit at {cuda_root} is incomplete, missing: {missing}"
-                )
+                logger.warning(f"CUDA toolkit at {cuda_root} is incomplete, missing: {missing}")
 
         # Try to find nvcc in PATH as a fallback
         try:
@@ -298,9 +284,7 @@ class LlamaManager:
                     if os.path.exists(potential_root) and os.path.abspath(
                         potential_root
                     ).startswith(data_cuda_root):
-                        is_complete, missing = self._verify_cuda_toolkit_complete(
-                            potential_root
-                        )
+                        is_complete, missing = self._verify_cuda_toolkit_complete(potential_root)
                         if is_complete:
                             return (True, potential_root, None)
                         else:
@@ -374,9 +358,7 @@ class LlamaManager:
                             has_shared_libs = True
 
                     # Check for static libraries (required for linking llama.cpp)
-                    if any(
-                        "cudart_static" in f and f.endswith(".a") for f in lib_files
-                    ):
+                    if any("cudart_static" in f and f.endswith(".a") for f in lib_files):
                         has_static_libs = True
                     if any("cudadevrt" in f for f in lib_files):
                         has_static_libs = True
@@ -394,14 +376,10 @@ class LlamaManager:
 
         # Check for version.txt or version.json (indicates full toolkit)
         version_files = ["version.txt", "version.json"]
-        has_version = any(
-            os.path.exists(os.path.join(cuda_root, vf)) for vf in version_files
-        )
+        has_version = any(os.path.exists(os.path.join(cuda_root, vf)) for vf in version_files)
         if not has_version:
             # Not critical, just log
-            logger.debug(
-                f"CUDA toolkit at {cuda_root} missing version file (not critical)"
-            )
+            logger.debug(f"CUDA toolkit at {cuda_root} missing version file (not critical)")
 
         # Check for NCCL (optional but recommended for multi-GPU)
         # NCCL can be in the CUDA directory or system directories
@@ -437,9 +415,7 @@ class LlamaManager:
 
         if not nccl_found:
             # NCCL is optional, just log a warning
-            logger.info(
-                "NCCL not found - multi-GPU support may be limited. Build will continue."
-            )
+            logger.info("NCCL not found - multi-GPU support may be limited. Build will continue.")
         else:
             logger.debug("NCCL found - multi-GPU support available")
 
@@ -674,9 +650,7 @@ class LlamaManager:
             cwd=cwd,
             env=env,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT
-            if merge_stderr
-            else asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT if merge_stderr else asyncio.subprocess.PIPE,
             start_new_session=(os.name != "nt"),
         )
 
@@ -890,9 +864,7 @@ class LlamaManager:
             if clean.returncode != 0:
                 tail = "\n".join(clean.lines[-40:]) if clean.lines else ""
                 raise Exception(f"Git clean failed: {tail or 'unknown error'}")
-            checkout = await run_git(
-                ["checkout", "-B", branch, "FETCH_HEAD"], timeout=120.0
-            )
+            checkout = await run_git(["checkout", "-B", branch, "FETCH_HEAD"], timeout=120.0)
             if checkout.returncode != 0:
                 tail = "\n".join(checkout.lines[-40:]) if checkout.lines else ""
                 raise Exception(f"Git checkout failed after clean: {tail or 'unknown error'}")
@@ -903,7 +875,6 @@ class LlamaManager:
             raise Exception(f"Git reset failed: {tail or 'unknown error'}")
 
         logger.info("Synced existing checkout %s to origin/%s", clone_dir, branch)
-
 
     async def build_source(
         self,
@@ -917,22 +888,44 @@ class LlamaManager:
         reuse_existing_checkout: bool = False,
         source_branch: str = None,
         use_workspace: bool = False,
+        source_ref_type: str = "ref",
+        repository_source: Optional[str] = None,
+        store=None,
+        publish_row: bool = False,
     ) -> str:
-        """Adapt caller arguments onto the source-build contract."""
-        from backend.engines.llama_cpp.source_build import run_source_build
+        """Compatibility adapter: source builds run on the native host.
 
-        return await run_source_build(
-            self,
-            commit_sha=commit_sha,
-            patches=patches,
-            build_config=build_config,
-            progress_manager=progress_manager,
-            task_id=task_id,
+        Kept so existing callers/tests keep this manager-level entry point; the
+        orchestration itself lives on ``CmakeSourceInstaller`` (the shared
+        ``GenericNativeInstaller``) for the engine's ``source`` recipe.
+        """
+        from backend.engines.python.cmake_source import CmakeSourceInstaller
+
+        repo_source = str(repository_source or "")
+        if repository_url:
+            for source_name, source_url in self.REPOSITORY_SOURCES.items():
+                if source_url == repository_url:
+                    repo_source = source_name
+                    break
+        if not repo_source:
+            repo_source = "llama.cpp"
+        engine_id = "ik_llama" if repo_source == "ik_llama.cpp" else "llama_cpp"
+
+        return await CmakeSourceInstaller(engine_id, manager=self).run_source(
+            commit_sha,
+            patches,
+            build_config,
+            progress_manager,
+            task_id,
             repository_url=repository_url,
             version_name=version_name,
             reuse_existing_checkout=reuse_existing_checkout,
             source_branch=source_branch,
             use_workspace=use_workspace,
+            source_ref_type=source_ref_type,
+            repository_source=repository_source,
+            store=store,
+            publish_row=publish_row,
         )
 
     async def _apply_patch(self, repo_dir: str, patch_url: str):
@@ -941,9 +934,7 @@ class LlamaManager:
             if patch_url.startswith("https://github.com/"):
                 # GitHub PR URL - convert to patch URL
                 if "/pull/" in patch_url:
-                    patch_url = patch_url.replace("/pull/", "/pull/").replace(
-                        "/files", ".patch"
-                    )
+                    patch_url = patch_url.replace("/pull/", "/pull/").replace("/files", ".patch")
                 elif not patch_url.endswith(".patch"):
                     patch_url += ".patch"
 
@@ -1000,9 +991,7 @@ class LlamaManager:
             for root, _, files in os.walk(version_path):
                 if "llama-server" in files:
                     llama_server_path = os.path.join(root, "llama-server")
-                    if os.path.exists(llama_server_path) and os.access(
-                        llama_server_path, os.X_OK
-                    ):
+                    if os.path.exists(llama_server_path) and os.access(llama_server_path, os.X_OK):
                         return llama_server_path
         return None
 
@@ -1033,9 +1022,7 @@ class LlamaManager:
         commands = {
             "llama-server": os.path.exists(os.path.join(binary_dir, "llama-server")),
             "llama-cli": os.path.exists(os.path.join(binary_dir, "llama-cli")),
-            "llama-quantize": os.path.exists(
-                os.path.join(binary_dir, "llama-quantize")
-            ),
+            "llama-quantize": os.path.exists(os.path.join(binary_dir, "llama-quantize")),
         }
 
         return commands

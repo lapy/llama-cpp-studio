@@ -15,6 +15,16 @@ export async function installWorkspaceApi(
     const request = route.request(),
       url = new URL(request.url()),
       path = url.pathname
+    if (path.startsWith('/v1/')) {
+      // The Audio workspace asks the native origin for voices; without this the
+      // request falls through Vite's dev proxy to a backend that Playwright
+      // does not start, producing ECONNREFUSED noise in CI logs.
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ voices: [] }),
+      })
+    }
     if (!path.startsWith('/api/')) {
       if (bridgeOrigin && url.origin === bridgeOrigin) {
         const response = await route.fetch({

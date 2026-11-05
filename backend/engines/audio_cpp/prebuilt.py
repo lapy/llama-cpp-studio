@@ -221,9 +221,7 @@ def select_prebuilt(assets: Iterable[Any], host: HostTarget) -> Optional[Prebuil
         if host.cuda == chosen["cuda"]:
             reason = f"host CUDA {host_text} matches package CUDA {package_text}"
         else:
-            reason = (
-                f"host CUDA {host_text} is newer than package CUDA {package_text}"
-            )
+            reason = f"host CUDA {host_text} is newer than package CUDA {package_text}"
         cli_asset = None
         if not chosen["includes_cli"]:
             cli_asset = _cpu_cli_archive(parsed, host)
@@ -268,25 +266,20 @@ def prebuilt_skip_reason(assets: Iterable[Any], host: HostTarget) -> str:
                 f"package CUDA {format_cuda_version(package)}, so this release "
                 "will be built from source."
             )
-        covered = [
-            item for item in newer_host if _covers_sms(item["architectures"], host.sms)
-        ]
+        covered = [item for item in newer_host if _covers_sms(item["architectures"], host.sms)]
         if not covered:
             return (
                 "No published CUDA prebuilt covers this GPU, so this release "
                 "will be built from source."
             )
-        if all(not item["includes_cli"] for item in covered) and not _cpu_cli_archive(
-            parsed, host
-        ):
+        if all(not item["includes_cli"] for item in covered) and not _cpu_cli_archive(parsed, host):
             return (
                 "The CUDA prebuilt does not include audiocpp_cli and this "
                 "release has no CPU archive to supply one, so it will be "
                 "built from source."
             )
         return (
-            "No published CUDA prebuilt covers this GPU, so this release "
-            "will be built from source."
+            "No published CUDA prebuilt covers this GPU, so this release will be built from source."
         )
     return "This release has no Linux CPU prebuilt, so it will be built from source."
 
@@ -413,18 +406,25 @@ def extract_archive(archive_path: str, dest_dir: str) -> Dict[str, str]:
     return {"server_binary_path": server, "cli_binary_path": cli}
 
 
-async def download_and_extract(url: str, dest_dir: str) -> Dict[str, str]:
+async def stream_release_download(url: str, dest_path: str) -> None:
+    """Stream one release asset to ``dest_path`` (HTTP(S) only, legacy guard)."""
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"}:
         raise RuntimeError("Refusing download from a non-HTTP URL")
-    os.makedirs(dest_dir, exist_ok=True)
-    archive_path = os.path.join(dest_dir, os.path.basename(parsed.path) or "audio.cpp.tar.gz")
+    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
     async with httpx.AsyncClient(timeout=None, follow_redirects=True) as client:
         async with client.stream("GET", url, headers=_headers()) as response:
             response.raise_for_status()
-            with open(archive_path, "wb") as handle:
+            with open(dest_path, "wb") as handle:
                 async for chunk in response.aiter_bytes():
                     handle.write(chunk)
+
+
+async def download_and_extract(url: str, dest_dir: str) -> Dict[str, str]:
+    archive_path = os.path.join(
+        dest_dir, os.path.basename(urlparse(url).path) or "audio.cpp.tar.gz"
+    )
+    await stream_release_download(url, archive_path)
     try:
         return extract_archive(archive_path, dest_dir)
     finally:
@@ -449,9 +449,7 @@ async def materialize_cli(binaries: Dict[str, str], plan: PrebuiltPlan, install_
         companion = await download_and_extract(plan.cli_url, companion_dir)
         source = str(companion.get("cli_binary_path") or "")
         if not source or not os.path.isfile(source):
-            raise RuntimeError(
-                "audiocpp_cli was not in the CPU archive for this release"
-            )
+            raise RuntimeError("audiocpp_cli was not in the CPU archive for this release")
         dest = os.path.join(install_dir, "audiocpp_cli")
         shutil.copy2(source, dest)
         os.chmod(dest, os.stat(dest).st_mode | 0o111)

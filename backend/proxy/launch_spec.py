@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
-from backend.engines.registry import GGUF_ENGINE_IDS, VALID_ENGINE_IDS
+from backend.engines.registry import VALID_ENGINE_IDS
 from backend.feature_flags import launch_manifests_enabled
 
 SCHEMA_VERSION = 1
@@ -55,12 +55,29 @@ _BASELINE_KEYS = (
     "no_proxy",
 )
 _OWNED_PORT_FLAGS = frozenset({"--port", "--server-port", "--host"})
-_CPU_REJECTED_ENGINES = frozenset(
-    {"lmdeploy", "1cat_vllm", "vllm", "sglang", "sglang_v100"}
-)
-_GPU_ONLY_INVARIANTS = {
-    "sglang_v100": ("CUDA_HOME", "TORCH_CUDA_ARCH_LIST", "FLASHINFER_DISABLE_VERSION_CHECK"),
-}
+
+
+def _launch_policy(engine: str) -> Dict[str, Any]:
+    """The engine's declared launch policy (R5), read from its spec.
+
+    Generated engines declare it in ``backend/engines/registry.py`` and the
+    exporter writes it into their definitions; authoritative YAML engines
+    declare it in their own file. Absent means "no constraints".
+    """
+    from backend.engines.registry import get_engine_spec
+
+    spec = get_engine_spec(str(engine or ""))
+    return dict(spec.launch_policy) if spec is not None else {}
+
+
+def _cpu_supported(engine: str) -> bool:
+    return bool(_launch_policy(engine).get("cpu_supported", True))
+
+
+def _gpu_only_invariants(engine: str) -> Tuple[str, ...]:
+    raw = _launch_policy(engine).get("gpu_only_invariants") or ()
+    return tuple(str(item) for item in raw)
+
 
 ArgvItem = Union[str, Dict[str, str]]
 
@@ -91,8 +108,7 @@ class LaunchSpec:
 
     def document(self) -> Dict[str, Any]:
         artifact_digests = {
-            name: artifact_digest(payload)
-            for name, payload in sorted(self.artifacts.items())
+            name: artifact_digest(payload) for name, payload in sorted(self.artifacts.items())
         }
         return {
             "schema_version": SCHEMA_VERSION,
@@ -127,6 +143,11 @@ class CompiledModel:
     revision: str
     engine_command: str
     launcher_command: str
+    # Canonical digest of the authoritative definition that produced the
+    # launch ("" for the generated engines, whose compilers are Python-owned).
+    # It participates in the revision so a YAML/profile change is visible to
+    # manifests, published pointers and staleness checks.
+    profile_digest: str = ""
 
 
 def compiler_engine_ids() -> frozenset:
@@ -138,9 +159,19 @@ def artifact_digest(payload: Any) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def launch_revision(spec: LaunchSpec) -> str:
+def launch_revision(spec: LaunchSpec, *, profile_digest: str = "") -> str:
+    """Revision hash of a compiled launch.
+
+    ``profile_digest`` is added when the engine is backed by a YAML definition,
+    including audio.cpp, whose argv is composed by the frozen audio family
+    compiler. Any definition edit therefore changes the published revision and
+    manifest identity.
+    """
+    body = spec.document()
+    if profile_digest:
+        body["profile_digest"] = profile_digest
     raw = json.dumps(
-        spec.document(),
+        body,
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=False,
@@ -148,12 +179,23 @@ def launch_revision(spec: LaunchSpec) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def manifest_document(spec: LaunchSpec, revision: str) -> Dict[str, Any]:
+def manifest_document(
+    spec: LaunchSpec, revision: str, *, profile_digest: str = ""
+) -> Dict[str, Any]:
     """On-disk manifest. ``revision`` is excluded from the hashed body."""
     body = spec.document()
     body["artifacts_inline"] = spec.artifacts
     body["revision"] = revision
+    if profile_digest:
+        body["profile_digest"] = profile_digest
     return body
+
+
+def _launch_profile_digest(engine: str) -> str:
+    """Definition digest that owns this engine's launch, or "" (legacy)."""
+    from backend.proxy import profile_launch
+
+    return profile_launch.definition_digest_for(engine) or ""
 
 
 def redact_env_value(name: str, value: str) -> str:
@@ -183,9 +225,7 @@ def format_argv(executable: str, argv: Sequence[ArgvItem]) -> str:
 def stable_launcher_argv(model_id: str) -> List[str]:
     from backend.proxy.manifests import model_runtime_dir
 
-    launcher = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "launcher.py")
-    )
+    launcher = os.path.abspath(os.path.join(os.path.dirname(__file__), "launcher.py"))
     return [
         _interpreter(),
         launcher,
@@ -206,8 +246,6 @@ def stable_launcher_command(model_id: str) -> str:
     from backend.proxy.commands import _shell_join
 
     return _shell_join(stable_launcher_argv(model_id))
-
-
 
 
 def compile_model_runtime(model: Mapping[str, Any]) -> CompiledModel:
@@ -245,15 +283,15 @@ def compile_model_runtime(model: Mapping[str, Any]) -> CompiledModel:
         use_model_name=use_model_name,
         capabilities=model_capabilities(engine, model=dict(model), config=dict(config)),
     )
-    revision = launch_revision(launch)
+    profile_digest = _launch_profile_digest(engine)
+    revision = launch_revision(launch, profile_digest=profile_digest)
     return CompiledModel(
         launch=launch,
         proxy=proxy,
         revision=revision,
         engine_command=format_argv(launch.executable, launch.argv),
-        launcher_command=stable_launcher_command(stable_id)
-        if launch_manifests_enabled()
-        else "",
+        launcher_command=stable_launcher_command(stable_id) if launch_manifests_enabled() else "",
+        profile_digest=profile_digest,
     )
 
 
@@ -292,321 +330,61 @@ def _use_model_name(model, config, stable_id: str, engine: str) -> Optional[str]
 
     if engine == "audio_cpp":
         return stable_id
-    if engine in {"lmdeploy", "1cat_vllm", "vllm", "sglang", "sglang_v100"}:
-        value = _model_attr(model, "huggingface_id")
-        return str(value) if value else None
+    # Profile-backed engines follow the profile's model-binding source; engines
+    # without a profile (native GGUF) keep the historical stable-id behaviour.
+    from backend.proxy import profile_launch
+
+    definition = profile_launch.profile_launch_definition(engine)
+    if definition is not None:
+        if profile_launch.profile_model_source(definition) == "huggingface_id":
+            value = _model_attr(model, "huggingface_id")
+            return str(value) if value else None
+        return stable_id
     return stable_id
 
 
 def _compile_launch(model, config: Mapping[str, Any], stable_id: str, engine: str) -> LaunchSpec:
-    if engine in GGUF_ENGINE_IDS:
-        return _compile_gguf(model, config, stable_id, engine)
-    if engine == "lmdeploy":
-        return _compile_lmdeploy(model, config, stable_id)
-    if engine == "1cat_vllm":
-        return _compile_module(
-            model,
-            config,
-            stable_id,
-            engine="1cat_vllm",
-            module="vllm.entrypoints.openai.api_server",
-            model_flag="--model",
-            port_flag="--port",
-            resolve_bin=_resolve_named_bin("1cat_vllm"),
-        )
-    if engine == "vllm":
-        return _compile_module(
-            model,
-            config,
-            stable_id,
-            engine="vllm",
-            module="vllm.entrypoints.openai.api_server",
-            model_flag="--model",
-            port_flag="--port",
-            resolve_bin=_resolve_named_bin("vllm"),
-        )
-    if engine in {"sglang", "sglang_v100"}:
-        return _compile_module(
-            model,
-            config,
-            stable_id,
-            engine=engine,
-            module="sglang.launch_server",
-            model_flag="--model-path",
-            port_flag="--port",
-            resolve_bin=_resolve_named_bin(engine),
-        )
+    # Engines whose definition declares a runtime profile compile through the
+    # profile interpreter FIRST (every Python-venv engine does, and a native
+    # GGUF engine does once its profile declares a launch family). Engines
+    # without a declaration keep the byte-frozen family compilers below.
+    profiled = _compile_profile_launch(model, config, stable_id, engine)
+    if profiled is not None:
+        return profiled
     if engine == "audio_cpp":
-        return _compile_audio(model, config, stable_id)
+        return _compile_audio(model, config, stable_id, engine)
     raise LaunchCompileError(
         f"No runtime adapter registered for engine {engine!r}",
         field="engine",
     )
 
 
-def _compile_gguf(model, config, stable_id: str, engine: str) -> LaunchSpec:
+def _compile_profile_launch(
+    model, config: Mapping[str, Any], stable_id: str, engine: str
+) -> Optional[LaunchSpec]:
+    """Profile-driven launch for definition-backed engines (launch campaign R1).
+
+    Called from two places: the GGUF branch (before the legacy GGUF
+    implementation, so an engine whose profile declares a launch family — or
+    any YAML-only engine that declares gguf artifacts — is profile-launched)
+    and the tail of the dispatch chain. Native GGUF engines stay on the legacy
+    compiler until their definition declares a family; definition-less ids
+    return None so the historical "No runtime adapter registered" error keeps
+    its bytes.
+    """
+    from backend.proxy import profile_launch
+
+    return profile_launch.compile_profile_launch(model, config, stable_id, engine)
+
+
+def _compile_audio(model, config, stable_id: str, engine: str = "") -> LaunchSpec:
     from backend import data_store
-    from backend.engines.llama_cpp.resolve import get_active_binary_path_for_engine
-    from backend.engines.llama_cpp.server_exec import resolve_llama_server_invocation_paths
-    from backend.proxy.commands import (
-        _active_engine_param_index,
-        _emit_structured_tokens,
-        _resolve_cuda_library_path,
-        _resolve_draft_companion,
-        _resolve_llama_model_source,
-        _resolve_mmproj_path,
-    )
 
-    store = data_store.get_store()
-    active = store.get_active_engine_version(engine) or {}
-    binary = get_active_binary_path_for_engine(store, engine)
-    if not binary:
-        raise LaunchCompileError(
-            f"No active {engine} llama-server binary configured",
-            field="executable",
-        )
-    if not os.path.isabs(binary):
-        binary = os.path.join("/app", binary)
-    if not os.path.isfile(binary):
-        raise LaunchCompileError(
-            f"llama-server binary not found at: {binary}",
-            field="executable",
-        )
-    executable, cwd = resolve_llama_server_invocation_paths(binary)
-    model_path, hf_repo, hf_id = _resolve_llama_model_source(model)
-    if not model_path and not hf_repo:
-        raise LaunchCompileError(
-            "Model path could not be resolved from HF metadata or runtime overlay",
-            field="model",
-        )
-    argv: List[ArgvItem] = []
-    identities: Dict[str, Dict[str, Any]] = {}
-    if hf_repo:
-        argv.extend(["--hf-repo", hf_repo])
-    else:
-        argv.extend(["--model", model_path])
-        identities["model"] = _file_identity(model_path)
-    argv.extend(["--port", dict(PORT_PLACEHOLDER), "--alias", stable_id])
-    mmproj = _resolve_mmproj_path(model, hf_id, hf_repo)
-    if mmproj:
-        argv.extend(["--mmproj", mmproj])
-        identities["mmproj"] = _file_identity(mmproj)
-    draft, draft_spec = _resolve_draft_companion(model, hf_id, hf_repo)
-    structured = _emit_structured_tokens(
-        dict(config),
-        engine=engine,
-        param_index=_active_engine_param_index(engine),
-    )
-    _reject_owned_flags(structured)
-    if draft:
-        argv.extend(["--model-draft", draft])
-        identities["draft"] = _file_identity(draft)
-        if "--spec-type" not in structured:
-            argv.extend(["--spec-type", draft_spec or "draft-mtp"])
-    argv.extend(structured)
-    library = _resolve_cuda_library_path(cwd)
-    required_ld = [part for part in str(library).split(":") if part]
-    env = _compile_env(
-        config,
-        engine=engine,
-        required_ld=required_ld,
-        required_path=[],
-        engine_defaults={},
-        active=active,
-    )
-    identities["executable"] = _file_identity(executable)
-    return LaunchSpec(
-        model_id=stable_id,
-        engine_id=engine,
-        engine_install_id=_install_identity(active, executable),
-        executable=executable,
-        argv=argv,
-        cwd=cwd,
-        env=env,
-        file_identities=identities,
-    )
+    engine = str(engine or config.get("engine") or "").strip()
+    runtime_module = __import__(f"backend.engines.{engine}.runtime", fromlist=["runtime"])
+    build_runtime = getattr(runtime_module, f"build_{engine}_runtime")
 
-
-def _compile_lmdeploy(model, config, stable_id: str) -> LaunchSpec:
-    from backend.proxy.commands import (
-        _active_engine_param_index,
-        _emit_structured_tokens,
-        _model_attr,
-        _resolve_lmdeploy_bin,
-    )
-
-    binary = _resolve_lmdeploy_bin()
-    if not binary:
-        raise LaunchCompileError("LMDeploy binary unavailable", field="executable")
-    hf_id = _model_attr(model, "huggingface_id")
-    if not hf_id:
-        raise LaunchCompileError("LMDeploy model must have huggingface_id", field="model")
-    structured = _emit_structured_tokens(
-        dict(config),
-        engine="lmdeploy",
-        param_index=_active_engine_param_index("lmdeploy"),
-    )
-    _reject_owned_flags(structured)
-    argv: List[ArgvItem] = [
-        "serve",
-        "api_server",
-        str(hf_id),
-        "--server-port",
-        dict(PORT_PLACEHOLDER),
-        *structured,
-    ]
-    active = _active_row("lmdeploy")
-    env = _compile_env(
-        config,
-        engine="lmdeploy",
-        required_ld=[],
-        required_path=[os.path.dirname(binary)],
-        engine_defaults={},
-        active=active,
-    )
-    return LaunchSpec(
-        model_id=stable_id,
-        engine_id="lmdeploy",
-        engine_install_id=_install_identity(active, binary),
-        executable=binary,
-        argv=argv,
-        cwd=None,
-        env=env,
-        file_identities={"executable": _file_identity(binary)},
-    )
-
-
-def _compile_module(
-    model,
-    config,
-    stable_id: str,
-    *,
-    engine: str,
-    module: str,
-    model_flag: str,
-    port_flag: str,
-    resolve_bin,
-) -> LaunchSpec:
-    from backend.proxy.commands import (
-        _ALLOWED_NONCANONICAL_KEYS,
-        _active_engine_entry,
-        _active_engine_param_index,
-        _emit_structured_tokens,
-        _model_attr,
-        _resolve_sglang_cuda_env,
-    )
-
-    python_bin = resolve_bin()
-    if not python_bin:
-        raise LaunchCompileError(
-            f"{engine} environment unavailable",
-            field="executable",
-        )
-    hf_id = _model_attr(model, "huggingface_id")
-    if not hf_id:
-        raise LaunchCompileError(
-            f"{engine} model must have huggingface_id",
-            field="model",
-        )
-    param_index = _active_engine_param_index(engine)
-    structured_config = dict(config)
-    runtime = "llm"
-    if engine in {"sglang", "sglang_v100"}:
-        from backend.engines.params import param_index_from_entry
-
-        runtime = str(config.get("sglang_runtime") or "llm")
-        try:
-            entry = _active_engine_entry(engine) or {}
-        except Exception:
-            entry = {}
-        diffusion_profile = (entry.get("runtime_profiles") or {}).get("diffusion") or {}
-        diffusion_param_index = param_index_from_entry(diffusion_profile)
-        inactive_param_keys = set(diffusion_param_index)
-        if runtime == "diffusion":
-            if diffusion_profile.get("scan_error") or not diffusion_profile.get("sections"):
-                reason = (
-                    diffusion_profile.get("scan_error")
-                    or "diffusion parameters have not been scanned"
-                )
-                raise LaunchCompileError(
-                    f"SGLang diffusion is unavailable: {reason}. "
-                    "Rescan engine parameters after installing the fork's diffusion dependencies.",
-                    field="sglang_runtime",
-                )
-            inactive_param_keys = set(param_index)
-            param_index = diffusion_param_index
-        # One stored section preserves settings for both runtimes. Compile only
-        # keys belonging to the selected runtime; the inactive values are used
-        # again if the user switches back.
-        structured_config = {
-            key: value
-            for key, value in config.items()
-            if key not in inactive_param_keys
-            or key in param_index
-            or key in _ALLOWED_NONCANONICAL_KEYS
-        }
-    structured = _emit_structured_tokens(
-        structured_config,
-        engine=engine,
-        param_index=param_index,
-    )
-    _reject_owned_flags(structured)
-    if engine in {"sglang", "sglang_v100"}:
-        from backend.engines.sglang.runtime import sglang_server_argv
-
-        runtime_argv = sglang_server_argv(python_bin, runtime)[1:]
-    else:
-        runtime_argv = ["-m", module]
-    argv: List[ArgvItem] = [
-        *runtime_argv,
-        model_flag,
-        str(hf_id),
-        port_flag,
-        dict(PORT_PLACEHOLDER),
-        *structured,
-    ]
-    defaults = dict(_resolve_sglang_cuda_env(engine))
-    if engine == "sglang_v100":
-        if not defaults.get("CUDA_HOME"):
-            raise LaunchCompileError(
-                "SGLang V100 requires Studio-managed CUDA 12.8",
-                field="CUDA_HOME",
-            )
-        defaults.setdefault("FLASHINFER_DISABLE_VERSION_CHECK", "1")
-        defaults.setdefault("TORCH_CUDA_ARCH_LIST", "7.0")
-        defaults.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
-    venv_dir = os.path.dirname(os.path.dirname(python_bin))
-    cwd = venv_dir if venv_dir and os.path.isdir(venv_dir) else None
-    active = _active_row(engine)
-    env = _compile_env(
-        config,
-        engine=engine,
-        required_ld=_split_paths(defaults.get("LD_LIBRARY_PATH")),
-        required_path=_split_paths(defaults.get("PATH")) + [os.path.dirname(python_bin)],
-        engine_defaults={
-            key: value
-            for key, value in defaults.items()
-            if key not in _COMPOSITIONAL_KEYS
-        },
-        active=active,
-    )
-    return LaunchSpec(
-        model_id=stable_id,
-        engine_id=engine,
-        engine_install_id=_install_identity(active, python_bin),
-        executable=python_bin,
-        argv=argv,
-        cwd=cwd,
-        env=env,
-        file_identities={"executable": _file_identity(python_bin)},
-    )
-
-
-def _compile_audio(model, config, stable_id: str) -> LaunchSpec:
-    from backend import data_store
-    from backend.engines.audio_cpp.runtime import build_audio_cpp_runtime
-
-    runtime = build_audio_cpp_runtime(
+    runtime = build_runtime(
         data_store.get_store(),
         dict(model),
         dict(config),
@@ -617,16 +395,17 @@ def _compile_audio(model, config, stable_id: str) -> LaunchSpec:
         raise LaunchCompileError("audio.cpp command requires server arguments")
     executable = str(raw_argv[0])
     argv: List[ArgvItem] = []
+    macros = runtime.get("macros") or {}
     for token in raw_argv[1:]:
         text = str(token)
         if text == "${PORT}":
             argv.append(dict(PORT_PLACEHOLDER))
-        elif text in {"${studio_audio_config}", runtime.get("macros", {}).get("studio_audio_config")}:
+        elif text.startswith("${") and text.endswith("}") and text[2:-1] in macros:
             argv.append({"artifact": "server.json"})
         else:
             argv.append(text)
     sidecar = runtime.get("sidecar") or {}
-    active = _active_row("audio_cpp")
+    active = _active_row(engine)
     env_lines = list(runtime.get("env") or [])
     engine_defaults = {}
     for line in env_lines:
@@ -638,7 +417,7 @@ def _compile_audio(model, config, stable_id: str) -> LaunchSpec:
         engine_defaults[key] = value
     env = _compile_env(
         config,
-        engine="audio_cpp",
+        engine=engine,
         required_ld=_ld_from_lines(env_lines),
         required_path=[],
         engine_defaults=engine_defaults,
@@ -647,7 +426,7 @@ def _compile_audio(model, config, stable_id: str) -> LaunchSpec:
     cwd = str(runtime.get("cmd_cwd") or "").strip() or None
     return LaunchSpec(
         model_id=stable_id,
-        engine_id="audio_cpp",
+        engine_id=engine,
         engine_install_id=_install_identity(active, executable),
         executable=executable,
         argv=argv,
@@ -656,17 +435,6 @@ def _compile_audio(model, config, stable_id: str) -> LaunchSpec:
         artifacts={"server.json": sidecar},
         file_identities={"executable": _file_identity(executable)},
     )
-
-
-def _resolve_named_bin(engine: str):
-    def _resolve():
-        from backend.proxy.commands import _resolve_onecat_vllm_bin, _resolve_sglang_bin
-
-        if engine == "1cat_vllm":
-            return _resolve_onecat_vllm_bin()
-        return _resolve_sglang_bin(engine)
-
-    return _resolve
 
 
 def _active_row(engine: str) -> Dict[str, Any]:
@@ -702,12 +470,13 @@ def _file_identity(path: Optional[str]) -> Dict[str, Any]:
     }
 
 
-def _reject_owned_flags(tokens: Sequence[Any]) -> None:
+def _reject_owned_flags(tokens: Sequence[Any], *, owned: Optional[set] = None) -> None:
+    owned_flags = _OWNED_PORT_FLAGS if owned is None else owned
     for token in tokens:
         if not isinstance(token, str):
             continue
         flag = token.split("=", 1)[0]
-        if flag in _OWNED_PORT_FLAGS:
+        if flag in owned_flags:
             raise LaunchCompileError(
                 f"{flag} is Studio-owned and cannot be repeated in custom arguments",
                 field=flag,
@@ -839,7 +608,7 @@ def _compile_env(
                     "Cannot unset PATH while the engine requires executable paths",
                     field=key,
                 )
-        for required in _GPU_ONLY_INVARIANTS.get(engine, ()):
+        for required in _gpu_only_invariants(engine):
             if key == required:
                 raise LaunchCompileError(
                     f"{engine} requires {key}",
@@ -872,10 +641,7 @@ def _validate_cuda_toolkit(path: str, *, field: str) -> None:
             f"{field} does not describe an installed CUDA toolkit: {path}",
             field=field,
         )
-    if not (
-        os.path.isdir(os.path.join(path, "bin"))
-        or os.path.isdir(os.path.join(path, "lib64"))
-    ):
+    if not (os.path.isdir(os.path.join(path, "bin")) or os.path.isdir(os.path.join(path, "lib64"))):
         raise LaunchCompileError(
             f"{field} is not a CUDA toolkit prefix: {path}",
             field=field,
@@ -900,7 +666,7 @@ def _apply_gpu_contract(
         )
     if mode == "cpu":
         backend = str(config.get("backend") or active.get("build_config", {}).get("backend") or "")
-        if engine in _CPU_REJECTED_ENGINES:
+        if not _cpu_supported(engine):
             raise LaunchCompileError(
                 f"{engine} does not support CPU mode",
                 field="gpu_mode",

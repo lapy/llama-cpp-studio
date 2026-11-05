@@ -49,9 +49,7 @@ OPERATION_COMPLETION_EVIDENCE = {
 
 class ResourceBusyError(RuntimeError):
     def __init__(self, resource_key: str, owner: str):
-        super().__init__(
-            f"{resource_key} is already in use by operation {owner}"
-        )
+        super().__init__(f"{resource_key} is already in use by operation {owner}")
         self.resource_key = resource_key
         self.owner = owner
 
@@ -114,11 +112,17 @@ class OperationSupervisor:
         )
         return record
 
-    def _claim_keys(self, operation_id: str, resource_key: Optional[str], detail: Optional[dict]) -> list:
-        from backend.operations.action_recovery import keys_overlap, resource_names
+    def _claim_keys(
+        self, operation_id: str, resource_key: Optional[str], detail: Optional[dict]
+    ) -> list:
+        from backend.operations.action_recovery import (
+            reservation_keys,
+            reservation_resource,
+            reservations_overlap,
+        )
 
         depends = (detail or {}).get("depends_on")
-        keys = resource_names(resource_key or "", depends)
+        keys = reservation_keys(resource_key or "", depends, operation_id)
         claimed = []
         with self._lock:
             for key in keys:
@@ -126,7 +130,7 @@ class OperationSupervisor:
                     (
                         owner
                         for held, owner in self._resources.items()
-                        if keys_overlap(key, held) and owner != operation_id
+                        if reservations_overlap(key, held) and owner != operation_id
                     ),
                     None,
                 )
@@ -134,7 +138,7 @@ class OperationSupervisor:
                     for claimed_key in claimed:
                         if self._resources.get(claimed_key) == operation_id:
                             self._resources.pop(claimed_key, None)
-                    raise ResourceBusyError(key, owner)
+                    raise ResourceBusyError(reservation_resource(key), owner)
                 if key not in self._resources:
                     self._resources[key] = operation_id
                     claimed.append(key)
@@ -279,9 +283,7 @@ class OperationSupervisor:
             return
         current = dict(current)
         current["status"] = "cancelling"
-        current["message"] = (
-            "Cancellation was requested. Termination has not been verified."
-        )
+        current["message"] = "Cancellation was requested. Termination has not been verified."
         current["updated_at"] = time.time()
         self._persist(current)
 
@@ -294,9 +296,7 @@ class OperationSupervisor:
         if status not in TERMINAL_STATES:
             status = "failed"
         with self._lock:
-            release = [
-                key for key, owner in self._resources.items() if owner == operation_id
-            ]
+            release = [key for key, owner in self._resources.items() if owner == operation_id]
             for key in release:
                 self._resources.pop(key, None)
         current = self._get(operation_id) or {
@@ -342,9 +342,7 @@ class OperationSupervisor:
         if not operation_id or not resource_key:
             return False
         with self._lock:
-            owned = [
-                key for key, owner in self._resources.items() if owner == operation_id
-            ]
+            owned = [key for key, owner in self._resources.items() if owner == operation_id]
             record = self._records.get(operation_id)
         if not owned:
             return False
@@ -453,9 +451,7 @@ class OperationSupervisor:
             await asyncio.gather(*tasks, return_exceptions=True)
         while True:
             with self._lock:
-                cleanups = [
-                    task for task in self._cleanup_tasks if not task.done()
-                ]
+                cleanups = [task for task in self._cleanup_tasks if not task.done()]
             if not cleanups:
                 break
             await asyncio.gather(*cleanups, return_exceptions=True)
@@ -521,10 +517,7 @@ class OperationSupervisor:
                 "unknown": 0,
                 "kept_terminal": 0,
                 "replayed": 0,
-                "detail": (
-                    "Operation records could not be read. "
-                    "Refresh before trying again."
-                ),
+                "detail": ("Operation records could not be read. Refresh before trying again."),
             }
             with self._lock:
                 self._resources.clear()
@@ -587,10 +580,7 @@ class OperationSupervisor:
                 interrupted = 0
                 unknown = 0
                 outcome = "unknown"
-                detail = (
-                    "Reconciliation could not be stored. "
-                    "Refresh before trying again."
-                )
+                detail = "Reconciliation could not be stored. Refresh before trying again."
         with self._lock:
             self._resources.clear()
             self._records = {
@@ -599,16 +589,17 @@ class OperationSupervisor:
                 if str(row.get("operation_id") or "")
             }
             if outcome == "reconciled":
-                from backend.operations.action_recovery import resource_names
+                from backend.operations.action_recovery import reservation_keys
 
                 for row in durable:
                     if str(row.get("status") or "") not in ACTIVE_STATES:
                         continue
                     operation_id = str(row.get("operation_id") or "")
                     detail = row.get("detail") if isinstance(row.get("detail"), dict) else {}
-                    for key in resource_names(
+                    for key in reservation_keys(
                         str(row.get("resource_key") or ""),
                         detail.get("depends_on"),
+                        operation_id,
                     ):
                         self._resources.setdefault(key, operation_id)
         if outcome == "reconciled":
@@ -694,9 +685,7 @@ class OperationSupervisor:
                 if had_record:
                     previous = dict(self._records[operation_id])
                 self._records[operation_id] = stored
-                self._pending_writes[operation_id] = (
-                    self._pending_writes.get(operation_id, 0) + 1
-                )
+                self._pending_writes[operation_id] = self._pending_writes.get(operation_id, 0) + 1
 
         def write() -> None:
             try:
@@ -741,9 +730,7 @@ class OperationSupervisor:
                 if had_record:
                     previous = dict(self._records[operation_id])
                 self._records[operation_id] = stored
-                self._pending_writes[operation_id] = (
-                    self._pending_writes.get(operation_id, 0) + 1
-                )
+                self._pending_writes[operation_id] = self._pending_writes.get(operation_id, 0) + 1
             if companion_id:
                 companion_had = companion_id in self._records
                 if companion_had:
@@ -790,7 +777,14 @@ class OperationSupervisor:
                             self._records[operation_id] = previous
                             resource_key = str(previous.get("resource_key") or "")
                             if resource_key and previous.get("status") not in TERMINAL_STATES:
-                                self._resources.setdefault(resource_key, operation_id)
+                                from backend.operations.action_recovery import reservation_keys
+
+                                for key in reservation_keys(
+                                    resource_key,
+                                    (previous.get("detail") or {}).get("depends_on"),
+                                    operation_id,
+                                ):
+                                    self._resources.setdefault(key, operation_id)
                         else:
                             self._records.pop(operation_id, None)
                             for key, owner in list(self._resources.items()):

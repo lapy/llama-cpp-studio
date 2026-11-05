@@ -6,47 +6,30 @@ from typing import Any, Dict
 
 from backend.audio.transcription_defaults import normalize_transcription_defaults
 from backend.audio.voice_presets import normalize_speech_defaults
+from backend.engines.audio_cpp.request_vocab import request_defaults_vocab
 
 
 def normalize_task_defaults(value: Any) -> Dict[str, Any]:
     if not isinstance(value, dict):
         return {}
+    vocab = request_defaults_vocab("task")
+    bool_keys = set(vocab.get("bool_keys") or ())
+    int_keys = set(vocab.get("int_keys") or ())
+    float_keys = set(vocab.get("float_keys") or ())
     out: Dict[str, Any] = {}
     for key, raw in value.items():
         if key == "options":
             continue
         if raw is None or raw == "":
             continue
-        if key == "stream":
+        if key in bool_keys:
             out[key] = bool(raw)
-        elif key in {"seed", "max_tokens", "top_k", "num_inference_steps", "text_chunk_size"}:
+        elif key in int_keys:
             try:
                 out[key] = int(raw)
             except (TypeError, ValueError):
                 continue
-        elif key in {
-            "temperature",
-            "top_p",
-            "guidance_scale",
-            "repetition_penalty",
-            "duration_seconds",
-            "repaint_start",
-            "repaint_end",
-            "init_noise_level",
-            "codec_duration",
-            "codec_guidance_scale",
-            "length_adjust",
-            "intelligibility_cfg_rate",
-            "similarity_cfg_rate",
-            "inference_cfg_rate",
-            "target_duration_seconds",
-            "audio_chunk_seconds",
-            "vad_chunk_max_seconds",
-            "vad_chunk_merge_gap_seconds",
-            "vad_chunk_padding_seconds",
-            "threshold",
-            "neg_threshold",
-        }:
+        elif key in float_keys:
             try:
                 out[key] = float(raw)
             except (TypeError, ValueError):

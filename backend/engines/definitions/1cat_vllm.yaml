@@ -1,0 +1,488 @@
+# AUTHORITATIVE engine definition (hand-authored; NOT exported).
+#
+# 1Cat-vLLM converted to definition-owned configuration: identity, release/
+# source/sync/remove recipes, lifecycle, launch profile, catalogue policy and
+# discovery are declared here. The remaining Python class supplies the wheel /
+# release / Rust mechanisms through recipe handlers (priority-2 boundary work);
+# it must not own data that lives in this file.
+schema_version: 2
+id: 1cat_vllm
+extends:
+- text_generation_tasks
+- python_venv_safetensors
+label: 1Cat-vLLM
+repository_source: 1Cat-vLLM
+runtime_kind: onecat_vllm
+scanner_kind: vllm_help
+input_modalities:
+- image
+- text
+output_modalities:
+- embedding
+- text
+recipes:
+  source:
+  - id: create_venv
+    uses: venv.create
+    requires:
+    - input.engine_root
+    produces:
+    - venv
+  - id: compose_env
+    uses: env.compose
+    requires:
+    - input.engine_root
+    produces:
+    - build_env
+  - id: prepare_dist
+    uses: fs.ensure_dir
+    requires:
+    - input.dist_dir
+    with:
+      path_from: input.dist_dir
+  - id: checkout
+    uses: vcs.workspace_checkout
+    requires:
+    - input.repo_url
+    - input.branch
+    - input.reuse_mode
+    produces:
+    - checkout
+  - id: layer_ccache
+    uses: env.compose_ccache
+    requires:
+    - build_env
+    - checkout
+    with:
+      env_from: build_env
+      path_from: checkout
+  - id: ensure_rust
+    uses: toolchain.ensure
+    requires:
+    - build_env
+    with:
+      kind: rust
+      installer_url: https://sh.rustup.rs
+      progress_window:
+      - 4
+      - 16
+  - id: bootstrap_pip
+    uses: pip.install_package
+    requires:
+    - checkout
+    - build_env
+    with:
+      packages:
+      - pip
+      - setuptools
+      - wheel
+      check_exit: false
+      stage: install_source
+      cwd_from: checkout
+      env_from: build_env
+  - id: install_requirements
+    uses: pip.install_requirements
+    requires:
+    - checkout
+    - build_env
+    with:
+      requirement_files:
+      - requirements/build/cuda.txt
+      - requirements/build.txt
+      - requirements/cuda.txt
+      - requirements/common.txt
+      extra_index_url: https://download.pytorch.org/whl/cu128
+      stage: install_source
+      cwd_from: checkout
+      env_from: build_env
+      error: pip install -r {rel} failed ({code})
+  - id: install_build_packages
+    uses: pip.install_package
+    requires:
+    - checkout
+    - build_env
+    with:
+      packages:
+      - cmake
+      - ninja
+      - build
+      - setuptools-rust
+      - patchelf
+      upgrade: false
+      stage: install_source
+      cwd_from: checkout
+      env_from: build_env
+      error: pip install cmake ninja build setuptools-rust patchelf failed ({code})
+  - id: build_wheels
+    uses: artifact.build_wheels
+    requires:
+    - checkout
+    - build_env
+    - input.dist_dir
+    with:
+      empty_error: Source build produced no wheels
+      sub_builds:
+      - path: flash-attention-v100
+        progress_window:
+        - 16
+        - 36
+        error: flash-attention-v100 wheel build failed ({code})
+      main_progress_window:
+      - 36
+      - 92
+      main_error: vllm wheel build failed ({code})
+      rust_hint: true
+    produces:
+    - wheels
+  - id: install_wheels
+    uses: pip.install_package
+    requires:
+    - checkout
+    - build_env
+    - wheels
+    with:
+      package_from: wheels
+      upgrade: false
+      extra_args:
+      - --prefer-binary
+      - --no-cache-dir
+      - --extra-index-url
+      - https://download.pytorch.org/whl/cu128
+      stage: install_source
+      cwd_from: checkout
+      env_from: build_env
+      error: pip install of built wheels failed ({code})
+  - id: seal_checkout
+    uses: vcs.seal_checkout
+    requires:
+    - checkout
+    with:
+      destination: source
+      workspace_from: workspace
+  - id: capture_commit
+    uses: vcs.capture_commit
+    requires:
+    - checkout
+    produces:
+    - source_commit
+    with:
+      path_from: checkout
+  - id: finalize
+    uses: publish.finalize
+    requires:
+    - checkout
+    - source_commit
+  sync:
+  - id: create_venv
+    uses: venv.create
+    requires:
+    - input.engine_root
+    produces:
+    - venv
+  - id: compose_env
+    uses: env.compose
+    requires:
+    - input.engine_root
+    produces:
+    - build_env
+  - id: layer_ccache
+    uses: env.compose_ccache
+    requires:
+    - build_env
+    - input.clone_dir
+    with:
+      env_from: build_env
+      path_from: input.clone_dir
+  - id: prepare_dist
+    uses: fs.ensure_dir
+    requires:
+    - input.dist_dir
+    with:
+      path_from: input.dist_dir
+  - id: sync_checkout
+    uses: vcs.sync
+    requires:
+    - input.branch
+    produces:
+    - checkout
+  - id: ensure_rust
+    uses: toolchain.ensure
+    requires:
+    - build_env
+    with:
+      kind: rust
+      installer_url: https://sh.rustup.rs
+      progress_window:
+      - 4
+      - 16
+  - id: bootstrap_pip
+    uses: pip.install_package
+    requires:
+    - checkout
+    - build_env
+    with:
+      packages:
+      - pip
+      - setuptools
+      - wheel
+      check_exit: false
+      stage: sync_source
+      cwd_from: checkout
+      env_from: build_env
+  - id: install_requirements
+    uses: pip.install_requirements
+    requires:
+    - checkout
+    - build_env
+    with:
+      requirement_files:
+      - requirements/build/cuda.txt
+      - requirements/build.txt
+      - requirements/cuda.txt
+      - requirements/common.txt
+      extra_index_url: https://download.pytorch.org/whl/cu128
+      stage: sync_source
+      cwd_from: checkout
+      env_from: build_env
+      error: pip install -r {rel} failed ({code})
+  - id: install_build_packages
+    uses: pip.install_package
+    requires:
+    - checkout
+    - build_env
+    with:
+      packages:
+      - cmake
+      - ninja
+      - build
+      - setuptools-rust
+      - patchelf
+      upgrade: false
+      stage: sync_source
+      cwd_from: checkout
+      env_from: build_env
+      error: pip install cmake ninja build setuptools-rust patchelf failed ({code})
+  - id: prune_dist
+    uses: fs.prune_files
+    requires:
+    - input.dist_dir
+    with:
+      path_from: input.dist_dir
+      suffix: .whl
+  - id: build_wheels
+    uses: artifact.build_wheels
+    requires:
+    - checkout
+    - build_env
+    - input.dist_dir
+    with:
+      empty_error: Source sync produced no wheels
+    produces:
+    - wheels
+  - id: install_wheels
+    uses: pip.install_package
+    requires:
+    - checkout
+    - build_env
+    - wheels
+    with:
+      package_from: wheels
+      upgrade: false
+      extra_args:
+      - --prefer-binary
+      - --no-cache-dir
+      - --extra-index-url
+      - https://download.pytorch.org/whl/cu128
+      stage: sync_source
+      cwd_from: checkout
+      env_from: build_env
+      error: pip install of built wheels failed ({code})
+  - id: record_update
+    uses: publish.record_update
+  release:
+  - id: resolve_release
+    uses: prereqs.resolve_release_assets
+    requires:
+    - input.requested_version
+    produces:
+    - release_tag
+    - wheel_urls
+    with:
+      repository: 1CatAI/1Cat-vLLM
+      wheel_groups:
+      - prefixes:
+        - 1cat_vllm
+        - 1cat-vllm
+        required_prefixes:
+        - 1cat_vllm
+        - 1cat-vllm
+      - prefixes:
+        - flash_attn_v100
+        - vllm
+        required_prefixes:
+        - vllm
+      error: 1Cat-vLLM release does not contain a 1cat_vllm or vllm wheel asset
+  - id: create_venv
+    uses: venv.create
+    requires:
+    - input.engine_root
+    produces:
+    - venv
+  - id: bootstrap_pip
+    uses: pip.install_package
+    requires:
+    - venv
+    with:
+      packages:
+      - pip
+      - setuptools
+      - wheel
+      stage: install
+      append: false
+      check_exit: false
+  - id: install_wheels
+    uses: pip.install_package
+    requires:
+    - venv
+    - wheel_urls
+    - input.force_reinstall
+    with:
+      package_from: wheel_urls
+      upgrade: false
+      extra_args:
+      - --prefer-binary
+      - --no-cache-dir
+      - --extra-index-url
+      - https://download.pytorch.org/whl/cu128
+      stage: install
+      error: pip exited with status {code}
+  - id: finalize
+    uses: publish.finalize
+    requires:
+    - venv
+    - release_tag
+  remove:
+  - id: uninstall_packages
+    uses: pip.uninstall
+    requires:
+    - input.venv_path
+    with:
+      packages:
+      - 1cat-vllm
+      - 1cat_vllm
+      - vllm
+      - flash_attn_v100
+      stage: remove
+      append: false
+      error: pip exited with status {code}
+  - id: remove_venv
+    uses: fs.remove_tree
+    requires:
+    - input.venv_path
+    - input.retire_references
+    with:
+      path_from: input.venv_path
+      retire_references_from: input.retire_references
+  - id: forget
+    uses: publish.forget
+    requires:
+    - input.version_name
+  remove_version:
+  - id: remove_install_dir
+    uses: fs.remove_tree
+    requires:
+    - input.delete_target
+    - input.retire_references
+    with:
+      path_from: input.delete_target
+      retire_references_from: input.retire_references
+  - id: forget_row
+    uses: publish.forget
+    requires:
+    - input.registered
+    - input.version_name
+lifecycle:
+  binary_name: python
+  distribution_names:
+  - 1cat-vllm
+  - 1cat_vllm
+  - vllm
+  root_name: 1cat-vllm
+  log_name: onecat_vllm_install.log
+  default_repo_url: https://github.com/1CatAI/1Cat-vLLM.git
+  default_branch: main
+  version_setting_key: release_version
+  update_source:
+    kind: github_releases
+    repo: 1CatAI/1Cat-vLLM
+  status_fallback:
+    installed_at: null
+    removed_at: null
+    log_path: null
+    release_tag: null
+  # Source builds create wheels and need Rust + the SM70 CUDA environment.
+  build_env: cuda
+  cuda_home_fallback: /usr/local/cuda-12.8
+  build_env_vars:
+    TORCH_CUDA_ARCH_LIST: '7.0'
+    MAX_JOBS: '12'
+    NVCC_THREADS: '1'
+  build_rust: true
+  source_dist_dir: dist
+  # Legacy task/manager token parsed by the routes and the UI.
+  manager_name: onecat_vllm
+  release_install_type: release
+  record_runtime_metadata: false
+discovery:
+  parser: vllm_help
+  cwd: venv_root
+  probe_variants:
+  - executable:
+      kind: venv_console_script
+      name: vllm
+    argv_prefix:
+    - serve
+    - --help=all
+  - executable:
+      kind: venv_python
+      name: python
+    argv_prefix:
+    - -m
+    - vllm
+    - serve
+    - --help=all
+runtime_profiles:
+  default:
+    default: true
+    description: 1Cat-vLLM OpenAI-compatible api_server (python -m)
+    executable:
+      kind: venv_python
+      name: python
+    argv_prefix:
+    - -m
+    - vllm.entrypoints.openai.api_server
+    model_binding:
+      mode: flag
+      flag: --model
+      source: huggingface_id
+    port_binding:
+      flag: --port
+    env:
+      cwd: venv_root
+launch_policy:
+  cpu_supported: false
+  gpu_archs:
+  - sm70
+  runtime_context_key: max_model_len
+  capcompat: true
+catalog:
+  providers:
+  - huggingface
+upstream:
+  repository_url: https://github.com/1CatAI/1Cat-vLLM.git
+settings_defaults:
+  source_repo: https://github.com/1CatAI/1Cat-vLLM.git
+  source_branch: main
+  release_version: ''
+data_dirs:
+- 1cat-vllm

@@ -125,11 +125,7 @@ class _BundleProgressAdapter:
     async def send_download_progress(self, **payload):
         current = int(payload.get("bytes_downloaded") or 0)
         aggregate = self.base_bytes + current
-        progress = (
-            min(84, int(5 + (aggregate / self.total_bytes) * 79))
-            if self.total_bytes
-            else 10
-        )
+        progress = min(84, int(5 + (aggregate / self.total_bytes) * 79)) if self.total_bytes else 10
         message = payload.get("message") or "Downloading audio package"
         self.pm.update_task(
             self.task_id,
@@ -160,19 +156,21 @@ class _BundleProgressAdapter:
 
 
 class AudioModelInstaller:
-    def __init__(self, store=None):
+    def __init__(self, store=None, engine_id: str | None = None, manager=None):
+        from backend.engines.audio_cpp.identity import default_audio_engine_id
+
         self.store = store or get_store()
-        self.manager = get_audio_cpp_manager()
+        self.engine_id = str(engine_id or default_audio_engine_id())
+        # Domain manager is composed in; the default is the audio.cpp host.
+        self.manager = manager or get_audio_cpp_manager()
         self.pm = get_progress_manager()
         self._active_processes: Dict[str, asyncio.subprocess.Process] = {}
         self._helper_lock = asyncio.Lock()
 
     def _active_version(self) -> dict:
         if not audio_cpp_enabled():
-            raise RuntimeError(
-                "The audio.cpp integration is disabled by AUDIO_CPP_ENABLED"
-            )
-        active = self.store.get_active_engine_version("audio_cpp")
+            raise RuntimeError("The audio.cpp integration is disabled by AUDIO_CPP_ENABLED")
+        active = self.store.get_active_engine_version(self.engine_id)
         if not active:
             raise RuntimeError("Install and activate audio.cpp first")
         cli_path = str(active.get("cli_binary_path") or "")
@@ -182,24 +180,21 @@ class AudioModelInstaller:
 
         manager_path = resolve_model_manager_path(version_row=active)
         # Keep row usable for callers that still read model_manager_path.
-        if manager_path and (not active.get("model_manager_path") or not os.path.isfile(
-            str(active.get("model_manager_path") or "")
-        )):
+        if manager_path and (
+            not active.get("model_manager_path")
+            or not os.path.isfile(str(active.get("model_manager_path") or ""))
+        ):
             active = {**active, "model_manager_path": manager_path}
         return active
 
     def _packages(self, active: dict) -> List[dict]:
-        provider = AudioCppCatalogProvider(self.store)
+        provider = AudioCppCatalogProvider(self.store, self.engine_id)
         return provider._manager_packages(active)
 
     def package_metadata(self, package_id: str, active: Optional[dict] = None) -> dict:
         active = active or self._active_version()
         package = next(
-            (
-                item
-                for item in self._packages(active)
-                if str(item.get("id")) == str(package_id)
-            ),
+            (item for item in self._packages(active) if str(item.get("id")) == str(package_id)),
             None,
         )
         if not package:
@@ -343,9 +338,7 @@ class AudioModelInstaller:
             existing = str(active.get("helper_venv_path") or "")
             python_name = "python.exe" if os.name == "nt" else "python"
             python_subdir = "Scripts" if os.name == "nt" else "bin"
-            if existing and os.path.isfile(
-                os.path.join(existing, python_subdir, python_name)
-            ):
+            if existing and os.path.isfile(os.path.join(existing, python_subdir, python_name)):
                 return existing
 
             venv_path = os.path.join(self.manager.tools_dir, "model-manager-venv")
@@ -353,7 +346,7 @@ class AudioModelInstaller:
             ready_marker = os.path.join(venv_path, ".studio-ready")
             if os.path.isfile(python_path) and os.path.isfile(ready_marker):
                 self.store.update_engine_version(
-                    "audio_cpp",
+                    self.engine_id,
                     str(active.get("version")),
                     {
                         "helper_venv_path": venv_path,
@@ -407,7 +400,7 @@ class AudioModelInstaller:
             )
             Path(ready_marker).write_text(_utcnow() + "\n", encoding="utf-8")
             self.store.update_engine_version(
-                "audio_cpp",
+                self.engine_id,
                 str(active.get("version")),
                 {
                     "helper_venv_path": venv_path,
@@ -472,9 +465,7 @@ class AudioModelInstaller:
             for filename in filenames:
                 source = os.path.join(directory, filename)
                 if os.path.islink(source):
-                    raise ValueError(
-                        f"Local bundle contains an unsupported file symlink: {source}"
-                    )
+                    raise ValueError(f"Local bundle contains an unsupported file symlink: {source}")
                 size = os.path.getsize(source)
                 relative = os.path.relpath(source, source_root)
                 files.append((source, os.path.join(destination_root, relative), size))
@@ -486,9 +477,7 @@ class AudioModelInstaller:
                 if is_task_cancel_requested(task_id):
                     raise TaskCancelledError("Audio model import cancelled")
                 os.makedirs(os.path.dirname(destination), exist_ok=True)
-                with open(source, "rb") as input_handle, open(
-                    destination, "xb"
-                ) as output_handle:
+                with open(source, "rb") as input_handle, open(destination, "xb") as output_handle:
                     while True:
                         if is_task_cancel_requested(task_id):
                             raise TaskCancelledError("Audio model import cancelled")
@@ -498,9 +487,7 @@ class AudioModelInstaller:
                         output_handle.write(chunk)
                         copied += len(chunk)
                         progress = (
-                            min(82, int(10 + (copied / total_bytes) * 72))
-                            if total_bytes
-                            else 82
+                            min(82, int(10 + (copied / total_bytes) * 72)) if total_bytes else 82
                         )
                         self.pm.update_task(
                             task_id,
@@ -589,8 +576,7 @@ class AudioModelInstaller:
                 cache_path,
                 os.path.join(
                     package_root,
-                    self._relative_package_path(filename, package)
-                    or os.path.basename(filename),
+                    self._relative_package_path(filename, package) or os.path.basename(filename),
                 ),
             )
             downloaded += actual_size
@@ -619,17 +605,13 @@ class AudioModelInstaller:
         if not repo_id or not os.path.isdir(package_root):
             return
         revision = str(source.get("revision") or "main")
-        strip_prefix = str(
-            source.get("strip_prefix") or package.get("strip_prefix") or ""
-        )
+        strip_prefix = str(source.get("strip_prefix") or package.get("strip_prefix") or "")
         declared = list(package.get("files") or package.get("required_files") or [])
         prefixes = list(source.get("include_prefixes") or [])
         for extra in gguf_snapshot_sidecar_prefixes(declared):
             if extra not in prefixes:
                 prefixes.append(extra)
-        target_directory = str(package.get("target_directory") or "").replace(
-            "\\", "/"
-        ).strip("/")
+        target_directory = str(package.get("target_directory") or "").replace("\\", "/").strip("/")
         remote_dir = str(strip_prefix or target_directory).replace("\\", "/").strip("/")
         if remote_dir and remote_dir != ".":
             for extra in (
@@ -733,13 +715,9 @@ class AudioModelInstaller:
             manager_path = resolve_model_manager_v2_path(version_row=active)
         manager_path = str(manager_path or "")
         if not manager_path or not os.path.isfile(manager_path):
-            raise RuntimeError(
-                "No usable audio.cpp model_manager_v2.py found for this package"
-            )
+            raise RuntimeError("No usable audio.cpp model_manager_v2.py found for this package")
         if manager_script_kind(manager_path) != "v2":
-            raise RuntimeError(
-                "Audio package installs require tools/model_manager_v2.py"
-            )
+            raise RuntimeError("Audio package installs require tools/model_manager_v2.py")
 
         from backend.model_catalog.audio_cpp_provider import _manager_python
 
@@ -856,9 +834,7 @@ class AudioModelInstaller:
                 "\n".join(text_lines),
             )
         if not inspection.get("family") or not inspection.get("task_names"):
-            raise RuntimeError(
-                "audio.cpp inspection did not identify a valid family and task"
-            )
+            raise RuntimeError("audio.cpp inspection did not identify a valid family and task")
         return inspection
 
     @staticmethod
@@ -894,9 +870,7 @@ class AudioModelInstaller:
         """
         source = package.get("source") if isinstance(package.get("source"), dict) else {}
         strip_prefix = str(source.get("strip_prefix") or package.get("strip_prefix") or "")
-        target_directory = str(package.get("target_directory") or "").replace(
-            "\\", "/"
-        ).strip("/")
+        target_directory = str(package.get("target_directory") or "").replace("\\", "/").strip("/")
         relative = cls._strip_package_prefix(remote_path, strip_prefix)
         if target_directory:
             relative = cls._strip_package_prefix(relative, target_directory)
@@ -983,8 +957,7 @@ class AudioModelInstaller:
         top_level = [
             os.path.realpath(os.path.join(root, name))
             for name in sorted(os.listdir(root))
-            if name.lower().endswith(".gguf")
-            and os.path.isfile(os.path.join(root, name))
+            if name.lower().endswith(".gguf") and os.path.isfile(os.path.join(root, name))
         ]
         if len(top_level) == 1:
             return top_level[0]
@@ -1006,17 +979,11 @@ class AudioModelInstaller:
                 "or point audiocpp at one file explicitly."
             )
 
-        expects_gguf = (
-            str(package.get("format") or "").lower() == "gguf"
-            or any(
-                str(item or "").lower().endswith(".gguf")
-                for item in (package.get("files") or [])
-            )
+        expects_gguf = str(package.get("format") or "").lower() == "gguf" or any(
+            str(item or "").lower().endswith(".gguf") for item in (package.get("files") or [])
         )
         if expects_gguf and len(discovered) > 1:
-            preview = ", ".join(
-                os.path.relpath(path, root) for path in discovered[:6]
-            )
+            preview = ", ".join(os.path.relpath(path, root) for path in discovered[:6])
             raise RuntimeError(
                 f"Ambiguous GGUF package under {root}: found {len(discovered)} "
                 f".gguf files ({preview}). audio.cpp only auto-detects a single "
@@ -1123,8 +1090,7 @@ class AudioModelInstaller:
             "family": inspection.get("family"),
             "tasks": inspection.get("tasks") or [],
             "modes": {
-                row.get("task"): row.get("modes") or []
-                for row in inspection.get("tasks") or []
+                row.get("task"): row.get("modes") or [] for row in inspection.get("tasks") or []
             },
             "inspection": inspection,
         }
@@ -1135,9 +1101,7 @@ class AudioModelInstaller:
             "inspection": inspection,
         }
         manifest["capability_fingerprint"] = hashlib.sha256(
-            json.dumps(
-                fingerprint_payload, sort_keys=True, separators=(",", ":")
-            ).encode("utf-8")
+            json.dumps(fingerprint_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
         if not builtin:
             with open(
@@ -1159,20 +1123,21 @@ class AudioModelInstaller:
             [],
         )
         family = inspection.get("family")
-        voices = [] if builtin else attach_packaged_voices(
-            inspection,
-            model_path,
-            family,
-            source_path=str(active.get("source_path") or "") or None,
+        voices = (
+            []
+            if builtin
+            else attach_packaged_voices(
+                inspection,
+                model_path,
+                family,
+                source_path=str(active.get("source_path") or "") or None,
+            )
         )
         audio_engine = {
             "family": family,
             "task": primary_task,
             "mode": "offline" if "offline" in modes else (modes[0] if modes else None),
-            "backend": (
-                (active.get("build_config") or {}).get("backend")
-                or "cpu"
-            ),
+            "backend": ((active.get("build_config") or {}).get("backend") or "cpu"),
             "load_options": {},
             "session_options": {},
         }
@@ -1187,18 +1152,20 @@ class AudioModelInstaller:
             )
         config = normalize_model_config(
             {
-                "engine": "audio_cpp",
-                "engines": {"audio_cpp": audio_engine},
+                "engine": self.engine_id,
+                "engines": {self.engine_id: audio_engine},
             }
         )
-        artifact = build_builtin_artifact_descriptor(model_path) if builtin else build_artifact_descriptor(
-            bundle_path=final_bundle,
-            runtime_path=model_path,
-            size=total_size,
+        artifact = (
+            build_builtin_artifact_descriptor(model_path)
+            if builtin
+            else build_artifact_descriptor(
+                bundle_path=final_bundle,
+                runtime_path=model_path,
+                size=total_size,
+            )
         )
-        preferred_endpoint = str(
-            inspection.get("preferred_api_endpoint") or ""
-        ).strip() or None
+        preferred_endpoint = str(inspection.get("preferred_api_endpoint") or "").strip() or None
         return {
             "id": model_id,
             "name": package.get("display_name") or package_id,
@@ -1206,7 +1173,7 @@ class AudioModelInstaller:
             "base_model_name": package.get("display_name") or package_id,
             "proxy_name": generate_proxy_name(f"audio-cpp/{package_id}"),
             "source": {
-                "provider": "audio_cpp",
+                "provider": self.engine_id,
                 "id": package_id,
                 "package": package.get("source") or {},
                 "engine_commit": active.get("source_commit"),
@@ -1223,7 +1190,7 @@ class AudioModelInstaller:
             "output_modalities": outputs,
             "capabilities": inspection.get("capabilities") or {},
             "preferred_api_endpoint": preferred_endpoint,
-            "compatible_engines": ["audio_cpp"],
+            "compatible_engines": [self.engine_id],
             "manifest": manifest,
             "file_size": total_size,
             "downloaded_at": _utcnow(),
@@ -1287,9 +1254,7 @@ class AudioModelInstaller:
                         active,
                         options,
                     )
-                    await self._download_gguf_sidecars(
-                        task_id, package, staged_model_path
-                    )
+                    await self._download_gguf_sidecars(task_id, package, staged_model_path)
                 else:
                     staged_model_path = await self._download_direct(
                         task_id, package, staging_root, active
@@ -1303,9 +1268,7 @@ class AudioModelInstaller:
                     task_id, package, staging_root, active, options
                 )
             self._check_required_files(package, staged_model_path)
-            runtime_model_path = self._resolve_installed_model_path(
-                package, staged_model_path
-            )
+            runtime_model_path = self._resolve_installed_model_path(package, staged_model_path)
             try:
                 inspection = await self._inspect(
                     task_id,
@@ -1383,8 +1346,12 @@ class AudioModelInstaller:
             raise FileExistsError(f"Model record '{record_id}' already exists")
         register_task_cancel(task_id)
         try:
-            self.pm.update_task(task_id, progress=5, message=f"Inspecting {model_id}",
-                                metadata_update={"stage": "inspect", "install_method": "builtin"})
+            self.pm.update_task(
+                task_id,
+                progress=5,
+                message=f"Inspecting {model_id}",
+                metadata_update={"stage": "inspect", "install_method": "builtin"},
+            )
             inspection = await self._inspect(task_id, active, model_id, BUILTIN_AUDIO_FAMILY)
             if inspection.get("family") != BUILTIN_AUDIO_FAMILY:
                 raise ValueError("The active audio.cpp engine did not identify a builtin utility")
@@ -1393,7 +1360,11 @@ class AudioModelInstaller:
             record = self._model_record(package, "", model_id, inspection, "builtin", active)
             # Scan before publication so a failed inspection leaves no partial record.
             profile = await asyncio.to_thread(
-                scan_audio_cpp_model_profile, self.store, active, record, force=True,
+                scan_audio_cpp_model_profile,
+                self.store,
+                active,
+                record,
+                force=True,
             )
             if profile.get("scan_error"):
                 raise RuntimeError(f"Model capability inspection failed: {profile['scan_error']}")
@@ -1433,9 +1404,7 @@ class AudioModelInstaller:
         os.makedirs(staging_parent, exist_ok=True)
         staging_root = os.path.join(staging_parent, f"import-{uuid.uuid4().hex}")
         if os.path.commonpath([source_real, staging_root]) == source_real:
-            raise ValueError(
-                "source_path cannot contain the managed audio.cpp staging directory"
-            )
+            raise ValueError("source_path cannot contain the managed audio.cpp staging directory")
         register_task_cancel(task_id)
         stored_model = False
         try:
@@ -1464,9 +1433,7 @@ class AudioModelInstaller:
                 )
                 else "mixed",
             }
-            runtime_model_path = self._resolve_installed_model_path(
-                package, staging_root
-            )
+            runtime_model_path = self._resolve_installed_model_path(package, staging_root)
             inspection = await self._inspect(
                 task_id,
                 active,

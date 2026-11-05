@@ -184,7 +184,7 @@ def test_scan_engine_version_keeps_row_path_for_non_active_version(
 def test_scan_engine_version_fills_sglang_venv_from_store(monkeypatch):
     captured = {}
 
-    def spy(row, engine):
+    def spy(engine, row):
         captured.update(row)
         captured["engine"] = engine
         return {
@@ -194,7 +194,7 @@ def test_scan_engine_version_fills_sglang_venv_from_store(monkeypatch):
             "sections": [],
         }
 
-    monkeypatch.setattr(scanner_mod, "scan_sglang_version", spy)
+    monkeypatch.setattr(scanner_mod, "scan_definition_engine_version", spy)
     monkeypatch.setattr(scanner_mod, "upsert_version_entry", lambda *a, **k: None)
     monkeypatch.setattr(scanner_mod, "_clear_llama_flags_cache", lambda: None)
 

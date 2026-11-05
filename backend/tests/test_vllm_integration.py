@@ -1,14 +1,11 @@
 """Contracts for first-class vanilla vLLM support."""
 
-from pathlib import Path
-
-import pytest
+import stat
 
 import backend.proxy.commands as runtime_commands
 from backend.engines.registry import ENGINE_REGISTRY
 from backend.models.schema import compatible_engines_for_record
 from backend.venv_install_settings import default_install_settings
-from backend.engines.vllm import VllmManager
 
 
 def test_vllm_registry_and_defaults():
@@ -21,39 +18,39 @@ def test_vllm_registry_and_defaults():
     assert settings["source_branch"] == "main"
 
 
-@pytest.mark.asyncio
-async def test_vllm_source_install_targets_checkout_root(tmp_path, monkeypatch):
-    manager = VllmManager(
-        base_dir=str(tmp_path / "vllm"), log_path=str(tmp_path / "vllm.log")
-    )
-    manager._prepare_versioned_paths("source")
-    checkout = Path(manager._base_dir) / "source"
-    checkout.mkdir(parents=True)
-    calls = []
-
-    async def fake_pip(args, operation, **kwargs):
-        calls.append((args, operation, kwargs))
-        return 0
-
-    monkeypatch.setattr(manager, "_run_pip", fake_pip)
-    env = {"CUDA_HOME": "/studio/cuda/current"}
-    await manager._install_source_checkout(str(checkout), env)
-
-    assert calls[1][0] == ["install", "-v", "-e", str(checkout)]
-    assert calls[1][2]["cwd"] == str(checkout)
-    assert calls[1][2]["env"] == env
+# NOTE: the former `test_vllm_source_install_targets_checkout_root` drove the
+# legacy _install_source_checkout helper directly. That helper was removed in
+# the Phase 3 cutover (its argv/cwd/env contract — editable install of the
+# checkout root inside the CUDA+ccache env — is now executed by the shared
+# pip.install_package primitive and pinned end-to-end by
+# test_vllm_legacy_plan_shadow.py).
 
 
-def test_vllm_preview_uses_openai_server(monkeypatch):
-    monkeypatch.setattr(
-        runtime_commands, "_resolve_sglang_bin", lambda engine: "/opt/vllm/bin/python"
-    )
+def test_vllm_preview_uses_openai_server(monkeypatch, tmp_path):
+    # Phase 6: the preview compiles through the exported profile, so the
+    # active install row + Studio-managed CUDA env drive resolution (the
+    # legacy resolver symbols are no longer consulted).
+    install = tmp_path / "vllm"
+    bin_dir = install / "bin"
+    bin_dir.mkdir(parents=True)
+    python_bin = bin_dir / "python"
+    python_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    python_bin.chmod(python_bin.stat().st_mode | stat.S_IXUSR)
+
+    import backend.cuda_installer as cuda_installer
+    import backend.data_store as data_store
+
+    class _Store:
+        def get_active_engine_version(self, engine_id):
+            return {"version": "v1", "venv_path": str(install)}
+
+    class _Cuda:
+        def get_cuda_env(self, version):
+            return {"CUDA_HOME": "/studio/cuda/current"}
+
+    monkeypatch.setattr(data_store, "get_store", lambda: _Store())
+    monkeypatch.setattr(cuda_installer, "get_cuda_installer", lambda: _Cuda())
     monkeypatch.setattr(runtime_commands, "_active_engine_param_index", lambda engine: {})
-    monkeypatch.setattr(
-        runtime_commands,
-        "_resolve_sglang_cuda_env",
-        lambda engine: {"CUDA_HOME": "/studio/cuda/current"},
-    )
     preview = runtime_commands.preview_model_command(
         {
             "id": "model",

@@ -23,19 +23,22 @@ export function engineMatchesFilters(descriptor, { task = 'all', hardware = 'all
   if (!descriptor || (task === 'all' && hardware === 'all')) return true
   const tasks = new Set(descriptor.tasks || [])
   const formats = new Set(descriptor.artifact_formats || [])
+  // R77: category membership follows the descriptor's declared tasks/formats
+  // and its cpu_supported field — no engine-id special cases.
+  const isAudioEngine = [...tasks].some((item) => AUDIO_TASKS.has(item))
   if (task === 'audio') {
-    if (descriptor.id !== 'audio_cpp' && ![...tasks].some((item) => AUDIO_TASKS.has(item))) return false
+    if (!isAudioEngine) return false
   } else if (task === 'embeddings') {
     if (!descriptor.supports_embeddings && !tasks.has('embeddings')) return false
   } else if (task === 'text') {
-    if (descriptor.id === 'audio_cpp') return false
     if (tasks.size && !tasks.has('text-generation') && !tasks.has('text2text-generation')) return false
   }
   if (hardware === 'cpu') {
-    if (!formats.has('gguf') && descriptor.id !== 'audio_cpp') return false
+    if (!formats.has('gguf') && !descriptor.cpu_supported) return false
   }
+  // R78: GPU-architecture membership is a declared capability, not an id list.
   if (hardware === 'sm70') {
-    if (descriptor.id !== 'sglang_v100' && descriptor.id !== '1cat_vllm') return false
+    if (!(descriptor.gpu_archs || []).includes('sm70')) return false
   }
   return true
 }

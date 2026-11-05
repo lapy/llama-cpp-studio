@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from backend.engines.audio_cpp.identity import default_audio_engine_id
+
 import hashlib
 import os
 import re
@@ -45,6 +47,18 @@ def _sidecar_root() -> str:
     return audio_sidecar_root()
 
 
+def launch_macro() -> Dict[str, str]:
+    """Launch-manifest macro that carries the sidecar config (engine data)."""
+    from backend.engines.registry import get_engine_spec
+
+    spec = get_engine_spec(default_audio_engine_id())
+    protocol = dict(spec.protocol) if spec is not None else {}
+    launch = dict(protocol.get("launch") or {})
+    if not launch:
+        raise RuntimeError("audio.cpp launch macro contract is unavailable")
+    return launch
+
+
 def _safe_sidecar_name(stable_id: str) -> str:
     slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", stable_id).strip("-._")[:72]
     digest = hashlib.sha256(stable_id.encode("utf-8")).hexdigest()[:12]
@@ -76,9 +90,7 @@ def _custom_args(raw: Any) -> List[str]:
         raise ValueError(f"Invalid custom_args shell syntax: {exc}") from exc
     for token in tokens:
         if token.split("=", 1)[0] in _STUDIO_FLAGS:
-            raise ValueError(
-                f"{token.split('=', 1)[0]} is Studio-owned for audio.cpp"
-            )
+            raise ValueError(f"{token.split('=', 1)[0]} is Studio-owned for audio.cpp")
     return tokens
 
 
@@ -103,17 +115,20 @@ def _flag_tokens(key: str, value: Any, row: dict) -> List[str]:
 
 
 def _server_flag_tokens(store: Any, active: dict, config: dict) -> List[str]:
-    entry = get_version_entry(store, "audio_cpp", str(active.get("version") or ""))
+    entry = get_version_entry(store, default_audio_engine_id(), str(active.get("version") or ""))
     # CLI help also advertises keys such as log/backend. Filter before indexing
     # so a CLI-only row cannot hide the server's supported flag of the same name.
     server_entry = {
         **(entry or {}),
         "sections": [
-            {**section, "params": [
-                row for row in section.get("params") or []
-                if row.get("transport") == "server_flag"
-                and row.get("scope") == "process"
-            ]}
+            {
+                **section,
+                "params": [
+                    row
+                    for row in section.get("params") or []
+                    if row.get("transport") == "server_flag" and row.get("scope") == "process"
+                ],
+            }
             for section in (entry or {}).get("sections") or []
         ],
     }
@@ -156,9 +171,7 @@ def _runtime_env(active: dict, config: dict) -> List[str]:
     }
     server_binary = str(active.get("server_binary_path") or "")
     source_path = str(active.get("source_path") or "")
-    build_backend = str(
-        (active.get("build_config") or {}).get("backend") or "cpu"
-    ).lower()
+    build_backend = str((active.get("build_config") or {}).get("backend") or "cpu").lower()
     include_cuda = build_backend == "cuda"
     env = build_runtime_process_env(
         user_env,
@@ -177,10 +190,8 @@ def build_audio_cpp_runtime(
     """Return command, environment, and generated sidecar content without writing."""
 
     if not audio_cpp_enabled():
-        raise ValueError(
-            "The audio.cpp integration is disabled by AUDIO_CPP_ENABLED"
-        )
-    active = store.get_active_engine_version("audio_cpp")
+        raise ValueError("The audio.cpp integration is disabled by AUDIO_CPP_ENABLED")
+    active = store.get_active_engine_version(default_audio_engine_id())
     if not active or not active.get("server_binary_path"):
         raise ValueError("No active audio.cpp server binary configured")
     server_binary = os.path.abspath(str(active["server_binary_path"]))
@@ -215,9 +226,15 @@ def build_audio_cpp_runtime(
         if recorded and os.path.isdir(recorded):
             source_root = os.path.abspath(recorded)
     spec_override = str(config.get("model_spec_override") or "").strip()
+    family = str(config["family"])
     if not spec_override:
         discovered = _audio_cpp_model_spec_override(active, cli_or_server)
-        if discovered and os.path.isdir(discovered):
+        # Source-checkout model_specs/ does not contain every bundled family
+        # (silero_vad is embedded). Only inject the override when this family
+        # actually has a spec file, otherwise the server fails to start.
+        if discovered and os.path.isdir(discovered) and os.path.isfile(
+            os.path.join(discovered, f"{family}.json")
+        ):
             spec_override = discovered
     model_row: Dict[str, Any] = {
         "id": stable_id,
@@ -235,8 +252,11 @@ def build_audio_cpp_runtime(
         model_row["model_spec_override"] = spec_override
     if "model_lazy" in config:
         model_row["lazy"] = bool(config["model_lazy"])
-    bundle_root = "" if builtin else resolve_audio_bundle_root(model) or (
-        model_path if os.path.isdir(model_path) else os.path.dirname(model_path)
+    bundle_root = (
+        ""
+        if builtin
+        else resolve_audio_bundle_root(model)
+        or (model_path if os.path.isdir(model_path) else os.path.dirname(model_path))
     )
     reference_root = reference_audio_storage_root(
         bundle_root,
@@ -315,10 +335,12 @@ def build_audio_cpp_runtime(
     voice_dir = installed_voice_dir()
     if voice_dir:
         sidecar["voice_dir"] = voice_dir
+    launch = launch_macro()
+    macro = launch["config_macro"]
     argv = [
         server_binary,
-        "--config",
-        "${studio_audio_config}",
+        launch["config_flag"],
+        f"${{{macro}}}",
         "--host",
         "127.0.0.1",
         "--port",
@@ -331,7 +353,7 @@ def build_audio_cpp_runtime(
         "cmd_argv": argv,
         "cmd_cwd": source_root,
         "env": _runtime_env(active, config),
-        "macros": {"studio_audio_config": sidecar_path},
+        "macros": {macro: sidecar_path},
         "sidecar_path": sidecar_path,
         "sidecar": sidecar,
         "use_model_name": stable_id,

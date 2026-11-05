@@ -23,7 +23,7 @@ from backend.engines.unsloth_llama.prebuilt import (
     resolve_release_plan,
     select_linux_x64_artifact,
 )
-from backend.repo_identity import CANONICAL_REPOSITORY_URLS
+from backend.repo_identity import canonical_repository_url
 
 _MIX_TAG = "b11160-mix-a6922cc"
 
@@ -116,7 +116,7 @@ def test_unsloth_registry_and_identity():
     assert spec.artifact_formats == frozenset({"gguf"})
     assert spec.active_path_fields == ("binary_path",)
     assert "unsloth_llama" in inferred_engines_for_artifact_format("gguf")
-    assert CANONICAL_REPOSITORY_URLS["unsloth_llama"] == (
+    assert canonical_repository_url("unsloth_llama") == (
         "https://github.com/unslothai/llama.cpp.git"
     )
 

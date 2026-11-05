@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -152,6 +153,71 @@ def test_publish_rejects_symlink_escape_and_leaves_no_install(origin, tmp_path):
         assert not dest.exists()
         hidden = tmp_path / "versions" / ".source-2.incomplete"
         assert not hidden.exists()
+    finally:
+        ws.release()
+
+
+def test_publish_excludes_build_dependencies_but_validates_runtime_files(
+    origin, tmp_path, monkeypatch
+):
+    import backend.engines.build_workspace as workspace_module
+
+    ws = BuildWorkspace.open("llama_cpp", str(origin), root=str(tmp_path / "ws"))
+    ws.acquire()
+    try:
+        ws.sync_git(str(origin), "main")
+        checkout = Path(ws.checkout_dir)
+        binary = checkout / "build/bin/llama-server"
+        binary.parent.mkdir(parents=True)
+        binary.write_text("runtime server")
+        library = binary.parent / "libggml.so"
+        library.write_text("runtime library")
+        addon = (
+            checkout
+            / "build/tools/ui/ui-src/node_modules/@oxc-parser/binding-linux-x64-musl/parser.node"
+        )
+        addon.parent.mkdir(parents=True)
+        addon.write_text("optional musl build-tool addon")
+        ui_asset = checkout / "build/bin/ui/index.html"
+        ui_asset.parent.mkdir(parents=True)
+        ui_asset.write_text("built web UI")
+
+        inspected = set()
+
+        def inspect(path, *_args):
+            if path.endswith(".node"):
+                raise WorkspaceIsolationError("invalid ELF header: optional musl build tool")
+            inspected.add(os.path.basename(path))
+
+        monkeypatch.setattr(
+            workspace_module,
+            "_is_linked_elf",
+            lambda path: path.endswith(("llama-server", ".so", ".node")),
+        )
+        monkeypatch.setattr(workspace_module, "repair_workspace_rpath", lambda *_args: None)
+        monkeypatch.setattr(workspace_module, "_ensure_origin_rpath", lambda *_args: None)
+        monkeypatch.setattr(workspace_module, "assert_dynamic_libs_resolve", inspect)
+        dest = tmp_path / "versions/source"
+        with pytest.raises(WorkspaceIsolationError, match="musl"):
+            ws.publish_tree(str(checkout), str(dest), ["build/bin/llama-server"])
+        assert not dest.exists()
+
+        ws.publish_tree(
+            str(checkout), str(dest), ["build/bin/llama-server"], exclude_dirs=("node_modules",)
+        )
+        assert addon.exists()  # incremental workspace is untouched
+        assert not (dest / "build/tools/ui/ui-src/node_modules").exists()
+        assert (dest / "build/bin/ui/index.html").read_text() == "built web UI"
+        assert {"llama-server", "libggml.so"} <= inspected
+
+        def bad_runtime(*_args):
+            raise WorkspaceIsolationError("runtime library resolves inside workspace")
+
+        monkeypatch.setattr(workspace_module, "assert_dynamic_libs_resolve", bad_runtime)
+        other = tmp_path / "versions/broken"
+        with pytest.raises(WorkspaceIsolationError, match="runtime library"):
+            ws.publish_tree(str(checkout), str(other), exclude_dirs=("node_modules",))
+        assert not other.exists()
     finally:
         ws.release()
 

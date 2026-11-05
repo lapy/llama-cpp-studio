@@ -2,16 +2,18 @@
 
 from backend.engines.sglang.installer import (
     SGLANG_ENGINE_IDS,
-    SGLANG_REPOSITORIES,
     SglangInstaller,
     SglangManager,
     get_sglang_manager,
+    get_sglang_upstream_manager,
+    get_sglang_v100_manager,
 )
 
 __all__ = [
     "SGLANG_ENGINE_IDS",
-    "SGLANG_REPOSITORIES",
     "SglangInstaller",
     "SglangManager",
     "get_sglang_manager",
+    "get_sglang_upstream_manager",
+    "get_sglang_v100_manager",
 ]

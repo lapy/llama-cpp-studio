@@ -1,0 +1,144 @@
+# Reference definition (schema_version 2) — the BEST case: a plain
+# python_venv engine with one runtime profile. See reference/README.md.
+# Shadow-mode only: not read at runtime; equivalence with the Python
+# registry and launch_spec is enforced by test_engine_definitions_v2.py.
+schema_version: 2
+id: lmdeploy
+label: LMDeploy
+repository_source: LMDeploy
+install_kind: python_venv
+runtime_kind: lmdeploy
+scanner_kind: lmdeploy_help
+active_path_fields:
+  - venv_path
+artifact_formats:
+  - safetensors
+package_kinds:
+  - hf_snapshot
+tasks:
+  - embeddings
+  - reranking
+  - text-generation
+  - text2text-generation
+input_modalities:
+  - image
+  - text
+output_modalities:
+  - embedding
+  - text
+
+# Model acquisition strategies (Phase 4 model-binding unification).
+model_sources:
+  - hf_repo
+
+# Parameter discovery: parser kind plus the probe invocation it runs.
+discovery:
+  parser: lmdeploy_help
+  cwd: venv_root
+  probe_argv_prefix:
+    - serve
+    - api_server
+    - --help
+
+# Persisted install/build defaults (source of truth today:
+# backend/venv_install_settings.py:LMDEPLOY_DEFAULTS).
+settings_defaults:
+  source_repo: https://github.com/InternLM/lmdeploy.git
+  source_branch: main
+  pip_version: ""
+
+runtime_profiles:
+  # launch_spec._compile_lmdeploy: `lmdeploy serve api_server <hf_id>
+  # --server-port <PORT>`; binary resolved from the active venv's bin dir,
+  # which is prepended to PATH (required_path=[dirname(binary)]).
+  default:
+    default: true
+    description: lmdeploy serve api_server (OpenAI-compatible)
+    executable:
+      kind: venv_console_script
+      name: lmdeploy
+    argv_prefix:
+      - serve
+      - api_server
+    model_binding:
+      mode: positional
+      source: huggingface_id
+    port_binding:
+      flag: --server-port
+    env:
+      prepend_bin_to_path: true
+
+recipes:
+  # Step granularity mirrors backend/engines/python + lmdeploy/installer.py;
+  # exact argv pinning is Phase 3's executor golden test.
+  release:
+    - id: resolve_version
+      uses: prereqs.resolve_version
+      with:
+        channel: pypi
+        package: lmdeploy
+      produces:
+        - version
+    - id: create_venv
+      uses: venv.create
+      requires:
+        - input.engine_root
+      produces:
+        - venv
+    - id: install_package
+      uses: pip.install_package
+      requires:
+        - venv
+        - version
+      with:
+        package: lmdeploy
+        version_from: version
+    - id: capture_metadata
+      uses: pip.capture_metadata
+      requires:
+        - venv
+      produces:
+        - metadata
+    - id: publish
+      uses: publish.install
+      requires:
+        - venv
+        - metadata
+  source:
+    - id: clone_repository
+      uses: vcs.clone
+      with:
+        repository_from: settings.source_repo
+      produces:
+        - checkout
+    - id: checkout_branch
+      uses: vcs.checkout
+      requires:
+        - checkout
+      with:
+        ref_from: settings.source_branch
+    - id: create_venv
+      uses: venv.create
+      requires:
+        - input.engine_root
+      produces:
+        - venv
+    - id: install_editable
+      uses: pip.install_package
+      requires:
+        - checkout
+        - venv
+      with:
+        package: .
+        editable: true
+    - id: capture_metadata
+      uses: pip.capture_metadata
+      requires:
+        - venv
+      produces:
+        - metadata
+    - id: publish
+      uses: publish.install
+      requires:
+        - venv
+        - metadata

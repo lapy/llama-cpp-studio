@@ -11,7 +11,12 @@ import os
 import re
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-from backend.engines.registry import ENGINE_REGISTRY, get_engine_spec
+from backend.engines.registry import (
+    ENGINE_REGISTRY,
+    engine_ids_with_install_kind,
+    get_engine_spec,
+    native_source_engine_ids,
+)
 from backend.logging_config import get_logger
 from backend.repo_identity import github_owner_repo
 
@@ -53,9 +58,20 @@ ENGINE_REPO_LABELS = {
     "audio_cpp": "audio.cpp",
 }
 
-_NATIVE_SHARED_ROOT_ENGINES = ("llama_cpp", "ik_llama")
-_PYTHON_VENV_ENGINES = ("lmdeploy", "1cat_vllm", "sglang", "sglang_v100", "vllm")
+# R106: the shared-root family is DECLARED (cmake source builds).
+_NATIVE_SHARED_ROOT_ENGINES = native_source_engine_ids()
 _SKIP_DIR_NAMES = frozenset({".git", "__pycache__"})
+
+
+def python_venv_engine_ids() -> tuple:
+    """Engines whose spec declares ``install_kind: python_venv`` (R74).
+
+    The venv retry rule and orphan-discovery loop follow the declaration instead
+    of a hardcoded family tuple, so a YAML venv engine gets both behaviors.
+    """
+    from backend.engines.registry import engine_ids_with_install_kind
+
+    return engine_ids_with_install_kind("python_venv")
 
 
 def upsert_engine_version(store, engine: str, version_data: dict) -> dict:
@@ -101,9 +117,7 @@ def mark_engine_version_failed(
 ) -> dict:
     payload = dict(extra or {})
     payload["version"] = version
-    payload["build_status"] = (
-        BUILD_STATUS_CANCELLED if cancelled else BUILD_STATUS_FAILED
-    )
+    payload["build_status"] = BUILD_STATUS_CANCELLED if cancelled else BUILD_STATUS_FAILED
     payload["build_error"] = str(error or "").strip() or (
         "Build cancelled by user" if cancelled else "Build failed"
     )
@@ -132,9 +146,7 @@ def normalize_engine_version_status(
             return BUILD_STATUS_BROKEN
         return BUILD_STATUS_BUILDING
     if explicit in KNOWN_BUILD_STATUSES:
-        if explicit == BUILD_STATUS_READY and not engine_row_has_required_paths(
-            engine, row
-        ):
+        if explicit == BUILD_STATUS_READY and not engine_row_has_required_paths(engine, row):
             return BUILD_STATUS_BROKEN
         return explicit
     if not engine_row_has_required_paths(engine, row):
@@ -153,13 +165,10 @@ def engine_version_is_retryable(
     resolved = status or normalize_engine_version_status(engine, row)
     if resolved not in RETRYABLE_STATUSES:
         return False
-    if engine in ("llama_cpp", "ik_llama", "audio_cpp"):
+    if engine in engine_ids_with_install_kind("cmake"):
         return bool(
             str(
-                row.get("source_ref")
-                or row.get("source_branch")
-                or row.get("source_commit")
-                or ""
+                row.get("source_ref") or row.get("source_branch") or row.get("source_commit") or ""
             ).strip()
         )
     if engine == "unsloth_llama":
@@ -171,7 +180,7 @@ def engine_version_is_retryable(
             or ""
         ).strip()
         return kind == "release" and bool(tag)
-    if engine in _PYTHON_VENV_ENGINES:
+    if engine in python_venv_engine_ids():
         kind = str(row.get("install_type") or row.get("type") or "").strip().lower()
         if kind in {"source", "fork", "patched", "local"}:
             return bool(
@@ -259,7 +268,7 @@ def read_git_origin(repo_dir: str) -> Optional[str]:
             for raw in handle:
                 line = raw.strip()
                 if line.startswith("[") and line.endswith("]"):
-                    in_origin = line.lower() in {"[remote \"origin\"]", "[remote 'origin']"}
+                    in_origin = line.lower() in {'[remote "origin"]', "[remote 'origin']"}
                     continue
                 if in_origin and line.lower().startswith("url"):
                     _, value = line.split("=", 1)
@@ -399,7 +408,11 @@ def collect_orphan_engine_rows(
         for name in _list_subdirs(llama_root):
             version_dir = os.path.join(llama_root, name)
             real = _realpath(version_dir)
-            if real in claimed or name in registered_names["llama_cpp"] or name in registered_names["ik_llama"]:
+            if (
+                real in claimed
+                or name in registered_names["llama_cpp"]
+                or name in registered_names["ik_llama"]
+            ):
                 continue
             engine = infer_native_engine_from_dir(version_dir)
             meta = infer_checkout_metadata(_native_clone_dir(version_dir, engine))
@@ -420,9 +433,7 @@ def collect_orphan_engine_rows(
             if real in claimed or name in registered_names.get("audio_cpp", set()):
                 continue
             meta = infer_checkout_metadata(_native_clone_dir(version_dir, "audio_cpp"))
-            orphans.append(
-                _synthetic_orphan_row("audio_cpp", name, version_dir, extra=meta)
-            )
+            orphans.append(_synthetic_orphan_row("audio_cpp", name, version_dir, extra=meta))
 
     unsloth_root = roots.get("unsloth_llama") or ""
     if unsloth_root:
@@ -440,7 +451,7 @@ def collect_orphan_engine_rows(
                 )
             )
 
-    for engine in _PYTHON_VENV_ENGINES:
+    for engine in python_venv_engine_ids():
         root = roots.get(engine) or ""
         if not root:
             continue
@@ -520,13 +531,9 @@ def discover_engine_install_roots() -> Dict[str, str]:
 def annotate_version_row(engine: str, row: dict, *, task_running: Optional[bool] = None) -> dict:
     """Copy a store row and attach normalized status + retryable flag."""
     annotated = dict(row or {})
-    status = normalize_engine_version_status(
-        engine, annotated, task_running=task_running
-    )
+    status = normalize_engine_version_status(engine, annotated, task_running=task_running)
     annotated["build_status"] = status
-    annotated["retryable"] = engine_version_is_retryable(
-        engine, annotated, status=status
-    )
+    annotated["retryable"] = engine_version_is_retryable(engine, annotated, status=status)
     if not annotated.get("repository_source"):
         annotated["repository_source"] = ENGINE_REPO_LABELS.get(engine)
     return annotated

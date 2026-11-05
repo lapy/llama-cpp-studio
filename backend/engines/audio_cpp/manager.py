@@ -1,27 +1,22 @@
-"""Source-build and tool lifecycle for the native audio.cpp engine."""
+"""Build configuration, sync-target resolution and tooling for audio.cpp.
+
+The install/release/source/sync FLOWS live on the definition-driven native host
+(``backend/engines/audio_cpp/installer.py``); this module owns the engine's
+build configuration (cmake argv/env, ccache/CUDA wiring), the recorded-layout
+resolution a sync needs, and the singleton manager/git helpers.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import os
-import re
 import shlex
-import time
 from dataclasses import asdict, dataclass
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
-from datetime import datetime
 
 from backend.git_https import git_argv
 from backend.logging_config import get_logger
 from backend.paths import studio_data_dir
-from backend.task_cancel_registry import (
-    TaskCancelledError,
-    is_task_cancel_requested,
-    register_task_cancel,
-    unregister_task_cancel,
-)
-from backend.utils.fs_ops import robust_rmtree
 
 
 logger = get_logger(__name__)
@@ -29,6 +24,16 @@ logger = get_logger(__name__)
 AUDIO_CPP_REPOSITORY = "https://github.com/0xShug0/audio.cpp.git"
 # Bootstrap fallback only when GitHub is unreachable; runtime tracking uses persisted settings.
 AUDIO_CPP_DEFAULT_REF = "main"
+
+# Stage labels for the shared streaming runner's progress messages.
+_STAGE_MESSAGES = {
+    "clone": "Cloning audio.cpp",
+    "checkout": "Checking out audio.cpp",
+    "sync": "Syncing audio.cpp",
+    "configure": "Configuring audio.cpp",
+    "build": "Building audio.cpp",
+    "validate": "Validating audio.cpp",
+}
 
 
 @dataclass
@@ -77,21 +82,13 @@ def _data_root() -> str:
     return studio_data_dir()
 
 
-def _safe_slug(value: str, *, limit: int = 64) -> str:
-    slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", str(value or "").strip())
-    slug = re.sub(r"-{2,}", "-", slug).strip("-._")
-    return (slug or "source")[:limit]
-
-
 def cmake_args_for_host_cuda(args: List[str], sms: Sequence[int]) -> List[str]:
     """Pin nvcc to the host compute capabilities when the build did not.
 
     A blank list leaves the toolchain default. An explicit
     ``-DCMAKE_CUDA_ARCHITECTURES`` already in ``args`` is kept.
     """
-    if not sms or any(
-        str(arg).startswith("-DCMAKE_CUDA_ARCHITECTURES=") for arg in args
-    ):
+    if not sms or any(str(arg).startswith("-DCMAKE_CUDA_ARCHITECTURES=") for arg in args):
         return list(args)
     flag = "-DCMAKE_CUDA_ARCHITECTURES=" + ";".join(str(int(sm)) for sm in sms)
     copied = list(args)
@@ -102,9 +99,7 @@ def cmake_args_for_host_cuda(args: List[str], sms: Sequence[int]) -> List[str]:
     return copied
 
 
-def cmake_args_with_ccache_launchers(
-    args: List[str], launchers: Sequence[str]
-) -> List[str]:
+def cmake_args_with_ccache_launchers(args: List[str], launchers: Sequence[str]) -> List[str]:
     """Insert ccache ``-D`` flags unless that launcher was already requested."""
     extra: List[str] = []
     for flag in launchers:
@@ -121,9 +116,45 @@ def cmake_args_with_ccache_launchers(
     return copied + extra
 
 
-def _valid_repository_url(url: str) -> bool:
-    value = str(url or "").strip()
-    return value.startswith(("https://", "http://", "git@", "ssh://"))
+async def sync_git_checkout(
+    *,
+    source_dir: str,
+    branch: str,
+    run,
+    emit,
+    raise_if_cancelled=None,
+) -> None:
+    """Fetch/reset/submodule an existing checkout (shared by manager and host).
+
+    ``run(argv, stage=, progress=)`` streams one command, ``emit(stage,
+    progress, message)`` reports a stage transition, and ``raise_if_cancelled``
+    is polled between commands. The argv sequence, stage labels and progress
+    points are the legacy ones.
+    """
+    from backend.build_progress import cmake_stage_start
+
+    branch = str(branch or "").strip()
+    if not branch or "\0" in branch:
+        raise ValueError("A source branch is required for sync")
+    if not os.path.isdir(os.path.join(source_dir, ".git")):
+        raise ValueError(f"Existing source checkout not found: {source_dir}")
+
+    await emit("sync", cmake_stage_start("sync"), f"Fetching origin/{branch}")
+    await run(
+        git_argv("fetch", "--prune", "origin", branch),
+        stage="sync",
+        progress=cmake_stage_start("sync"),
+    )
+    if raise_if_cancelled is not None:
+        raise_if_cancelled()
+    await emit("sync", 8, f"Resetting checkout to origin/{branch}")
+    await run(["git", "checkout", "-B", branch, "FETCH_HEAD"], stage="sync", progress=8)
+    await run(["git", "reset", "--hard", "FETCH_HEAD"], stage="sync", progress=10)
+    await run(
+        git_argv("submodule", "update", "--init", "--recursive"),
+        stage="sync",
+        progress=11,
+    )
 
 
 class AudioCppManager:
@@ -132,9 +163,7 @@ class AudioCppManager:
         self.builds_dir = os.path.join(self.root_dir, "builds")
         self.tools_dir = os.path.join(self.root_dir, "tools")
         self.models_dir = os.path.join(_data_root(), "models", "audio-cpp")
-        self.server_configs_dir = os.path.join(
-            _data_root(), "config", "audio-cpp", "servers"
-        )
+        self.server_configs_dir = os.path.join(_data_root(), "config", "audio-cpp", "servers")
         for path in (
             self.root_dir,
             self.builds_dir,
@@ -168,196 +197,6 @@ class AudioCppManager:
                 f"audio.cpp backend '{config.backend}' is not supported; "
                 f"supported backends: {', '.join(cls.supported_build_backends())}"
             )
-
-    async def _emit(
-        self,
-        progress_manager: Any,
-        task_id: Optional[str],
-        stage: str,
-        progress: int,
-        message: str,
-        *,
-        new_lines: Optional[List[str]] = None,
-        all_lines: Optional[List[str]] = None,
-    ) -> None:
-        if not progress_manager or not task_id:
-            return
-        # Keep a trailing window in task metadata for reconnect; stream only
-        # newly produced lines on build_progress so the UI appends without
-        # duplicating the whole buffer.
-        history = list(all_lines or new_lines or [])[-100:]
-        delta = list(new_lines or [])
-        progress_manager.update_task(
-            task_id,
-            progress=float(progress),
-            message=message,
-            metadata_update={"stage": stage, "log_lines": history},
-        )
-        if delta:
-            progress_manager.emit(
-                "build_progress",
-                {
-                    "task_id": task_id,
-                    "stage": stage,
-                    "progress": progress,
-                    "message": message,
-                    "log_lines": delta,
-                    "timestamp": datetime.utcnow().isoformat(),
-                },
-            )
-
-    def _raise_if_cancelled(self, task_id: Optional[str]) -> None:
-        if is_task_cancel_requested(task_id):
-            raise TaskCancelledError("audio.cpp build cancelled")
-
-    async def _terminate_active_process(self) -> None:
-        process = self._active_process
-        if not process or process.returncode is not None:
-            return
-        from backend.operations.cancel import terminate_process_tree
-
-        if process.pid:
-            await asyncio.to_thread(terminate_process_tree, process.pid)
-        if process.returncode is None:
-            try:
-                await asyncio.wait_for(process.wait(), timeout=2)
-            except asyncio.TimeoutError:
-                try:
-                    process.kill()
-                except ProcessLookupError:
-                    pass
-                await process.wait()
-
-    async def _run_streaming(
-        self,
-        argv: List[str],
-        *,
-        cwd: Optional[str],
-        task_id: Optional[str],
-        progress_manager: Any,
-        stage: str,
-        progress: int,
-        env: Optional[dict] = None,
-    ) -> List[str]:
-        from backend.build_progress import BuildProgressTracker, cmake_stage_window
-
-        self._raise_if_cancelled(task_id)
-        logger.info("audio.cpp command: %s", shlex.join(argv))
-        process = await asyncio.create_subprocess_exec(
-            *argv,
-            cwd=cwd,
-            env=env,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            start_new_session=(os.name != "nt"),
-        )
-        self._active_process = process
-        lines: List[str] = []
-        pending: List[str] = []
-        last_emit = time.monotonic()
-        floor, ceil = cmake_stage_window(stage)
-        # Prefer the shared cmake window; allow callers to start mid-stage.
-        floor = min(floor, int(progress))
-        tracker = BuildProgressTracker(
-            floor=floor, ceil=ceil, progress=max(int(progress), floor)
-        )
-        base_message = {
-            "clone": "Cloning audio.cpp",
-            "checkout": "Checking out audio.cpp",
-            "sync": "Syncing audio.cpp",
-            "configure": "Configuring audio.cpp",
-            "build": "Building audio.cpp",
-            "validate": "Validating audio.cpp",
-        }.get(stage, stage)
-        try:
-            assert process.stdout is not None
-
-            async def flush_pending(message: str = "") -> None:
-                nonlocal pending, last_emit
-                if not pending:
-                    return
-                await self._emit(
-                    progress_manager,
-                    task_id,
-                    stage,
-                    tracker.progress,
-                    message or pending[-1],
-                    new_lines=list(pending),
-                    all_lines=lines,
-                )
-                pending = []
-                last_emit = time.monotonic()
-
-            while True:
-                if is_task_cancel_requested(task_id):
-                    await self._terminate_active_process()
-                    raise TaskCancelledError("audio.cpp build cancelled")
-                try:
-                    chunk = await asyncio.wait_for(process.stdout.readline(), timeout=0.25)
-                except asyncio.TimeoutError:
-                    if process.returncode is not None:
-                        break
-                    if pending and (time.monotonic() - last_emit) >= 0.4:
-                        await flush_pending()
-                    continue
-                if not chunk:
-                    break
-                line = chunk.decode("utf-8", errors="replace").rstrip()
-                if line:
-                    lines.append(line)
-                    pending.append(line)
-                    step = tracker.apply_line(line)
-                    if step:
-                        _progress, suffix = step
-                        await flush_pending(f"{base_message} {suffix}")
-                    elif len(pending) >= 12 or (time.monotonic() - last_emit) >= 0.4:
-                        await flush_pending(line)
-            return_code = await process.wait()
-            if return_code != 0:
-                detail = "\n".join(lines[-40:]).strip()
-                raise RuntimeError(
-                    f"{stage} failed with exit code {return_code}"
-                    + (f":\n{detail}" if detail else "")
-                )
-            tracker.complete()
-            await self._emit(
-                progress_manager,
-                task_id,
-                stage,
-                tracker.progress,
-                base_message,
-                new_lines=[],
-                all_lines=lines,
-            )
-            return lines
-        except asyncio.CancelledError:
-            await self._terminate_active_process()
-            raise
-        finally:
-            self._active_process = None
-
-    @staticmethod
-    async def _capture(argv: List[str], *, cwd: Optional[str] = None) -> str:
-        process = await asyncio.create_subprocess_exec(
-            *argv,
-            cwd=cwd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
-        try:
-            stdout, _ = await process.communicate()
-        except asyncio.CancelledError:
-            if process.returncode is None:
-                from backend.operations.cancel import terminate_process_tree
-
-                if process.pid:
-                    await asyncio.to_thread(terminate_process_tree, process.pid)
-                await process.wait()
-            raise
-        text = (stdout or b"").decode("utf-8", errors="replace")
-        if process.returncode != 0:
-            raise RuntimeError(text.strip() or f"{argv[0]} exited {process.returncode}")
-        return text.strip()
 
     def _cmake_args(
         self, source_dir: str, build_dir: str, config: AudioCppBuildConfig
@@ -404,104 +243,10 @@ class AudioCppManager:
         args.extend(origin_cmake_args())
         return prefer_ninja_generator(args)
 
-    @staticmethod
-    def _binary_candidates(build_dir: str, name: str) -> List[str]:
-        executable = f"{name}.exe" if os.name == "nt" else name
-        return [
-            os.path.join(build_dir, "bin", executable),
-            os.path.join(build_dir, executable),
-            os.path.join(build_dir, "Release", executable),
-            os.path.join(build_dir, "bin", "Release", executable),
-        ]
-
-    def _find_binary(self, build_dir: str, name: str) -> str:
-        for candidate in self._binary_candidates(build_dir, name):
-            if os.path.isfile(candidate):
-                return os.path.abspath(candidate)
-        raise RuntimeError(f"Built {name} binary was not found under {build_dir}")
-
-    async def _sync_git_checkout(
-        self,
-        source_dir: str,
-        branch: str,
-        *,
-        task_id: Optional[str],
-        progress_manager: Any,
-    ) -> None:
-        from backend.build_progress import cmake_stage_start
-
-        branch = str(branch or "").strip()
-        if not branch or "\0" in branch:
-            raise ValueError("A source branch is required for sync")
-        if not os.path.isdir(os.path.join(source_dir, ".git")):
-            raise ValueError(f"Existing source checkout not found: {source_dir}")
-
-        await self._emit(
-            progress_manager,
-            task_id,
-            "sync",
-            cmake_stage_start("sync"),
-            f"Fetching origin/{branch}",
-        )
-        await self._run_streaming(
-            git_argv("fetch", "--prune", "origin", branch),
-            cwd=source_dir,
-            task_id=task_id,
-            progress_manager=progress_manager,
-            stage="sync",
-            progress=cmake_stage_start("sync"),
-        )
-        self._raise_if_cancelled(task_id)
-        await self._emit(
-            progress_manager,
-            task_id,
-            "sync",
-            8,
-            f"Resetting checkout to origin/{branch}",
-        )
-        await self._run_streaming(
-            ["git", "checkout", "-B", branch, "FETCH_HEAD"],
-            cwd=source_dir,
-            task_id=task_id,
-            progress_manager=progress_manager,
-            stage="sync",
-            progress=8,
-        )
-        await self._run_streaming(
-            ["git", "reset", "--hard", "FETCH_HEAD"],
-            cwd=source_dir,
-            task_id=task_id,
-            progress_manager=progress_manager,
-            stage="sync",
-            progress=10,
-        )
-        await self._run_streaming(
-            git_argv("submodule", "update", "--init", "--recursive"),
-            cwd=source_dir,
-            task_id=task_id,
-            progress_manager=progress_manager,
-            stage="sync",
-            progress=11,
-        )
-
-    async def _compile_tree(
-        self,
-        source_dir: str,
-        build_dir: str,
-        config: AudioCppBuildConfig,
-        *,
-        task_id: Optional[str],
-        progress_manager: Any,
-    ) -> Dict[str, str]:
-        from backend.build_progress import cmake_stage_start
-
-        await self._emit(
-            progress_manager,
-            task_id,
-            "configure",
-            cmake_stage_start("configure"),
-            f"Configuring {config.backend} build",
-        )
+    async def _prepare_configure(
+        self, source_dir: str, build_dir: str, config: AudioCppBuildConfig
+    ) -> tuple[List[str], Dict[str, str]]:
+        """Configure argv + build environment for one tree (shared with the host)."""
         env = os.environ.copy()
         if config.cflags:
             env["CFLAGS"] = config.cflags
@@ -525,7 +270,30 @@ class AudioCppManager:
             self._cmake_args(source_dir, build_dir, config)
         )
         if config.cuda:
+            from backend.cuda_installer import get_cuda_installer
             from backend.engines.audio_cpp.prebuilt import detect_host_target
+
+            # CMake's FindCUDAToolkit does not necessarily search PATH for
+            # nvcc. Bind CUDA builds to the Studio-managed toolkit explicitly.
+            cuda_env = get_cuda_installer().get_cuda_env()
+            cuda_root = str(cuda_env.get("CUDA_HOME") or "").strip()
+            if cuda_root:
+                env.update(cuda_env)
+                nvcc = os.path.join(cuda_root, "bin", "nvcc")
+                if os.path.isfile(nvcc):
+                    env["CUDACXX"] = nvcc
+                for flag in (
+                    f"-DCUDAToolkit_ROOT={cuda_root}",
+                    f"-DCUDA_TOOLKIT_ROOT_DIR={cuda_root}",
+                ):
+                    if not any(
+                        str(arg).startswith(flag.split("=", 1)[0] + "=") for arg in cmake_args
+                    ):
+                        cmake_args.append(flag)
+                if os.path.isfile(nvcc) and not any(
+                    str(arg).startswith("-DCMAKE_CUDA_COMPILER=") for arg in cmake_args
+                ):
+                    cmake_args.append(f"-DCMAKE_CUDA_COMPILER={nvcc}")
 
             host = await detect_host_target()
             cmake_args = cmake_args_for_host_cuda(cmake_args, host.sms)
@@ -537,24 +305,16 @@ class AudioCppManager:
         )
         extra_cmake = str(env.get("CMAKE_ARGS") or "").strip()
         if extra_cmake:
-            extra_kept, extra_relocated = split_cmake_cli_warning_flags(
-                shlex.split(extra_cmake)
-            )
+            extra_kept, extra_relocated = split_cmake_cli_warning_flags(shlex.split(extra_cmake))
             relocated_w_flags = list(relocated_w_flags) + extra_relocated
             if extra_relocated:
                 env["CMAKE_ARGS"] = " ".join(extra_kept)
         if relocated_w_flags:
             env = apply_relocated_cuda_warning_flags(env, relocated_w_flags)
-        await self._run_streaming(
-            cmake_args,
-            cwd=source_dir,
-            task_id=task_id,
-            progress_manager=progress_manager,
-            stage="configure",
-            progress=cmake_stage_start("configure"),
-            env=env,
-        )
+        return cmake_args, env
 
+    @staticmethod
+    def _build_argv(build_dir: str, config: AudioCppBuildConfig) -> List[str]:
         build_argv = [
             "cmake",
             "--build",
@@ -566,205 +326,19 @@ class AudioCppManager:
         if config.jobs:
             build_argv.append(str(config.jobs))
         build_argv.extend(["--target", "audiocpp_cli", "audiocpp_server"])
-        await self._emit(
-            progress_manager,
-            task_id,
-            "build",
-            cmake_stage_start("build"),
-            "Building audio.cpp",
-        )
-        await self._run_streaming(
-            build_argv,
-            cwd=source_dir,
-            task_id=task_id,
-            progress_manager=progress_manager,
-            stage="build",
-            progress=cmake_stage_start("build"),
-            env=env,
-        )
-
-        server_binary = self._find_binary(build_dir, "audiocpp_server")
-        cli_binary = self._find_binary(build_dir, "audiocpp_cli")
-        for binary in (server_binary, cli_binary):
-            os.chmod(binary, os.stat(binary).st_mode | 0o111)
-
-        await self._emit(
-            progress_manager,
-            task_id,
-            "validate",
-            cmake_stage_start("validate"),
-            "Validating audio.cpp binaries",
-        )
-        server_help, cli_help = await asyncio.gather(
-            self._capture([server_binary, "--help"], cwd=os.path.dirname(server_binary)),
-            self._capture([cli_binary, "--help"], cwd=os.path.dirname(cli_binary)),
-        )
-        if not server_help or not cli_help:
-            raise RuntimeError("audio.cpp binaries returned empty help output")
-        return {
-            "server_binary_path": server_binary,
-            "cli_binary_path": cli_binary,
-        }
-
-    async def build_source(
-        self,
-        *,
-        source_ref: str,
-        version_name: str,
-        repository_url: str = AUDIO_CPP_REPOSITORY,
-        build_config: Optional[AudioCppBuildConfig] = None,
-        progress_manager: Any = None,
-        task_id: Optional[str] = None,
-        replace_existing: bool = False,
-        use_workspace: bool = False,
-    ) -> Dict[str, Any]:
-        config = (build_config or AudioCppBuildConfig()).normalized()
-        self.validate_build_config(config)
-        if not _valid_repository_url(repository_url):
-            raise ValueError("repository_url must be a valid git clone URL")
-
-        version_name = _safe_slug(version_name)
-        version_dir = os.path.abspath(os.path.join(self.builds_dir, version_name))
-        if os.path.commonpath([version_dir, self.builds_dir]) != self.builds_dir:
-            raise ValueError("Invalid version name")
-        if os.path.exists(version_dir):
-            if replace_existing:
-                robust_rmtree(version_dir)
-            else:
-                raise FileExistsError(f"audio.cpp version '{version_name}' already exists")
-
-        source_dir = os.path.join(version_dir, "source")
-        build_dir = os.path.join(version_dir, "build")
-        workspace = None
-        async with self._build_lock:
-            if task_id:
-                register_task_cancel(task_id)
-            try:
-                from backend.build_progress import cmake_stage_start
-
-                if use_workspace:
-                    from backend.engines.build_workspace import BuildWorkspace
-
-                    workspace = BuildWorkspace.open(
-                        "audio_cpp",
-                        repository_url,
-                        asdict(config),
-                    )
-                    workspace.acquire()
-                    source_dir = workspace.checkout_dir
-                    build_dir = workspace.build_dir
-                    await self._emit(
-                        progress_manager,
-                        task_id,
-                        "clone",
-                        cmake_stage_start("clone"),
-                        "Updating the audio.cpp build workspace",
-                    )
-                    await asyncio.to_thread(
-                        workspace.sync_git,
-                        repository_url,
-                        str(source_ref or AUDIO_CPP_DEFAULT_REF),
-                    )
-                    self._raise_if_cancelled(task_id)
-                if workspace is None:
-                    await self._emit(
-                        progress_manager,
-                        task_id,
-                        "clone",
-                        cmake_stage_start("clone"),
-                        "Cloning audio.cpp",
-                    )
-                    os.makedirs(version_dir, exist_ok=False)
-                    await self._run_streaming(
-                        git_argv("clone", "--recursive", repository_url, source_dir),
-                        cwd=version_dir,
-                        task_id=task_id,
-                        progress_manager=progress_manager,
-                        stage="clone",
-                        progress=cmake_stage_start("clone"),
-                    )
-                    self._raise_if_cancelled(task_id)
-                    await self._emit(
-                        progress_manager,
-                        task_id,
-                        "checkout",
-                        cmake_stage_start("checkout"),
-                        f"Checking out {source_ref}",
-                    )
-                    await self._run_streaming(
-                        ["git", "checkout", str(source_ref or AUDIO_CPP_DEFAULT_REF)],
-                        cwd=source_dir,
-                        task_id=task_id,
-                        progress_manager=progress_manager,
-                        stage="checkout",
-                        progress=cmake_stage_start("checkout"),
-                    )
-                    await self._run_streaming(
-                        git_argv("submodule", "update", "--init", "--recursive"),
-                        cwd=source_dir,
-                        task_id=task_id,
-                        progress_manager=progress_manager,
-                        stage="checkout",
-                        progress=14,
-                    )
-
-                binaries = await self._compile_tree(
-                    source_dir,
-                    build_dir,
-                    config,
-                    task_id=task_id,
-                    progress_manager=progress_manager,
-                )
-                if workspace is not None:
-                    required = [
-                        os.path.relpath(path, workspace.path)
-                        for path in binaries.values()
-                    ]
-                    published = await asyncio.to_thread(
-                        workspace.publish_layout,
-                        {"source": source_dir, "build": build_dir},
-                        version_dir,
-                        required,
-                    )
-                    binaries = {
-                        key: os.path.join(published, os.path.relpath(path, workspace.path))
-                        for key, path in binaries.items()
-                    }
-                    source_dir = os.path.join(published, "source")
-                source_commit = await self._capture(
-                    ["git", "rev-parse", "HEAD"], cwd=source_dir
-                )
-                await self._emit(
-                    progress_manager, task_id, "complete", 100, "audio.cpp built"
-                )
-                from backend.engines.audio_cpp.model_managers import manager_paths_for_source
-
-                return {
-                    "version": version_name,
-                    **binaries,
-                    "source_path": source_dir,
-                    **manager_paths_for_source(source_dir),
-                    "source_commit": source_commit,
-                    "source_ref": source_ref,
-                    "source_repo": repository_url,
-                    "build_config": asdict(config),
-                }
-            finally:
-                from backend.engines.build_workspace import release_held
-
-                release_held(workspace)
-                if task_id:
-                    unregister_task_cancel(task_id)
+        return build_argv
 
     def _local_src_dir(self) -> str:
         return os.path.realpath(os.path.join(self.root_dir, "src"))
 
     def _is_local_checkout(self, version_entry: Optional[Dict[str, Any]], source_dir: str) -> bool:
-        install_type = str(
-            (version_entry or {}).get("install_type")
-            or (version_entry or {}).get("type")
-            or ""
-        ).strip().lower()
+        install_type = (
+            str(
+                (version_entry or {}).get("install_type") or (version_entry or {}).get("type") or ""
+            )
+            .strip()
+            .lower()
+        )
         return install_type == "local" and os.path.realpath(source_dir) == self._local_src_dir()
 
     def _allowed_sync_source_dir(
@@ -804,102 +378,6 @@ class AudioCppManager:
         if self._is_local_checkout(version_entry, source_dir):
             return os.path.join(source_dir, "build")
         return os.path.join(os.path.dirname(source_dir), "build")
-
-    async def sync_source(
-        self,
-        *,
-        version_entry: Dict[str, Any],
-        branch: str,
-        build_config: Optional[AudioCppBuildConfig] = None,
-        progress_manager: Any = None,
-        task_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """Pull the tracked branch and rebuild an existing audio.cpp source install."""
-        version_name = _safe_slug(str(version_entry.get("version") or "").strip())
-        raw_source_path = str(version_entry.get("source_path") or "").strip()
-        if not version_name or not raw_source_path:
-            raise ValueError("audio.cpp source install metadata is incomplete")
-        source_dir = os.path.abspath(raw_source_path)
-
-        if not self._allowed_sync_source_dir(source_dir, version_entry):
-            raise ValueError("Refusing to sync audio.cpp files outside the builds root")
-
-        build_dir = self._resolve_sync_build_dir(version_entry, source_dir)
-        config = (
-            build_config
-            or self.build_config_from_dict(version_entry.get("build_config"))
-        ).normalized()
-        self.validate_build_config(config)
-        repository_url = str(
-            version_entry.get("source_repo") or AUDIO_CPP_REPOSITORY
-        ).strip()
-
-        async with self._build_lock:
-            if task_id:
-                register_task_cancel(task_id)
-            try:
-                await self._sync_git_checkout(
-                    source_dir,
-                    branch,
-                    task_id=task_id,
-                    progress_manager=progress_manager,
-                )
-                binaries = await self._compile_tree(
-                    source_dir,
-                    build_dir,
-                    config,
-                    task_id=task_id,
-                    progress_manager=progress_manager,
-                )
-                source_commit = await self._capture(
-                    ["git", "rev-parse", "HEAD"], cwd=source_dir
-                )
-                await self._emit(
-                    progress_manager, task_id, "complete", 100, "audio.cpp synced"
-                )
-                from backend.engines.audio_cpp.model_managers import manager_paths_for_source
-
-                return {
-                    "version": version_name,
-                    **binaries,
-                    "source_path": source_dir,
-                    **manager_paths_for_source(source_dir),
-                    "source_commit": source_commit,
-                    "source_ref": branch,
-                    "source_ref_type": "branch",
-                    "source_branch": branch,
-                    "source_repo": repository_url,
-                    "build_config": asdict(config),
-                    "repository_source": "audio.cpp",
-                }
-            finally:
-                if task_id:
-                    unregister_task_cancel(task_id)
-
-    def delete_version_files(
-        self, version_row: Dict[str, Any], *, retire_references: bool = False
-    ) -> None:
-        raw_source = str(version_row.get("source_path") or "").strip()
-        raw_install = str(version_row.get("install_dir") or "").strip()
-        version_name = str(version_row.get("version") or "").strip()
-        if raw_source:
-            source_path = os.path.abspath(raw_source)
-        elif raw_install:
-            source_path = os.path.abspath(raw_install)
-        elif version_name:
-            source_path = os.path.abspath(os.path.join(self.builds_dir, version_name))
-        else:
-            return
-        build_root = os.path.realpath(self.builds_dir)
-        source_real = os.path.realpath(source_path)
-        if os.path.commonpath([source_real, build_root]) != build_root:
-            raise ValueError("Refusing to delete audio.cpp files outside the builds root")
-        version_dir = Path(source_real)
-        while version_dir.parent != Path(build_root) and version_dir != Path(build_root):
-            version_dir = version_dir.parent
-        if version_dir == Path(build_root):
-            raise ValueError("Could not resolve audio.cpp version directory")
-        robust_rmtree(str(version_dir), retire_references=retire_references)
 
 
 _audio_cpp_manager: Optional[AudioCppManager] = None

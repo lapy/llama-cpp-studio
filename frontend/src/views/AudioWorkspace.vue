@@ -375,6 +375,7 @@
 
 <script setup>
 import { modelRuntimeState, taskLabel as taskDisplayLabel } from '@/utils/modelPresentation'
+import { isAudioPackage } from '@/utils/audioModel'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useConfirm } from 'primevue/useconfirm'
@@ -492,10 +493,7 @@ const taskResult = ref('')
 const resultAudioClips = ref([])
 
 const audioModels = computed(() =>
-  modelStore.allQuantizations.filter((m) => {
-    const engine = m.config?.engine || m.engine
-    return engine === 'audio_cpp' || m.format === 'audio_cpp'
-  }),
+  modelStore.allQuantizations.filter((m) => isAudioPackage(m)),
 )
 
 const modelOptions = computed(() =>

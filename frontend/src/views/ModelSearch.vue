@@ -40,7 +40,13 @@
           aria-label="Task"
           @change="runSearch"
         />
-        <Button label="Search" icon="pi pi-search" size="small" :loading="searching" @click="runSearch" />
+        <Button
+          label="Search"
+          icon="pi pi-search"
+          size="small"
+          :loading="searching"
+          @click="runSearch"
+        />
         <Button
           :label="
             filtersOpen
@@ -159,9 +165,7 @@
 
     <div v-if="!modelStore.hasHuggingfaceToken && !tokenNoticeDismissed" class="token-warning">
       <i class="pi pi-key" aria-hidden="true" />
-      <span class="token-warning__text"
-        >A Hugging Face token is required for gated models.</span
-      >
+      <span class="token-warning__text">A Hugging Face token is required for gated models.</span>
       <Button
         label="Set token"
         icon="pi pi-arrow-right"
@@ -269,7 +273,7 @@
             </div>
             <div class="result-name__tags">
               <Tag
-                :value="result.provider === 'audio_cpp' ? 'audio.cpp' : 'Hugging Face'"
+                :value="result.provider === 'audio_cpp' ? engineLabel('audio_cpp') : 'Hugging Face'"
                 severity="info"
               />
               <Tag
@@ -278,11 +282,11 @@
                 severity="secondary"
               />
               <Tag v-if="result.gated" value="Gated" severity="warn" />
-                <Tag
-                  v-if="result.metadata?.access_status === 'unknown'"
-                  value="Access requirements unknown"
-                  severity="secondary"
-                />
+              <Tag
+                v-if="result.metadata?.access_status === 'unknown'"
+                value="Access requirements unknown"
+                severity="secondary"
+              />
               <Tag
                 v-if="(result.features || []).includes('multimodal')"
                 value="Vision"
@@ -327,7 +331,8 @@
           </div>
           <div v-else-if="(result.compatible_engines || []).length" class="compatibility-evidence">
             <i class="pi pi-verified" />
-            Compatible with {{ (result.compatible_engines || []).map(catalogEngineLabel).join(' · ') }}
+            Compatible with
+            {{ (result.compatible_engines || []).map(catalogEngineLabel).join(' · ') }}
           </div>
 
           <div v-if="result.gated && !modelStore.hasHuggingfaceToken" class="catalog-gated-cta">
@@ -353,9 +358,25 @@
             </div>
           </div>
 
-          <p v-if="(result.compatible_engines || []).length && !hasReadyCatalogEngine(result)" class="catalog-fit-note">No compatible engine is ready yet. <RouterLink to="/engines">Set up an engine</RouterLink> before starting this model.</p>
-          <p class="catalog-fit-note">Memory fit unknown. Download size does not include runtime memory; context length and engine settings affect RAM and GPU usage. Installation may also need extra temporary disk space.</p>
-          <p v-if="(result.install_variants || []).some((variant) => variant.format === 'gguf')" class="catalog-fit-note">Choosing a quantization: higher precision usually preserves more quality and uses more memory. Smaller quantizations use less memory.</p>
+          <p
+            v-if="(result.compatible_engines || []).length && !hasReadyCatalogEngine(result)"
+            class="catalog-fit-note"
+          >
+            No compatible engine is ready yet.
+            <RouterLink to="/engines">Set up an engine</RouterLink> before starting this model.
+          </p>
+          <p class="catalog-fit-note">
+            Memory fit unknown. Download size does not include runtime memory; context length and
+            engine settings affect RAM and GPU usage. Installation may also need extra temporary
+            disk space.
+          </p>
+          <p
+            v-if="(result.install_variants || []).some((variant) => variant.format === 'gguf')"
+            class="catalog-fit-note"
+          >
+            Choosing a quantization: higher precision usually preserves more quality and uses more
+            memory. Smaller quantizations use less memory.
+          </p>
           <div class="install-variants">
             <template v-if="(result.install_variants || []).length <= 1">
               <div
@@ -1291,6 +1312,7 @@ import LoadingState from '@/components/common/LoadingState.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { useModelStore } from '@/stores/models'
+import { ENGINE_DESCRIPTORS, engineLabel } from '@/engines/registry'
 import { useEnginesStore } from '@/stores/engines'
 import { useProgressStore } from '@/stores/progress'
 import axios from 'axios'
@@ -1427,24 +1449,22 @@ function catalogEngineLabel(id) {
   return engineFilterOptions.value.find((engine) => engine.value === id)?.label || id
 }
 function hasReadyCatalogEngine(result) {
-  return (enginesStore.engineDescriptors || []).some((engine) => engine.runnable && engine.enabled !== false && (result.compatible_engines || []).includes(engine.id))
+  return (enginesStore.engineDescriptors || []).some(
+    (engine) =>
+      engine.runnable &&
+      engine.enabled !== false &&
+      (result.compatible_engines || []).includes(engine.id),
+  )
 }
 const engineFilterOptions = computed(() => {
   const descriptors = enginesStore.engineDescriptors || []
   if (descriptors.length) {
     return descriptors.map((engine) => ({ value: engine.id, label: engine.label }))
   }
-  return [
-    { value: 'llama_cpp', label: 'llama.cpp' },
-    { value: 'ik_llama', label: 'ik_llama.cpp' },
-    { value: 'unsloth_llama', label: 'Unsloth llama.cpp' },
-    { value: 'lmdeploy', label: 'LMDeploy' },
-    { value: '1cat_vllm', label: '1Cat-vLLM' },
-    { value: 'vllm', label: 'vLLM' },
-    { value: 'sglang', label: 'SGLang' },
-    { value: 'sglang_v100', label: 'SGLang V100' },
-    { value: 'audio_cpp', label: 'audio.cpp' },
-  ]
+  return Object.entries(ENGINE_DESCRIPTORS).map(([id, descriptor]) => ({
+    value: id,
+    label: descriptor.label || id,
+  }))
 })
 const TASK_LABELS = {
   tts: 'Speech',
@@ -1479,7 +1499,7 @@ const outputModalityOptions = computed(
 )
 const providerOptions = [
   { label: 'Hugging Face', value: 'huggingface' },
-  { label: 'audio.cpp packages', value: 'audio_cpp' },
+  { label: `${engineLabel('audio_cpp')} packages`, value: 'audio_cpp' },
 ]
 const INSTALL_METHOD_LABELS = {
   direct: 'Direct HF',
@@ -2033,16 +2053,13 @@ function findCatalogDownloadedModel(result, variant) {
   }
   if (result.provider === 'audio_cpp') {
     const packageId = catalogAudioPackageId(result, variant)
-    const safePackageId = packageId
-      .replace(/[^a-zA-Z0-9._-]+/g, '-')
-      .replace(/-{2,}/g, '-')
-      .replace(/^[-._]+|[-._]+$/g, '')
-      .slice(0, 96) || 'audio-model'
-    const recordIds = new Set([
-      packageId,
-      `audio-cpp--${packageId}`,
-      `audio-cpp--${safePackageId}`,
-    ])
+    const safePackageId =
+      packageId
+        .replace(/[^a-zA-Z0-9._-]+/g, '-')
+        .replace(/-{2,}/g, '-')
+        .replace(/^[-._]+|[-._]+$/g, '')
+        .slice(0, 96) || 'audio-model'
+    const recordIds = new Set([packageId, `audio-cpp--${packageId}`, `audio-cpp--${safePackageId}`])
     return (
       modelStore.allQuantizations.find(
         (model) =>
@@ -2196,7 +2213,9 @@ function isCatalogVariantBusy(result, variant) {
     return isCatalogVariantDownloading(result, variant)
   }
   const key = `${result.id}:${variant.id}`
-  return catalogInstallingKeys.value.has(key) || catalogAudioVariantHasActiveInstallTask(result, variant)
+  return (
+    catalogInstallingKeys.value.has(key) || catalogAudioVariantHasActiveInstallTask(result, variant)
+  )
 }
 
 function catalogAudioPackageId(result, variant) {

@@ -827,6 +827,151 @@ class DataStore:
 
         return self._mutate("engines.yaml", mutator)
 
+    # --- Install snapshots (YAML campaign S1: definition digests) ---
+
+    def record_install_snapshot(
+        self,
+        engine: str,
+        *,
+        definition_digest: str,
+        recipe_version: str = "schema-v2",
+        resolved_inputs: Optional[Dict[str, Any]] = None,
+        version: str = "",
+        phase: str = "scheduled",
+    ) -> Dict[str, Any]:
+        """Append an install snapshot (which definition/recipe an install was
+        scheduled against). Additive ledger in its own file: version rows
+        stay scan-derived and untouched. Confirmation tokens and
+        ``_``-prefixed internal keys are stripped from stored inputs.
+
+        ``version`` is the stable installation association: the dispatch-time
+        row cannot know the final version name (phase ``scheduled``), so the
+        installer records a ``published`` row once the installation exists.
+        Retries select by version, never by "latest for the engine".
+        """
+        inputs = {
+            str(k): v
+            for k, v in dict(resolved_inputs or {}).items()
+            if not str(k).startswith("_")
+            and str(k) not in ("confirm_operation_id", "confirm_state")
+        }
+
+        def mutator(data: dict) -> Dict[str, Any]:
+            rows = data.setdefault(engine, [])
+            if not isinstance(rows, list):
+                rows = []
+                data[engine] = rows
+            row = {
+                "engine": engine,
+                "version": str(version or ""),
+                "phase": str(phase or "scheduled"),
+                "definition_digest": definition_digest,
+                "recipe_version": recipe_version,
+                "resolved_inputs": inputs,
+                "recorded_at": int(time.time()),
+            }
+            rows.append(row)
+            return dict(row)
+
+        return self._mutate("install_snapshots.yaml", mutator)
+
+    def update_install_snapshot(
+        self,
+        engine: str,
+        *,
+        version: str,
+        resolved_inputs: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Merge late-resolved inputs into the latest pending row for a version.
+
+        Some release recipes resolve a concrete tag only after the pending row
+        is written. Updating that row (rather than appending a second one) keeps
+        a failed install reproducible: the retry reads the resolved tag instead
+        of resolving "latest" again.
+        """
+        target = str(version or "").strip()
+        if not target:
+            return {}
+        inputs = {
+            str(k): v
+            for k, v in dict(resolved_inputs or {}).items()
+            if not str(k).startswith("_")
+            and str(k) not in ("confirm_operation_id", "confirm_state")
+        }
+        if not inputs:
+            return {}
+
+        def mutator(data: dict) -> Dict[str, Any]:
+            rows = data.get(engine) or []
+            if not isinstance(rows, list):
+                return {}
+            for row in reversed(rows):
+                if not isinstance(row, dict):
+                    continue
+                if str(row.get("version") or "") != target:
+                    continue
+                if str(row.get("phase") or "") != "scheduled":
+                    continue
+                current = row.get("resolved_inputs")
+                merged = dict(current) if isinstance(current, dict) else {}
+                merged.update(inputs)
+                row["resolved_inputs"] = merged
+                return dict(row)
+            return {}
+
+        return self._mutate("install_snapshots.yaml", mutator)
+
+    def list_install_snapshots(self, engine: Optional[str] = None) -> List[Dict[str, Any]]:
+        data = self._read_yaml("install_snapshots.yaml")
+        if engine is not None:
+            rows = data.get(engine) or []
+            return [dict(row) for row in rows if isinstance(row, dict)]
+        return [
+            dict(row)
+            for rows in data.values()
+            if isinstance(rows, list)
+            for row in rows
+            if isinstance(row, dict)
+        ]
+
+    def delete_install_snapshots(self, engine: str, version: str) -> int:
+        """Drop the ledger rows associated with a REMOVED version.
+
+        Removal is not rollback: once the version row and its files are gone,
+        keeping its snapshot can only make a later same-name install select a
+        stale digest. Rollback (checking out the previous release) does not call
+        this and therefore preserves the ledger.
+        """
+        target = str(version or "").strip()
+        if not target:
+            return 0
+        removed = 0
+
+        def mutator(data: dict) -> int:
+            nonlocal removed
+            rows = data.get(engine) or []
+            if not isinstance(rows, list):
+                return 0
+            kept = []
+            for row in rows:
+                inputs = row.get("resolved_inputs") if isinstance(row, dict) else {}
+                inputs = inputs if isinstance(inputs, dict) else {}
+                if (
+                    str(row.get("version") or "") == target
+                    or str(inputs.get("version") or "") == target
+                ):
+                    removed += 1
+                else:
+                    kept.append(row)
+            if kept:
+                data[engine] = kept
+            else:
+                data.pop(engine, None)
+            return removed
+
+        self._mutate("install_snapshots.yaml", mutator)
+        return removed
+
     # --- CUDA ---
 
     def get_cuda_status(self) -> dict:

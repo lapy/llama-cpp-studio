@@ -4,8 +4,6 @@ Run with: pytest backend/tests/test_app_smoke.py -v
 (Requires: pip install -r requirements-dev.txt)
 """
 
-import pytest
-
 
 def test_app_starts(client):
     """App should start and respond."""
@@ -37,11 +35,3 @@ def test_models_list_route(client):
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)
-
-
-@pytest.mark.skip(reason="SSE stream never ends; TestClient blocks on full response")
-def test_sse_events_route(client):
-    """SSE events endpoint returns 200 and event-stream content-type."""
-    response = client.get("/api/events")
-    assert response.status_code == 200
-    assert "text/event-stream" in response.headers.get("content-type", "")

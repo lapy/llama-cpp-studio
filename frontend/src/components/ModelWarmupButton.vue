@@ -18,6 +18,7 @@
 import { computed, ref } from 'vue'
 import axios from 'axios'
 import Button from 'primevue/button'
+import { isAudioPackage } from '@/utils/audioModel'
 import { useToast } from 'primevue/usetoast'
 
 const props = defineProps({
@@ -28,9 +29,7 @@ const toast = useToast()
 const busy = ref(false)
 const available = computed(
   () =>
-    props.model.is_active &&
-    props.model.format !== 'audio_cpp' &&
-    (props.model.config?.engine || props.model.engine) !== 'audio_cpp',
+    props.model.is_active && !isAudioPackage(props.model),
 )
 const loading = computed(
   () =>

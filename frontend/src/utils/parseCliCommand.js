@@ -4,7 +4,7 @@
  */
 
 /** Flags Studio always injects or owns — never import, even if the catalog lists them. */
-export const STUDIO_RESERVED_FLAGS = new Set([
+const STUDIO_RESERVED_FLAGS = new Set([
   '--alias',
   '--help',
   '--hf-file',
@@ -38,10 +38,10 @@ export const STUDIO_RESERVED_KEYS = new Set([
   'server_port',
 ])
 
-export const STUDIO_ENV_PREFIX = 'LLAMA_STUDIO_'
-export const RUNTIME_ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
+const STUDIO_ENV_PREFIX = 'LLAMA_STUDIO_'
+const RUNTIME_ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
 /** Env names that collide with Studio-owned listen / identity, plus the reserved prefix. */
-export const STUDIO_RESERVED_ENV_KEYS = new Set([
+const STUDIO_RESERVED_ENV_KEYS = new Set([
   'HOST',
   'HOSTNAME',
   'PORT',
@@ -66,7 +66,7 @@ const NUMERIC_TOKEN_RE = /^-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/
  * Scan a JSON object/array from `start` so CLI `"` stay literal JSON quotes.
  * @returns {{ ok: true, text: string, nextIndex: number } | { ok: false }}
  */
-export function scanJsonValue(src, start) {
+function scanJsonValue(src, start) {
   const open = src[start]
   if (open !== '{' && open !== '[') return { ok: false }
   let i = start
@@ -240,7 +240,7 @@ export function tokenizeCli(text) {
   return { tokens, parseError }
 }
 
-export function isOptionToken(token) {
+function isOptionToken(token) {
   if (!token || token === '-') return false
   if (token === '--') return true
   if (!token.startsWith('-')) return false
@@ -248,7 +248,7 @@ export function isOptionToken(token) {
   return true
 }
 
-export function splitFlagEquals(token) {
+function splitFlagEquals(token) {
   if (!token || token === '--' || !token.startsWith('-')) {
     return { flag: token, value: undefined, inline: false }
   }
@@ -272,7 +272,7 @@ function isPythonBinary(token) {
   return base === 'python' || /^python\d/.test(base)
 }
 
-export function isIgnorablePositional(token) {
+function isIgnorablePositional(token) {
   if (!token) return true
   if (['&&', '||', ';', '|', '&'].includes(token)) return true
   if (MACRO_RE.test(token) || ENV_VAR_RE.test(token)) return true
@@ -284,7 +284,7 @@ export function isIgnorablePositional(token) {
   return false
 }
 
-export function splitEnvAssignment(token) {
+function splitEnvAssignment(token) {
   if (!token || token.startsWith('-')) return null
   const eq = token.indexOf('=')
   if (eq <= 0) return null
@@ -293,7 +293,7 @@ export function splitEnvAssignment(token) {
   return { key, value: token.slice(eq + 1) }
 }
 
-export function canonicalEnvKey(key) {
+function canonicalEnvKey(key) {
   const name = String(key || '')
   if (name.toUpperCase() === 'CUDA_VISIBLE_DEVICES') return 'CUDA_VISIBLE_DEVICES'
   if (name.toUpperCase() === 'LD_LIBRARY_PATH') return 'LD_LIBRARY_PATH'
@@ -314,12 +314,12 @@ export function studioEnvSkipReason(key) {
   return null
 }
 
-export function flagTakesValue(param) {
+function flagTakesValue(param) {
   if (!param) return true
   return param.value_kind !== 'flag'
 }
 
-export function coerceBool(raw) {
+function coerceBool(raw) {
   if (typeof raw === 'boolean') return raw
   const text = String(raw ?? '').trim().toLowerCase()
   if (['1', 'true', 'yes', 'on'].includes(text)) return true
@@ -347,7 +347,7 @@ export function isDelimitedEnumParam(param) {
   return ['csv_enum', 'semicolon_enum'].includes(param?.value_kind) || param?.type === 'multiselect'
 }
 
-export function coerceCliValue(raw, param, { polarity } = {}) {
+function coerceCliValue(raw, param, { polarity } = {}) {
   const kind = param?.value_kind || 'scalar'
   if (kind === 'flag') {
     if (polarity === 'negative') return false
@@ -394,7 +394,7 @@ export function coerceCliValue(raw, param, { polarity } = {}) {
   return raw
 }
 
-export function mergeParsedValues(existing, incoming, param) {
+function mergeParsedValues(existing, incoming, param) {
   if (existing === undefined) return incoming
   if (param?.value_kind === 'repeatable') {
     const left = Array.isArray(existing) ? existing : existing == null ? [] : [existing]
@@ -421,7 +421,7 @@ export function mergeParsedValues(existing, incoming, param) {
  * @param {Array<Record<string, any>>} catalogParams
  * @returns {Map<string, { param: Record<string, any>, polarity: 'positive' | 'negative' }>}
  */
-export function buildFlagIndex(catalogParams) {
+function buildFlagIndex(catalogParams) {
   const index = new Map()
   for (const source of catalogParams || []) {
     if (!source || !source.key) continue
@@ -440,7 +440,7 @@ export function buildFlagIndex(catalogParams) {
   return index
 }
 
-export function quoteCliToken(token) {
+function quoteCliToken(token) {
   const text = String(token ?? '')
   if (text === '') return "''"
   if (!/[\s'"\\]/.test(text)) return text
@@ -484,7 +484,7 @@ export function formatCliValue(value, { emptyLabel = 'Not set' } = {}) {
   return String(value)
 }
 
-export function studioSkipReason(flag, param) {
+function studioSkipReason(flag, param) {
   const key = param?.key
   if (key && STUDIO_RESERVED_KEYS.has(key)) return studioReasonForKey(key)
   if (STUDIO_RESERVED_FLAGS.has(flag)) {
@@ -509,7 +509,7 @@ function studioReasonForKey(key) {
   return 'Managed by Studio'
 }
 
-export function unsupportedSkipReason(param) {
+function unsupportedSkipReason(param) {
   if (param?.supported === false) {
     return 'Not available in this engine build (deprecated or unsupported)'
   }
@@ -753,7 +753,7 @@ export function buildImportPreview(parsed, currentValues = {}) {
   })
 }
 
-export function currentEnvLookup(currentEnv, key) {
+function currentEnvLookup(currentEnv, key) {
   const env = currentEnv && typeof currentEnv === 'object' && !Array.isArray(currentEnv) ? currentEnv : {}
   const exact = Object.prototype.hasOwnProperty.call(env, key) ? key : null
   if (exact) return { present: true, key: exact, value: env[exact] }
@@ -774,7 +774,7 @@ export function buildEnvImportPreview(parsed, currentEnv = {}) {
   })
 }
 
-export function changeKind(currentValue, incomingValue, { present = false } = {}) {
+function changeKind(currentValue, incomingValue, { present = false } = {}) {
   if (!present) return 'new'
   if (valuesEqual(currentValue, incomingValue)) return 'unchanged'
   return 'update'

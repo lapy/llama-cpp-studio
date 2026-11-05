@@ -30,6 +30,47 @@ describe('engine readiness', () => {
     expect(engineMatchesFilters(audio, { task: 'text' })).toBe(false)
     expect(engineMatchesFilters(llama, { task: 'embeddings' })).toBe(true)
     expect(engineMatchesFilters(vllm, { hardware: 'cpu' })).toBe(false)
-    expect(engineMatchesFilters({ id: 'sglang_v100' }, { hardware: 'sm70' })).toBe(true)
+    expect(engineMatchesFilters({ id: 'sglang_v100', gpu_archs: ['sm70'] }, { hardware: 'sm70' })).toBe(true)
+  })
+
+  it('derives audio/text/cpu membership from descriptor data, not engine ids', () => {
+    // audio.cpp: audio family via declared tasks; CPU support declared.
+    const audio = {
+      id: 'audio_cpp',
+      tasks: ['asr'],
+      artifact_formats: ['safetensors', 'mixed', 'original', 'builtin'],
+      cpu_supported: true,
+    }
+    // vLLM: safetensors only, no CPU support.
+    const vllm = {
+      id: 'vllm',
+      tasks: ['text-generation'],
+      artifact_formats: ['safetensors'],
+      cpu_supported: false,
+    }
+    // A YAML-onboarded engine that declares neither gguf nor cpu_supported.
+    const fixture = { id: 'yamlcraft', tasks: ['tts'], artifact_formats: ['safetensors'] }
+    // An unknown audio-family engine matches by its declared tasks.
+    const custom = { id: 'custom_audio', tasks: ['vc'], artifact_formats: ['safetensors'] }
+
+    expect(engineMatchesFilters(audio, { task: 'audio' })).toBe(true)
+    expect(engineMatchesFilters(audio, { task: 'text' })).toBe(false)
+    expect(engineMatchesFilters(audio, { hardware: 'cpu' })).toBe(true)
+    expect(engineMatchesFilters(vllm, { hardware: 'cpu' })).toBe(false)
+    expect(engineMatchesFilters(fixture, { hardware: 'cpu' })).toBe(false)
+    expect(engineMatchesFilters(custom, { task: 'audio' })).toBe(true)
+  })
+
+  it('matches the sm70 filter from the declared gpu_archs, not engine ids', () => {
+    const v100 = { id: 'sglang_v100', artifact_formats: ['safetensors'], gpu_archs: ['sm70'] }
+    const onecat = { id: '1cat_vllm', artifact_formats: ['safetensors'], gpu_archs: ['sm70'] }
+    const vllm = { id: 'vllm', artifact_formats: ['safetensors'], gpu_archs: [] }
+    const llama = { id: 'llama_cpp', artifact_formats: ['gguf'] }
+    expect(engineMatchesFilters(v100, { hardware: 'sm70' })).toBe(true)
+    expect(engineMatchesFilters(onecat, { hardware: 'sm70' })).toBe(true)
+    expect(engineMatchesFilters(vllm, { hardware: 'sm70' })).toBe(false)
+    expect(engineMatchesFilters(llama, { hardware: 'sm70' })).toBe(false)
+    // An engine with no declaration never matches the sm70 filter.
+    expect(engineMatchesFilters({ id: 'custom' }, { hardware: 'sm70' })).toBe(false)
   })
 })

@@ -11,7 +11,10 @@ export const REAL_TASK_FIXTURES = [
       description: 'Build llama.cpp main',
       metadata: { engine: 'llama_cpp' },
     },
-    cancelEndpoint: '/api/llama-versions/build-cancel',
+    // Deliberate flip: native engine metadata resolves through the engine
+    // registry (generic cancel route; byte-equality pinned by
+    // backend/tests/test_native_engine_lifecycle.py).
+    cancelEndpoint: '/api/engines/llama_cpp/cancel',
   },
   {
     label: 'branch sync build',
@@ -23,6 +26,43 @@ export const REAL_TASK_FIXTURES = [
       description: 'Sync llama.cpp main',
       metadata: { sync: true, engine: 'llama_cpp' },
     },
+    cancelEndpoint: '/api/engines/llama_cpp/cancel',
+  },
+  {
+    label: 'ik_llama.cpp build',
+    task: {
+      task_id: 'build_ik_source-main_1700000000',
+      type: 'build',
+      status: 'running',
+      progress: 12,
+      description: 'Build ik_llama.cpp main',
+      metadata: { engine: 'ik_llama' },
+    },
+    cancelEndpoint: '/api/engines/ik_llama/cancel',
+  },
+  {
+    label: 'unsloth install',
+    task: {
+      task_id: 'install_unsloth_llama_install_1700000000123',
+      type: 'install',
+      status: 'running',
+      progress: 10,
+      description: 'Unsloth llama.cpp install',
+      metadata: { manager: 'unsloth_llama', operation: 'install' },
+    },
+    cancelEndpoint: '/api/engines/unsloth_llama/cancel',
+  },
+  {
+    label: 'legacy build without engine metadata',
+    task: {
+      task_id: 'build_pre_registry-main_1600000000',
+      type: 'build',
+      status: 'running',
+      progress: 8,
+      description: 'Build llama.cpp main',
+      metadata: {},
+    },
+    // Pre-registry task shapes keep the type-level legacy endpoint.
     cancelEndpoint: '/api/llama-versions/build-cancel',
   },
   {
@@ -45,7 +85,11 @@ export const REAL_TASK_FIXTURES = [
       status: 'running',
       progress: 33,
       description: 'Download model-Q4_K_M.gguf',
-      metadata: { huggingface_id: 'org/model', filename: 'model-Q4_K_M.gguf', quantization: 'Q4_K_M' },
+      metadata: {
+        huggingface_id: 'org/model',
+        filename: 'model-Q4_K_M.gguf',
+        quantization: 'Q4_K_M',
+      },
     },
     cancelEndpoint: '/api/models/downloads/cancel',
   },
@@ -93,7 +137,11 @@ export const REAL_TASK_FIXTURES = [
       status: 'running',
       progress: 8,
       description: 'Projector mmproj-F16.gguf',
-      metadata: { huggingface_id: 'org/model', filename: 'mmproj-F16.gguf', model_id: 'org--model--Q4_K_M' },
+      metadata: {
+        huggingface_id: 'org/model',
+        filename: 'mmproj-F16.gguf',
+        model_id: 'org--model--Q4_K_M',
+      },
     },
     cancelEndpoint: '/api/models/downloads/cancel',
   },
@@ -131,7 +179,7 @@ export const REAL_TASK_FIXTURES = [
       description: 'LMDeploy install',
       metadata: { manager: 'lmdeploy', operation: 'install' },
     },
-    cancelEndpoint: '/api/lmdeploy/cancel',
+    cancelEndpoint: '/api/engines/lmdeploy/cancel',
   },
   {
     label: 'lmdeploy install source',
@@ -143,7 +191,7 @@ export const REAL_TASK_FIXTURES = [
       description: 'LMDeploy install from source',
       metadata: { manager: 'lmdeploy', operation: 'install_source' },
     },
-    cancelEndpoint: '/api/lmdeploy/cancel',
+    cancelEndpoint: '/api/engines/lmdeploy/cancel',
   },
   {
     label: 'lmdeploy sync source',
@@ -155,7 +203,7 @@ export const REAL_TASK_FIXTURES = [
       description: 'LMDeploy sync',
       metadata: { manager: 'lmdeploy', operation: 'sync_source', sync: true },
     },
-    cancelEndpoint: '/api/lmdeploy/cancel',
+    cancelEndpoint: '/api/engines/lmdeploy/cancel',
   },
   {
     label: 'lmdeploy remove',
@@ -167,7 +215,7 @@ export const REAL_TASK_FIXTURES = [
       description: 'LMDeploy remove',
       metadata: { manager: 'lmdeploy', operation: 'remove' },
     },
-    cancelEndpoint: '/api/lmdeploy/cancel',
+    cancelEndpoint: '/api/engines/lmdeploy/cancel',
   },
   {
     label: '1cat-vllm install',
@@ -179,7 +227,7 @@ export const REAL_TASK_FIXTURES = [
       description: '1Cat-vLLM install',
       metadata: { manager: 'onecat_vllm', operation: 'install' },
     },
-    cancelEndpoint: '/api/1cat-vllm/cancel',
+    cancelEndpoint: '/api/engines/1cat_vllm/cancel',
   },
   {
     label: '1cat-vllm install source',
@@ -191,7 +239,7 @@ export const REAL_TASK_FIXTURES = [
       description: '1Cat-vLLM install from source',
       metadata: { manager: 'onecat_vllm', operation: 'install_source' },
     },
-    cancelEndpoint: '/api/1cat-vllm/cancel',
+    cancelEndpoint: '/api/engines/1cat_vllm/cancel',
   },
   {
     label: '1cat-vllm sync source',
@@ -203,7 +251,7 @@ export const REAL_TASK_FIXTURES = [
       description: '1Cat-vLLM sync',
       metadata: { manager: 'onecat_vllm', operation: 'sync_source', sync: true },
     },
-    cancelEndpoint: '/api/1cat-vllm/cancel',
+    cancelEndpoint: '/api/engines/1cat_vllm/cancel',
   },
   {
     label: '1cat-vllm remove',
@@ -215,7 +263,7 @@ export const REAL_TASK_FIXTURES = [
       description: '1Cat-vLLM remove',
       metadata: { manager: 'onecat_vllm', operation: 'remove' },
     },
-    cancelEndpoint: '/api/1cat-vllm/cancel',
+    cancelEndpoint: '/api/engines/1cat_vllm/cancel',
   },
 ]
 

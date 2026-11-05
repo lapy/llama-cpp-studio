@@ -2,6 +2,14 @@
 
 import pytest
 
+from backend.audio.families.align import is_align_task
+from backend.audio.families.analysis import is_analysis_task, is_diar_task, is_vad_task
+from backend.audio.families.gen import is_gen_task
+from backend.audio.families.sep import is_sep_task
+from backend.audio.families.vc import is_vc_task
+from backend.audio.families.asr import is_asr_task
+from backend.audio.families.tts import is_tts_task
+
 from backend.audio.task_profiles import (
     api_endpoint_for,
     api_example_hint_for,
@@ -11,40 +19,27 @@ from backend.audio.task_profiles import (
     task_profile_for,
 )
 from backend.tests.audio_profile_fixtures import (
-    DOC_PROFILED_FAMILIES,
-    UNKNOWN_FAMILIES,
-    assert_field_groups_shape,
+    AUDIO_TASK_CONTRACTS,
     assert_profile_shape,
 )
 
 
 @pytest.mark.parametrize(
     ("task", "family", "defaults_key", "endpoint"),
-    DOC_PROFILED_FAMILIES,
+    AUDIO_TASK_CONTRACTS,
 )
-def test_documented_family_profile_contract(task, family, defaults_key, endpoint):
+def test_task_profile_contract_without_a_family_catalog(task, family, defaults_key, endpoint):
     assert is_profiled_task(task, family)
     profile = task_profile_for(task, family)
     assert profile is not None
     assert_profile_shape(profile)
 
-    groups = request_field_groups_for(task, family)
-    if groups:
-        assert_field_groups_shape(groups)
+    assert request_field_groups_for(task, family) == []
     assert profile.get("generic") is True
 
     assert request_defaults_key_for(task, family) == defaults_key
     assert api_endpoint_for(task, family) == endpoint
     assert api_example_hint_for(task, family)
-
-
-@pytest.mark.parametrize("task,family", [(t, f) for t, f, *_ in UNKNOWN_FAMILIES])
-def test_unknown_families_get_generic_profiles(task, family):
-    assert is_profiled_task(task, family)
-    profile = task_profile_for(task, family)
-    assert profile is not None
-    assert profile.get("generic") is True
-    assert request_field_groups_for(task, family) == []
 
 
 def test_family_case_insensitive():
@@ -124,31 +119,13 @@ def test_unknown_family_with_scanned_sections_gets_fields():
     )
     assert groups
     assert any(
-        field.get("key") == "temperature"
-        for group in groups
-        for field in group.get("fields") or []
+        field.get("key") == "temperature" for group in groups for field in group.get("fields") or []
     )
 
 
 def test_api_example_hint_for_generic_tasks_run():
     hint = api_example_hint_for("gen", "ace_step")
     assert "/audioapi/v1/tasks/run" in hint
-
-
-@pytest.mark.parametrize(
-    ("task", "family"),
-    [
-        ("tts", "omnivoice"),
-        ("asr", "nemotron_asr"),
-        ("gen", "heartmula"),
-        ("vc", "seed_vc"),
-        ("vad", "silero_vad"),
-        ("sep", "htdemucs"),
-        ("align", "qwen3_forced_aligner"),
-    ],
-)
-def test_field_groups_wait_for_a_model_spec(task, family):
-    assert request_field_groups_for(task, family) == []
 
 
 def test_clon_and_vdes_use_speech_endpoint_and_defaults():
@@ -178,3 +155,99 @@ def test_configured_task_selects_the_endpoint():
     assert api_endpoint_for("asr", "firered_audio") == "/v1/audio/transcriptions"
     assert not is_profiled_task(None, None)
     assert not is_profiled_task("", "")
+
+
+@pytest.mark.parametrize(
+    ("task", "expected"),
+    [
+        ("align", True),
+        ("asr", False),
+        ("tts", False),
+    ],
+)
+def test_is_align_task(task, expected):
+    assert is_align_task(task) is expected
+
+
+@pytest.mark.parametrize(
+    ("task", "fn", "expected"),
+    [
+        ("vad", is_vad_task, True),
+        ("diar", is_diar_task, True),
+        ("asr", is_vad_task, False),
+        ("vad", is_analysis_task, True),
+        ("diar", is_analysis_task, True),
+        ("gen", is_analysis_task, False),
+    ],
+)
+def test_analysis_task_classifiers(task, fn, expected):
+    assert fn(task) is expected
+
+
+@pytest.mark.parametrize(
+    ("task", "expected"),
+    [
+        ("gen", True),
+        ("GEN", True),
+        ("tts", False),
+        ("", False),
+        (None, False),
+    ],
+)
+def test_is_gen_task(task, expected):
+    assert is_gen_task(task) is expected
+
+
+@pytest.mark.parametrize(
+    ("task", "expected"),
+    [
+        ("sep", True),
+        ("gen", False),
+        ("vc", False),
+    ],
+)
+def test_is_sep_task(task, expected):
+    assert is_sep_task(task) is expected
+
+
+@pytest.mark.parametrize(
+    ("task", "expected"),
+    [
+        ("vc", True),
+        ("svc", True),
+        ("s2s", True),
+        ("tts", False),
+        ("asr", False),
+    ],
+)
+def test_is_vc_task(task, expected):
+    assert is_vc_task(task) is expected
+
+
+@pytest.mark.parametrize(
+    ("task", "expected"),
+    [
+        ("asr", True),
+        ("tts", False),
+        ("align", False),
+    ],
+)
+def test_is_asr_task(task, expected):
+    assert is_asr_task(task) is expected
+
+
+@pytest.mark.parametrize(
+    ("task", "expected"),
+    [
+        ("tts", True),
+        ("clon", True),
+        ("vdes", True),
+        ("vc", False),
+        ("svc", False),
+        ("s2s", False),
+        ("asr", False),
+        ("gen", False),
+    ],
+)
+def test_is_tts_task(task, expected):
+    assert is_tts_task(task) is expected

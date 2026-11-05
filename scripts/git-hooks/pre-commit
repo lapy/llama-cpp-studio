@@ -24,6 +24,11 @@ matches() {
 echo "pre-commit: version"
 "$python" scripts/check-version.py >/dev/null
 
+if matches '^(backend|frontend/src|frontend/e2e|scripts)/'; then
+  echo "pre-commit: engine-ID literal ratchet"
+  "$python" scripts/engine-literals-ratchet.py >/dev/null
+fi
+
 if matches '^scripts/.*\.sh$'; then
   echo "pre-commit: shell syntax"
   while IFS= read -r file; do
@@ -52,15 +57,45 @@ if matches '^(backend|scripts)/.*\.py$'; then
   "$ruff" check backend scripts
   format_files=(
     backend/config_history.py
+    backend/engines/definitions/__init__.py
+    backend/engines/definitions/executor.py
+    backend/engines/definitions/primitives.py
+    backend/tests/test_engine_primitives_library.py
+    backend/tests/test_sglang_release_plan_shadow.py
+    backend/tests/test_vllm_legacy_plan_shadow.py
+    backend/tests/test_unsloth_legacy_plan_shadow.py
+    backend/tests/test_audio_cpp_legacy_plan_shadow.py
+    backend/tests/test_llama_source_build_characterization.py
+    backend/tests/test_engine_version_removal_characterization.py
+    backend/models/engine_contracts.py
+    backend/tests/test_engine_contracts.py
+    backend/tests/test_generic_engine_router.py
+    backend/routes/engine_versions.py
+    backend/routes/engine_lifecycle.py
+    backend/engines/llama_cpp/installer.py
+    backend/engines/definitions/loader.py
+    backend/engines/definitions/plan.py
+    backend/engines/definitions/profiles.py
+    backend/engines/definitions/schema.py
+    backend/engines/definitions/startup_check.py
     backend/routes/benchmarks.py
     backend/routes/config_history.py
     backend/services/model_benchmark.py
     backend/tests/test_config_history.py
+    backend/tests/test_engine_definitions_equivalence.py
+    backend/tests/test_engine_definitions_executor.py
+    backend/tests/test_engine_definitions_schema.py
+    backend/tests/test_engine_definitions_v2.py
+    backend/tests/test_engine_literals_ratchet.py
+    backend/tests/test_lmdeploy_legacy_plan_shadow.py
+    backend/tests/test_vllm_release_plan_shadow.py
     backend/tests/test_model_benchmark.py
     backend/tests/test_operation_state_machine.py
     backend/version.py
     scripts/check-version.py
+    scripts/engine-literals-ratchet.py
     scripts/export-openapi.py
+    scripts/parity-inventory.py
   )
   changed_format=()
   for file in "${format_files[@]}"; do

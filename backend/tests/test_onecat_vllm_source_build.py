@@ -1,10 +1,24 @@
-"""Source-build toolchain helpers for 1Cat-vLLM (Rust + requirement files)."""
+"""Source-build toolchain helpers for 1Cat-vLLM (Rust bootstrap, build env).
+
+NOTE: the requirement-file candidate discovery that used to live here as
+``_source_requirement_files`` moved into the shared ``pip.install_requirements``
+primitive (candidate order comes from the 1cat_vllm recipe). Its contract —
+nested ``requirements/build/cuda.txt`` wins over the flat layouts, missing
+files are skipped — is re-pinned in
+``backend/tests/test_onecat_legacy_plan_shadow.py`` through the executed plan.
+"""
 
 import os
 from pathlib import Path
 
 import pytest
 
+from backend.engines.python import rust_toolchain
+from backend.engines.python.rust_toolchain import (
+    compose_rust_env,
+    discover_rust_bin_dir,
+    ensure_rust,
+)
 from backend.engines.vllm import OneCatVllmManager
 
 
@@ -14,6 +28,10 @@ def _manager(tmp_path: Path) -> OneCatVllmManager:
         state_path=str(tmp_path / "onecat_state.json"),
         base_dir=str(tmp_path / "1cat-vllm"),
     )
+
+
+def _candidates(tmp_path: Path) -> list:
+    return [str(tmp_path / "tools" / "rust" / "cargo" / "bin")]
 
 
 def _write_executable(path: Path) -> None:
@@ -27,36 +45,6 @@ def _isolate_rust_search(manager: OneCatVllmManager, monkeypatch, tmp_path: Path
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.delenv("CARGO_HOME", raising=False)
     monkeypatch.delenv("RUSTUP_HOME", raising=False)
-    monkeypatch.setattr(
-        manager,
-        "_rust_bin_candidates",
-        lambda env: [str(tmp_path / "tools" / "rust" / "cargo" / "bin")],
-    )
-
-
-def test_source_requirement_files_prefers_nested_build_cuda(tmp_path: Path):
-    clone = tmp_path / "src"
-    nested = clone / "requirements" / "build" / "cuda.txt"
-    nested.parent.mkdir(parents=True)
-    nested.write_text("setuptools-rust>=1.9.0\n")
-    (clone / "requirements" / "cuda.txt").write_text("torch==2.10.0\n")
-    (clone / "requirements" / "common.txt").write_text("numpy\n")
-
-    files = OneCatVllmManager._source_requirement_files(str(clone))
-    assert files[0] == str(nested)
-    assert any(p.endswith("requirements/cuda.txt") for p in files)
-    assert not any(p.endswith("requirements/build.txt") for p in files)
-
-
-def test_source_requirement_files_falls_back_to_flat_build_txt(tmp_path: Path):
-    clone = tmp_path / "src"
-    req = clone / "requirements"
-    req.mkdir(parents=True)
-    (req / "build.txt").write_text("cmake\n")
-    (req / "cuda.txt").write_text("torch\n")
-
-    files = OneCatVllmManager._source_requirement_files(str(clone))
-    assert [Path(p).name for p in files] == ["build.txt", "cuda.txt"]
 
 
 def test_discover_rust_bin_dir_finds_managed_toolchain(tmp_path: Path, monkeypatch):
@@ -66,7 +54,11 @@ def test_discover_rust_bin_dir_finds_managed_toolchain(tmp_path: Path, monkeypat
     _write_executable(cargo_bin / "rustc")
     _write_executable(cargo_bin / "cargo")
 
-    found = manager._discover_rust_bin_dir({"PATH": str(tmp_path / "no-rust-on-path")})
+    found = discover_rust_bin_dir(
+        {"PATH": str(tmp_path / "no-rust-on-path")},
+        manager._managed_tools_dir("rust"),
+        candidates=_candidates(tmp_path),
+    )
     assert found is not None
     assert Path(found).resolve() == cargo_bin.resolve()
 
@@ -83,7 +75,17 @@ def test_build_env_moves_readonly_rustup_home(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("RUSTUP_HOME", str(rustup))
     monkeypatch.setenv("CARGO_HOME", str(cargo))
     try:
-        env = manager._build_env()
+        env = compose_rust_env(
+            manager,
+            {
+                "PATH": str(tmp_path / "no-rust-on-path"),
+                "HOME": str(tmp_path / "home"),
+                "RUSTUP_HOME": str(rustup),
+                "CARGO_HOME": str(cargo),
+            },
+            manager._managed_tools_dir("rust"),
+            candidates=_candidates(tmp_path),
+        )
     finally:
         rustup.chmod(0o755)
         cargo.chmod(0o755)
@@ -102,7 +104,12 @@ def test_build_env_prepends_managed_cargo_bin(tmp_path: Path, monkeypatch):
     _write_executable(cargo_bin / "rustc")
     _write_executable(cargo_bin / "cargo")
 
-    env = manager._build_env()
+    env = compose_rust_env(
+        manager,
+        {"PATH": str(tmp_path / "no-rust-on-path"), "HOME": str(tmp_path / "home")},
+        manager._managed_tools_dir("rust"),
+        candidates=_candidates(tmp_path),
+    )
     path_parts = [Path(p).resolve() for p in env["PATH"].split(os.pathsep) if p]
     assert cargo_bin.resolve() in path_parts
     assert Path(env["CARGO_HOME"]).resolve() == (tmp_path / "tools" / "rust" / "cargo").resolve()
@@ -128,8 +135,15 @@ async def test_ensure_rust_skips_install_when_present(tmp_path: Path, monkeypatc
     monkeypatch.setattr(manager, "_run_logged", fake_run_logged)
     monkeypatch.setattr(manager, "_broadcast_log_line", fake_broadcast)
 
-    env = manager._build_env()
-    await manager._ensure_rust(env)
+    env = compose_rust_env(
+        manager,
+        {"PATH": str(tmp_path / "no-rust-on-path"), "HOME": str(tmp_path / "home")},
+        manager._managed_tools_dir("rust"),
+        candidates=_candidates(tmp_path),
+    )
+    await ensure_rust(
+        manager, env, manager._managed_tools_dir("rust"), candidates=_candidates(tmp_path)
+    )
     assert calls == []
     assert str(cargo_bin.resolve()) in env["PATH"]
 
@@ -157,10 +171,14 @@ async def test_ensure_rust_bootstraps_when_missing(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(manager, "_broadcast_log_line", fake_broadcast)
 
     env = {"PATH": str(tmp_path / "no-rust-on-path"), "HOME": str(tmp_path / "home")}
-    await manager._ensure_rust(env)
+    await ensure_rust(
+        manager, env, manager._managed_tools_dir("rust"), candidates=_candidates(tmp_path)
+    )
     cargo_bin = (tmp_path / "tools" / "rust" / "cargo" / "bin").resolve()
     assert cargo_bin in [Path(p).resolve() for p in env["PATH"].split(os.pathsep) if p]
-    found = manager._discover_rust_bin_dir(env)
+    found = discover_rust_bin_dir(
+        env, manager._managed_tools_dir("rust"), candidates=_candidates(tmp_path)
+    )
     assert found is not None
     assert Path(found).resolve() == cargo_bin
 
@@ -181,4 +199,6 @@ async def test_ensure_rust_raises_when_install_fails(tmp_path: Path, monkeypatch
 
     env = {"PATH": str(tmp_path / "no-rust-on-path"), "HOME": str(tmp_path / "home")}
     with pytest.raises(RuntimeError, match="rustup"):
-        await manager._ensure_rust(env)
+        await ensure_rust(
+            manager, env, manager._managed_tools_dir("rust"), candidates=_candidates(tmp_path)
+        )

@@ -8,7 +8,11 @@
 
     <EngineCheckUpdatesCta
       :loading="checking"
-      :hint="isV100 ? 'Compare the active checkout to the V100 fork main branch.' : 'Compare the active install to the latest PyPI release.'"
+      :hint="
+        isV100
+          ? 'Compare the active checkout to the V100 fork main branch.'
+          : 'Compare the active install to the latest PyPI release.'
+      "
       @check="checkUpdates"
     />
     <EngineUpdateBanner
@@ -19,22 +23,26 @@
       :link-url="updateInfo?.url || projectUrl"
       :link-label="isV100 ? 'View commit' : 'View on PyPI'"
       :updating="installing"
-      :update-tooltip="isV100 ? 'Install the latest fork source as a new environment' : 'Install the latest PyPI version as a new environment'"
+      :update-tooltip="
+        isV100
+          ? 'Install the latest fork source as a new environment'
+          : 'Install the latest PyPI version as a new environment'
+      "
       @update="installUpdate"
     />
 
     <EngineNote v-if="isV100">
       Specialized SGLang fork for NVIDIA V100 / SM70. Studio supplies its versioned Python
-      environment and managed CUDA 12.8 toolkit; the fork installer supplies only its pinned
-      Python dependencies, patched components, SM70 kernels, and smoke tests.
+      environment and managed CUDA 12.8 toolkit; the fork installer supplies only its pinned Python
+      dependencies, patched components, SM70 kernels, and smoke tests.
     </EngineNote>
     <EngineNote v-else-if="isVllm">
-      Vanilla vLLM with its OpenAI-compatible server. Studio provides an isolated,
-      versioned Python environment and binds source builds to the active managed CUDA toolkit.
+      Vanilla vLLM with its OpenAI-compatible server. Studio provides an isolated, versioned Python
+      environment and binds source builds to the active managed CUDA toolkit.
     </EngineNote>
     <EngineNote v-else>
-      Upstream SGLang with OpenAI-compatible serving. Current upstream releases require Python
-      3.10+ and the supported CUDA runtime for that release.
+      Upstream SGLang with OpenAI-compatible serving. Current upstream releases require Python 3.10+
+      and the supported CUDA runtime for that release.
     </EngineNote>
 
     <EngineInstallPanel :subtitle="installSubtitle">
@@ -103,7 +111,13 @@
       </div>
       <template #footer>
         <Button label="Cancel" severity="secondary" outlined @click="settingsVisible = false" />
-        <Button label="Save settings" icon="pi pi-save" :loading="saving" :disabled="saveHeld" @click="saveSettings" />
+        <Button
+          label="Save settings"
+          icon="pi pi-save"
+          :loading="saving"
+          :disabled="saveHeld"
+          @click="saveSettings"
+        />
       </template>
     </Dialog>
 
@@ -118,13 +132,24 @@
         <div class="form-field">
           <label>Version</label>
           <InputText v-model="pipVersion" placeholder="Blank = latest" class="w-full" />
-          <small v-if="isVllm">Installs the selected official vLLM release in a fresh Studio virtual environment.</small>
-          <small v-else>Pre-release dependencies are allowed, matching upstream installation guidance.</small>
+          <small v-if="isVllm"
+            >Installs the selected official vLLM release in a fresh Studio virtual
+            environment.</small
+          >
+          <small v-else
+            >Pre-release dependencies are allowed, matching upstream installation guidance.</small
+          >
         </div>
       </div>
       <template #footer>
         <Button label="Cancel" severity="secondary" outlined @click="pipVisible = false" />
-        <Button label="Install" icon="pi pi-download" severity="success" :loading="installing" @click="installPip" />
+        <Button
+          label="Install"
+          icon="pi pi-download"
+          severity="success"
+          :loading="installing"
+          @click="installPip"
+        />
       </template>
     </Dialog>
 
@@ -150,7 +175,13 @@
       </div>
       <template #footer>
         <Button label="Cancel" severity="secondary" outlined @click="sourceVisible = false" />
-        <Button :label="isV100 ? 'Build' : 'Install'" icon="pi pi-code" severity="info" :loading="installing" @click="installSource" />
+        <Button
+          :label="isV100 ? 'Build' : 'Install'"
+          icon="pi pi-code"
+          severity="info"
+          :loading="installing"
+          @click="installSource"
+        />
       </template>
     </Dialog>
   </section>
@@ -161,7 +192,11 @@ import { computed, onMounted, ref } from 'vue'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
 import PersistenceAlert from '@/components/common/PersistenceAlert.vue'
-import { classifyPersistenceError, noteDocumentSaveFailure, saveHeldForRefresh } from '@/composables/persistenceOutcome'
+import {
+  classifyPersistenceError,
+  noteDocumentSaveFailure,
+  saveHeldForRefresh,
+} from '@/composables/persistenceOutcome'
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
@@ -173,16 +208,21 @@ import EngineNote from './EngineNote.vue'
 import EngineUpdateBanner from './EngineUpdateBanner.vue'
 import EngineVersionsBlock from './EngineVersionsBlock.vue'
 import VersionTable from './VersionTable.vue'
+import { ENGINE_DESCRIPTORS } from '@/engines/registry'
 import { useEnginesStore } from '@/stores/engines'
 import { requireSingleConfirmation } from '@/composables/singleConfirm'
 import { activeVersionDeletePlan } from '@/composables/engineVersionDelete'
-import { withheldConfirmation, versionDeleteErrorText, versionDeleteRetry } from '@/composables/actionConfirmation'
+import {
+  withheldConfirmation,
+  versionDeleteErrorText,
+  versionDeleteRetry,
+} from '@/composables/actionConfirmation'
 
 const props = defineProps({
   engineId: {
     type: String,
     required: true,
-    validator: value => ['sglang', 'sglang_v100', 'vllm'].includes(value),
+    validator: (value) => ENGINE_DESCRIPTORS[value]?.panelFamily === 'sglang',
   },
 })
 
@@ -190,36 +230,33 @@ const store = useEnginesStore()
 const toast = useToast()
 const confirm = useConfirm()
 
-const isV100 = computed(() => props.engineId === 'sglang_v100')
-const isVllm = computed(() => props.engineId === 'vllm')
-const label = computed(() => (isV100.value ? 'SGLang V100' : isVllm.value ? 'vLLM' : 'SGLang'))
-const defaultRepo = computed(() => (
-  isV100.value
-    ? 'https://github.com/haohervchb/sglang-V100.git'
-    : isVllm.value ? 'https://github.com/vllm-project/vllm.git' : 'https://github.com/sgl-project/sglang.git'
-))
-const projectUrl = computed(() => (
-  isV100.value
-    ? 'https://github.com/haohervchb/sglang-V100'
-    : isVllm.value ? 'https://pypi.org/project/vllm/' : 'https://pypi.org/project/sglang/'
-))
-const versions = computed(() => (
-  isV100.value ? store.sglangV100Versions : isVllm.value ? store.vllmVersions : store.sglangVersions
-))
-const status = computed(() => (
-  isV100.value ? store.sglangV100Status : isVllm.value ? store.vllmStatus : store.sglangStatus
-))
-const active = computed(() => versions.value.find(version => version.is_active) || null)
-const installSubtitle = computed(() => (
+const panel = computed(() => ENGINE_DESCRIPTORS[props.engineId]?.panel || {})
+const isV100 = computed(() => panel.value.variant === 'v100')
+const isVllm = computed(() => panel.value.variant === 'vllm')
+const label = computed(() => ENGINE_DESCRIPTORS[props.engineId]?.label || props.engineId)
+const defaultRepo = computed(() => panel.value.defaultRepo || '')
+const projectUrl = computed(() => panel.value.projectUrl || '')
+const versions = computed(() => store.versionsForEngine(props.engineId))
+const status = computed(() => store.statusForEngine(props.engineId))
+const active = computed(() => versions.value.find((version) => version.is_active) || null)
+const installSubtitle = computed(() =>
   isV100.value
     ? 'Build a versioned SM70 environment from the maintained V100 fork.'
-    : 'Add a versioned environment from PyPI or a git source checkout.'
-))
+    : 'Add a versioned environment from PyPI or a git source checkout.',
+)
 const activeRows = computed(() => {
   const rows = []
   if (active.value || status.value?.venv_path) {
-    const kind = active.value?.type || active.value?.install_type || status.value?.install_type || (isV100.value ? 'source' : 'pip')
-    rows.push({ label: 'Install type:', tag: kind, tagSeverity: kind === 'fork' ? 'warning' : 'info' })
+    const kind =
+      active.value?.type ||
+      active.value?.install_type ||
+      status.value?.install_type ||
+      (isV100.value ? 'source' : 'pip')
+    rows.push({
+      label: 'Install type:',
+      tag: kind,
+      tagSeverity: kind === 'fork' ? 'warning' : 'info',
+    })
   }
   if (status.value?.venv_path) rows.push({ label: 'Venv:', code: status.value.venv_path })
   const cudaVersion = active.value?.cuda_version || status.value?.cuda_version
@@ -228,9 +265,13 @@ const activeRows = computed(() => {
     rows.push({ label: 'Studio CUDA:', code: [cudaVersion, cudaPath].filter(Boolean).join(' · ') })
   }
   if (status.value?.source_repo) {
-    rows.push({ label: 'Source:', code: `${status.value.source_repo}${status.value.source_branch ? ` (${status.value.source_branch})` : ''}` })
+    rows.push({
+      label: 'Source:',
+      code: `${status.value.source_repo}${status.value.source_branch ? ` (${status.value.source_branch})` : ''}`,
+    })
   }
-  if (status.value?.last_error) rows.push({ label: 'Last error:', code: status.value.last_error, error: true })
+  if (status.value?.last_error)
+    rows.push({ label: 'Last error:', code: status.value.last_error, error: true })
   return rows
 })
 
@@ -317,7 +358,12 @@ async function saveSettings() {
     applySettings(await store.saveSglangBuildSettings(props.engineId, { ...form.value }))
     settingsVisible.value = false
     saveNotice.value = null
-    toast.add({ severity: 'success', summary: 'Settings saved', detail: `${label.value} install defaults updated.`, life: 2500 })
+    toast.add({
+      severity: 'success',
+      summary: 'Settings saved',
+      detail: `${label.value} install defaults updated.`,
+      life: 2500,
+    })
   } catch (error) {
     form.value = draft
     const outcome = noteDocumentSaveFailure(toast, error)
@@ -329,7 +375,8 @@ async function saveSettings() {
           ? { ...outcome, refresh: false, retry: false }
           : {
               ...outcome,
-              detail: 'The document was replaced, but it could not be reloaded. Your edits are still here. Refresh before trying again.',
+              detail:
+                'The document was replaced, but it could not be reloaded. Your edits are still here. Refresh before trying again.',
               refresh: true,
               retry: false,
             }
@@ -347,14 +394,24 @@ async function checkUpdates() {
   try {
     updateInfo.value = await store.checkSglangUpdates(props.engineId)
   } catch (error) {
-    toast.add({ severity: 'warn', summary: 'Could not check updates', detail: detail(error), life: 4000 })
+    toast.add({
+      severity: 'warn',
+      summary: 'Could not check updates',
+      detail: detail(error),
+      life: 4000,
+    })
   } finally {
     checking.value = false
   }
 }
 
 async function afterInstall(message) {
-  toast.add({ severity: 'success', summary: message, detail: 'Track progress in notifications.', life: 3500 })
+  toast.add({
+    severity: 'success',
+    summary: message,
+    detail: 'Track progress in notifications.',
+    life: 3500,
+  })
   pipVisible.value = false
   sourceVisible.value = false
 }
@@ -362,7 +419,10 @@ async function afterInstall(message) {
 async function installPip() {
   installing.value = true
   try {
-    await store.saveSglangBuildSettings(props.engineId, { ...form.value, pip_version: pipVersion.value })
+    await store.saveSglangBuildSettings(props.engineId, {
+      ...form.value,
+      pip_version: pipVersion.value,
+    })
     await store.installSglang(props.engineId, pipVersion.value ? { version: pipVersion.value } : {})
     await afterInstall(`${label.value} install started`)
   } catch (error) {
@@ -431,7 +491,7 @@ function versionId(versionOrId) {
 function listedVersion(versionOrId) {
   if (versionOrId && typeof versionOrId === 'object') return versionOrId
   const id = versionId(versionOrId)
-  return versions.value.find(version => (version.id ?? version.version) === id) || null
+  return versions.value.find((version) => (version.id ?? version.version) === id) || null
 }
 
 async function activateVersion(versionOrId) {
@@ -440,9 +500,19 @@ async function activateVersion(versionOrId) {
   activating.value = id
   try {
     await store.activateVersion(id)
-    toast.add({ severity: 'success', summary: 'Version activated', detail: version?.version || id, life: 2500 })
+    toast.add({
+      severity: 'success',
+      summary: 'Version activated',
+      detail: version?.version || id,
+      life: 2500,
+    })
   } catch (error) {
-    toast.add({ severity: 'error', summary: 'Activation failed', detail: detail(error), life: 5000 })
+    toast.add({
+      severity: 'error',
+      summary: 'Activation failed',
+      detail: detail(error),
+      life: 5000,
+    })
   } finally {
     activating.value = null
   }
@@ -453,7 +523,12 @@ async function syncVersion(versionOrId) {
   syncing.value = id
   try {
     await store.syncVersion(id)
-    toast.add({ severity: 'success', summary: 'Source sync started', detail: 'Track progress in notifications.', life: 3000 })
+    toast.add({
+      severity: 'success',
+      summary: 'Source sync started',
+      detail: 'Track progress in notifications.',
+      life: 3000,
+    })
   } catch (error) {
     toast.add({ severity: 'error', summary: 'Sync failed', detail: detail(error), life: 5000 })
   } finally {
@@ -466,7 +541,12 @@ async function retryVersion(versionOrId) {
   retrying.value = id
   try {
     await store.retryVersion(id)
-    toast.add({ severity: 'success', summary: 'Retry started', detail: 'Track progress in notifications.', life: 3000 })
+    toast.add({
+      severity: 'success',
+      summary: 'Retry started',
+      detail: 'Track progress in notifications.',
+      life: 3000,
+    })
   } catch (error) {
     toast.add({ severity: 'error', summary: 'Retry failed', detail: detail(error), life: 5000 })
   } finally {
@@ -478,7 +558,12 @@ async function removeVersion(id, version, params) {
   deleting.value = id
   try {
     await store.deleteVersion(id, params)
-    toast.add({ severity: 'info', summary: 'Version deleted', detail: version.version || id, life: 2500 })
+    toast.add({
+      severity: 'info',
+      summary: 'Version deleted',
+      detail: version.version || id,
+      life: 2500,
+    })
   } catch (error) {
     const retry = versionDeleteRetry(error)
     if (retry) {
@@ -491,7 +576,12 @@ async function removeVersion(id, version, params) {
       })
       return
     }
-    toast.add({ severity: 'error', summary: 'Delete failed', detail: versionDeleteErrorText(error), life: 5000 })
+    toast.add({
+      severity: 'error',
+      summary: 'Delete failed',
+      detail: versionDeleteErrorText(error),
+      life: 5000,
+    })
   } finally {
     deleting.value = null
   }

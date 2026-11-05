@@ -2,31 +2,15 @@
 
 import json
 
-import pytest
 
 from backend.audio.families.tts import (
-    is_tts_task,
-    speech_request_field_groups,
     tts_profile_for_family,
 )
 from backend.audio.voice_presets import (
     normalize_default_voice_preset,
-    normalize_voice_preset,
     normalize_voice_presets,
 )
-from backend.tests.audio_profile_fixtures import (
-    TTS_FAMILIES,
-    assert_field_groups_shape,
-    assert_profile_shape,
-)
 
-@pytest.mark.parametrize("family", TTS_FAMILIES)
-def test_tts_profile_exists_for_documented_family(family):
-    assert tts_profile_for_family(family) is None
-
-@pytest.mark.parametrize("family", TTS_FAMILIES)
-def test_speech_field_groups_are_well_formed(family):
-    assert speech_request_field_groups(family) == []
 
 def test_installed_model_spec_types_request_fields_for_any_family(tmp_path):
     from backend.audio.task_profiles import request_field_groups_for
@@ -83,9 +67,7 @@ def test_installed_model_spec_types_request_fields_for_any_family(tmp_path):
     )
 
     speech = request_field_groups_for("tts", "kokoro_tts", source_path=str(tmp_path))
-    speech_fields = {
-        field["key"]: field for group in speech for field in group["fields"]
-    }
+    speech_fields = {field["key"]: field for group in speech for field in group["fields"]}
     assert speech_fields["speed"]["type"] == "float"
     assert speech_fields["speed"]["hint"] == "Playback speed from the installed tree."
 
@@ -109,9 +91,7 @@ def test_installed_model_spec_types_request_fields_for_any_family(tmp_path):
         {
             "family": "kokoro_tts",
             "options": {
-                "session": [
-                    {"name": "reference_duration_sec", "type": "float", "default": 15}
-                ]
+                "session": [{"name": "reference_duration_sec", "type": "float", "default": 15}]
             },
         },
     )
@@ -123,6 +103,7 @@ def test_installed_model_spec_types_request_fields_for_any_family(tmp_path):
     )
     assert session["type"] == "float"
     assert session["scope"] == "session_option"
+
 
 def test_echo_duration_hint_comes_from_model_spec(tmp_path):
     from backend.audio.task_profiles import request_field_groups_for
@@ -156,21 +137,6 @@ def test_echo_duration_hint_comes_from_model_spec(tmp_path):
     assert "29.7215" in fields["max_duration_sec"]["hint"]
     assert fields["max_duration_sec"]["maximum"] == 29.7215
 
-@pytest.mark.parametrize(
-    ("task", "expected"),
-    [
-        ("tts", True),
-        ("clon", True),
-        ("vdes", True),
-        ("vc", False),
-        ("svc", False),
-        ("s2s", False),
-        ("asr", False),
-        ("gen", False),
-    ],
-)
-def test_is_tts_task(task, expected):
-    assert is_tts_task(task) is expected
 
 def test_normalize_voice_presets_resolve_relative_paths(tmp_path):
     model_root = tmp_path / "bundle"
@@ -190,15 +156,10 @@ def test_normalize_voice_presets_resolve_relative_paths(tmp_path):
     assert presets["assistant"]["voice_ref"] == str(wav.resolve())
     assert presets["assistant"]["reference_text"] == "Hello there."
 
-def test_normalize_default_voice_preset_accepts_named_preset():
-    assert (
-        normalize_default_voice_preset("assistant", model_root="/tmp")
-        == "assistant"
-    )
 
-def test_unknown_tts_family_returns_empty_groups():
-    assert tts_profile_for_family("unknown_tts") is None
-    assert speech_request_field_groups("unknown_tts") == []
+def test_normalize_default_voice_preset_accepts_named_preset():
+    assert normalize_default_voice_preset("assistant", model_root="/tmp") == "assistant"
+
 
 def test_installed_spec_replaces_studio_profile_prose(tmp_path):
     from backend.audio.task_profiles import overlay_task_profile_from_spec

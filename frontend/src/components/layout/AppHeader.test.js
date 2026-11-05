@@ -20,11 +20,12 @@ function mountHeader(props = {}) {
 }
 
 describe('AppHeader', () => {
-  it('shows a healthy Studio proxy indicator and links to the configured UI port', () => {
+  it('shows a healthy proxy indicator and opens management inside Studio', () => {
     const wrapper = mountHeader({ proxyStatus: { healthy: true, port: 2345 } })
 
     expect(wrapper.get('.status-light').classes()).toContain('status-light--online')
     expect(wrapper.get('a.proxy-link').attributes('href')).toBe('/proxy')
+    expect(wrapper.get('a.proxy-link').attributes('target')).toBeUndefined()
     expect(wrapper.text()).toContain('Studio')
   })
 
@@ -36,13 +37,5 @@ describe('AppHeader', () => {
 
     await wrapper.setProps({ proxyStatus: { healthy: false } })
     expect(wrapper.get('.status-light').classes()).toContain('status-light--offline')
-  })
-
-  it('opens Studio proxy management inside Studio', () => {
-    const wrapper = mountHeader({ proxyStatus: { healthy: true, backend: 'studio' } })
-
-    expect(wrapper.get('a.proxy-link').attributes('href')).toBe('/proxy')
-    expect(wrapper.get('a.proxy-link').attributes('target')).toBeUndefined()
-    expect(wrapper.text()).toContain('Studio')
   })
 })

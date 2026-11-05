@@ -1,5 +1,7 @@
 """Native audio.cpp build planning, validation, and cancellation."""
 
+import pathlib
+
 import pytest
 
 from backend.engines.audio_cpp.manager import (
@@ -16,6 +18,24 @@ from backend.task_cancel_registry import (
     request_task_cancel,
     unregister_task_cancel,
 )
+
+
+def test_pre_host_dead_helpers_stay_removed():
+    """R83: helpers the definition-driven native host superseded stay gone."""
+    source = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "backend"
+        / "engines"
+        / "audio_cpp"
+        / "manager.py"
+    ).read_text(encoding="utf-8")
+    for name in (
+        "_safe_slug",
+        "_valid_repository_url",
+        "_binary_candidates",
+        "_find_binary",
+    ):
+        assert name not in source, name
 
 
 def test_cmake_plan_selects_one_backend_and_both_runtime_targets(tmp_path, monkeypatch):
@@ -112,14 +132,19 @@ def test_backend_name_follows_cuda_toggle(tmp_path):
 
 
 def test_cancelled_build_fails_before_spawning_process(tmp_path):
-    manager = AudioCppManager(str(tmp_path / "audio-cpp"))
+    """The host refuses a cancelled task before spawning (shared runner path)."""
+    from backend.engines.audio_cpp.installer import AudioCppInstaller
+
+    installer = AudioCppInstaller(install_root=str(tmp_path / "builds"))
     task_id = "cancel-build"
     register_task_cancel(task_id)
     request_task_cancel(task_id)
     try:
+        installer._progress_task_id = task_id
         with pytest.raises(TaskCancelledError, match="cancelled"):
-            manager._raise_if_cancelled(task_id)
+            installer._raise_if_cancelled()
     finally:
+        installer._progress_task_id = None
         unregister_task_cancel(task_id)
 
 
@@ -129,39 +154,46 @@ def test_default_tracking_ref_is_main():
 
 @pytest.mark.asyncio
 async def test_sync_source_requires_existing_checkout(tmp_path):
-    manager = AudioCppManager(str(tmp_path / "audio-cpp"))
+    from backend.engines.audio_cpp.installer import AudioCppInstaller
+    from backend.engines.definitions.executor import PrimitiveExecutionError
 
-    with pytest.raises(ValueError, match="metadata is incomplete"):
-        await manager.sync_source(version_entry={}, branch="release-0.2")
+    installer = AudioCppInstaller(install_root=str(tmp_path / "audio-cpp" / "builds"))
+
+    with pytest.raises(PrimitiveExecutionError, match="metadata is incomplete"):
+        await installer._inspect_sync_target(None, {}, {"input.version_entry": {}})
 
     source_dir = tmp_path / "audio-cpp" / "builds" / "source-test" / "source"
     source_dir.mkdir(parents=True)
-    with pytest.raises(ValueError, match="checkout not found"):
-        await manager.sync_source(
-            version_entry={"version": "source-test", "source_path": str(source_dir)},
-            branch="release-0.2",
+    with pytest.raises(PrimitiveExecutionError, match="checkout not found"):
+        await installer._inspect_sync_target(
+            None,
+            {},
+            {
+                "input.version_entry": {
+                    "version": "source-test",
+                    "source_path": str(source_dir),
+                }
+            },
         )
 
 
 @pytest.mark.asyncio
-async def test_sync_and_clone_use_https_instead_of_ssh(tmp_path, monkeypatch):
-    manager = AudioCppManager(str(tmp_path / "audio-cpp"))
+async def test_sync_and_clone_use_https_instead_of_ssh(tmp_path):
+    from backend.engines.audio_cpp.manager import sync_git_checkout
+
     source_dir = tmp_path / "audio-cpp" / "builds" / "source-test" / "source"
     source_dir.mkdir(parents=True)
     (source_dir / ".git").mkdir()
     seen = []
 
-    async def fake_run(argv, **kwargs):
+    async def fake_run(argv, *, stage, progress):
         seen.append(list(argv))
         return []
 
     async def fake_emit(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr(manager, "_run_streaming", fake_run)
-    monkeypatch.setattr(manager, "_emit", fake_emit)
-
-    await manager._sync_git_checkout(str(source_dir), "main", task_id=None, progress_manager=None)
+    await sync_git_checkout(source_dir=str(source_dir), branch="main", run=fake_run, emit=fake_emit)
     network = [argv for argv in seen if is_network_git_command(argv)]
     assert network
     assert all(argv[:5] == git_argv("unused")[:5] for argv in network)
@@ -191,7 +223,10 @@ def test_local_checkout_is_allowed_for_sync(tmp_path):
 
     outsider = tmp_path / "other" / "src"
     outsider.mkdir(parents=True)
-    assert manager._allowed_sync_source_dir(
-        str(outsider),
-        {**version, "source_path": str(outsider)},
-    ) is False
+    assert (
+        manager._allowed_sync_source_dir(
+            str(outsider),
+            {**version, "source_path": str(outsider)},
+        )
+        is False
+    )

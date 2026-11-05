@@ -1,5 +1,10 @@
-"""
-Catalog of audio.cpp CMake build options.
+"""audio.cpp's CMake build-option surface, derived from engine data.
+
+The catalog itself (option table, UI categories, build types, primary keys) is
+engine DATA: it lives on the engine spec (`EngineSpec.build_options`), is
+exported into the generated definition, and everything here derives from it.
+This module keeps only the behavior: coercion/defaults, the suggested backend,
+the UI payload and the dependency predicate.
 
 Aligned with upstream 0xShug0/audio.cpp CMakeLists.txt (ENGINE_* / AUDIOCPP_*).
 """
@@ -8,6 +13,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence
+
+ENGINE_ID = "audio_cpp"
 
 
 @dataclass(frozen=True)
@@ -25,143 +32,68 @@ class AudioBuildOptionDef:
     special: Optional[str] = None
 
 
-CATEGORIES: Sequence[Dict[str, Any]] = (
-    {"id": "backends", "label": "GPU & compute backends", "collapsed": False},
-    {"id": "cuda", "label": "CUDA options", "collapsed": True},
-    {"id": "artifacts", "label": "Build artifacts", "collapsed": True},
-    {"id": "cpu", "label": "CPU options", "collapsed": True},
-    {"id": "models", "label": "Model set", "collapsed": True},
-    {"id": "advanced", "label": "Advanced", "collapsed": True},
-)
+def _catalog_data() -> Dict[str, Any]:
+    from backend.engines.registry import get_engine_spec
 
-CATEGORY_REQUIRES: Dict[str, str] = {
-    "cuda": "cuda",
-}
-
-PRIMARY_BACKEND_KEYS = frozenset({"cuda"})
+    spec = get_engine_spec(ENGINE_ID)
+    data = dict(spec.build_options) if spec is not None else {}
+    if not data:
+        raise RuntimeError("audio.cpp build-option catalog is unavailable")
+    return data
 
 
-def _b(
-    key: str,
-    field: str,
-    default: bool,
-    label: str,
-    desc: str,
-    category: str,
-    cmake: Optional[str] = None,
-    requires: Optional[str] = None,
-    special: Optional[str] = None,
-) -> AudioBuildOptionDef:
-    return AudioBuildOptionDef(
-        key=key,
-        field=field,
-        kind="bool",
-        default=default,
-        label=label,
-        desc=desc,
-        category=category,
-        cmake=cmake,
-        requires=requires,
-        special=special,
-    )
+def build_types() -> tuple:
+    return tuple(_catalog_data().get("build_types") or ())
 
 
-def _s(
-    key: str,
-    field: str,
-    default: str,
-    label: str,
-    desc: str,
-    category: str,
-    cmake: Optional[str] = None,
-    requires: Optional[str] = None,
-    special: Optional[str] = None,
-    enum_values: Optional[tuple] = None,
-) -> AudioBuildOptionDef:
-    return AudioBuildOptionDef(
-        key=key,
-        field=field,
-        kind="enum" if enum_values else "str",
-        default=default,
-        label=label,
-        desc=desc,
-        category=category,
-        cmake=cmake,
-        requires=requires,
-        special=special,
-        enum_values=enum_values,
-    )
+def build_options() -> tuple:
+    options = []
+    for raw in _catalog_data().get("options") or ():
+        options.append(
+            AudioBuildOptionDef(
+                key=str(raw["key"]),
+                field=str(raw["field"]),
+                kind=str(raw["kind"]),
+                default=raw.get("default"),
+                label=str(raw["label"]),
+                desc=str(raw["desc"]),
+                category=str(raw["category"]),
+                cmake=raw.get("cmake"),
+                requires=raw.get("requires"),
+                enum_values=tuple(raw["enum_values"]) if raw.get("enum_values") else None,
+                special=raw.get("special"),
+            )
+        )
+    return tuple(options)
 
 
-def _i(
-    key: str,
-    field: str,
-    default: int,
-    label: str,
-    desc: str,
-    category: str,
-    special: Optional[str] = None,
-) -> AudioBuildOptionDef:
-    return AudioBuildOptionDef(
-        key=key,
-        field=field,
-        kind="int",
-        default=default,
-        label=label,
-        desc=desc,
-        category=category,
-        special=special,
-    )
+def categories() -> tuple:
+    return tuple(dict(item) for item in (_catalog_data().get("categories") or ()))
 
 
-BUILD_TYPE_DEFAULT = "RelWithDebInfo"
-BUILD_TYPE_VALUES = ("Debug", "Release", "RelWithDebInfo", "MinSizeRel")
+def option_by_key() -> Dict[str, AudioBuildOptionDef]:
+    return {option.key: option for option in build_options()}
 
-# fmt: off
-BUILD_OPTIONS: tuple[AudioBuildOptionDef, ...] = (
-    # Backends (Studio: CPU + CUDA only)
-    _b("cuda", "cuda", False, "CUDA", "ENGINE_ENABLE_CUDA — NVIDIA GPU (optimized path)", "backends", "ENGINE_ENABLE_CUDA", special="backend"),
 
-    # CUDA
-    _b("cuda_graphs", "cuda_graphs", True, "CUDA graphs", "ENGINE_ENABLE_CUDA_GRAPHS", "cuda", "ENGINE_ENABLE_CUDA_GRAPHS", requires="cuda"),
+def primary_keys() -> frozenset:
+    return frozenset(_catalog_data().get("primary_keys") or ())
 
-    # Artifacts
-    _b("build_tests", "build_tests", False, "Tests", "ENGINE_BUILD_TESTS", "artifacts", "ENGINE_BUILD_TESTS"),
-    _b("build_extended_tests", "build_extended_tests", False, "Extended tests", "ENGINE_BUILD_EXTENDED_TESTS — non-model probes", "artifacts", "ENGINE_BUILD_EXTENDED_TESTS"),
-    _b("build_model_tests", "build_model_tests", False, "Model tests", "ENGINE_BUILD_MODEL_TESTS — family-specific probes", "artifacts", "ENGINE_BUILD_MODEL_TESTS"),
-    _b("build_examples", "build_examples", False, "Examples", "ENGINE_BUILD_EXAMPLES", "artifacts", "ENGINE_BUILD_EXAMPLES"),
-    _b("build_warmbench", "build_warmbench", False, "Warmbench", "ENGINE_BUILD_WARMBENCH", "artifacts", "ENGINE_BUILD_WARMBENCH"),
-    _b("deployment_build", "deployment_build", False, "Deployment build", "AUDIOCPP_DEPLOYMENT_BUILD — embed model specs in binaries", "artifacts", "AUDIOCPP_DEPLOYMENT_BUILD"),
-    _b("native_model_manager", "native_model_manager", False, "Native model manager", "AUDIOCPP_BUILD_NATIVE_MODEL_MANAGER — server download/install (default off upstream)", "artifacts", "AUDIOCPP_BUILD_NATIVE_MODEL_MANAGER"),
-    _b("use_system_openssl", "use_system_openssl", False, "System OpenSSL", "AUDIOCPP_USE_SYSTEM_OPENSSL — requires native model manager", "artifacts", "AUDIOCPP_USE_SYSTEM_OPENSSL", requires="native_model_manager"),
-    _b("build_server_frontends", "build_server_frontends", False, "Server frontends", "AUDIOCPP_BUILD_SERVER_FRONTENDS — optional in-process UI adapters", "artifacts", "AUDIOCPP_BUILD_SERVER_FRONTENDS"),
-    _b("build_c_api", "build_c_api", False, "C ABI", "AUDIOCPP_BUILD_C_API — opt-in libaudiocpp shared library", "artifacts", "AUDIOCPP_BUILD_C_API"),
-    _b("static_espeak", "static_espeak", False, "Static eSpeak-ng", "AUDIOCPP_STATIC_ESPEAK — statically link GPL eSpeak for phonemization (data stays separate)", "artifacts", "AUDIOCPP_STATIC_ESPEAK"),
 
-    # CPU
-    _b("native_cpu", "native_cpu", True, "Native CPU", "ENGINE_ENABLE_NATIVE_CPU — -march=native", "cpu", "ENGINE_ENABLE_NATIVE_CPU"),
-    _b("openmp", "openmp", True, "OpenMP", "ENGINE_ENABLE_OPENMP", "cpu", "ENGINE_ENABLE_OPENMP"),
-    _b("llamafile", "llamafile", True, "llamafile", "ENGINE_ENABLE_LLAMAFILE — SGEMM", "cpu", "ENGINE_ENABLE_LLAMAFILE"),
-    _b("cpu_all_variants", "cpu_all_variants", False, "CPU all variants", "ENGINE_ENABLE_CPU_ALL_VARIANTS", "cpu", "ENGINE_ENABLE_CPU_ALL_VARIANTS"),
-
-    # Model set
-    _s("model_set", "model_set", "full", "Model set", "AUDIOCPP_MODEL_SET", "models", "AUDIOCPP_MODEL_SET", enum_values=("full", "core", "custom")),
-    _s("models", "models", "", "Custom models", "AUDIOCPP_MODELS — comma-separated when model set is custom", "models", "AUDIOCPP_MODELS", requires="model_set_custom"),
-
-    # Advanced
-    _i("jobs", "jobs", 0, "Parallel jobs", "0 = automatic (nproc)", "advanced", special="jobs"),
-    _s("custom_cmake_args", "custom_cmake_args", "", "Custom CMake args", "Extra args appended to cmake (shlex)", "advanced", special="custom_cmake"),
-    _s("cflags", "cflags", "", "CFLAGS", "Passed via CFLAGS env", "advanced", special="cflags"),
-    _s("cxxflags", "cxxflags", "", "CXXFLAGS", "Passed via CXXFLAGS env", "advanced", special="cxxflags"),
-)
-# fmt: on
-
-OPTION_BY_KEY: Dict[str, AudioBuildOptionDef] = {o.key: o for o in BUILD_OPTIONS}
+def category_requires() -> Dict[str, str]:
+    return {
+        str(category["id"]): str(category["requires"])
+        for category in categories()
+        if category.get("requires")
+    }
 
 
 def default_build_settings() -> Dict[str, Any]:
-    out: Dict[str, Any] = {"build_type": BUILD_TYPE_DEFAULT}
-    for opt in BUILD_OPTIONS:
+    data = _catalog_data()
+    default_build_type = str(
+        data.get("build_type_default") or (data.get("build_types") or ["RelWithDebInfo"])[0]
+    )
+    out: Dict[str, Any] = {"build_type": default_build_type}
+    for opt in build_options():
         out[opt.key] = opt.default
     out["backend"] = "cpu"
     return out
@@ -190,11 +122,11 @@ def coerce_build_settings(settings: Optional[dict]) -> Dict[str, Any]:
 
     out = dict(base)
     build_type = _str(settings.get("build_type"), base["build_type"])
-    if build_type not in BUILD_TYPE_VALUES:
+    if build_type not in build_types():
         build_type = base["build_type"]
     out["build_type"] = build_type
 
-    for opt in BUILD_OPTIONS:
+    for opt in build_options():
         raw = settings.get(opt.key, base[opt.key])
         if opt.kind == "bool":
             out[opt.key] = _bool(raw)
@@ -210,23 +142,37 @@ def coerce_build_settings(settings: Optional[dict]) -> Dict[str, Any]:
     return out
 
 
+def backend_option_key() -> str:
+    """The catalog option that selects the build backend (``special: backend``)."""
+    for option in build_options():
+        if option.special == "backend":
+            return option.key
+    return "cuda"
+
+
 def derived_backend(settings: dict) -> str:
-    if settings.get("cuda"):
+    if settings.get(backend_option_key()):
         return "cuda"
     return "cpu"
 
 
 def settings_to_field_kwargs(settings: dict) -> Dict[str, Any]:
     normalized = coerce_build_settings(settings)
-    kwargs: Dict[str, Any] = {"build_type": normalized["build_type"], "backend": normalized["backend"]}
-    for opt in BUILD_OPTIONS:
+    kwargs: Dict[str, Any] = {
+        "build_type": normalized["build_type"],
+        "backend": normalized["backend"],
+    }
+    for opt in build_options():
         kwargs[opt.field] = normalized[opt.key]
     return kwargs
 
 
 def catalog_for_ui() -> Dict[str, Any]:
-    by_cat: Dict[str, List[dict]] = {c["id"]: [] for c in CATEGORIES}
-    for opt in BUILD_OPTIONS:
+    catalog_categories = categories()
+    primary = primary_keys()
+    category_reqs = category_requires()
+    by_cat: Dict[str, List[dict]] = {c["id"]: [] for c in catalog_categories}
+    for opt in build_options():
         entry = {
             "key": opt.key,
             "type": opt.kind,
@@ -235,32 +181,32 @@ def catalog_for_ui() -> Dict[str, Any]:
             "default": opt.default,
             "requires": opt.requires,
             "cmake": opt.cmake,
-            "primary": opt.category != "backends" or opt.key in PRIMARY_BACKEND_KEYS,
+            "primary": opt.category != "backends" or opt.key in primary,
         }
         if opt.enum_values:
             entry["enum_values"] = list(opt.enum_values)
         by_cat.setdefault(opt.category, []).append(entry)
 
-    categories = []
-    for cat in CATEGORIES:
+    rendered = []
+    for cat in catalog_categories:
         options = by_cat.get(cat["id"]) or []
         if not options:
             continue
-        categories.append(
+        rendered.append(
             {
                 "id": cat["id"],
                 "label": cat["label"],
-                "requires": CATEGORY_REQUIRES.get(cat["id"]),
+                "requires": category_reqs.get(cat["id"]),
                 "collapsed": bool(cat.get("collapsed", True)),
                 "options": options,
             }
         )
 
     return {
-        "engine": "audio_cpp",
-        "categories": categories,
+        "engine": ENGINE_ID,
+        "categories": rendered,
         "defaults": default_build_settings(),
-        "build_types": list(BUILD_TYPE_VALUES),
+        "build_types": list(build_types()),
     }
 
 

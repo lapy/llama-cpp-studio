@@ -1,0 +1,46 @@
+# Self-contained development stack: one unprivileged application container with
+# its own checkout, state, data, SSH, MCP, and hot-reload processes. It has no
+# Docker socket and no host code/state bind mounts.
+#
+#   scripts/agent-dev/build-standalone.sh
+#   docker compose -f scripts/agent-dev/standalone.compose.yaml up -d
+#   docker cp agent_key.pub studio-dev:/state/authorized_keys
+#
+# Named volumes are the default for the workspace, data, state, and models.
+# Add the optional model/GPU overlays only when you want host resources.
+name: ${STUDIO_STANDALONE_PROJECT:-studio-dev}
+
+services:
+  studio:
+    image: ${STUDIO_STANDALONE_IMAGE:-llama-cpp-studio:standalone}
+    container_name: studio-dev
+    restart: unless-stopped
+    init: true
+    # vLLM, SGLang and LMDeploy's multiprocess engines need shared memory;
+    # Docker's 64 MB default kills their worker processes.
+    shm_size: ${STUDIO_SHM_SIZE:-8gb}
+    stop_grace_period: 60s
+    ports:
+      # SSH is the control surface. Vite stays on loopback for SSH tunnels.
+      - "${STUDIO_SSH_BIND:-0.0.0.0}:${STUDIO_SSH_PORT:-2222}:2222"
+      - "${STUDIO_FRONTEND_BIND:-127.0.0.1}:${STUDIO_FRONTEND_PORT:-15173}:5173"
+    volumes:
+      - workspace:/workspace
+      - data:/data
+      - state:/state
+      - models:/models
+    environment:
+      # Optional: clone a repository instead of using the image's source
+      # snapshot. The snapshot is used when STUDIO_REPO_URL is empty.
+      STUDIO_REPO_URL: ${STUDIO_REPO_URL:-}
+      STUDIO_REPO_REF: ${STUDIO_REPO_REF:-}
+      VITE_PRIMEUI_LICENSE: ${VITE_PRIMEUI_LICENSE:-}
+      # Optional automation path; otherwise docker cp the key into
+      # /state/authorized_keys after the container starts.
+      STUDIO_AUTHORIZED_KEYS_TEXT: ${STUDIO_AUTHORIZED_KEYS_TEXT:-}
+
+volumes:
+  workspace:
+  data:
+  state:
+  models:

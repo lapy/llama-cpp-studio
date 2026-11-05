@@ -1,0 +1,21 @@
+{
+  "name": "llama-cpp-studio-dev",
+  "dockerComposeFile": "../docker-compose.dev.yml",
+  "service": "studio-dev",
+  "workspaceFolder": "/app",
+  "shutdownComposeEditorOnExit": true,
+  "forwardPorts": [5173, 8080, 8081, 2000],
+  "remoteUser": "root",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "Vue.volar",
+        "ms-python.python",
+        "charliermarsh.ruff",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "stylelint.vscode-stylelint"
+      ]
+    }
+  }
+}

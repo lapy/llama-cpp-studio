@@ -1,54 +1,48 @@
-"""Persisted install/build defaults for Python virtual-environment engines."""
+"""Persisted install/build defaults for Python virtual-environment engines.
+
+The frozen per-engine defaults (source repo/branch/version) are engine DATA: they
+live on the engine spec (`EngineSpec.settings_defaults`), are exported into the
+generated definitions, and are read from the spec here. Authoritative (YAML-only)
+engines register theirs at startup through ``register_engine_install_settings``
+from their definition's ``settings_defaults`` block.
+"""
 
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from backend.engines.registry import get_engine_spec
+# Authoritative (YAML-only) engine registrations. Generated engines never land
+# here: their defaults come from the spec. Kept module-level so startup wiring
+# and tests can isolate registrations by patching this dict.
+_ENGINE_DEFAULTS: Dict[str, Dict[str, Any]] = {}
 
-LMDEPLOY_DEFAULTS: Dict[str, Any] = {
-    "source_repo": "https://github.com/InternLM/lmdeploy.git",
-    "source_branch": "main",
-    "pip_version": "",
-}
 
-ONECAT_VLLM_DEFAULTS: Dict[str, Any] = {
-    "source_repo": "https://github.com/1CatAI/1Cat-vLLM.git",
-    "source_branch": "main",
-    "release_version": "",
-}
+def _declared_defaults(engine_id: str) -> Dict[str, Any]:
+    from backend.engines.registry import get_engine_spec
 
-SGLANG_DEFAULTS: Dict[str, Any] = {
-    "source_repo": "https://github.com/sgl-project/sglang.git",
-    "source_branch": "main",
-    "pip_version": "",
-}
-
-VLLM_DEFAULTS: Dict[str, Any] = {
-    "source_repo": "https://github.com/vllm-project/vllm.git",
-    "source_branch": "main",
-    "pip_version": "",
-}
-
-SGLANG_V100_DEFAULTS: Dict[str, Any] = {
-    "source_repo": "https://github.com/haohervchb/sglang-V100.git",
-    "source_branch": "main",
-}
-
-_ENGINE_DEFAULTS = {
-    "lmdeploy": LMDEPLOY_DEFAULTS,
-    "1cat_vllm": ONECAT_VLLM_DEFAULTS,
-    "sglang": SGLANG_DEFAULTS,
-    "sglang_v100": SGLANG_V100_DEFAULTS,
-    "vllm": VLLM_DEFAULTS,
-}
+    spec = get_engine_spec(str(engine_id or ""))
+    if spec is None:
+        return {}
+    return dict(spec.settings_defaults)
 
 
 def default_install_settings(engine_id: str) -> Dict[str, Any]:
-    defaults = _ENGINE_DEFAULTS.get(str(engine_id or ""))
-    if not defaults:
+    registered = _ENGINE_DEFAULTS.get(str(engine_id or ""))
+    if registered:
+        return dict(registered)
+    declared = _declared_defaults(engine_id)
+    if not declared:
         raise ValueError(f"No install settings defaults for engine: {engine_id}")
-    return dict(defaults)
+    return declared
+
+
+def register_engine_install_settings(engine_id: str, defaults: Dict[str, Any]) -> None:
+    """YAML campaign S3: authoritative (YAML-only) engines declare their
+    install-settings defaults through the definition lifecycle section;
+    ``register_definition_lifecycles`` funnels them in at startup so the
+    shared HTTP surface's ``_saved()``/settings verbs work with zero code.
+    Generated engines declare theirs on the spec instead."""
+    _ENGINE_DEFAULTS[str(engine_id)] = dict(defaults)
 
 
 def coerce_install_settings(engine_id: str, settings: Optional[dict]) -> Dict[str, Any]:
@@ -59,6 +53,12 @@ def coerce_install_settings(engine_id: str, settings: Optional[dict]) -> Dict[st
         if key not in raw:
             continue
         value = raw.get(key)
+        if isinstance(base[key], bool):
+            if isinstance(value, str):
+                out[key] = value.strip().lower() in {"1", "true", "yes", "on"}
+            else:
+                out[key] = bool(value)
+            continue
         if value is None:
             out[key] = ""
         else:
@@ -72,8 +72,10 @@ def coerce_install_settings(engine_id: str, settings: Optional[dict]) -> Dict[st
 
 
 def assert_venv_engine(engine_id: str) -> None:
+    from backend.engines.registry import get_engine_spec
+
     spec = get_engine_spec(engine_id)
     if not spec or spec.install_kind != "python_venv":
         raise ValueError(f"Engine is not a python_venv installer: {engine_id}")
-    if engine_id not in _ENGINE_DEFAULTS:
+    if not _declared_defaults(engine_id) and engine_id not in _ENGINE_DEFAULTS:
         raise ValueError(f"No install settings defaults for engine: {engine_id}")

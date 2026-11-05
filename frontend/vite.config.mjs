@@ -84,12 +84,12 @@ export default defineConfig(({ command, mode }) => {
       proxy: {
         '/api': {
           // Use IPv4 loopback so Node on Windows does not hit ::1 while Uvicorn is on IPv4 only.
-          target: 'http://127.0.0.1:8081',
+          target: process.env.VITE_DEV_BACKEND_URL || 'http://127.0.0.1:8081',
           changeOrigin: true,
         },
         // Approach A: Studio OpenAI audio proxy (ASR convert + speech passthrough)
         '/v1': {
-          target: 'http://127.0.0.1:8081',
+          target: process.env.VITE_DEV_BACKEND_URL || 'http://127.0.0.1:8081',
           changeOrigin: true,
         },
       },

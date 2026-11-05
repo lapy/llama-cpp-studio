@@ -1,0 +1,67 @@
+# Long-lived Linux dev container for working on the repo itself.
+#
+#   docker compose -f docker-compose.dev.yml up -d --build
+#   docker compose -f docker-compose.dev.yml exec studio-dev bash
+#
+# The whole repo is mounted at /app; Python deps come from the image venv
+# (/opt/venv) plus requirements-dev.lock (installed on every start), and npm
+# deps install once into a named volume so the Windows node_modules on the
+# host (win32 binaries) are never used inside the container.
+services:
+  studio-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        # The runtime stage COPYs the Vite bundle, so the builder stage must
+        # produce one even though the repo bind-mount hides it at runtime (dev
+        # uses the Vite dev server on :5173). vite.config.mjs only requires a
+        # non-empty license for `vite build`; this placeholder satisfies that
+        # gate for a discarded local artifact. To use a real license, set
+        # VITE_PRIMEUI_LICENSE to it; to rely on frontend/.env.local instead,
+        # set VITE_PRIMEUI_LICENSE to the empty string (the placeholder is
+        # then not substituted).
+        VITE_PRIMEUI_LICENSE: ${VITE_PRIMEUI_LICENSE-dev-placeholder-not-for-distribution}
+    image: llama-cpp-studio:dev
+    container_name: llama-cpp-studio-dev
+    # Dev container convenience: root can extend the image venv (/opt/venv).
+    # Production images still run as the unprivileged appuser.
+    user: root
+    working_dir: /app
+    volumes:
+      - ./:/app
+      - studio-dev-node-modules:/app/node_modules
+    ports:
+      # Loopback on the host. Host-side ports are overridable in .env because
+      # Windows/Hyper-V can reserve dynamic ranges (on this machine 1982-2081
+      # swallows 2000). Container-side ports always match production.
+      - "127.0.0.1:${STUDIO_DEV_APP_PORT:-8080}:8080"    # full app (python backend/main.py)
+      - "127.0.0.1:${STUDIO_DEV_BACKEND_PORT:-8081}:8081" # dev backend (uvicorn)
+      - "127.0.0.1:5173:5173"                            # Vite dev server
+      - "127.0.0.1:${STUDIO_DEV_PROXY_PORT:-2000}:2000"  # native inference proxy
+    environment:
+      - PYTHONPATH=/app
+      - RELOAD=true
+      - HF_HUB_ENABLE_HF_TRANSFER=1
+      - CUDA_VISIBLE_DEVICES=
+      # Uncomment for GPU work (requires the NVIDIA-enabled Docker Desktop / WSL2 backend):
+      # - CUDA_VISIBLE_DEVICES=0
+      - VITE_PRIMEUI_LICENSE=${VITE_PRIMEUI_LICENSE:-}
+    # Keep the default entrypoint (tini + docker-entrypoint.sh): it sets up the
+    # CUDA environment and forwards to this command.
+    command: >-
+      /bin/bash -lc "
+      sed -i 's/\r$$//' /app/scripts/dev-init.sh 2>/dev/null || true;
+      bash /app/scripts/dev-init.sh || echo 'dev-init failed; inspect manually';
+      exec sleep infinity
+      "
+    init: false
+    restart: unless-stopped
+    # The image healthcheck probes the app on :8080; this is a keep-alive dev
+    # container, so the app only listens when you start it.
+    healthcheck:
+      disable: true
+
+volumes:
+  studio-dev-node-modules:

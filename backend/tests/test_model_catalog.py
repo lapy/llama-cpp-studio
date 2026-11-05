@@ -424,13 +424,16 @@ def test_huggingface_catalog_treats_sglang_and_vllm_as_safetensors():
         {"id": "org/model", "name": "org/model"},
         "safetensors",
     )
-    assert item["compatible_engines"] == [
+    # Order follows registry declaration order (definition-owned engines load
+    # after the literal map); the compatibility SET is the catalog contract.
+    assert set(item["compatible_engines"]) == {
         "lmdeploy",
         "1cat_vllm",
         "vllm",
         "sglang",
         "sglang_v100",
-    ]
+    }
+    assert "audio_cpp" not in item["compatible_engines"]
     assert item["artifact_format"] == "safetensors"
     assert item["package_kind"] == "hf_snapshot"
 

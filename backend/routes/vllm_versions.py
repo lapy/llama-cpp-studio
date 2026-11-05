@@ -1,14 +1,11 @@
-from backend.engines.vllm import get_vllm_manager
-from backend.routes.engine_versions import pypi_updates, python_engine_router
+"""Compatibility URLs for a definition-owned engine.
 
+Every installer/update/status fact comes from the engine's authoritative
+definition in ``backend/engines/definitions/``; this module keeps the historic
+``/vllm`` prefix alive as a thin delegate over the same lifecycle record the
+generic ``/api/engines/vllm/...`` surface serves.
+"""
 
-def _installer():
-    return get_vllm_manager()
+from backend.routes.engine_versions import definition_compat_router
 
-
-router = python_engine_router(
-    engine_id="vllm",
-    url_prefix="/vllm",
-    get_installer=_installer,
-    update_source=pypi_updates("vllm"),
-)
+router = definition_compat_router("vllm", "/vllm")

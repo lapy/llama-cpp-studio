@@ -1,0 +1,718 @@
+# AUTHORITATIVE engine definition (hand-authored; NOT exported).
+#
+# audio.cpp is definition-owned: identity, install/source/sync/removal recipes,
+# build-option catalog, protocol/artifact contract, extension surfaces,
+# request-default vocabularies, model compatibility and catalogue policy live
+# here. The discovery/composition algorithms, voices and model management stay
+# code because they compute from the installed binary and model specs.
+schema_version: 2
+id: audio_cpp
+label: audio.cpp
+repository_source: audio.cpp
+install_kind: cmake
+runtime_kind: audio_cpp
+scanner_kind: audio_cpp
+discovery:
+  # audio.cpp probing is the shared audio contract/inspect mechanism.
+  mode: adapter
+active_path_fields:
+- server_binary_path
+- cli_binary_path
+artifact_formats:
+- builtin
+- mixed
+- original
+- safetensors
+package_kinds:
+- builtin
+- hf_snapshot
+- prepared_bundle
+tasks:
+- align
+- asr
+- clon
+- diar
+- gen
+- pipeline
+- s2s
+- sep
+- spk
+- svc
+- tts
+- vad
+- vc
+- vdes
+input_modalities:
+- audio
+- text
+output_modalities:
+- audio
+- events
+- segments
+- text
+maturity_surfaces:
+  speech_asr: stable
+  generic_tasks: stable
+  catalog_json: stable
+  heuristic_discovery: experimental
+recipes:
+  prebuilt:
+  - id: download_archive
+    uses: archive.download
+    requires:
+    - input.plan_url
+    - input.download_label
+    - input.archive_path
+    with:
+      url_from: input.plan_url
+      path_from: input.archive_path
+      progress: 15
+      progress_message_from: input.download_label
+  - id: ensure_dir
+    uses: fs.ensure_dir
+    requires:
+    - input.install_dir
+  - id: extract_archive
+    uses: archive.extract_tar
+    requires:
+    - input.archive_path
+    - input.install_dir
+    with:
+      archive_from: input.archive_path
+      dest_from: input.install_dir
+  - id: verify_checksums
+    uses: archive.verify_checksums_file
+    requires:
+    - input.install_dir
+    with:
+      root_from: input.install_dir
+  - id: locate_server
+    uses: artifact.locate
+    requires:
+    - input.install_dir
+    with:
+      root_from: input.install_dir
+      filename: audiocpp_server
+      label: server
+      chmod_or: '111'
+      error: audiocpp_server was not found in the audio.cpp archive
+    produces:
+    - server
+  - id: locate_cli
+    uses: artifact.locate
+    requires:
+    - input.install_dir
+    with:
+      root_from: input.install_dir
+      filename: audiocpp_cli
+      label: cli
+      chmod_or: '111'
+      required: false
+    produces:
+    - cli
+  - id: remove_archive
+    uses: fs.remove_file
+    requires:
+    - input.archive_path
+    with:
+      path_from: input.archive_path
+  - id: materialize_cli
+    uses: artifact.materialize_cli
+    requires:
+    - input.plan
+    - input.install_dir
+    - server
+    - cli
+    produces:
+    - cli_final
+  - id: publish_row
+    uses: publish.install
+    requires:
+    - input.plan
+    - input.install_dir
+    - input.version_name
+    - input.source_ref
+    - input.repository_url
+    - input.auto_activate
+    - server
+    - cli_final
+    with:
+      server_binary_path_from: server
+      cli_binary_path_from: cli_final
+  source:
+  - id: checkout
+    uses: vcs.workspace_checkout
+    requires:
+    - input.install_dir
+    - input.repository_url
+    - input.source_ref
+    - input.build_config
+    - input.use_workspace
+    - input.replace_existing
+    produces:
+    - checkout_work
+    - build_work
+  - id: configure
+    uses: cmake.configure
+    requires:
+    - checkout_work
+    - build_work
+    - input.build_config
+    produces:
+    - build_env
+  - id: build
+    uses: cmake.build
+    requires:
+    - checkout_work
+    - build_work
+    - build_env
+    - input.build_config
+  - id: locate_server
+    uses: artifact.locate
+    requires:
+    - build_work
+    with:
+      root_from: build_work
+      filename: audiocpp_server
+      label: server_built
+      chmod_or: '111'
+      error: audiocpp_server was not found after the build
+    produces:
+    - server_built
+  - id: locate_cli
+    uses: artifact.locate
+    requires:
+    - build_work
+    with:
+      root_from: build_work
+      filename: audiocpp_cli
+      label: cli_built
+      chmod_or: '111'
+      error: audiocpp_cli was not found after the build
+    produces:
+    - cli_built
+  - id: seal
+    uses: vcs.seal_checkout
+    requires:
+    - checkout_work
+    - build_work
+    - server_built
+    - cli_built
+    - input.install_dir
+    produces:
+    - checkout
+    - build_dir
+    - server
+    - cli
+  - id: validate_server
+    uses: smoke.test
+    requires:
+    - server
+    with:
+      binary: server
+  - id: validate_cli
+    uses: smoke.test
+    requires:
+    - cli
+    with:
+      binary: cli
+  - id: capture_commit
+    uses: vcs.capture_commit
+    requires:
+    - checkout
+    with:
+      path_from: checkout
+    produces:
+    - source_commit
+  - id: publish_row
+    uses: publish.install
+    requires:
+    - input.install_dir
+    - input.version_name
+    - input.install_type
+    - input.type_labels
+    - input.source_ref
+    - input.source_ref_type
+    - input.repository_url
+    - input.auto_activate
+    - server
+    - cli
+    - source_commit
+    with:
+      server_binary_path_from: server
+      cli_binary_path_from: cli
+  sync:
+  - id: inspect
+    uses: host.inspect
+    requires:
+    - input.version_entry
+    - input.version_name
+    produces:
+    - checkout_work
+    - build_work
+  - id: sync
+    uses: vcs.sync
+    requires:
+    - checkout_work
+    - input.branch
+  - id: configure
+    uses: cmake.configure
+    requires:
+    - checkout_work
+    - build_work
+    - input.build_config
+    produces:
+    - build_env
+  - id: build
+    uses: cmake.build
+    requires:
+    - checkout_work
+    - build_work
+    - build_env
+    - input.build_config
+  - id: locate_server
+    uses: artifact.locate
+    requires:
+    - build_work
+    with:
+      root_from: build_work
+      filename: audiocpp_server
+      label: server_built
+      chmod_or: '111'
+      error: audiocpp_server was not found after the build
+    produces:
+    - server_built
+  - id: locate_cli
+    uses: artifact.locate
+    requires:
+    - build_work
+    with:
+      root_from: build_work
+      filename: audiocpp_cli
+      label: cli_built
+      chmod_or: '111'
+      error: audiocpp_cli was not found after the build
+    produces:
+    - cli_built
+  - id: seal
+    uses: vcs.seal_checkout
+    requires:
+    - checkout_work
+    - build_work
+    - server_built
+    - cli_built
+    - input.install_dir
+    produces:
+    - checkout
+    - build_dir
+    - server
+    - cli
+  - id: validate_server
+    uses: smoke.test
+    requires:
+    - server
+    with:
+      binary: server
+  - id: validate_cli
+    uses: smoke.test
+    requires:
+    - cli
+    with:
+      binary: cli
+  - id: capture_commit
+    uses: vcs.capture_commit
+    requires:
+    - checkout
+    with:
+      path_from: checkout
+    produces:
+    - source_commit
+  - id: publish_row
+    uses: publish.record_update
+    requires:
+    - input.version_name
+    - input.type_labels
+    - input.source_ref
+    - input.source_ref_type
+    - input.repository_url
+    - server
+    - cli
+    - source_commit
+    with:
+      server_binary_path_from: server
+      cli_binary_path_from: cli
+  remove_version:
+  - id: remove_install_dir
+    uses: fs.remove_tree
+    requires:
+    - input.delete_target
+    - input.retire_references
+    with:
+      path_from: input.delete_target
+      retire_references_from: input.retire_references
+  - id: prune_bundle
+    uses: artifact.remove_bundle
+    requires:
+    - input.retire_references
+  - id: forget_row
+    uses: publish.forget
+    requires:
+    - input.registered
+    - input.version_name
+launch_policy:
+  cpu_supported: true
+build_options:
+  build_types:
+  - Debug
+  - Release
+  - RelWithDebInfo
+  - MinSizeRel
+  build_type_default: RelWithDebInfo
+  primary_keys:
+  - cuda
+  categories:
+  - id: backends
+    label: GPU & compute backends
+    collapsed: false
+  - id: cuda
+    label: CUDA options
+    collapsed: true
+    requires: cuda
+  - id: artifacts
+    label: Build artifacts
+    collapsed: true
+  - id: cpu
+    label: CPU options
+    collapsed: true
+  - id: models
+    label: Model set
+    collapsed: true
+  - id: advanced
+    label: Advanced
+    collapsed: true
+  options:
+  - key: cuda
+    field: cuda
+    kind: bool
+    default: false
+    label: CUDA
+    desc: "ENGINE_ENABLE_CUDA \u2014 NVIDIA GPU (optimized path)"
+    category: backends
+    cmake: ENGINE_ENABLE_CUDA
+    special: backend
+  - key: cuda_graphs
+    field: cuda_graphs
+    kind: bool
+    default: true
+    label: CUDA graphs
+    desc: ENGINE_ENABLE_CUDA_GRAPHS
+    category: cuda
+    cmake: ENGINE_ENABLE_CUDA_GRAPHS
+    requires: cuda
+  - key: build_tests
+    field: build_tests
+    kind: bool
+    default: false
+    label: Tests
+    desc: ENGINE_BUILD_TESTS
+    category: artifacts
+    cmake: ENGINE_BUILD_TESTS
+  - key: build_extended_tests
+    field: build_extended_tests
+    kind: bool
+    default: false
+    label: Extended tests
+    desc: "ENGINE_BUILD_EXTENDED_TESTS \u2014 non-model probes"
+    category: artifacts
+    cmake: ENGINE_BUILD_EXTENDED_TESTS
+  - key: build_model_tests
+    field: build_model_tests
+    kind: bool
+    default: false
+    label: Model tests
+    desc: "ENGINE_BUILD_MODEL_TESTS \u2014 family-specific probes"
+    category: artifacts
+    cmake: ENGINE_BUILD_MODEL_TESTS
+  - key: build_examples
+    field: build_examples
+    kind: bool
+    default: false
+    label: Examples
+    desc: ENGINE_BUILD_EXAMPLES
+    category: artifacts
+    cmake: ENGINE_BUILD_EXAMPLES
+  - key: build_warmbench
+    field: build_warmbench
+    kind: bool
+    default: false
+    label: Warmbench
+    desc: ENGINE_BUILD_WARMBENCH
+    category: artifacts
+    cmake: ENGINE_BUILD_WARMBENCH
+  - key: deployment_build
+    field: deployment_build
+    kind: bool
+    default: false
+    label: Deployment build
+    desc: "AUDIOCPP_DEPLOYMENT_BUILD \u2014 embed model specs in binaries"
+    category: artifacts
+    cmake: AUDIOCPP_DEPLOYMENT_BUILD
+  - key: native_model_manager
+    field: native_model_manager
+    kind: bool
+    default: false
+    label: Native model manager
+    desc: "AUDIOCPP_BUILD_NATIVE_MODEL_MANAGER \u2014 server download/install (default off upstream)"
+    category: artifacts
+    cmake: AUDIOCPP_BUILD_NATIVE_MODEL_MANAGER
+  - key: use_system_openssl
+    field: use_system_openssl
+    kind: bool
+    default: false
+    label: System OpenSSL
+    desc: "AUDIOCPP_USE_SYSTEM_OPENSSL \u2014 requires native model manager"
+    category: artifacts
+    cmake: AUDIOCPP_USE_SYSTEM_OPENSSL
+    requires: native_model_manager
+  - key: build_server_frontends
+    field: build_server_frontends
+    kind: bool
+    default: false
+    label: Server frontends
+    desc: "AUDIOCPP_BUILD_SERVER_FRONTENDS \u2014 optional in-process UI adapters"
+    category: artifacts
+    cmake: AUDIOCPP_BUILD_SERVER_FRONTENDS
+  - key: build_c_api
+    field: build_c_api
+    kind: bool
+    default: false
+    label: C ABI
+    desc: "AUDIOCPP_BUILD_C_API \u2014 opt-in libaudiocpp shared library"
+    category: artifacts
+    cmake: AUDIOCPP_BUILD_C_API
+  - key: static_espeak
+    field: static_espeak
+    kind: bool
+    default: false
+    label: Static eSpeak-ng
+    desc: "AUDIOCPP_STATIC_ESPEAK \u2014 statically link GPL eSpeak for phonemization (data stays separate)"
+    category: artifacts
+    cmake: AUDIOCPP_STATIC_ESPEAK
+  - key: native_cpu
+    field: native_cpu
+    kind: bool
+    default: true
+    label: Native CPU
+    desc: "ENGINE_ENABLE_NATIVE_CPU \u2014 -march=native"
+    category: cpu
+    cmake: ENGINE_ENABLE_NATIVE_CPU
+  - key: openmp
+    field: openmp
+    kind: bool
+    default: true
+    label: OpenMP
+    desc: ENGINE_ENABLE_OPENMP
+    category: cpu
+    cmake: ENGINE_ENABLE_OPENMP
+  - key: llamafile
+    field: llamafile
+    kind: bool
+    default: true
+    label: llamafile
+    desc: "ENGINE_ENABLE_LLAMAFILE \u2014 SGEMM"
+    category: cpu
+    cmake: ENGINE_ENABLE_LLAMAFILE
+  - key: cpu_all_variants
+    field: cpu_all_variants
+    kind: bool
+    default: false
+    label: CPU all variants
+    desc: ENGINE_ENABLE_CPU_ALL_VARIANTS
+    category: cpu
+    cmake: ENGINE_ENABLE_CPU_ALL_VARIANTS
+  - key: model_set
+    field: model_set
+    kind: enum
+    default: full
+    label: Model set
+    desc: AUDIOCPP_MODEL_SET
+    category: models
+    cmake: AUDIOCPP_MODEL_SET
+    enum_values:
+    - full
+    - core
+    - custom
+  - key: models
+    field: models
+    kind: str
+    default: ''
+    label: Custom models
+    desc: "AUDIOCPP_MODELS \u2014 comma-separated when model set is custom"
+    category: models
+    cmake: AUDIOCPP_MODELS
+    requires: model_set_custom
+  - key: jobs
+    field: jobs
+    kind: int
+    default: 0
+    label: Parallel jobs
+    desc: 0 = automatic (nproc)
+    category: advanced
+    special: jobs
+  - key: custom_cmake_args
+    field: custom_cmake_args
+    kind: str
+    default: ''
+    label: Custom CMake args
+    desc: Extra args appended to cmake (shlex)
+    category: advanced
+    special: custom_cmake
+  - key: cflags
+    field: cflags
+    kind: str
+    default: ''
+    label: CFLAGS
+    desc: Passed via CFLAGS env
+    category: advanced
+    special: cflags
+  - key: cxxflags
+    field: cxxflags
+    kind: str
+    default: ''
+    label: CXXFLAGS
+    desc: Passed via CXXFLAGS env
+    category: advanced
+    special: cxxflags
+protocol:
+  probe:
+    model_flag: --model
+    family_flag: --family
+    spec_override_flag: --model-spec-override
+    load_option_flag: --load-option
+    inspect_flag: --inspect
+    json_flag: --json
+  artifact:
+    builtin_family: builtin_audio_utils
+    root_gguf_name: model.gguf
+    gguf_suffix: .gguf
+    builtin_id_pattern: '[a-zA-Z0-9][a-zA-Z0-9_-]*'
+  launch:
+    config_flag: --config
+    config_macro: studio_audio_config
+extensions:
+- id: contract
+  path: /contract
+  methods:
+  - GET
+- id: status
+  path: /status
+  methods:
+  - GET
+- id: build_options
+  path: /build-options
+  methods:
+  - GET
+- id: build_settings
+  path: /build-settings
+  methods:
+  - GET
+  - PUT
+- id: cancel
+  path: /cancel
+  methods:
+  - POST
+- id: community_voices
+  path: /community-voices
+  methods:
+  - GET
+  - DELETE
+- id: community_voices_install
+  path: /community-voices/install
+  methods:
+  - POST
+request_defaults:
+  task:
+    bool_keys:
+    - stream
+    int_keys:
+    - seed
+    - max_tokens
+    - top_k
+    - num_inference_steps
+    - text_chunk_size
+    float_keys:
+    - temperature
+    - top_p
+    - guidance_scale
+    - repetition_penalty
+    - duration_seconds
+    - repaint_start
+    - repaint_end
+    - init_noise_level
+    - codec_duration
+    - codec_guidance_scale
+    - length_adjust
+    - intelligibility_cfg_rate
+    - similarity_cfg_rate
+    - inference_cfg_rate
+    - target_duration_seconds
+    - audio_chunk_seconds
+    - vad_chunk_max_seconds
+    - vad_chunk_merge_gap_seconds
+    - vad_chunk_padding_seconds
+    - threshold
+    - neg_threshold
+  transcription:
+    bool_keys:
+    - stream
+    int_keys:
+    - max_tokens
+    - top_k
+    - seed
+    float_keys:
+    - temperature
+    - top_p
+  speech:
+    keys:
+    - voice
+    - voice_id
+    - voice_ref
+    - reference_text
+    - instructions
+    - language
+    - seed
+    - temperature
+    - top_p
+    - top_k
+    - max_tokens
+    - guidance_scale
+    - num_inference_steps
+    - repetition_penalty
+    - stream
+    - stream_format
+    - return_text
+    bool_keys:
+    - stream
+    - return_text
+    int_keys:
+    - seed
+    - top_k
+    - max_tokens
+    - num_inference_steps
+    float_keys:
+    - temperature
+    - top_p
+    - guidance_scale
+    - repetition_penalty
+catalog:
+  providers:
+  - audio_cpp
+upstream:
+  repository_url: https://github.com/0xShug0/audio.cpp.git
+data_dirs:
+- audio-cpp
+- models/audio-cpp
+model_compat:
+  prepared_bundle_formats:
+  - mixed
+  - original

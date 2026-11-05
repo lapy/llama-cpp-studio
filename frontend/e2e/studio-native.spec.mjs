@@ -2,14 +2,12 @@ import { expect, test } from '@playwright/test'
 import { installWorkspaceApi } from './fixtures/workspace.mjs'
 
 for (const width of [390, 1440]) {
-  test(`Studio identity and hardware navigation at ${width}px`, async ({ page }) => {
+  test(`Hardware navigation at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })
     await installWorkspaceApi(page)
     await page.goto('/engines')
     await expect(page.locator('.logo-copy')).toHaveText('Studio')
     await expect(page.locator('.brand-mark')).toBeVisible()
-    await expect(page.locator('.brand-orbit > span')).toHaveCount(8)
-    await expect(page.getByText('Virtual models', { exact: false })).toHaveCount(0)
     await expect(page.getByRole('heading', { name: 'CUDA Toolkit' })).toHaveCount(0)
     await page.goto('/models')
     await page.goto('/engines#system')

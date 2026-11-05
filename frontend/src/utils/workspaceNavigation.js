@@ -1,6 +1,6 @@
 import { nextTick } from 'vue'
 
-export function workspaceTitle(route) {
+function workspaceTitle(route) {
   if (route.path === '/system' && route.hash === '#config-backup') return 'Backup & restore'
   if (route.path === '/system' && route.hash === '#history') return 'Change history'
   return route.meta?.title || 'Workspace'

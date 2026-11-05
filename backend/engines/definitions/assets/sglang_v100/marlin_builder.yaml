@@ -1,0 +1,37 @@
+schema_version: 1
+name: sglang_v100/marlin_builder
+description: Preserve stale Marlin checkouts on retry and drop verbose ptxas so the streamed installer
+  log cannot stall nvcc.
+file: scripts/setup_v100_marlin.sh
+optional_file: true
+operations:
+- kind: replace
+  optional: true
+  search: "for SM70_PATCH in \"${SM70_PATCHES[@]}\"; do\n  [[ -f \"$SM70_PATCH\" ]] || die \"missing SM70\
+    \ compatibility patch: $SM70_PATCH\"\n  if git -C \"$REPO\" apply --reverse --check \"$SM70_PATCH\"\
+    \ >/dev/null 2>&1; then\n    log \"already applied: $(basename \"$SM70_PATCH\")\"\n  elif git -C \"\
+    $REPO\" apply --check \"$SM70_PATCH\"; then\n    git -C \"$REPO\" apply \"$SM70_PATCH\"\n    log \"\
+    applied: $(basename \"$SM70_PATCH\")\"\n  else\n    die \"SM70 compatibility patch does not apply\
+    \ cleanly: $SM70_PATCH\"\n  fi\ndone"
+  replace: "apply_sm70_patches() {\n  local SM70_PATCH\n  for SM70_PATCH in \"${SM70_PATCHES[@]}\"; do\n\
+    \    [[ -f \"$SM70_PATCH\" ]] || die \"missing SM70 compatibility patch: $SM70_PATCH\"\n    if git\
+    \ -C \"$REPO\" apply --reverse --check \"$SM70_PATCH\" >/dev/null 2>&1; then\n      log \"already\
+    \ applied: $(basename \"$SM70_PATCH\")\"\n    elif git -C \"$REPO\" apply --check \"$SM70_PATCH\"\
+    \ >/dev/null 2>&1; then\n      git -C \"$REPO\" apply \"$SM70_PATCH\"\n      log \"applied: $(basename\
+    \ \"$SM70_PATCH\")\"\n    else\n      return 1\n    fi\n  done\n}\nif ! apply_sm70_patches; then\n\
+    \  MARLIN_STUDIO_ORIGIN=\"$(git -C \"$REPO\" remote get-url origin)\"\n  MARLIN_STUDIO_BACKUP=\"$(mktemp\
+    \ -d \"${REPO}.preserved-XXXXXXXX\")\"\n  mv -- \"$REPO\" \"$MARLIN_STUDIO_BACKUP/source\"\n  log\
+    \ \"Preserved marlin_v100 checkout at $MARLIN_STUDIO_BACKUP/source; rebuilding from $MARLIN_V100_REF\"\
+    \n  git clone --no-checkout \"$MARLIN_STUDIO_ORIGIN\" \"$REPO\"\n  git -C \"$REPO\" fetch origin \"\
+    $MARLIN_V100_REF\"\n  git -C \"$REPO\" checkout --detach FETCH_HEAD\n  apply_sm70_patches || die \"\
+    SM70 compatibility patch does not apply cleanly: fresh checkout of $REPO\"\nfi"
+  skip_if_contains: apply_sm70_patches()
+- kind: replace
+  search: 'log "building (MAX_JOBS=$MAX_JOBS) ... this takes ~15-40 min"
+
+    ( cd "$REPO" && bash "$REPO/build.sh" )'
+  replace: "export CMAKE_BUILD_PARALLEL_LEVEL=\"${CMAKE_BUILD_PARALLEL_LEVEL:-${MAX_JOBS:-1}}\"\nlog \"\
+    building (MAX_JOBS=$MAX_JOBS) ... this takes ~15-40 min\"\n# Studio: drop verbose ptxas so nvcc is\
+    \ not stalled by log streaming.\nif [[ -f \"$REPO/build.sh\" ]]; then\n  sed -i 's/-Xptxas=-v//g'\
+    \ \"$REPO/build.sh\"\nfi\n( cd \"$REPO\" && bash \"$REPO/build.sh\" )"
+  skip_if_contains: 'Studio: drop verbose ptxas'

@@ -1,0 +1,11 @@
+# Optional GPU passthrough for the self-contained development container.
+services:
+  studio:
+    gpus: all
+    environment:
+      NVIDIA_VISIBLE_DEVICES: ${STUDIO_GPU:-all}
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      # Keep CUDA ordinals aligned with nvidia-smi/BDF order when a host mixes
+      # GPU generations; otherwise CUDA may put a later PCI device first.
+      CUDA_DEVICE_ORDER: PCI_BUS_ID
+      CUDA_VISIBLE_DEVICES: ${STUDIO_CUDA_VISIBLE_DEVICES:-0}

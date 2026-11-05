@@ -1,0 +1,14 @@
+# Optional GPU reservation, selected by `devcontrol stack up --gpu 0`.
+#
+# DEV_GPU/NVIDIA_VISIBLE_DEVICES selects which host devices are visible inside
+# the container. `count: all` only reserves the NVIDIA driver capability; the
+# environment variable performs the actual per-agent selection.
+services:
+  backend:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

@@ -73,10 +73,14 @@ jobs:
 
       - name: Static analysis and version contract
         run: |
-          ruff check backend scripts
+          ruff check backend scripts devcontrol
+          ruff format --check devcontrol
           ruff format --check backend/config_history.py backend/routes/benchmarks.py backend/routes/config_history.py backend/services/model_benchmark.py backend/tests/test_config_history.py backend/tests/test_model_benchmark.py backend/tests/test_operation_state_machine.py backend/version.py scripts/check-version.py scripts/export-openapi.py
           python scripts/check-version.py
           python scripts/export-openapi.py --check
+
+      - name: Development control-plane tests
+        run: python -m pytest devcontrol/tests -q -p no:cacheprovider
 
       - name: Run pytest
         env:
@@ -171,6 +175,10 @@ jobs:
     if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      # Firefox refuses to start when the container runs as root but HOME is
+      # owned by another user (the Playwright image defaults to /github/home).
+      HOME: /root
     container:
       image: mcr.microsoft.com/playwright:v1.64.1-noble
       options: --ipc=host

@@ -2,10 +2,13 @@
 
 Install, validate, inspect, and runtime must agree on one resolvable path shape:
 directory packages (preferred) or a single ``.gguf`` file when the package root
-cannot host ``model.gguf``.
+cannot host ``model.gguf``. The path-shape constants (builtin family, root GGUF
+name, suffix, builtin id pattern) are engine data (spec ``protocol.artifact``).
 """
 
 from __future__ import annotations
+
+from backend.engines.audio_cpp.identity import default_audio_engine_id
 
 import os
 from backend.paths import studio_data_dir
@@ -13,7 +16,19 @@ import re
 from typing import Any, Dict, Optional
 
 
-BUILTIN_AUDIO_FAMILY = "builtin_audio_utils"
+def artifact_contract() -> Dict[str, str]:
+    """Artifact path contract declared by the engine definition."""
+    from backend.engines.registry import get_engine_spec
+
+    spec = get_engine_spec(default_audio_engine_id())
+    protocol = dict(spec.protocol) if spec is not None else {}
+    contract = dict(protocol.get("artifact") or {})
+    if not contract:
+        raise RuntimeError("audio.cpp artifact contract is unavailable")
+    return contract
+
+
+BUILTIN_AUDIO_FAMILY = artifact_contract()["builtin_family"]
 
 
 def audio_builtin_model_id(model: dict) -> str:
@@ -26,7 +41,8 @@ def audio_builtin_model_id(model: dict) -> str:
     if artifact.get("package_kind") != "builtin" or model.get("family") != BUILTIN_AUDIO_FAMILY:
         return ""
     model_id = artifact.get("model_id")
-    if not isinstance(model_id, str) or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]*", model_id):
+    pattern = artifact_contract()["builtin_id_pattern"]
+    if not isinstance(model_id, str) or not re.fullmatch(pattern, model_id):
         return ""
     return model_id
 
@@ -40,8 +56,13 @@ def audio_model_ready(model: dict) -> bool:
 
 
 def build_builtin_artifact_descriptor(model_id: str) -> Dict[str, Any]:
-    descriptor = {"format": "builtin", "package_kind": "builtin", "model_id": model_id,
-                  "layout": "builtin", "size": 0}
+    descriptor = {
+        "format": "builtin",
+        "package_kind": "builtin",
+        "model_id": model_id,
+        "layout": "builtin",
+        "size": 0,
+    }
     if not audio_builtin_model_id({"family": BUILTIN_AUDIO_FAMILY, "artifact": descriptor}):
         raise ValueError("Invalid audio.cpp builtin utility id")
     return descriptor
@@ -61,7 +82,8 @@ def audio_model_path_ready(path: str) -> bool:
         return False
     if os.path.isdir(path):
         return True
-    return os.path.isfile(path) and str(path).lower().endswith(".gguf")
+    suffix = artifact_contract()["gguf_suffix"].lower()
+    return os.path.isfile(path) and str(path).lower().endswith(suffix)
 
 
 def _abspath(path: str) -> str:
@@ -73,17 +95,20 @@ def prefer_directory_model_path(path: str, *, bundle_path: str = "") -> str:
     abs_path = _abspath(path)
     if not abs_path or not os.path.isfile(abs_path):
         return abs_path
-    if not abs_path.lower().endswith(".gguf"):
+    contract = artifact_contract()
+    suffix = contract["gguf_suffix"].lower()
+    if not abs_path.lower().endswith(suffix):
         return abs_path
+    root_name = contract["root_gguf_name"]
 
     bundle = _abspath(bundle_path) if bundle_path else ""
     if bundle and os.path.isdir(bundle):
-        root_gguf = os.path.join(bundle, "model.gguf")
+        root_gguf = os.path.join(bundle, root_name)
         if os.path.isfile(root_gguf):
             return bundle
 
     parent = os.path.dirname(abs_path)
-    parent_gguf = os.path.join(parent, "model.gguf")
+    parent_gguf = os.path.join(parent, root_name)
     if os.path.isfile(parent_gguf):
         return parent
     return abs_path
@@ -94,9 +119,7 @@ def resolve_audio_model_path(model: dict) -> str:
     artifact = model.get("artifact") if isinstance(model.get("artifact"), dict) else {}
     if artifact.get("package_kind") == "builtin":
         return audio_builtin_model_id(model)
-    bundle = str(
-        artifact.get("bundle_path") or model.get("bundle_path") or ""
-    ).strip()
+    bundle = str(artifact.get("bundle_path") or model.get("bundle_path") or "").strip()
     candidates = [
         artifact.get("runtime_path"),
         artifact.get("path"),
@@ -149,16 +172,19 @@ def build_artifact_descriptor(
     package_kind: str = "prepared_bundle",
 ) -> Dict[str, Any]:
     """Persist install-time layout so later stages do not re-guess."""
+    contract = artifact_contract()
+    suffix = contract["gguf_suffix"].lower()
+    root_name = contract["root_gguf_name"]
     bundle = _abspath(bundle_path)
-    runtime = prefer_directory_model_path(
-        runtime_path, bundle_path=bundle
-    ) or _abspath(runtime_path)
+    runtime = prefer_directory_model_path(runtime_path, bundle_path=bundle) or _abspath(
+        runtime_path
+    )
     layout = "directory" if os.path.isdir(runtime) else "gguf_file"
     gguf_path = None
-    if layout == "gguf_file" and runtime.lower().endswith(".gguf"):
+    if layout == "gguf_file" and runtime.lower().endswith(suffix):
         gguf_path = runtime
     else:
-        candidate = os.path.join(runtime if layout == "directory" else bundle, "model.gguf")
+        candidate = os.path.join(runtime if layout == "directory" else bundle, root_name)
         if os.path.isfile(candidate):
             gguf_path = candidate
     return {
@@ -172,7 +198,7 @@ def build_artifact_descriptor(
         "has_root_model_gguf": bool(
             gguf_path
             and os.path.isfile(gguf_path)
-            and os.path.basename(gguf_path) == "model.gguf"
+            and os.path.basename(gguf_path) == root_name
             and os.path.realpath(os.path.dirname(gguf_path)) == os.path.realpath(bundle)
         ),
         "size": size,

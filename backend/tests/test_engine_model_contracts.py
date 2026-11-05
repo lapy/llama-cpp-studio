@@ -18,9 +18,7 @@ def test_audio_engine_descriptor_is_capability_driven():
     assert "prepared_bundle" in spec.package_kinds
     assert {"tts", "asr", "vad"} <= spec.tasks
     descriptor = next(
-        row
-        for row in engine_registry_payload()["engines"]
-        if row["id"] == "audio_cpp"
+        row for row in engine_registry_payload()["engines"] if row["id"] == "audio_cpp"
     )
     assert descriptor["experimental"] is False
     assert descriptor["maturity_surfaces"]["speech_asr"] == "stable"
@@ -33,9 +31,7 @@ def test_audio_engine_descriptor_is_capability_driven():
 
 
 def test_audio_engine_runnable_requires_both_binaries():
-    assert not active_engine_row_is_runnable(
-        "audio_cpp", {"server_binary_path": "/server"}
-    )
+    assert not active_engine_row_is_runnable("audio_cpp", {"server_binary_path": "/server"})
     assert active_engine_row_is_runnable(
         "audio_cpp",
         {
@@ -47,14 +43,24 @@ def test_audio_engine_runnable_requires_both_binaries():
 
 def test_inferred_safetensors_engines_include_sglang_families_and_vllm():
     engines = inferred_engines_for_artifact_format("safetensors")
-    assert engines == ["lmdeploy", "1cat_vllm", "vllm", "sglang", "sglang_v100"]
+    # Registry order is definition load order (filename order), so the
+    # compatibility SET is the contract here.
+    assert set(engines) == {"lmdeploy", "1cat_vllm", "vllm", "sglang", "sglang_v100"}
     assert HF_SNAPSHOT_ENGINE_IDS == frozenset(engines)
     assert "audio_cpp" not in engines
-    assert inferred_engines_for_artifact_format("gguf") == [
-        "llama_cpp",
-        "ik_llama",
-        "unsloth_llama",
-    ]
+    # The legacy GGUF family is always present (the launch campaign's second
+    # fixture can join it from its shipped definition).
+    gguf = inferred_engines_for_artifact_format("gguf")
+    legacy = {"llama_cpp", "ik_llama", "unsloth_llama"}
+    assert legacy <= set(gguf)
+    from backend.engines.definitions.loader import load_default_engine_definitions
+
+    shipped_gguf = {
+        engine_id
+        for engine_id, definition in load_default_engine_definitions().definitions.items()
+        if "gguf" in definition.artifact_formats
+    }
+    assert set(gguf) - set(legacy) <= shipped_gguf
     assert compatible_engines_for_record({"format": "safetensors"}) == engines
 
 
@@ -65,7 +71,8 @@ def test_stale_safetensors_engine_list_gains_new_registry_engines():
             "compatible_engines": ["lmdeploy", "1cat_vllm"],
         }
     )
-    assert engines == ["lmdeploy", "1cat_vllm", "vllm", "sglang", "sglang_v100"]
+    assert engines[:2] == ["lmdeploy", "1cat_vllm"]
+    assert set(engines) == {"lmdeploy", "1cat_vllm", "vllm", "sglang", "sglang_v100"}
     curated = compatible_engines_for_record(
         {
             "format": "safetensors",
@@ -95,4 +102,3 @@ def test_audio_compatibility_is_never_inferred_from_safetensors_extension():
     assert verified["compatible_engines"] == ["audio_cpp"]
     assert verified["input_modalities"] == ["text", "audio"]
     assert verified["output_modalities"] == ["audio"]
-

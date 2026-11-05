@@ -1,0 +1,100 @@
+# Native source-build proof fixture: a third CMake native fork that differs
+# from llama.cpp/ik_llama in repository name, source directory, binary name and
+# build policy. It exists only for the shared-host harness (fixture_only), so
+# the production registry bootstrap does not register it.
+schema_version: 2
+id: nativecraft
+fixture_only: true
+label: Nativecraft
+repository_source: Nativecraft
+install_kind: cmake
+runtime_kind: llama_server
+scanner_kind: llama_help
+active_path_fields:
+- binary_path
+artifact_formats:
+- gguf
+package_kinds:
+- source
+tasks:
+- text-generation
+input_modalities:
+- text
+output_modalities:
+- text
+upstream:
+  repository_url: https://example.test/nativecraft.git
+source_build:
+  repository_name: nativecraft
+  source_dir: nativecraft
+  binary_name: native-server
+  build_examples_required: true
+  blas_supported: false
+  stable_release_versions: false
+runtime_profiles:
+  default:
+    default: true
+    description: Nativecraft server (GGUF native family)
+    launch_family: gguf_llama_server
+    port_binding:
+      flag: --port
+build_options:
+  build_types:
+  - Release
+  build_type_default: Release
+  primary_keys:
+  - cuda
+  categories:
+  - id: backends
+    label: Build backends
+    collapsed: false
+  options:
+  - key: cuda
+    field: enable_cuda
+    kind: bool
+    default: false
+    label: CUDA
+    desc: Nativecraft CUDA backend
+    category: backends
+    cmake: NATIVECRAFT_CUDA
+    engines:
+    - nativecraft
+recipes:
+  source:
+  - id: prepare_checkout
+    uses: vcs.workspace_checkout
+    produces:
+    - checkout
+  - id: apply_patches
+    uses: vcs.apply_patch
+    requires:
+    - checkout
+    when:
+      exists:
+        field: input.patches
+    produces:
+    - patched
+  - id: configure
+    uses: cmake.configure
+    requires:
+    - checkout
+    produces:
+    - build_dir
+  - id: compile
+    uses: cmake.build
+    requires:
+    - build_dir
+    produces:
+    - compiled
+  - id: locate_binary
+    uses: artifact.locate
+    requires:
+    - compiled
+    produces:
+    - server_path
+  - id: publish
+    uses: publish.finalize
+    requires:
+    - server_path
+    produces:
+    - binary

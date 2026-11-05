@@ -5,7 +5,11 @@ from __future__ import annotations
 import copy
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from backend.engines.registry import ENGINE_REGISTRY, inferred_engines_for_artifact_format
+from backend.engines.registry import (
+    ENGINE_REGISTRY,
+    get_engine_spec,
+    inferred_engines_for_artifact_format,
+)
 from backend.models.files import normalize_model_files
 
 
@@ -94,9 +98,21 @@ def _record_format(record: Dict[str, Any]) -> str:
 
 
 def _default_package_kind(record: Dict[str, Any], artifact_format: str) -> str:
-    if record.get("engine") == "audio_cpp" or record.get("family"):
-        if artifact_format in {"mixed", "original"}:
-            return "prepared_bundle"
+    # R76/R87: which formats an engine stores as a prepared bundle is declared
+    # on its spec (`model_compat.prepared_bundle_formats`). The DECLARATION
+    # decides for any format it lists; the legacy "record has a family" rule
+    # keeps the historical mixed/original behavior for undeclared engines.
+    bundle_formats = set()
+    spec = get_engine_spec(str(record.get("engine") or ""))
+    if spec is not None:
+        bundle_formats = {
+            str(item).lower()
+            for item in (dict(spec.model_compat).get("prepared_bundle_formats") or ())
+        }
+    if artifact_format in bundle_formats:
+        return "prepared_bundle"
+    if record.get("family") and artifact_format in {"mixed", "original"}:
+        return "prepared_bundle"
     if artifact_format == "gguf":
         weight_files = [
             entry
@@ -123,16 +139,16 @@ def compatible_engines_for_record(record: Dict[str, Any]) -> List[str]:
     inferred = inferred_engines_for_artifact_format(artifact_format)
 
     explicit = record.get("compatible_engines")
-    explicit_ids = [
-        item
-        for item in _unique_strings(explicit or [])
-        if item in ENGINE_REGISTRY
-    ] if isinstance(explicit, (list, tuple, set)) else []
+    explicit_ids = (
+        [item for item in _unique_strings(explicit or []) if item in ENGINE_REGISTRY]
+        if isinstance(explicit, (list, tuple, set))
+        else []
+    )
 
     artifact = record.get("artifact") if isinstance(record.get("artifact"), dict) else {}
-    package_kind = str(
-        artifact.get("package_kind") or record.get("package_kind") or ""
-    ).strip().lower()
+    package_kind = (
+        str(artifact.get("package_kind") or record.get("package_kind") or "").strip().lower()
+    )
     if not package_kind:
         package_kind = _default_package_kind(record, artifact_format)
 

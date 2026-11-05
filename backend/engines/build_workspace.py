@@ -734,12 +734,15 @@ class BuildWorkspace:
         source: str,
         destination: str,
         required_relative: Sequence[str] = (),
+        *,
+        exclude_dirs: Sequence[str] = (),
     ) -> str:
         """Copy ``source`` to ``destination`` atomically. Return the destination path."""
         return self.publish_layout(
             {".": source},
             destination,
             required_relative=required_relative,
+            exclude_dirs=exclude_dirs,
         )
 
     def publish_layout(
@@ -747,6 +750,8 @@ class BuildWorkspace:
         parts: Dict[str, str],
         destination: str,
         required_relative: Sequence[str] = (),
+        *,
+        exclude_dirs: Sequence[str] = (),
     ) -> str:
         """Publish several directories as children of ``destination``.
 
@@ -769,7 +774,7 @@ class BuildWorkspace:
                 src = os.path.abspath(parts["."])
                 if not os.path.isdir(src):
                     raise WorkspaceError(f"Nothing to publish at {src}")
-                _copy_tree(src, staging)
+                _copy_tree(src, staging, exclude_dirs=exclude_dirs)
             else:
                 os.makedirs(staging, exist_ok=False)
                 for name, src in parts.items():
@@ -778,7 +783,7 @@ class BuildWorkspace:
                     src = os.path.abspath(src)
                     if not os.path.isdir(src):
                         raise WorkspaceError(f"Nothing to publish at {src}")
-                    _copy_tree(src, os.path.join(staging, name))
+                    _copy_tree(src, os.path.join(staging, name), exclude_dirs=exclude_dirs)
             for relative in required_relative:
                 if not os.path.exists(os.path.join(staging, relative)):
                     raise WorkspaceError(
@@ -894,11 +899,11 @@ def _fsync_dir(path: str) -> None:
         os.close(fd)
 
 
-def _copy_tree(src: str, dst: str) -> None:
+def _copy_tree(src: str, dst: str, *, exclude_dirs: Sequence[str] = ()) -> None:
     if os.path.exists(dst):
         raise WorkspaceError(f"Refusing to copy over existing path {dst}")
     cp = shutil.which("cp")
-    if cp:
+    if cp and not exclude_dirs:
         proc = subprocess.run(
             [cp, "-a", src, dst],
             capture_output=True,
@@ -910,7 +915,16 @@ def _copy_tree(src: str, dst: str) -> None:
         if os.path.exists(dst):
             shutil.rmtree(dst, ignore_errors=True)
         logger.warning("cp -a failed (%s); copying in Python", (proc.stderr or "").strip())
-    shutil.copytree(src, dst, symlinks=True, copy_function=shutil.copy2)
+    excluded = frozenset(exclude_dirs)
+
+    def ignore(directory: str, names: List[str]) -> List[str]:
+        return [
+            name
+            for name in names
+            if name in excluded and os.path.isdir(os.path.join(directory, name))
+        ]
+
+    shutil.copytree(src, dst, symlinks=True, copy_function=shutil.copy2, ignore=ignore)
 
 
 def _repair_published_binaries(root: str, forbidden_root: str) -> None:

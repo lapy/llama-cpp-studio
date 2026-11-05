@@ -318,10 +318,7 @@ def test_a_verified_stopped_model_does_not_allow_a_new_start(client, monkeypatch
 
     async def fake_start(self, model_name):
         called["start"] += 1
-        row = next(
-            item for item in store.list_operations()
-            if item.get("status") == "running"
-        )
+        row = next(item for item in store.list_operations() if item.get("status") == "running")
         assert row["detail"]["effect_started"] is True
         return httpx.Response(202, json={"model": model_name, "state": "loading"})
 
@@ -336,24 +333,33 @@ def test_a_verified_stopped_model_does_not_allow_a_new_start(client, monkeypatch
     assert "may already have happened" in detail["message"]
     assert called["start"] == 0
 
-    stale = client.post(path, json={
-        "confirm_operation_id": "start-unknown",
-        "confirm_state": "not-the-token",
-    })
+    stale = client.post(
+        path,
+        json={
+            "confirm_operation_id": "start-unknown",
+            "confirm_state": "not-the-token",
+        },
+    )
     assert stale.status_code == 409
     assert called["start"] == 0
 
-    allowed = client.post(path, json={
-        "confirm_operation_id": detail["operation_id"],
-        "confirm_state": detail["state_token"],
-    })
+    allowed = client.post(
+        path,
+        json={
+            "confirm_operation_id": detail["operation_id"],
+            "confirm_state": detail["state_token"],
+        },
+    )
     assert allowed.status_code == 202
     assert called["start"] == 1
 
-    reused = client.post(path, json={
-        "confirm_operation_id": detail["operation_id"],
-        "confirm_state": detail["state_token"],
-    })
+    reused = client.post(
+        path,
+        json={
+            "confirm_operation_id": detail["operation_id"],
+            "confirm_state": detail["state_token"],
+        },
+    )
     assert reused.status_code == 409
     assert called["start"] == 1
 
@@ -379,14 +385,22 @@ def test_the_effect_fence_is_durable_before_a_start_is_sent(client, monkeypatch,
 
     from backend.proxy.client import ProxyClient
 
+    created: list[str] = []
+    real_start = OperationSupervisor.start_operation
+
+    def capture_start(self, *args, **kwargs):
+        created.append(str(args[0] if args else kwargs.get("operation_id") or ""))
+        return real_start(self, *args, **kwargs)
+
     monkeypatch.setattr(ProxyClient, "request", fake_running)
     monkeypatch.setattr(ProxyClient, "start_model_passthrough", fake_start)
     monkeypatch.setattr(OperationSupervisor, "note_effect_started", note_failed)
+    monkeypatch.setattr(OperationSupervisor, "start_operation", capture_start)
     response = client.post(f"/api/models/{quote('org/model', safe='')}/start")
     assert response.status_code == 503
     assert response.json()["detail"]["committed"] is False
     assert called["start"] == 0
-    row = store.list_operations()[-1]
+    row = next(row for row in store.list_operations() if row["operation_id"] == created[-1])
     assert row["status"] == "interrupted"
     assert row["detail"]["effect_started"] is False
 
@@ -419,7 +433,13 @@ def test_an_unknown_fence_does_not_authorize_a_start(client, monkeypatch, tmp_pa
     assert response.status_code == 500
     assert response.json()["detail"]["committed"] == "unknown"
     assert called["start"] == 0
+    # Terminal reconciliation is queued to the store thread; wait for it so a
+    # fast test process cannot observe the pre-write "running" row.
+    deadline = time.time() + 5.0
     row = store.list_operations()[-1]
+    while row["status"] == "running" and time.time() < deadline:
+        time.sleep(0.02)
+        row = store.list_operations()[-1]
     assert row["status"] == "unknown"
     assert row["detail"]["effect_started"] is True
 
@@ -486,24 +506,28 @@ def test_build_retry_follows_negative_evidence_and_a_bound_confirmation(tmp_path
     monkeypatch.setattr(data_store, "_store", store)
     monkeypatch.setattr(data_store, "get_store", lambda: store)
     now = time.time()
-    store.upsert_operation({
-        "operation_id": "build-never",
-        "kind": "build",
-        "status": "interrupted",
-        "resource_key": "install/never",
-        "detail": {"effect_started": False, "settings_saved": True},
-        "message": "not started",
-        "updated_at": now,
-    })
-    store.upsert_operation({
-        "operation_id": "build-unknown",
-        "kind": "build",
-        "status": "unknown",
-        "resource_key": "install/unknown",
-        "detail": {"effect_started": True, "settings_saved": True},
-        "message": "unknown",
-        "updated_at": now,
-    })
+    store.upsert_operation(
+        {
+            "operation_id": "build-never",
+            "kind": "build",
+            "status": "interrupted",
+            "resource_key": "install/never",
+            "detail": {"effect_started": False, "settings_saved": True},
+            "message": "not started",
+            "updated_at": now,
+        }
+    )
+    store.upsert_operation(
+        {
+            "operation_id": "build-unknown",
+            "kind": "build",
+            "status": "unknown",
+            "resource_key": "install/unknown",
+            "detail": {"effect_started": True, "settings_saved": True},
+            "message": "unknown",
+            "updated_at": now,
+        }
+    )
     bind_action_confirmation({})
     supervisor = OperationSupervisor()
     admitted = supervisor.start_operation(
@@ -565,58 +589,68 @@ def test_a_repo_download_and_a_catalog_install_share_one_resource():
     assert repo == "hf:org/audio"
     assert one_file == "hf:org/audio:model.gguf"
     decision = admit_action(
-        [{
-            "operation_id": "catalog-1",
-            "resource_key": repo,
-            "status": "running",
-            "detail": {"effect_started": True},
-            "updated_at": time.time(),
-        }],
+        [
+            {
+                "operation_id": "catalog-1",
+                "resource_key": repo,
+                "status": "running",
+                "detail": {"effect_started": True},
+                "updated_at": time.time(),
+            }
+        ],
         one_file,
     )
     assert decision["admit"] is False
     assert decision["code"] == "ACTION_IN_FLIGHT"
     activate = admit_action(
-        [{
-            "operation_id": "activate-1",
-            "resource_key": "engine:llama_cpp",
-            "status": "running",
-            "detail": {"effect_started": True},
-            "updated_at": time.time(),
-        }],
+        [
+            {
+                "operation_id": "activate-1",
+                "resource_key": "engine:llama_cpp",
+                "status": "running",
+                "detail": {"effect_started": True},
+                "updated_at": time.time(),
+            }
+        ],
         "engine:llama_cpp",
     )
     assert activate["code"] == "ACTION_IN_FLIGHT"
     proxy = admit_action(
-        [{
-            "operation_id": "apply-global",
-            "resource_key": "proxy:runtime",
-            "status": "running",
-            "detail": {"effect_started": True},
-            "updated_at": time.time(),
-        }],
+        [
+            {
+                "operation_id": "apply-global",
+                "resource_key": "proxy:runtime",
+                "status": "running",
+                "detail": {"effect_started": True},
+                "updated_at": time.time(),
+            }
+        ],
         "runtime-apply:org--model",
     )
     assert proxy["code"] == "ACTION_IN_FLIGHT"
     reverse_file = admit_action(
-        [{
-            "operation_id": "file-1",
-            "resource_key": one_file,
-            "status": "running",
-            "detail": {"effect_started": True},
-            "updated_at": time.time(),
-        }],
+        [
+            {
+                "operation_id": "file-1",
+                "resource_key": one_file,
+                "status": "running",
+                "detail": {"effect_started": True},
+                "updated_at": time.time(),
+            }
+        ],
         repo,
     )
     assert reverse_file["code"] == "ACTION_IN_FLIGHT"
     reverse_apply = admit_action(
-        [{
-            "operation_id": "apply-model",
-            "resource_key": "runtime-apply:org--model",
-            "status": "running",
-            "detail": {"effect_started": True},
-            "updated_at": time.time(),
-        }],
+        [
+            {
+                "operation_id": "apply-model",
+                "resource_key": "runtime-apply:org--model",
+                "status": "running",
+                "detail": {"effect_started": True},
+                "updated_at": time.time(),
+            }
+        ],
         "proxy:runtime",
     )
     assert reverse_apply["code"] == "ACTION_IN_FLIGHT"
@@ -655,6 +689,69 @@ def test_source_sync_overlaps_the_same_installation_in_both_directions():
     assert admit_action([row("sync-other", other, "sync_source")], installation)["admit"] is True
 
 
+@pytest.mark.parametrize("reverse", [False, True])
+def test_independent_engine_installs_share_cuda_but_block_toolkit_mutation(
+    tmp_path, monkeypatch, reverse
+):
+    from backend import data_store
+    from backend.operations.action_recovery import CUDA_TOOLKIT_KEY, engine_installation_key
+    from backend.operations.supervisor import ResourceBusyError
+
+    store = data_store.DataStore(config_dir=str(tmp_path / "config"))
+    monkeypatch.setattr(data_store, "get_store", lambda: store)
+    supervisor = OperationSupervisor()
+    engines = ["llama_cpp", "unsloth_llama"]
+    if reverse:
+        engines.reverse()
+    for engine in engines:
+        supervisor.start_operation(
+            engine,
+            "build" if engine == "llama_cpp" else "install",
+            engine_installation_key(engine, f"/app/data/{engine}/version"),
+            detail={"engine": engine, "depends_on": CUDA_TOOLKIT_KEY},
+        )
+
+    # The in-memory claim path must enforce the same writer exclusion as
+    # durable admission, including after just one shared reader finishes.
+    for finished in [None, engines[0]]:
+        if finished:
+            supervisor.finish_operation(finished, "succeeded")
+        with pytest.raises(ResourceBusyError):
+            supervisor._claim_keys("cuda-uninstall", CUDA_TOOLKIT_KEY, {})
+        with pytest.raises(ResourceBusyError):
+            supervisor.start_operation("cuda-uninstall", "uninstall", CUDA_TOOLKIT_KEY)
+
+    supervisor.finish_operation(engines[1], "succeeded")
+    supervisor.start_operation("cuda-uninstall", "uninstall", CUDA_TOOLKIT_KEY)
+    with pytest.raises(ResourceBusyError):
+        supervisor._claim_keys(
+            "new-build", "engine:llama_cpp:/new", {"depends_on": CUDA_TOOLKIT_KEY}
+        )
+    with pytest.raises(ResourceBusyError):
+        supervisor.start_operation(
+            "new-build",
+            "build",
+            "engine:llama_cpp:/new",
+            detail={"engine": "llama_cpp", "depends_on": CUDA_TOOLKIT_KEY},
+        )
+
+
+@pytest.mark.parametrize("status", ["running", "unknown", "interrupted"])
+def test_dependency_reader_does_not_block_an_independent_reader(status):
+    from backend.operations.action_recovery import CUDA_TOOLKIT_KEY, admit_action
+
+    row = {
+        "operation_id": "llama-build",
+        "resource_key": "engine:llama_cpp:/source",
+        "status": status,
+        "detail": {"depends_on": CUDA_TOOLKIT_KEY, "effect_started": True},
+    }
+    assert admit_action([row], "engine:unsloth_llama:/release", depends_on=CUDA_TOOLKIT_KEY)[
+        "admit"
+    ]
+    assert not admit_action([row], CUDA_TOOLKIT_KEY)["admit"]
+
+
 def test_cuda_uninstall_overlaps_install_and_dependent_work_in_both_directions():
     from backend.operations.action_recovery import CUDA_TOOLKIT_KEY, admit_action
 
@@ -685,19 +782,18 @@ def test_cuda_uninstall_overlaps_install_and_dependent_work_in_both_directions()
     }
     assert admit_action([install], CUDA_TOOLKIT_KEY)["code"] == "ACTION_IN_FLIGHT"
     assert admit_action([uninstall], CUDA_TOOLKIT_KEY)["code"] == "ACTION_IN_FLIGHT"
-    assert admit_action(
-        [build], CUDA_TOOLKIT_KEY
-    )["code"] == "ACTION_IN_FLIGHT"
-    assert admit_action(
-        [uninstall],
-        build["resource_key"],
-        depends_on=CUDA_TOOLKIT_KEY,
-    )["code"] == "ACTION_IN_FLIGHT"
+    assert admit_action([build], CUDA_TOOLKIT_KEY)["code"] == "ACTION_IN_FLIGHT"
+    assert (
+        admit_action(
+            [uninstall],
+            build["resource_key"],
+            depends_on=CUDA_TOOLKIT_KEY,
+        )["code"]
+        == "ACTION_IN_FLIGHT"
+    )
 
 
-def test_cancellation_keeps_ownership_when_restart_cannot_verify_termination(
-    tmp_path, monkeypatch
-):
+def test_cancellation_keeps_ownership_when_restart_cannot_verify_termination(tmp_path, monkeypatch):
     from backend import data_store
     from backend.operations.action_recovery import admit_action
 
@@ -723,9 +819,7 @@ def test_cancellation_keeps_ownership_when_restart_cannot_verify_termination(
 
 
 @pytest.mark.asyncio
-async def test_only_a_pre_effect_rejection_releases_without_confirmation(
-    tmp_path, monkeypatch
-):
+async def test_only_a_pre_effect_rejection_releases_without_confirmation(tmp_path, monkeypatch):
     from backend import data_store
     from backend.operations.action_recovery import admit_action
     from backend.operations.exclusive import exclusive_action
@@ -813,15 +907,17 @@ def test_consuming_a_confirmation_and_reserving_are_one_write(tmp_path, monkeypa
     monkeypatch.setattr(data_store, "_store", store)
     monkeypatch.setattr(data_store, "get_store", lambda: store)
     now = time.time()
-    store.upsert_operation({
-        "operation_id": "build-open",
-        "kind": "build",
-        "status": "unknown",
-        "resource_key": "install/shared",
-        "detail": {"effect_started": True},
-        "message": "unknown",
-        "updated_at": now,
-    })
+    store.upsert_operation(
+        {
+            "operation_id": "build-open",
+            "kind": "build",
+            "status": "unknown",
+            "resource_key": "install/shared",
+            "detail": {"effect_started": True},
+            "message": "unknown",
+            "updated_at": now,
+        }
+    )
     token = state_token(store.list_operations()[0])
     confirmation = {"confirm_operation_id": "build-open", "confirm_state": token}
 
@@ -840,12 +936,15 @@ def test_consuming_a_confirmation_and_reserving_are_one_write(tmp_path, monkeypa
             detail={"effect_started": False},
         )
     assert store.list_operations()[0]["operation_id"] == "build-open"
-    assert admit_action(
-        store.list_operations(),
-        "install/shared",
-        confirm_operation_id="build-open",
-        confirm_state=token,
-    )["admit"] is True
+    assert (
+        admit_action(
+            store.list_operations(),
+            "install/shared",
+            confirm_operation_id="build-open",
+            confirm_state=token,
+        )["admit"]
+        is True
+    )
 
     monkeypatch.setattr(data_store.DataStore, "_write_yaml", original_replace)
     bind_action_confirmation(confirmation)
@@ -872,10 +971,7 @@ def test_consuming_a_confirmation_and_reserving_are_one_write(tmp_path, monkeypa
         thread.join()
     assert len(results) == 1
     assert len(errors) == 1
-    running = [
-        row for row in store.list_operations()
-        if row.get("status") == "running"
-    ]
+    running = [row for row in store.list_operations() if row.get("status") == "running"]
     assert len(running) == 1
     withheld = admit_action(
         store.list_operations(),
@@ -895,59 +991,92 @@ def _ticks(pid: int) -> str:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('first,second', [
-    ('hf:org/model', 'hf:org/model:weights.gguf'),
-    ('hf:org/model:weights.gguf', 'hf:org/model'),
-    ('proxy:runtime', 'runtime-apply:model'),
-    ('runtime-apply:model', 'proxy:runtime'),
-])
-async def test_overlapping_reservations_reject_while_initial_write_is_queued(tmp_path, monkeypatch, first, second):
+@pytest.mark.parametrize(
+    "first,second",
+    [
+        ("hf:org/model", "hf:org/model:weights.gguf"),
+        ("hf:org/model:weights.gguf", "hf:org/model"),
+        ("proxy:runtime", "runtime-apply:model"),
+        ("runtime-apply:model", "proxy:runtime"),
+    ],
+)
+async def test_overlapping_reservations_reject_while_initial_write_is_queued(
+    tmp_path, monkeypatch, first, second
+):
     import threading
     from backend import data_store, store_io
     from backend.operations.supervisor import ResourceBusyError
-    store = data_store.DataStore(config_dir=str(tmp_path / 'config'))
-    monkeypatch.setattr(data_store, '_store', store)
+
+    store = data_store.DataStore(config_dir=str(tmp_path / "config"))
+    monkeypatch.setattr(data_store, "_store", store)
     supervisor = OperationSupervisor()
     release = threading.Event()
     store_io.run_store(lambda: release.wait(5))
     try:
-        supervisor.start_operation('first', 'download', first, detail={'effect_started': False})
+        supervisor.start_operation("first", "download", first, detail={"effect_started": False})
         assert store.list_operations() == []
         with pytest.raises(ResourceBusyError):
-            supervisor.start_operation('second', 'download', second, detail={'effect_started': False})
+            supervisor.start_operation(
+                "second", "download", second, detail={"effect_started": False}
+            )
     finally:
         release.set()
         await store_io.drain_store_io()
-    assert [row['operation_id'] for row in store.list_operations()] == ['first']
+    assert [row["operation_id"] for row in store.list_operations()] == ["first"]
 
 
 def test_retention_does_not_remove_unresolved_admission_fences(tmp_path):
     from backend.data_store import DataStore
     from backend.operations.action_recovery import admit_action
-    store = DataStore(config_dir=str(tmp_path / 'config'))
-    store.upsert_operation({'operation_id': 'old-unknown', 'kind': 'build', 'status': 'unknown',
-                            'resource_key': 'engine:llama_cpp', 'updated_at': 1, 'detail': {'effect_started': True}})
+
+    store = DataStore(config_dir=str(tmp_path / "config"))
+    store.upsert_operation(
+        {
+            "operation_id": "old-unknown",
+            "kind": "build",
+            "status": "unknown",
+            "resource_key": "engine:llama_cpp",
+            "updated_at": 1,
+            "detail": {"effect_started": True},
+        }
+    )
     for index in range(205):
-        store.upsert_operation({'operation_id': f'failed-{index}', 'status': 'failed', 'updated_at': time.time()})
-    rows = DataStore(config_dir=str(tmp_path / 'config')).list_operations()
-    assert admit_action(rows, 'engine:llama_cpp')['code'] == 'ACTION_RETRY_WITHHELD'
+        store.upsert_operation(
+            {"operation_id": f"failed-{index}", "status": "failed", "updated_at": time.time()}
+        )
+    rows = DataStore(config_dir=str(tmp_path / "config")).list_operations()
+    assert admit_action(rows, "engine:llama_cpp")["code"] == "ACTION_RETRY_WITHHELD"
 
 
 def test_consumed_confirmation_no_longer_blocks_after_replacement_finishes(tmp_path, monkeypatch):
     from backend import data_store
-    from backend.operations.action_recovery import admit_action, bind_action_confirmation, open_action, state_token
-    store = data_store.DataStore(config_dir=str(tmp_path / 'config'))
-    monkeypatch.setattr(data_store, '_store', store)
-    row = {'operation_id': 'old', 'kind': 'build', 'status': 'unknown', 'resource_key': 'engine:llama_cpp',
-           'updated_at': time.time(), 'detail': {'effect_started': True}}
+    from backend.operations.action_recovery import (
+        admit_action,
+        bind_action_confirmation,
+        open_action,
+        state_token,
+    )
+
+    store = data_store.DataStore(config_dir=str(tmp_path / "config"))
+    monkeypatch.setattr(data_store, "_store", store)
+    row = {
+        "operation_id": "old",
+        "kind": "build",
+        "status": "unknown",
+        "resource_key": "engine:llama_cpp",
+        "updated_at": time.time(),
+        "detail": {"effect_started": True},
+    }
     store.upsert_operation(row)
-    bind_action_confirmation({'confirm_operation_id': 'old', 'confirm_state': state_token(row)})
+    bind_action_confirmation({"confirm_operation_id": "old", "confirm_state": state_token(row)})
     try:
         supervisor = OperationSupervisor()
-        supervisor.start_operation('new', 'build', 'engine:llama_cpp', detail={'effect_started': False})
-        supervisor.finish_operation('new', 'succeeded')
-        assert admit_action(store.list_operations(), 'engine:llama_cpp')['admit'] is True
-        assert open_action(store.list_operations(), 'engine:llama_cpp') is None
+        supervisor.start_operation(
+            "new", "build", "engine:llama_cpp", detail={"effect_started": False}
+        )
+        supervisor.finish_operation("new", "succeeded")
+        assert admit_action(store.list_operations(), "engine:llama_cpp")["admit"] is True
+        assert open_action(store.list_operations(), "engine:llama_cpp") is None
     finally:
         bind_action_confirmation(None)
 
