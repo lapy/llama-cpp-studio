@@ -2,7 +2,7 @@
 
 This audit accompanies `docs/engine-refactor-requirement-matrix.md` and records
 what is definition-owned, what compatibility wiring deliberately remains, and
-what is still transitional. It is a snapshot of the current uncommitted tree.
+what is still transitional. It is a snapshot of the committed engine tree after the definition-only installer cutover.
 
 ## Definition ownership
 
