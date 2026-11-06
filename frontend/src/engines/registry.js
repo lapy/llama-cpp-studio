@@ -50,6 +50,8 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     }),
     repoSource: 'llama.cpp',
     versionsKey: 'llamaVersions',
+    openStrategy: 'llama',
+    statusRefresh: 'llama',
     // R95: the build-options catalog endpoint is declared here; the panel
     // dispatches through `buildOptionsPath()` instead of engine-id branches.
     buildOptionsPath: '/api/llama-versions/build-options',
@@ -75,6 +77,8 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     }),
     repoSource: 'ik_llama.cpp',
     versionsKey: 'ikLlamaVersions',
+    openStrategy: 'ik',
+    statusRefresh: 'ik',
     buildOptionsPath: '/api/llama-versions/build-options',
     icon: 'pi-microchip',
     cmakeCapable: true,
@@ -100,6 +104,8 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     }),
     repoSource: 'Unsloth llama.cpp',
     versionsKey: 'unslothLlamaVersions',
+    openStrategy: 'unsloth',
+    statusRefresh: 'unsloth',
     icon: 'pi-microchip',
     fallbackFormats: Object.freeze(['gguf']),
     // No build-hint copy: unsloth ships release installs only.
@@ -117,6 +123,8 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     venv: true,
     apiSegment: 'lmdeploy',
     versionsKey: 'lmdeployVersions',
+    openStrategy: 'lmdeploy',
+    statusRefresh: 'lmdeploy',
     dialogIcon: 'pi-server',
     genericApi: true,
     managerKey: 'lmdeploy',
@@ -136,6 +144,8 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     venv: true,
     apiSegment: '1cat-vllm',
     versionsKey: 'onecatVllmVersions',
+    openStrategy: 'onecat',
+    statusRefresh: 'onecat',
     // Dialog-header icon differs from the picker icon (pi-server) — real
     // per-surface divergence, kept as data.
     dialogIcon: 'pi-bolt',
@@ -157,6 +167,8 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     }),
     repoSource: 'SGLang',
     versionsKey: 'sglangVersions',
+    openStrategy: 'sglang',
+    statusRefresh: 'sglang',
     icon: 'pi-sparkles',
     fallbackFormats: Object.freeze(['safetensors']),
     venv: true,
@@ -167,6 +179,8 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     managerKey: 'sglang',
     sglangRuntimeUi: true,
     panelFamily: 'sglang',
+    runtimeProfiles: Object.freeze({ llm: 'default', diffusion: 'diffusion' }),
+    runtimeKey: 'sglang_runtime',
     buildHint:
       'Set the default PyPI version and source repo/branch before installing. Upstream SGLang currently requires a CUDA 13-capable environment.',
   }),
@@ -184,6 +198,8 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     }),
     repoSource: 'SGLang-V100',
     versionsKey: 'sglangV100Versions',
+    openStrategy: 'sglang',
+    statusRefresh: 'sglang',
     icon: 'pi-sparkles',
     fallbackFormats: Object.freeze(['safetensors']),
     venv: true,
@@ -194,6 +210,8 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     managerKey: 'sglang_v100',
     sglangRuntimeUi: true,
     panelFamily: 'sglang',
+    runtimeProfiles: Object.freeze({ llm: 'default', diffusion: 'diffusion' }),
+    runtimeKey: 'sglang_runtime',
     buildHint:
       'Set the V100 fork repo and branch. Install Studio-managed CUDA 12.8 first; the fork then builds only its SM70-specific dependencies.',
   }),
@@ -210,6 +228,8 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     }),
     repoSource: 'vLLM',
     versionsKey: 'vllmVersions',
+    openStrategy: 'sglang',
+    statusRefresh: 'sglang',
     icon: 'pi-server',
     fallbackFormats: Object.freeze(['safetensors']),
     venv: true,
@@ -228,13 +248,15 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     label: 'audio.cpp',
     card: Object.freeze({
       mark: Object.freeze({ text: 'A', className: 'engine-mark--audio' }),
-      badge: Object.freeze({ kind: 'audio-maturity' }),
+      badge: Object.freeze({ kind: 'maturity' }),
       subtitle: 'Speech, music, and other audio tasks.',
       update: Object.freeze({ key: 'audioCpp', formatter: 'version' }),
       featureFlag: 'audio_cpp',
     }),
     repoSource: 'audio.cpp',
     versionsKey: 'audioCppVersions',
+    openStrategy: 'audio',
+    statusRefresh: 'audio',
     buildOptionsPath: '/api/audio-cpp/build-options',
     // R101: ModelConfig renders the audio panel for this family (declared here
     // instead of comparing engine ids at every site).
@@ -247,6 +269,56 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     cancelPath: '/api/audio-cpp/cancel',
     // No fallbackFormats: curated audio packages are gated by package_kind,
     // not by artifact format (see inferredEnginesForModel).
+    configCopy: Object.freeze({
+      stableIdLabel: 'Model ID while running',
+      stableIdAria: 'Stable model ID',
+      aliasLabel: 'Friendly API name',
+      aliasTooltip:
+        'Optional name apps send as model. Running state uses the stable ID.',
+      unknownKeysPrefix: 'Unrecognized audio.cpp keys are preserved on save:',
+    }),
+    configTabs: Object.freeze([
+      Object.freeze({ id: 'server', label: 'Runtime', icon: 'pi pi-server' }),
+      Object.freeze({ id: 'assets', label: 'Assets', icon: 'pi pi-folder-open' }),
+      Object.freeze({ id: 'api', label: 'Defaults', icon: 'pi pi-sliders-h' }),
+      Object.freeze({ id: 'launch', label: 'Launch', icon: 'pi pi-play' }),
+    ]),
+    configCapabilities: Object.freeze({
+      commandImport: false,
+      modelUpdates: false,
+      preserveUnknownKeys: true,
+    }),
+    knownConfigKeys: Object.freeze([
+      'lazy_load',
+      'model_spec_override',
+      'voice_presets',
+      'default_voice_preset',
+      'speech_defaults',
+      'transcription_defaults',
+      'task_defaults',
+      'last_reviewed_fingerprint',
+    ]),
+    paramRegistry: Object.freeze({
+      family: true,
+      task: true,
+      pruneRequestDefaults: true,
+      refreshOnChange: true,
+    }),
+    featureBadge: Object.freeze({
+      disabledLabel: 'Disabled',
+      disabledTooltip: 'Disabled by AUDIO_CPP_ENABLED',
+      tagRules: Object.freeze([
+        Object.freeze({ surface: 'speech_asr', equals: 'stable', label: 'Speech/ASR ready' }),
+        Object.freeze({ surface: 'generic_tasks', equals: 'limited', label: 'Limited' }),
+      ]),
+      fallbackLabel: 'Audio',
+      tooltipFields: Object.freeze([
+        Object.freeze({ surface: 'speech_asr', label: 'Speech/ASR' }),
+        Object.freeze({ surface: 'generic_tasks', label: 'Generic tasks' }),
+        Object.freeze({ surface: 'heuristic_discovery', label: 'Heuristic discovery' }),
+      ]),
+      fallbackTooltip: 'Native audio engine for prepared bundles',
+    }),
   }),
 })
 

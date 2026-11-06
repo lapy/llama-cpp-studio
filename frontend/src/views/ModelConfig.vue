@@ -804,27 +804,25 @@
           <div class="config-split-grid split-grid">
             <div class="advanced-field">
               <label class="advanced-field__label">
-                {{ isAudioEngine ? 'Model ID while running' : 'Stable ID' }}
+                {{ stableIdLabel }}
               </label>
               <InputText
                 :model-value="stableModelId"
                 readonly
                 class="w-full"
-                :aria-label="isAudioEngine ? 'Stable model ID' : 'Stable Studio proxy model ID'"
+                :aria-label="stableIdAria"
               />
             </div>
 
             <div class="advanced-field">
               <label class="advanced-field__label">
-                {{ isAudioEngine ? 'Friendly API name' : 'API alias' }}
+                {{ aliasLabel }}
                 <i
                   class="pi pi-info-circle param-info"
                   tabindex="0"
                   aria-label="About API alias"
                   v-tooltip.top="
-                    isAudioEngine
-                      ? 'Optional name apps send as model. Running state uses the stable ID.'
-                      : 'Optional id apps send as model. Must be unique. Running state uses the stable ID, not this alias.'
+                    aliasTooltip
                   "
                 />
               </label>
@@ -1485,7 +1483,6 @@ import ParseCommandDialog from '@/components/ParseCommandDialog.vue'
 import {
   useAudioModelConfig,
   AUDIO_NESTED_SCOPE_KEYS,
-  AUDIO_STUDIO_KNOWN_KEYS,
   coerceAudioParamValue,
   defaultValueForAudioParam,
   pruneStaleAudioRequestDefaults,
@@ -1501,9 +1498,7 @@ import {
   ENGINE_IDS_BY_FALLBACK_FORMAT,
   FALLBACK_ENGINE_OPTIONS,
   SGLANG_RUNTIME_OPTIONS,
-  SGLANG_RUNTIME_UI_IDS,
   VENV_ENGINE_IDS,
-  isAudioEngineId,
 } from '@/engines/registry'
 
 const audioEngineId = AUDIO_ENGINE_IDS[0] || ''
@@ -1742,33 +1737,57 @@ const engineOptions = computed(() => {
   })
 })
 
-const isAudioEngine = computed(() => isAudioEngineId(config.value.engine))
-const SGLANG_ENGINES = new Set(SGLANG_RUNTIME_UI_IDS)
-const isSglangEngine = computed(() => SGLANG_ENGINES.has(config.value.engine))
+function isAudioPanel(engineId) {
+  return ENGINE_DESCRIPTORS[engineId]?.configPanel === 'audio'
+}
+const isAudioEngine = computed(() => isAudioPanel(config.value.engine))
+const engineConfigCopy = computed(
+  () => ENGINE_DESCRIPTORS[config.value.engine]?.configCopy || {},
+)
+const stableIdLabel = computed(() => engineConfigCopy.value.stableIdLabel || 'Stable ID')
+const stableIdAria = computed(
+  () => engineConfigCopy.value.stableIdAria || 'Stable Studio proxy model ID',
+)
+const aliasLabel = computed(() => engineConfigCopy.value.aliasLabel || 'API alias')
+const aliasTooltip = computed(
+  () =>
+    engineConfigCopy.value.aliasTooltip ||
+    'Optional id apps send as model. Must be unique. Running state uses the stable ID, not this alias.',
+)
+function runtimeKeyFor(engineId) {
+  return ENGINE_DESCRIPTORS[engineId]?.runtimeKey || ''
+}
+const engineRuntimeKey = computed(() => runtimeKeyFor(config.value.engine))
+const isSglangEngine = computed(() => Boolean(engineRuntimeKey.value))
 const sglangRuntimeOptions = SGLANG_RUNTIME_OPTIONS
-const sglangRuntime = computed(() => normalizeSglangRuntime(config.value.sglang_runtime))
+const sglangRuntime = computed(() =>
+  normalizeSglangRuntime(config.value[engineRuntimeKey.value]),
+)
 function normalizeSglangRuntime(runtime) {
   return runtime === 'diffusion' ? 'diffusion' : 'llm'
 }
+const DEFAULT_CONFIG_TABS = Object.freeze([
+  Object.freeze({ id: 'runtime', label: 'Runtime', icon: 'pi pi-server' }),
+  Object.freeze({ id: 'launch', label: 'Launch', icon: 'pi pi-play' }),
+])
 const pageTab = ref('runtime')
-const pageTabs = computed(() =>
-  isAudioEngine.value
-    ? [
-        { id: 'server', label: 'Runtime', icon: 'pi pi-server' },
-        { id: 'assets', label: 'Assets', icon: 'pi pi-folder-open' },
-        { id: 'api', label: 'Defaults', icon: 'pi pi-sliders-h' },
-        { id: 'launch', label: 'Launch', icon: 'pi pi-play' },
-      ]
-    : [
-        { id: 'runtime', label: 'Runtime', icon: 'pi pi-server' },
-        { id: 'launch', label: 'Launch', icon: 'pi pi-play' },
-      ],
+const pageTabs = computed(
+  () => ENGINE_DESCRIPTORS[config.value.engine]?.configTabs || DEFAULT_CONFIG_TABS,
 )
-watch(isAudioEngine, (audio) => {
-  const ids = new Set(pageTabs.value.map((tab) => tab.id))
-  if (!ids.has(pageTab.value)) pageTab.value = audio ? 'server' : 'runtime'
-})
-const canImportCommand = computed(() => !isAudioEngine.value && catalogSections.value.length > 0)
+watch(
+  () => pageTabs.value,
+  (tabs) => {
+    const ids = new Set(tabs.map((tab) => tab.id))
+    if (!ids.has(pageTab.value)) pageTab.value = tabs[0]?.id || 'runtime'
+  },
+)
+function configCapability(name, fallback = true) {
+  const value = ENGINE_DESCRIPTORS[config.value.engine]?.configCapabilities?.[name]
+  return value === undefined ? fallback : value
+}
+const canImportCommand = computed(
+  () => configCapability('commandImport') && catalogSections.value.length > 0,
+)
 
 const parseCatalogParams = computed(() => {
   const out = []
@@ -1799,7 +1818,7 @@ const modelFormat = computed(() =>
 )
 const canCheckForUpdates = computed(() => {
   if (!model.value?.huggingface_id) return false
-  if (isAudioEngine.value) return false
+  if (!configCapability('modelUpdates')) return false
   return modelFormat.value === 'gguf' || modelFormat.value === 'safetensors'
 })
 const showCompanionsCard = computed(
@@ -1872,8 +1891,11 @@ const runtimeEnvRowsDisplayed = computed(() =>
 )
 
 const selectedParamRegistry = computed(() => {
-  if (!isSglangEngine.value || sglangRuntime.value === 'llm') return paramRegistry.value
-  return paramRegistry.value.runtime_profiles?.diffusion || { sections: [], scan_pending: true }
+  if (!isSglangEngine.value) return paramRegistry.value
+  const profile =
+    ENGINE_DESCRIPTORS[config.value.engine]?.runtimeProfiles?.[sglangRuntime.value] || 'default'
+  if (profile === 'default') return paramRegistry.value
+  return paramRegistry.value.runtime_profiles?.[profile] || { sections: [], scan_pending: true }
 })
 const catalogSections = computed(() =>
   Array.isArray(selectedParamRegistry.value.sections) ? selectedParamRegistry.value.sections : [],
@@ -1933,8 +1955,6 @@ const currentEngineSection = computed(
   () => (config.value.engines && config.value.engines[config.value.engine]) || {},
 )
 
-const AUDIO_STUDIO_KNOWN_KEYS_REF = AUDIO_STUDIO_KNOWN_KEYS
-
 const unrecognizedSavedKeys = computed(() => {
   const known = new Set([
     'custom_args',
@@ -1947,8 +1967,8 @@ const unrecognizedSavedKeys = computed(() => {
     'gpu_devices',
     'load_options',
     'session_options',
-    ...(isAudioEngine.value ? AUDIO_STUDIO_KNOWN_KEYS_REF : []),
-    ...(isSglangEngine.value ? ['sglang_runtime'] : []),
+    ...(ENGINE_DESCRIPTORS[config.value.engine]?.knownConfigKeys || []),
+    ...(engineRuntimeKey.value ? [engineRuntimeKey.value] : []),
   ])
   for (const key of catalogParamByKey.value.keys()) known.add(key)
   if (isSglangEngine.value) {
@@ -2770,16 +2790,20 @@ async function fetchGpuListForBind() {
   }
 }
 
+function paramRegistryFlag(engineId, key) {
+  return ENGINE_DESCRIPTORS[engineId]?.paramRegistry?.[key] === true
+}
+
 async function fetchParamRegistry(engine, { draftFamily, draftTask, rescan = false } = {}) {
   try {
-    const family = draftFamily ?? (isAudioEngineId(engine) ? config.value?.family : undefined)
-    const task = draftTask ?? (isAudioEngineId(engine) ? config.value?.task : undefined)
+    const family = draftFamily ?? (paramRegistryFlag(engine, 'family') ? config.value?.family : undefined)
+    const task = draftTask ?? (paramRegistryFlag(engine, 'task') ? config.value?.task : undefined)
     const { data } = await axios.get('/api/models/param-registry', {
       params: {
         engine,
         ...(model.value?.id ? { model_id: model.value.id } : {}),
-        ...(isAudioEngineId(engine) && family ? { family } : {}),
-        ...(isAudioEngineId(engine) && task ? { task } : {}),
+        ...(paramRegistryFlag(engine, 'family') && family ? { family } : {}),
+        ...(paramRegistryFlag(engine, 'task') && task ? { task } : {}),
         ...(rescan ? { rescan: true } : {}),
       },
     })
@@ -2814,7 +2838,7 @@ async function fetchParamRegistry(engine, { draftFamily, draftTask, rescan = fal
       family_dependencies: data.family_dependencies || {},
       packaged_voices: data.packaged_voices || [],
     }
-    if (isAudioEngineId(engine)) {
+    if (paramRegistryFlag(engine, 'pruneRequestDefaults')) {
       pruneStaleAudioRequestDefaults(
         config.value,
         paramRegistry.value.request_defaults_key ||
@@ -2840,7 +2864,7 @@ function scheduleAudioRegistryRefresh() {
   if (audioRegistryRefreshTimer) clearTimeout(audioRegistryRefreshTimer)
   audioRegistryRefreshTimer = window.setTimeout(() => {
     audioRegistryRefreshTimer = null
-    if (!isAudioEngineId(config.value?.engine) || loading.value) return
+    if (!paramRegistryFlag(config.value?.engine, 'refreshOnChange') || loading.value) return
     void fetchParamRegistry(audioEngineId)
   }, 250)
 }
@@ -2854,15 +2878,17 @@ function buildWorkingConfigFromApi(cfg) {
     engine,
     engines,
     ...sec,
-    ...(SGLANG_ENGINES.has(engine)
-      ? { sglang_runtime: normalizeSglangRuntime(sec.sglang_runtime) }
+    ...(runtimeKeyFor(engine)
+      ? { [runtimeKeyFor(engine)]: normalizeSglangRuntime(sec[runtimeKeyFor(engine)]) }
       : {}),
   }
 }
 
 function buildEngineStashFromForm(sourceConfig = config.value) {
-  const preserveUnknownAudioKeys = isAudioEngineId(sourceConfig.engine)
-  const preserveSglangKeys = SGLANG_ENGINES.has(sourceConfig.engine)
+  const preserveUnknownAudioKeys = Boolean(
+    ENGINE_DESCRIPTORS[sourceConfig.engine]?.configCapabilities?.preserveUnknownKeys,
+  )
+  const preserveSglangKeys = Boolean(runtimeKeyFor(sourceConfig.engine))
   const previous = sourceConfig.engines?.[sourceConfig.engine]
   const stash =
     (preserveUnknownAudioKeys || preserveSglangKeys) && previous && typeof previous === 'object'
@@ -2872,7 +2898,9 @@ function buildEngineStashFromForm(sourceConfig = config.value) {
     // Only replace the displayed runtime's editable parameters. Keep settings
     // belonging to the other runtime and keys missing from an older CLI scan.
     for (const param of catalogParamList.value) delete stash[param.key]
-    stash.sglang_runtime = normalizeSglangRuntime(sourceConfig.sglang_runtime)
+    stash[runtimeKeyFor(sourceConfig.engine)] = normalizeSglangRuntime(
+    sourceConfig[runtimeKeyFor(sourceConfig.engine)],
+  )
   }
   if (Array.isArray(sourceConfig.set_params_by_id)) {
     stash.set_params_by_id = JSON.parse(JSON.stringify(sourceConfig.set_params_by_id))
@@ -3050,10 +3078,10 @@ function stashCurrentEngineIntoEngines(engineKey) {
 
 function applyEngineSectionToForm(engine) {
   const sec = (config.value.engines && config.value.engines[engine]) || {}
-  if (SGLANG_ENGINES.has(engine))
-    config.value.sglang_runtime = normalizeSglangRuntime(sec.sglang_runtime)
+  if (runtimeKeyFor(engine))
+    config.value[runtimeKeyFor(engine)] = normalizeSglangRuntime(sec[runtimeKeyFor(engine)])
   const params = catalogParamList.value
-  if (isAudioEngineId(engine)) {
+  if (isAudioPanel(engine)) {
     const eng = config.value.engine
     const engMap = config.value.engines
     for (const key of Object.keys(config.value)) {
@@ -3095,8 +3123,8 @@ function applyEngineSectionToForm(engine) {
     Object.assign(config.value, sec)
     config.value.engine = eng
     config.value.engines = engMap
-    if (SGLANG_ENGINES.has(engine))
-      config.value.sglang_runtime = normalizeSglangRuntime(sec.sglang_runtime)
+    if (runtimeKeyFor(engine))
+      config.value[runtimeKeyFor(engine)] = normalizeSglangRuntime(sec[runtimeKeyFor(engine)])
     initRuntimeEnvRowsFromConfig()
 
     syncCudaSelectionFromEnv()
@@ -3113,7 +3141,7 @@ function applyEngineSectionToForm(engine) {
     'runtime_env_unset',
     'gpu_mode',
     'gpu_devices',
-    ...(SGLANG_ENGINES.has(engine) ? ['sglang_runtime'] : []),
+    ...(runtimeKeyFor(engine) ? [runtimeKeyFor(engine)] : []),
     ...activeParamKeys.value,
   ])
   for (const k of Object.keys(config.value)) {
@@ -3175,12 +3203,11 @@ async function changeEngine(engine) {
   if (engine === config.value.engine) return
   stashCurrentEngineIntoEngines(config.value.engine)
   config.value.engine = engine
-  if (SGLANG_ENGINES.has(engine)) {
-    config.value.sglang_runtime = normalizeSglangRuntime(
-      config.value.engines?.[engine]?.sglang_runtime,
-    )
-  } else {
-    delete config.value.sglang_runtime
+  const runtimeKey = runtimeKeyFor(engine)
+  if (runtimeKey) {
+    config.value[runtimeKey] = normalizeSglangRuntime(config.value.engines?.[engine]?.[runtimeKey])
+  } else if (engineRuntimeKey.value) {
+    delete config.value[engineRuntimeKey.value]
   }
   paramSearchQuery.value = ''
   hideUnsupportedParams.value = false
@@ -3195,8 +3222,9 @@ function changeSglangRuntime(runtime) {
   const engine = config.value.engine
   stashCurrentEngineIntoEngines(engine)
   const sec = config.value.engines[engine]
-  sec.sglang_runtime = normalizeSglangRuntime(runtime)
-  config.value.sglang_runtime = sec.sglang_runtime
+  const runtimeKey = runtimeKeyFor(engine)
+  sec[runtimeKey] = normalizeSglangRuntime(runtime)
+  config.value[runtimeKey] = sec[runtimeKey]
   paramSearchQuery.value = ''
   hideUnsupportedParams.value = false
   setActiveKeysFromSection(sec, catalogParamList.value)
@@ -4109,8 +4137,8 @@ watch(
   [() => config.value?.engine, () => config.value?.family, () => config.value?.task],
   ([engine], [prevEngine]) => {
     if (suppressAudioRegistryWatch || loading.value) return
-    if (!isAudioEngineId(engine)) return
-    if (prevEngine && !isAudioEngineId(prevEngine)) {
+    if (!paramRegistryFlag(engine, 'refreshOnChange')) return
+    if (prevEngine && !paramRegistryFlag(prevEngine, 'refreshOnChange')) {
       void fetchParamRegistry(audioEngineId)
       return
     }

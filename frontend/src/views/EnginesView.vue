@@ -1119,22 +1119,34 @@ function withVersionListRefresh(probe) {
   }
 }
 
-const ENGINE_DIALOG_OPEN = {
-  llama_cpp: () => checkLlamaCppUpdates(),
-  ik_llama: () => checkIkLlamaUpdates(),
-  unsloth_llama: withVersionListRefresh(checkUnslothLlamaUpdates),
+const ENGINE_OPEN_STRATEGIES = {
+  llama: () => checkLlamaCppUpdates(),
+  ik: () => checkIkLlamaUpdates(),
+  unsloth: withVersionListRefresh(checkUnslothLlamaUpdates),
   lmdeploy: withVersionListRefresh(checkLmdeployUpdates),
-  '1cat_vllm': withVersionListRefresh(checkOnecatVllmUpdates),
-  ...Object.fromEntries(
-    SG_PANEL_ENGINE_IDS.map((engineId) => [
-      engineId,
-      withVersionListRefresh(() => enginesStore.fetchSglangStatus(engineId)),
-    ]),
-  ),
-  [audioEngineId]: () => {
+  onecat: withVersionListRefresh(checkOnecatVllmUpdates),
+  sglang: (engineId) => withVersionListRefresh(() => enginesStore.fetchSglangStatus(engineId)),
+  audio: () => {
     enginesStore.fetchLlamaVersions()
     enginesStore.fetchAudioCppStatus()
     checkAudioCppUpdates()
+  },
+}
+
+const ENGINE_DIALOG_OPEN = Object.fromEntries(
+  Object.entries(ENGINE_DESCRIPTORS).map(([engineId, descriptor]) => [
+    engineId,
+    () => ENGINE_OPEN_STRATEGIES[descriptor.openStrategy]?.(engineId),
+  ]),
+)
+
+const ENGINE_STATUS_REFRESH = {
+  lmdeploy: () => enginesStore.fetchLmdeployStatus(),
+  onecat: () => enginesStore.fetchOnecatVllmStatus(),
+  sglang: (engineId) => enginesStore.fetchSglangStatus(engineId),
+  audio: () => {
+    enginesStore.fetchLlamaVersions()
+    return enginesStore.fetchAudioCppStatus()
   },
 }
 
@@ -1145,10 +1157,10 @@ function openEngineModal(engineKey) {
 }
 
 function refreshEngineDialogStatus(engineKey) {
-  enginesStore.fetchLlamaVersions()
-  if (engineKey === 'lmdeploy') return enginesStore.fetchLmdeployStatus()
-  if (engineKey === '1cat_vllm') return enginesStore.fetchOnecatVllmStatus()
-  return enginesStore.fetchAudioCppStatus()
+  const strategy = ENGINE_DESCRIPTORS[engineKey]?.statusRefresh
+  const handler = ENGINE_STATUS_REFRESH[strategy]
+  if (handler) return handler(engineKey)
+  return enginesStore.fetchLlamaVersions()
 }
 
 async function refreshEnginesOverview() {
@@ -1269,17 +1281,7 @@ function versionsFor(engineId) {
   return Array.isArray(list) ? list : []
 }
 
-const ENGINE_CARD_ORDER = Object.freeze([
-  'llama_cpp',
-  'ik_llama',
-  'unsloth_llama',
-  'lmdeploy',
-  '1cat_vllm',
-  'sglang',
-  'sglang_v100',
-  'vllm',
-  audioEngineId,
-])
+const ENGINE_CARD_ORDER = Object.freeze(Object.keys(ENGINE_DESCRIPTORS))
 
 // Update-info refs are declared later in setup; resolve them lazily so the
 // summary cards stay one descriptor-driven loop.
@@ -1305,12 +1307,14 @@ const engineSummaryCards = computed(() =>
     const versions = versionsFor(engineId)
     const active = engineActive[engineId]?.value || null
     const update = card.update ? ENGINE_UPDATE_SOURCES[card.update.key]?.() || null : null
-    const disabled = card.featureFlag === audioEngineId ? !audioCppFeatureEnabled.value : false
+    const enabled = card.featureFlag ? featureEnabled(card.featureFlag) : true
+    const disabled = !enabled
+    const featureBadge = card.featureFlag ? featureBadgeFor(card.featureFlag) : null
     let badge = card.badge || null
-    if (badge?.kind === 'audio-maturity') {
-      badge = audioCppFeatureEnabled.value
-        ? { value: audioCppMaturityTag.value, severity: 'success' }
-        : { value: 'Disabled', severity: 'secondary' }
+    if (badge?.kind === 'maturity' && featureBadge) {
+      badge = enabled
+        ? { value: maturityTag(card.featureFlag, featureBadge), severity: 'success' }
+        : { value: featureBadge.disabledLabel || 'Disabled', severity: 'secondary' }
     }
     return {
       id: engineId,
@@ -1328,9 +1332,9 @@ const engineSummaryCards = computed(() =>
           : '',
       disabled,
       tooltip: disabled
-        ? 'Disabled by AUDIO_CPP_ENABLED'
-        : card.featureFlag
-          ? audioCppMaturityTooltip.value
+        ? featureBadge?.disabledTooltip
+        : featureBadge
+          ? maturityTooltip(card.featureFlag, featureBadge)
           : undefined,
     }
   }),
@@ -1497,37 +1501,40 @@ const audioCppActiveStatusRows = computed(() => {
   }
   return rows
 })
-const audioCppFeatureEnabled = computed(() => {
+function featureEnabled(featureFlag) {
   const descriptor = (enginesStore.engineDescriptors || []).find(
-    (engine) => engine.id === audioEngineId,
+    (engine) => engine.id === featureFlag,
   )
   return descriptor?.enabled !== false
-})
+}
 
-const audioCppMaturitySurfaces = computed(() => {
+function featureBadgeFor(featureFlag) {
+  return ENGINE_DESCRIPTORS[featureFlag]?.featureBadge || null
+}
+
+function maturitySurfacesFor(featureFlag) {
   const descriptor = (enginesStore.engineDescriptors || []).find(
-    (engine) => engine.id === audioEngineId,
+    (engine) => engine.id === featureFlag,
   )
   return descriptor?.maturity_surfaces || {}
-})
+}
 
-const audioCppMaturityTag = computed(() => {
-  const surfaces = audioCppMaturitySurfaces.value
-  if (surfaces.speech_asr === 'stable') return 'Speech/ASR ready'
-  if (surfaces.generic_tasks === 'limited') return 'Limited'
-  return 'Audio'
-})
-
-const audioCppMaturityTooltip = computed(() => {
-  const surfaces = audioCppMaturitySurfaces.value
-  const parts = []
-  if (surfaces.speech_asr) parts.push(`Speech/ASR: ${surfaces.speech_asr}`)
-  if (surfaces.generic_tasks) parts.push(`Generic tasks: ${surfaces.generic_tasks}`)
-  if (surfaces.heuristic_discovery) {
-    parts.push(`Heuristic discovery: ${surfaces.heuristic_discovery}`)
+function maturityTag(featureFlag, featureBadge) {
+  const surfaces = maturitySurfacesFor(featureFlag)
+  for (const rule of featureBadge.tagRules || []) {
+    if (surfaces[rule.surface] === rule.equals) return rule.label
   }
-  return parts.length ? parts.join(' · ') : 'Native audio engine for prepared bundles'
-})
+  return featureBadge.fallbackLabel || ''
+}
+
+function maturityTooltip(featureFlag, featureBadge) {
+  const surfaces = maturitySurfacesFor(featureFlag)
+  const parts = []
+  for (const field of featureBadge.tooltipFields || []) {
+    if (surfaces[field.surface]) parts.push(`${field.label}: ${surfaces[field.surface]}`)
+  }
+  return parts.length ? parts.join(' · ') : featureBadge.fallbackTooltip || ''
+}
 
 // ── Version activate / delete ──────────────────────────────
 const activating = ref(null)
