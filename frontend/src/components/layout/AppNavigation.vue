@@ -33,7 +33,7 @@ function isCurrent(item) {
 const items = [
   { name: 'models', to: '/models', label: 'Models', iconClass: 'pi-database' },
   { name: 'audio', to: '/audio', label: 'Audio', iconClass: 'pi-volume-up' },
-  { name: 'search', to: '/search', label: 'Search', ariaLabel: 'Find models', iconClass: 'pi-search' },
+  { name: 'search', to: '/search', label: 'Search', ariaLabel: 'Search models', iconClass: 'pi-search' },
   { name: 'proxy', to: '/proxy', label: 'Proxy', iconClass: 'pi-share-alt' },
   { name: 'engines', to: '/engines', label: 'Engines', iconClass: 'pi-cog' },
   { name: 'system', to: '/system', label: 'System', iconClass: 'pi-sliders-h' },

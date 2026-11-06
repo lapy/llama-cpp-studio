@@ -1279,7 +1279,9 @@ function navigateTab(event, id) {
           ? tabs.length - 1
           : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
     ].id
-  document.getElementById(`proxy-tab-${activeTab.value}`)?.focus()
+  const nextTab = document.getElementById(`proxy-tab-${activeTab.value}`)
+  nextTab?.focus()
+  nextTab?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
 }
 async function resetStats() {
   try {

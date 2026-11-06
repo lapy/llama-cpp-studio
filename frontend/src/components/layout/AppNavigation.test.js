@@ -31,7 +31,7 @@ describe('AppNavigation', () => {
     expect(wrapper.text()).not.toContain('Restore')
     expect(wrapper.text()).toContain('Audio')
     expect(wrapper.text()).toContain('Search')
-    expect(links[2].attributes('aria-label')).toBe('Find models')
+    expect(links[2].attributes('aria-label')).toBe('Search models')
     expect(wrapper.text()).toContain('Proxy')
     expect(wrapper.text()).toContain('Engines')
     expect(wrapper.text()).toContain('System')
