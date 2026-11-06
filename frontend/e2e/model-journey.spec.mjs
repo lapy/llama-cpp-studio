@@ -789,7 +789,9 @@ test('maps a persistence failure code and hides exported exception text', async 
       },
     },
   })
-  const tools = page.locator('footer').getByRole('link', { name: 'System', exact: true })
+  const tools = page
+    .getByRole('navigation', { name: 'Main', exact: true })
+    .getByRole('link', { name: 'System', exact: true })
   await tools.scrollIntoViewIfNeeded()
   await expect(page.getByText('Queue full (32/32)')).toBeHidden()
   await expect(page.getByText('hf_BROWSERSECRET')).toHaveCount(0)

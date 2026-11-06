@@ -4954,6 +4954,10 @@ onBeforeUnmount(() => {
 }
 
 /* ── Actions (sticky bar) ───────────────────────────────── */
+.config-card:empty {
+  display: none;
+}
+
 .config-actions {
   display: flex;
   gap: 0.5rem;
@@ -4962,7 +4966,10 @@ onBeforeUnmount(() => {
   position: sticky;
   bottom: calc(var(--bottom-nav-height) + 0.75rem);
   z-index: 10;
+  width: fit-content;
+  max-width: 100%;
   margin-top: var(--spacing-sm);
+  margin-left: auto;
   padding: 0.75rem 1rem;
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-lg);

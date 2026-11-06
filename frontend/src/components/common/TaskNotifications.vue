@@ -522,6 +522,7 @@ function clearFinished() {
 }
 
 .activity-toggle {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -626,9 +627,12 @@ function clearFinished() {
 
   .activity-count {
     position: absolute;
-    top: -0.25rem;
-    right: -0.2rem;
+    top: -0.3rem;
+    right: -0.3rem;
     margin: 0;
+    min-width: 1.1rem;
+    padding: 0 0.25rem;
+    font-size: 0.62rem;
   }
 }
 

@@ -397,6 +397,16 @@ onBeforeUnmount(stopPolling)
 </script>
 
 <style scoped>
+.generic-engine-panel {
+  order: 3;
+  min-width: 0;
+  width: 100%;
+}
+
+.generic-engine-panel :deep(.engine-card) {
+  width: 100%;
+}
+
 .generic-engine-badge {
   font-size: 0.72rem;
   padding: 0.1rem 0.5rem;

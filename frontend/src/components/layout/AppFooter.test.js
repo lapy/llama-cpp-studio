@@ -57,13 +57,13 @@ vi.mock('@/stores/engines', () => ({
 import AppFooter from './AppFooter.vue'
 
 describe('AppFooter', () => {
-  it('keeps the footer to service status and a System link', async () => {
+  it('keeps the footer to service status without duplicating the System nav link', async () => {
     const wrapper = mount(AppFooter, {
       global: { stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } } },
     })
     expect(wrapper.text()).toContain('Live')
     expect(wrapper.text()).toContain('Needs attention')
-    expect(wrapper.get('a').attributes('href')).toBe('/system')
+    expect(wrapper.find('a').exists()).toBe(false)
     expect(wrapper.find('#config-backup').exists()).toBe(false)
     progressStore.isConnected = false
     await nextTick()

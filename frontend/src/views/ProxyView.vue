@@ -30,14 +30,16 @@
       error
     }}</Message>
     <Message v-if="!activeBackend && configuredBackend" severity="warn" :closable="false">
-      The proxy is stopped. Start it to accept inference requests.
-      <Button
-        label="Start proxy"
-        size="small"
-        severity="warn"
-        :loading="lifecycleBusy"
-        @click="lifecycle('start')"
-      />
+      <span class="proxy-stop-alert">
+        <span>The proxy is stopped. Start it to accept inference requests.</span>
+        <Button
+          label="Start proxy"
+          size="small"
+          severity="warn"
+          :loading="lifecycleBusy"
+          @click="lifecycle('start')"
+        />
+      </span>
     </Message>
     <Message v-else-if="restartRequired" severity="warn" :closable="false">
       Saved settings changed since the proxy last (re)started. Use “Restart &amp; apply” to activate
@@ -1277,7 +1279,9 @@ function navigateTab(event, id) {
           ? tabs.length - 1
           : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
     ].id
-  document.getElementById(`proxy-tab-${activeTab.value}`)?.focus()
+  const nextTab = document.getElementById(`proxy-tab-${activeTab.value}`)
+  nextTab?.focus()
+  nextTab?.scrollIntoView({ block: 'nearest', inline: 'center' })
 }
 async function resetStats() {
   try {
@@ -2650,14 +2654,49 @@ onUnmounted(() => {
   flex: 1;
   gap: 0.75rem;
   padding-bottom: 0.5rem;
+  scroll-padding-bottom: 1rem;
 }
+
+@media (max-width: 900px) {
+  .proxy-panels {
+    padding-bottom: calc(var(--bottom-nav-height) + 0.5rem);
+    scroll-padding-bottom: var(--bottom-nav-height);
+  }
+}
+.proxy-stop-alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.proxy-stop-alert > span:first-child {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+
+@media (max-width: 480px) {
+  .proxy-stop-alert {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .proxy-stop-alert > span:first-child {
+    flex: 0 0 auto;
+  }
+}
+
 .proxy-tabs {
   display: flex;
   flex-shrink: 0;
   overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: 0.5rem;
   border-bottom: 1px solid var(--border-primary);
 }
 .proxy-tabs button {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;

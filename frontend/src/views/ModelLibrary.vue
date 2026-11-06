@@ -1752,6 +1752,20 @@ onUnmounted(() => {
   gap: 0.4rem;
 }
 
+@media (max-width: 600px) {
+  :deep(.quant-row > .quant-actions) {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    gap: 0.25rem;
+  }
+
+  :deep(.quant-actions .p-button) {
+    min-width: 0;
+    padding: 0.3rem 0.4rem;
+    font-size: 0.72rem;
+  }
+}
+
 :deep(.quant-row > .quant-row__footer) {
   min-width: 0;
 }

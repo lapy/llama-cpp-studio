@@ -207,6 +207,9 @@ const proxyLinkLabel = computed(() => `Open Proxy, status ${proxyState.value}`)
   }
 
   .proxy-link {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    justify-content: center;
     padding: 0.4rem 0.55rem;
   }
 
@@ -216,8 +219,28 @@ const proxyLinkLabel = computed(() => `Open Proxy, status ${proxyState.value}`)
 }
 
 @media (max-width: 480px) {
+  .layout-header-content {
+    gap: 0.75rem;
+  }
+
   .header-actions {
     gap: 0.25rem;
+    flex-shrink: 1;
+  }
+
+  .logo {
+    gap: 0.5rem;
+  }
+
+  .workspace-search,
+  .proxy-link,
+  .theme-toggle {
+    flex: 0 0 2.75rem;
+    width: 2.75rem;
+    min-width: 2.75rem;
+    height: 2.75rem;
+    justify-content: center;
+    padding: 0;
   }
   .logo-copy strong {
     font-size: 0.8125rem;

@@ -177,6 +177,20 @@ const runtimeLabel = computed(() => {
   color: var(--accent-primary);
   border-color: var(--accent-primary);
 }
+
+@media (max-width: 600px) {
+  .system-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow-x: visible;
+  }
+
+  .system-tabs a {
+    padding: 0.55rem 0.65rem;
+    text-align: center;
+  }
+}
+
 .system-card {
   padding: 1rem;
   border: 1px solid var(--border-primary);
@@ -222,5 +236,11 @@ const runtimeLabel = computed(() => {
 }
 .system-error {
   color: var(--status-warning);
+}
+
+@media (max-width: 600px) {
+  .system-card {
+    padding: 0.75rem;
+  }
 }
 </style>

@@ -7,6 +7,7 @@
         }}</span>
         <RouterLink
           :to="item.to"
+          :aria-label="item.ariaLabel || item.label"
           class="p-button nav-button"
           :class="{ 'p-button-outlined': !isCurrent(item) }"
           :aria-current="isCurrent(item) ? 'page' : undefined"
@@ -32,7 +33,7 @@ function isCurrent(item) {
 const items = [
   { name: 'models', to: '/models', label: 'Models', iconClass: 'pi-database' },
   { name: 'audio', to: '/audio', label: 'Audio', iconClass: 'pi-volume-up' },
-  { name: 'search', to: '/search', label: 'Find models', iconClass: 'pi-search' },
+  { name: 'search', to: '/search', label: 'Search', ariaLabel: 'Search models', iconClass: 'pi-search' },
   { name: 'proxy', to: '/proxy', label: 'Proxy', iconClass: 'pi-share-alt' },
   { name: 'engines', to: '/engines', label: 'Engines', iconClass: 'pi-cog' },
   { name: 'system', to: '/system', label: 'System', iconClass: 'pi-sliders-h' },
@@ -73,6 +74,10 @@ const items = [
 }
 .nav-content .p-button-label {
   flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .nav-content .p-button:not(.p-button-outlined) {
   background: var(--nav-active-bg);
@@ -97,6 +102,18 @@ const items = [
     font-size: var(--text-xs);
     line-height: 1.2;
     min-height: 3.5rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .nav-content .p-button {
+    gap: 0.2rem;
+    padding: 0.45rem 0.1rem;
+    font-size: 0.65rem;
+  }
+
+  .nav-content .p-button-label {
+    font-size: 0.65rem;
   }
 }
 </style>

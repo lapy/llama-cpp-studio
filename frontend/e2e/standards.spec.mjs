@@ -111,7 +111,7 @@ test('page navigation has meaningful titles and moves keyboard focus without ste
   await expect(page).toHaveTitle('Models — Studio')
   await page
     .getByRole('navigation', { name: 'Main', exact: true })
-    .getByRole('link', { name: 'Find models', exact: true })
+    .getByRole('link', { name: 'Search models', exact: true })
     .focus()
   await page.keyboard.press('Enter')
   await expect(page).toHaveTitle('Search models — Studio')
@@ -170,7 +170,7 @@ test('touch layouts retain minimum target sizes and reflow at 320 CSS pixels', a
   try {
     for (const theme of ['dark', 'light']) {
       await page.addInitScript((value) => localStorage.setItem('theme', value), theme)
-      for (const path of ['/models', '/audio', '/proxy', '/system#config-backup']) {
+      for (const path of ['/models', '/search', '/audio', '/engines', '/proxy', '/system#config-backup']) {
         await page.goto(`http://127.0.0.1:4179${path}`)
         await expect(page.locator('main h1').first()).toBeVisible()
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
@@ -189,7 +189,24 @@ test('touch layouts retain minimum target sizes and reflow at 320 CSS pixels', a
             })),
         )
         expect(undersized).toEqual([])
+        const clippedNavLabels = await page
+          .locator('.layout-nav .p-button-label')
+          .evaluateAll((labels) =>
+            labels
+              .filter((label) => label.scrollWidth > label.clientWidth + 1)
+              .map((label) => label.textContent.trim()),
+          )
+        expect(clippedNavLabels).toEqual([])
         await audit(page, testInfo, `touch-${theme}-${path.replaceAll('/', '-').replace('#', '-')}`)
+        if (path === '/system#config-backup') {
+          // The hardware view is not axe-audited here yet, but it must still
+          // reflow without horizontal scrolling at 320 CSS pixels.
+          await page.goto('http://127.0.0.1:4179/system')
+          await expect(page.locator('main h1').first()).toBeVisible()
+          expect(
+            await page.evaluate(() => document.documentElement.scrollWidth),
+          ).toBeLessThanOrEqual(320)
+        }
         if (path === '/proxy') {
           await page.getByRole('tab', { name: 'Overview', exact: true }).focus()
           for (const label of ['Requests', 'Events', 'Access keys', 'Settings & routing']) {

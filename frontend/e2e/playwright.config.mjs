@@ -15,8 +15,10 @@ export default defineConfig({
     { name: 'firefox', use: { browserName: 'firefox' } },
     { name: 'webkit', use: { browserName: 'webkit' } },
   ],
-  fullyParallel: false,
-  workers: 1,
+  fullyParallel: true,
+  // CI: parallelize independent browser journeys; local: keep a single worker
+  // unless explicitly overridden while debugging.
+  workers: process.env.CI ? 4 : 1,
   use: {
     baseURL: 'http://127.0.0.1:4179',
     viewport: { width: 390, height: 844 },
