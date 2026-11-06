@@ -381,11 +381,6 @@
             No compatible engine is ready yet.
             <RouterLink to="/engines">Set up an engine</RouterLink> before starting this model.
           </p>
-          <p class="catalog-fit-note">
-            Memory fit unknown. Download size does not include runtime memory; context length and
-            engine settings affect RAM and GPU usage. Installation may also need extra temporary
-            disk space.
-          </p>
           <p
             v-if="(result.install_variants || []).some((variant) => variant.format === 'gguf')"
             class="catalog-fit-note"

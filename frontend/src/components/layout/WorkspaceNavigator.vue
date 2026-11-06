@@ -290,6 +290,12 @@ kbd {
   color: var(--text-secondary);
 }
 
+@media (max-width: 900px) {
+  .workspace-search {
+    min-height: 2.75rem;
+  }
+}
+
 @media (max-width: 600px) {
   .workspace-search > span,
   .workspace-search > kbd {

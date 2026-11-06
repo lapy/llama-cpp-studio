@@ -207,6 +207,9 @@ const proxyLinkLabel = computed(() => `Open Proxy, status ${proxyState.value}`)
   }
 
   .proxy-link {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    justify-content: center;
     padding: 0.4rem 0.55rem;
   }
 
