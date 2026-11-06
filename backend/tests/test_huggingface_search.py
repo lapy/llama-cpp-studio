@@ -275,3 +275,88 @@ def test_process_single_model_keeps_live_card_and_gguf_fields():
     assert item["metadata"]["parameters"] == "7.6B"
     assert item["metadata"]["context_length"] == 131072
     assert item["metadata"]["license"] == "apache-2.0"
+
+
+def test_unsloth_dynamic_quants_dspark_and_engram_are_grouped():
+    from backend.models.hub import (
+        dspark_option_label,
+        engram_option_label,
+        is_dspark_filename,
+        is_engram_filename,
+        _process_single_model,
+    )
+
+    assert is_dspark_filename("dspark-DeepSeek-V4.1-Flash-1017-Q8_0.gguf")
+    assert is_dspark_filename("dspark/dspark-DeepSeek-V4.1-Flash-1017-BF16.gguf")
+    assert is_dspark_filename("model-Q8_0.gguf") is False
+    assert is_engram_filename("engram/DeepSeek-V4.1-Flash-1017-engram-MXFP8.gguf_file")
+    assert is_engram_filename("engram/README.md") is False
+    assert dspark_option_label("dspark-DeepSeek-V4.1-Flash-1017-Q8_0.gguf") == "Q8_0"
+    assert engram_option_label(
+        "engram/DeepSeek-V4.1-Flash-1017-engram-IQ4_NL.gguf_file"
+    ) == "IQ4_NL"
+
+    quants = (
+        "UD-IQ1_M",
+        "UD-IQ1_S",
+        "UD-IQ2_XXS",
+        "UD-IQ3_S",
+        "UD-IQ3_XXS",
+        "UD-Q2_K_XL",
+        "UD-Q3_K_XL",
+        "UD-Q4_K_XL",
+        "UD-Q8_K_XL",
+    )
+    siblings = [
+        SimpleNamespace(
+            rfilename=(
+                f"{quant}/DeepSeek-V4.1-Flash-1017-{quant}-00001-of-00005.gguf"
+            ),
+            size=100 + index,
+        )
+        for index, quant in enumerate(quants)
+    ]
+    siblings.extend(
+        [
+            SimpleNamespace(
+                rfilename="mmproj-F16.gguf",
+                size=50,
+            ),
+            SimpleNamespace(
+                rfilename="dspark-DeepSeek-V4.1-Flash-1017-Q8_0.gguf",
+                size=60,
+            ),
+            SimpleNamespace(
+                rfilename="dspark/dspark-DeepSeek-V4.1-Flash-1017-BF16.gguf",
+                size=61,
+            ),
+            SimpleNamespace(
+                rfilename="engram/DeepSeek-V4.1-Flash-1017-engram-MXFP8.gguf_file",
+                size=70,
+            ),
+            SimpleNamespace(
+                rfilename="engram/DeepSeek-V4.1-Flash-1017-engram-Q6_K.gguf_file",
+                size=71,
+            ),
+        ]
+    )
+    model = SimpleNamespace(
+        id="unsloth/DeepSeek-V4.1-Flash-1017-GGUF",
+        modelId="unsloth/DeepSeek-V4.1-Flash-1017-GGUF",
+        author="unsloth",
+        downloads=10,
+        likes=1,
+        tags=[],
+        siblings=siblings,
+    )
+    result = asyncio.run(_process_single_model(model, "gguf"))
+    assert result is not None
+    assert set(result["quantizations"]) == set(quants)
+    assert all(
+        entry["variant_prefix"] == "UD"
+        for entry in result["quantizations"].values()
+    )
+    assert len(result["dspark_files"]) == 2
+    assert {file["label"] for file in result["dspark_files"]} == {"Q8_0", "BF16"}
+    assert len(result["engram_files"]) == 2
+    assert {file["label"] for file in result["engram_files"]} == {"MXFP8", "Q6_K"}

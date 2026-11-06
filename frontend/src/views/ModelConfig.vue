@@ -798,6 +798,45 @@
                   />
                 </div>
               </div>
+              <div class="companion-field">
+                <label for="config-dspark">DSpark draft</label>
+                <div class="companion-field__row">
+                  <Select
+                    id="config-dspark"
+                    v-model="selectedDspark"
+                    :options="dsparkOptions"
+                    optionLabel="label"
+                    optionValue="value"
+                    class="w-full"
+                    :disabled="companionBusy"
+                    placeholder="None"
+                    @update:model-value="onDsparkSelected"
+                  />
+                  <Button
+                    label="Apply"
+                    icon="pi pi-save"
+                    size="small"
+                    severity="success"
+                    outlined
+                    :loading="companionBusyField === 'dspark'"
+                    :disabled="companionBusy || !dsparkSelectionChanged"
+                    @click="applyCompanion('dspark')"
+                  />
+                </div>
+              </div>
+              <div v-if="(companionFiles.engram_files || []).length" class="companion-field">
+                <label>Engram tables</label>
+                <small class="config-muted-hint">
+                  These are swappable n-gram table shards; use the repo's set_split.py and
+                  rename the table to the target quant's table shard.
+                </small>
+                <ul class="engram-file-list">
+                  <li v-for="table in companionFiles.engram_files" :key="table.filename">
+                    <code>{{ table.label || table.filename }}</code>
+                    <span>{{ table.filename }}</span>
+                  </li>
+                </ul>
+              </div>
             </div>
           </div>
 
@@ -1570,10 +1609,11 @@ async function refreshTemplateMutation() {
 const refreshingModel = ref(false)
 const companionsLoading = ref(false)
 const companionBusyField = ref(null)
-const companionFiles = ref({ mmproj_files: [], mtp_files: [], dflash_files: [] })
+const companionFiles = ref({ mmproj_files: [], mtp_files: [], dflash_files: [], dspark_files: [], engram_files: [] })
 const selectedMmproj = ref('')
 const selectedMtp = ref('')
 const selectedDflash = ref('')
+const selectedDspark = ref('')
 const model = ref(null)
 const config = ref({})
 const savedConfig = ref({}) // for reset
@@ -1832,6 +1872,9 @@ const mtpOptions = computed(() => companionDropdownOptions(companionFiles.value.
 const dflashOptions = computed(() =>
   companionDropdownOptions(companionFiles.value.dflash_files, 'dflash'),
 )
+const dsparkOptions = computed(() =>
+  companionDropdownOptions(companionFiles.value.dspark_files, 'dspark'),
+)
 const mmprojSelectionChanged = computed(
   () => (selectedMmproj.value || '') !== (model.value?.mmproj_filename || ''),
 )
@@ -1840,6 +1883,9 @@ const mtpSelectionChanged = computed(
 )
 const dflashSelectionChanged = computed(
   () => (selectedDflash.value || '') !== (model.value?.dflash_filename || ''),
+)
+const dsparkSelectionChanged = computed(
+  () => (selectedDspark.value || '') !== (model.value?.dspark_filename || ''),
 )
 
 function openAudioWorkspace() {
@@ -3250,11 +3296,12 @@ function syncCompanionSelectionsFromModel() {
   selectedMmproj.value = model.value?.mmproj_filename || ''
   selectedMtp.value = model.value?.mtp_filename || ''
   selectedDflash.value = model.value?.dflash_filename || ''
+  selectedDspark.value = model.value?.dspark_filename || ''
 }
 
 async function loadCompanions() {
   if (!showCompanionsCard.value || !model.value?.id) {
-    companionFiles.value = { mmproj_files: [], mtp_files: [], dflash_files: [] }
+    companionFiles.value = { mmproj_files: [], mtp_files: [], dflash_files: [], dspark_files: [], engram_files: [] }
     return
   }
   companionsLoading.value = true
@@ -3264,10 +3311,12 @@ async function loadCompanions() {
       mmproj_files: data?.mmproj_files || [],
       mtp_files: data?.mtp_files || [],
       dflash_files: data?.dflash_files || [],
+      dspark_files: data?.dspark_files || [],
+      engram_files: data?.engram_files || [],
     }
     syncCompanionSelectionsFromModel()
   } catch (e) {
-    companionFiles.value = { mmproj_files: [], mtp_files: [], dflash_files: [] }
+    companionFiles.value = { mmproj_files: [], mtp_files: [], dflash_files: [], dspark_files: [], engram_files: [] }
     toast.add({
       severity: 'warn',
       summary: 'Companions',
@@ -3321,6 +3370,14 @@ function onDflashSelected(value) {
   if (selectedDflash.value) selectedMtp.value = ''
 }
 
+function onDsparkSelected(value) {
+  selectedDspark.value = value || ''
+  if (selectedDspark.value) {
+    selectedMtp.value = ''
+    selectedDflash.value = ''
+  }
+}
+
 async function applyCompanion(kind) {
   if (!model.value?.id || companionBusy.value) return
   companionBusyField.value = kind
@@ -3341,7 +3398,7 @@ async function applyCompanion(kind) {
         opt?.size || 0,
       )
       if (selectedMtp.value) selectedDflash.value = ''
-    } else {
+    } else if (kind === 'dflash') {
       const opt = dflashOptions.value.find((o) => o.value === (selectedDflash.value || ''))
       response = await modelStore.updateModelDflash(
         model.value.id,
@@ -3349,6 +3406,17 @@ async function applyCompanion(kind) {
         opt?.size || 0,
       )
       if (selectedDflash.value) selectedMtp.value = ''
+    } else {
+      const opt = dsparkOptions.value.find((o) => o.value === (selectedDspark.value || ''))
+      response = await modelStore.updateModelDspark(
+        model.value.id,
+        selectedDspark.value || null,
+        opt?.size || 0,
+      )
+      if (selectedDspark.value) {
+        selectedMtp.value = ''
+        selectedDflash.value = ''
+      }
     }
 
     await modelStore.fetchModels()
@@ -4481,6 +4549,23 @@ onBeforeUnmount(() => {
 .companion-field__row .p-select {
   flex: 1;
   min-width: 0;
+}
+
+.engram-file-list {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.engram-file-list li {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  font-size: 0.75rem;
+  color: var(--text-secondary, #9ca3af);
+  overflow-wrap: anywhere;
 }
 
 .section-label {

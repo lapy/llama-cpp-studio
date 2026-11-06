@@ -118,6 +118,8 @@ def _resolve_repo_path_alias(
         preferred_dirs.append("mtp")
     if is_dflash_filename(req) or "dflash" in req_base.lower():
         preferred_dirs.append("dflash")
+    if is_dspark_filename(req) or "dspark" in req_base.lower():
+        preferred_dirs.append("dspark")
     if is_mmproj_filename(req) or "mmproj" in req_base.lower():
         preferred_dirs.append("mmproj")
 
@@ -353,8 +355,14 @@ def detect_hf_file_changes(
 
 
 def list_repo_companion_files(huggingface_id: str) -> Dict[str, List[Dict[str, Any]]]:
-    """List mmproj / MTP / DFlash files available in an HF repo."""
-    empty = {"mmproj_files": [], "mtp_files": [], "dflash_files": []}
+    """List mmproj / MTP / DFlash / DSpark / Engram files available in an HF repo."""
+    empty = {
+        "mmproj_files": [],
+        "mtp_files": [],
+        "dflash_files": [],
+        "dspark_files": [],
+        "engram_files": [],
+    }
     if not huggingface_id:
         return empty
     try:
@@ -366,6 +374,8 @@ def list_repo_companion_files(huggingface_id: str) -> Dict[str, List[Dict[str, A
     mmproj_files: List[Dict[str, Any]] = []
     mtp_files: List[Dict[str, Any]] = []
     dflash_files: List[Dict[str, Any]] = []
+    dspark_files: List[Dict[str, Any]] = []
+    engram_files: List[Dict[str, Any]] = []
     for filename in files:
         if not isinstance(filename, str):
             continue
@@ -387,12 +397,27 @@ def list_repo_companion_files(huggingface_id: str) -> Dict[str, List[Dict[str, A
                     "label": dflash_option_label(filename),
                 }
             )
+        elif is_dspark_filename(filename):
+            dspark_files.append(
+                {
+                    "filename": filename,
+                    "size": 0,
+                    "label": dspark_option_label(filename),
+                }
+            )
+        elif is_engram_filename(filename):
+            engram_files.append(
+                {
+                    "filename": filename,
+                    "size": 0,
+                    "label": engram_option_label(filename),
+                }
+            )
 
-    all_paths = [
-        f["filename"] for f in (mmproj_files + mtp_files + dflash_files)
-    ]
+    groups = (mmproj_files, mtp_files, dflash_files, dspark_files, engram_files)
+    all_paths = [f["filename"] for group in groups for f in group]
     sizes = get_accurate_file_sizes(huggingface_id, all_paths)
-    for group in (mmproj_files, mtp_files, dflash_files):
+    for group in groups:
         for entry in group:
             size = sizes.get(entry["filename"])
             if size is not None:
@@ -401,6 +426,8 @@ def list_repo_companion_files(huggingface_id: str) -> Dict[str, List[Dict[str, A
         "mmproj_files": mmproj_files,
         "mtp_files": mtp_files,
         "dflash_files": dflash_files,
+        "dspark_files": dspark_files,
+        "engram_files": engram_files,
     }
 
 
@@ -423,7 +450,7 @@ def _list_remote_gguf_weight_files(
             continue
         if is_auxiliary_gguf_filename(filename):
             continue
-        if _extract_quantization(filename).lower() == quant_lower:
+        if extract_quantization_key(filename).lower() == quant_lower:
             matched.append(filename)
     return matched
 
@@ -467,7 +494,12 @@ def collect_model_refresh_plan(model: Dict[str, Any]) -> Dict[str, Any]:
                 filenames.append(fn)
                 local_entries.setdefault(fn, {})
 
-        for field in ("mmproj_filename", "mtp_filename", "dflash_filename"):
+        for field in (
+            "mmproj_filename",
+            "mtp_filename",
+            "dflash_filename",
+            "dspark_filename",
+        ):
             companion = model.get(field)
             if not companion:
                 continue
@@ -615,12 +647,38 @@ def is_dflash_filename(filename: Optional[str]) -> bool:
     return False
 
 
+def is_dspark_filename(filename: Optional[str]) -> bool:
+    """True for DSpark speculative-decoding draft GGUFs.
+
+    Matches ``dspark-….gguf`` at the repo root, files under a ``dspark/``
+    directory, and basenames carrying the ``dspark`` token.
+    """
+    name = str(filename or "").replace("\\", "/").strip()
+    lower = name.lower()
+    if not lower.endswith(".gguf"):
+        return False
+    parts = lower.split("/")
+    basename = parts[-1]
+    if len(parts) > 1 and parts[0] == "dspark":
+        return True
+    return basename.startswith(("dspark-", "dspark_")) or "dspark" in basename
+
+
+def is_engram_filename(filename: Optional[str]) -> bool:
+    """True for Engram n-gram table files (``*.gguf_file`` companions)."""
+    name = str(filename or "").replace("\\", "/").strip().lower()
+    if not name.endswith(".gguf_file"):
+        return False
+    return "engram" in name.split("/")[-1]
+
+
 def is_auxiliary_gguf_filename(filename: Optional[str]) -> bool:
-    """mmproj / MTP / DFlash companions that are not main-model quantization shards."""
+    """mmproj / MTP / DFlash / DSpark companions that are not main-model shards."""
     return (
         is_mmproj_filename(filename)
         or is_mtp_filename(filename)
         or is_dflash_filename(filename)
+        or is_dspark_filename(filename)
     )
 
 
@@ -634,6 +692,22 @@ def mtp_option_label(filename: str) -> str:
 
 def dflash_option_label(filename: str) -> str:
     """Human label for a DFlash draft file (precision/quant if present, else Default)."""
+    quant = _extract_quantization(filename)
+    if quant and quant != "unknown":
+        return quant
+    return "Default"
+
+
+def dspark_option_label(filename: str) -> str:
+    """Human label for a DSpark draft file (quant/precision if present)."""
+    quant = _extract_quantization(filename)
+    if quant and quant != "unknown":
+        return quant
+    return "Default"
+
+
+def engram_option_label(filename: str) -> str:
+    """Human label for an Engram table file (table quantization/type)."""
     quant = _extract_quantization(filename)
     if quant and quant != "unknown":
         return quant
@@ -1124,12 +1198,12 @@ QUANTIZATION_PATTERNS = [
         r"iQ\d+_K_[A-Z]+",  # iQ3_K_S style
         r"iQ\d+_\d+",  # iQ4_0 style
         r"iQ\d+_K",  # iQ6_K style
-        r"iQ\d+",  # iQ3 style (fallback)
-        r"IQ\d+_[A-Z]+",  # IQ1_S, IQ2_M, etc.
+        r"IQ\d+_[A-Z0-9]+",  # IQ1_S, IQ2_M, IQ4_NL, etc.
         r"Q\d+_K_[A-Z]+",  # Q4_K_M, Q5_K_S, etc.
         r"Q\d+_\d+",  # Q4_0, Q5_1, etc.
         r"Q\d+_K",  # Q2_K, Q6_K, etc.
         r"Q\d+",  # Q3, Q4, etc. (fallback)
+        r"iQ\d+",  # iQ3 style (fallback; after IQ4_NL-style matches)
     )
 ]
 
@@ -1241,7 +1315,14 @@ def _apply_remote_sizes(row: Dict, sizes: Dict[str, Optional[int]]) -> None:
         total = sum(int(item.get("size") or 0) for item in quant.get("files") or [] if isinstance(item, dict))
         quant["total_size"] = total
         quant["size_mb"] = round(total / (1024 * 1024), 2) if total else 0.0
-    for key in ("mmproj_files", "mtp_files", "dflash_files", "safetensors_files"):
+    for key in (
+        "mmproj_files",
+        "mtp_files",
+        "dflash_files",
+        "dspark_files",
+        "engram_files",
+        "safetensors_files",
+    ):
         for item in row.get(key) or []:
             if isinstance(item, dict):
                 apply(item)
@@ -1264,7 +1345,14 @@ async def _fill_missing_file_sizes(results: List[Dict]) -> None:
         file_lists = []
         for group in (row.get("quantizations") or {}).values():
             file_lists.append(group.get("files") or [])
-        for key in ("mmproj_files", "mtp_files", "dflash_files", "safetensors_files"):
+        for key in (
+        "mmproj_files",
+        "mtp_files",
+        "dflash_files",
+        "dspark_files",
+        "engram_files",
+        "safetensors_files",
+    ):
             file_lists.append(row.get(key) or [])
         for files in file_lists:
             for item in files:
@@ -1373,6 +1461,8 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
         mmproj_files: List[Dict[str, Any]] = []
         mtp_files: List[Dict[str, Any]] = []
         dflash_files: List[Dict[str, Any]] = []
+        dspark_files: List[Dict[str, Any]] = []
+        engram_files: List[Dict[str, Any]] = []
         safetensors_files: List[Dict] = []
         repo_files: List[Dict[str, Any]] = []
 
@@ -1420,6 +1510,15 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
                             }
                         )
                         continue
+                    if is_dspark_filename(filename):
+                        dspark_files.append(
+                            {
+                                "filename": filename,
+                                "size": size_bytes,
+                                "label": dspark_option_label(filename),
+                            }
+                        )
+                        continue
                     # Normalize filename by stripping shard suffix patterns like:
                     #   -00001-of-00002.gguf (TheBloke-style)
                     #   .gguf.part1of2 (Hugging Face-style multi-part)
@@ -1435,12 +1534,14 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
                     variant_prefix = ""
                     try:
                         prefix_match = re.search(
-                            rf"(i\d+)-{re.escape(quantization)}",
+                            rf"(i\d+|UD)-{re.escape(quantization)}",
                             base_for_quant,
                             re.IGNORECASE,
                         )
                         if prefix_match:
                             variant_prefix = prefix_match.group(1)
+                            if variant_prefix.lower() == "ud":
+                                variant_prefix = "UD"
                     except Exception:
                         variant_prefix = ""
 
@@ -1479,9 +1580,32 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
                         else 0.0
                     )
 
+                # Engram tables use ``*.gguf_file`` so model scanners do not
+                # treat them as weights; keep them as a separate companion group.
+                for sibling in model.siblings:
+                    filename = getattr(sibling, "rfilename", None)
+                    if not isinstance(filename, str) or not is_engram_filename(filename):
+                        continue
+                    if any(entry["filename"] == filename for entry in engram_files):
+                        continue
+                    engram_files.append(
+                        {
+                            "filename": filename,
+                            "size": getattr(sibling, "size", 0) or 0,
+                            "label": engram_option_label(filename),
+                        }
+                    )
+
                 # Search should stay to a single HF API call. Accurate file sizes are lazy-loaded on expand.
                 # If no downloadable GGUF entries were detected after grouping, skip this model.
-                if not quantizations and not mmproj_files and not mtp_files and not dflash_files:
+                if (
+                    not quantizations
+                    and not mmproj_files
+                    and not mtp_files
+                    and not dflash_files
+                    and not dspark_files
+                    and not engram_files
+                ):
                     return None
             else:
                 safetensors_files = []
@@ -1528,6 +1652,8 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
             "mmproj_files": mmproj_files if model_format == "gguf" else [],
             "mtp_files": mtp_files if model_format == "gguf" else [],
             "dflash_files": dflash_files if model_format == "gguf" else [],
+            "dspark_files": dspark_files if model_format == "gguf" else [],
+            "engram_files": engram_files if model_format == "gguf" else [],
             "safetensors_files": (
                 safetensors_files if model_format == "safetensors" else []
             ),
@@ -1654,6 +1780,25 @@ def _extract_quantization(filename: str) -> str:
 def extract_quantization(filename: str) -> str:
     """Public API for quantization parsing (used by routes/services)."""
     return _extract_quantization(filename)
+
+
+def extract_quantization_key(filename: str) -> str:
+    """Return the full variant-aware quantization key.
+
+    ``UD-Q4_K_XL`` keeps its Unsloth Dynamic prefix, and ``i1-Q4_K_M`` keeps
+    its imatrix prefix, so the model id, download ledger and search row agree.
+    """
+    text = str(filename or "")
+    base = _extract_quantization(text)
+    if base == "unknown":
+        return base
+    match = re.search(rf"(i\d+|UD)-{re.escape(base)}", text, re.IGNORECASE)
+    if not match:
+        return base
+    prefix = match.group(1)
+    if prefix.lower() == "ud":
+        prefix = "UD"
+    return f"{prefix}-{base}"
 
 
 def _extract_safetensors_metadata(siblings) -> Dict:

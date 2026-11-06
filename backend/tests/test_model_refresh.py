@@ -468,6 +468,8 @@ def test_list_repo_companion_files_classifies(monkeypatch):
             "mmproj-F16.gguf",
             "MTP/mtp-Q8_0.gguf",
             "draft-DFlash-BF16.gguf",
+            "dspark/dspark-model-BF16.gguf",
+            "engram/model-engram-Q6_K.gguf_file",
         ],
     )
     monkeypatch.setattr(
@@ -479,6 +481,9 @@ def test_list_repo_companion_files_classifies(monkeypatch):
     assert [f["filename"] for f in result["mmproj_files"]] == ["mmproj-F16.gguf"]
     assert result["mtp_files"][0]["filename"] == "MTP/mtp-Q8_0.gguf"
     assert result["dflash_files"][0]["filename"] == "draft-DFlash-BF16.gguf"
+    assert result["dspark_files"][0]["filename"] == "dspark/dspark-model-BF16.gguf"
+    assert result["dspark_files"][0]["label"] == "BF16"
+    assert result["engram_files"][0]["label"] == "Q6_K"
 
 
 def test_detect_hf_file_changes_companion_size_mismatch(monkeypatch, tmp_path):
