@@ -39,7 +39,7 @@ removal of an inactive version, and retry of a snapshot-less install.
 | Generic native install bodies | The target is taken from the URL path. Sending a conflicting `engine`/`repository_source` body to the generic route returns 400; legacy routes keep their old behaviour. |
 | Unimplemented generic verbs | A verb an engine does not implement returns 405 instead of a fabricated success. |
 | Audio extension routing | The router is mounted once per engine declaring `runtime_kind: audio_cpp`; request identity comes from the path. Existing `/api/audio-cpp` paths are unchanged. |
-| Installer classes | The per-engine venv modules and maps are removed; importing `LMDeployInstaller`/`OneCatVllmInstaller`/`SglangManager` is no longer supported. Native hosts are selected by the definition's `native_host`. |
+| Installer classes | The per-engine venv modules and maps are removed, and Unsloth's installer moved to the generic release host. Importing the old venv/Unsloth classes is no longer supported. Native hosts are selected by the definition's `native_host`. |
 | First apply after upgrade | Every definition-backed engine, including audio.cpp, gets a new launch revision because manifests now record the definition digest. The upgrade does not restart a running model; **Restart this model** applies it, **Use on next start** publishes it for the next actual start. |
 
 ## Rollback

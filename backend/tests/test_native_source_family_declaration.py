@@ -105,7 +105,9 @@ def test_native_host_selection_comes_from_the_definition():
     from backend.engines.adapters import get_native_installer
     from backend.engines.audio_cpp.installer import AudioCppInstaller
     from backend.engines.python.cmake_source import CmakeSourceInstaller
+    from backend.engines.python.release_host import GenericReleaseInstaller
 
+    assert isinstance(get_native_installer("unsloth_llama"), GenericReleaseInstaller)
     assert isinstance(get_native_installer("llama_cpp"), CmakeSourceInstaller)
     assert isinstance(get_native_installer("ik_llama"), CmakeSourceInstaller)
     assert isinstance(get_native_installer("nativecraft"), CmakeSourceInstaller)

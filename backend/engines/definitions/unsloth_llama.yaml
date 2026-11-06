@@ -12,6 +12,7 @@ extends:
 - gguf_llama_server
 label: Unsloth llama.cpp
 repository_source: Unsloth llama.cpp
+native_host: release_assets
 install_kind: prebuilt
 discovery:
   # Native invocation/LD-path resolution is a shared llama-family mechanism.

@@ -305,7 +305,7 @@ class StubUnslothManager:
 
 
 def test_unsloth_check_updates_identical(client, monkeypatch):
-    monkeypatch.setattr(uv, "get_unsloth_llama_manager", lambda: StubUnslothManager())
+    monkeypatch.setattr(uv, "get_release_installer", lambda *_: StubUnslothManager())
     legacy = client.get("/api/unsloth-llama/check-updates")
     generic = client.get("/api/engines/unsloth_llama/check-updates")
     assert legacy.status_code == generic.status_code == 200
@@ -318,7 +318,7 @@ def test_unsloth_check_updates_error_identical(client, monkeypatch):
         async def latest_published_tag(self):
             raise ValueError("nope")
 
-    monkeypatch.setattr(uv, "get_unsloth_llama_manager", lambda: Boom())
+    monkeypatch.setattr(uv, "get_release_installer", lambda *_: Boom())
     legacy = client.get("/api/unsloth-llama/check-updates")
     generic = client.get("/api/engines/unsloth_llama/check-updates")
     assert legacy.status_code == generic.status_code == 500
@@ -327,7 +327,7 @@ def test_unsloth_check_updates_error_identical(client, monkeypatch):
 
 def test_unsloth_install_identical(client, monkeypatch):
     stub = StubUnslothManager()
-    monkeypatch.setattr(uv, "get_unsloth_llama_manager", lambda: stub)
+    monkeypatch.setattr(uv, "get_release_installer", lambda *_: stub)
     legacy = client.post("/api/unsloth-llama/install", json={"tag_name": "b7777"})
     generic = client.post("/api/engines/unsloth_llama/install", json={"tag_name": "b7777"})
     assert legacy.status_code == generic.status_code == 200
@@ -336,7 +336,7 @@ def test_unsloth_install_identical(client, monkeypatch):
 
 
 def test_unsloth_install_conflict_identical(client, monkeypatch):
-    monkeypatch.setattr(uv, "get_unsloth_llama_manager", lambda: StubUnslothManager(fail=True))
+    monkeypatch.setattr(uv, "get_release_installer", lambda *_: StubUnslothManager(fail=True))
     legacy = client.post("/api/unsloth-llama/install", json={})
     generic = client.post("/api/engines/unsloth_llama/install", json={})
     assert legacy.status_code == generic.status_code == 409
@@ -344,7 +344,7 @@ def test_unsloth_install_conflict_identical(client, monkeypatch):
 
 
 def test_unsloth_cancel_identical(client, monkeypatch):
-    monkeypatch.setattr(uv, "get_unsloth_llama_manager", lambda: StubUnslothManager())
+    monkeypatch.setattr(uv, "get_release_installer", lambda *_: StubUnslothManager())
     legacy = client.post("/api/unsloth-llama/cancel", json={"task_id": "u-9"})
     generic = client.post("/api/engines/unsloth_llama/cancel", json={"task_id": "u-9"})
     assert legacy.status_code == generic.status_code == 200
