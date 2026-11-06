@@ -1281,7 +1281,7 @@ function navigateTab(event, id) {
     ].id
   const nextTab = document.getElementById(`proxy-tab-${activeTab.value}`)
   nextTab?.focus()
-  nextTab?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  nextTab?.scrollIntoView({ block: 'nearest', inline: 'center' })
 }
 async function resetStats() {
   try {
