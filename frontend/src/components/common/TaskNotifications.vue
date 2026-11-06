@@ -627,9 +627,12 @@ function clearFinished() {
 
   .activity-count {
     position: absolute;
-    top: -0.25rem;
-    right: 0;
+    top: -0.3rem;
+    right: -0.3rem;
     margin: 0;
+    min-width: 1.1rem;
+    padding: 0 0.25rem;
+    font-size: 0.62rem;
   }
 }
 
