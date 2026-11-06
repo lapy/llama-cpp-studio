@@ -50,6 +50,8 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     }),
     repoSource: 'llama.cpp',
     versionsKey: 'llamaVersions',
+    openStrategy: 'llama',
+    statusRefresh: 'llama',
     // R95: the build-options catalog endpoint is declared here; the panel
     // dispatches through `buildOptionsPath()` instead of engine-id branches.
     buildOptionsPath: '/api/llama-versions/build-options',
@@ -75,6 +77,8 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     }),
     repoSource: 'ik_llama.cpp',
     versionsKey: 'ikLlamaVersions',
+    openStrategy: 'ik',
+    statusRefresh: 'ik',
     buildOptionsPath: '/api/llama-versions/build-options',
     icon: 'pi-microchip',
     cmakeCapable: true,
@@ -100,6 +104,8 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     }),
     repoSource: 'Unsloth llama.cpp',
     versionsKey: 'unslothLlamaVersions',
+    openStrategy: 'unsloth',
+    statusRefresh: 'unsloth',
     icon: 'pi-microchip',
     fallbackFormats: Object.freeze(['gguf']),
     // No build-hint copy: unsloth ships release installs only.
@@ -117,6 +123,8 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     venv: true,
     apiSegment: 'lmdeploy',
     versionsKey: 'lmdeployVersions',
+    openStrategy: 'lmdeploy',
+    statusRefresh: 'lmdeploy',
     dialogIcon: 'pi-server',
     genericApi: true,
     managerKey: 'lmdeploy',
@@ -136,6 +144,8 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     venv: true,
     apiSegment: '1cat-vllm',
     versionsKey: 'onecatVllmVersions',
+    openStrategy: 'onecat',
+    statusRefresh: 'onecat',
     // Dialog-header icon differs from the picker icon (pi-server) — real
     // per-surface divergence, kept as data.
     dialogIcon: 'pi-bolt',
@@ -157,6 +167,8 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     }),
     repoSource: 'SGLang',
     versionsKey: 'sglangVersions',
+    openStrategy: 'sglang',
+    statusRefresh: 'sglang',
     icon: 'pi-sparkles',
     fallbackFormats: Object.freeze(['safetensors']),
     venv: true,
@@ -186,6 +198,8 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     }),
     repoSource: 'SGLang-V100',
     versionsKey: 'sglangV100Versions',
+    openStrategy: 'sglang',
+    statusRefresh: 'sglang',
     icon: 'pi-sparkles',
     fallbackFormats: Object.freeze(['safetensors']),
     venv: true,
@@ -214,6 +228,8 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     }),
     repoSource: 'vLLM',
     versionsKey: 'vllmVersions',
+    openStrategy: 'sglang',
+    statusRefresh: 'sglang',
     icon: 'pi-server',
     fallbackFormats: Object.freeze(['safetensors']),
     venv: true,
@@ -239,6 +255,8 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     }),
     repoSource: 'audio.cpp',
     versionsKey: 'audioCppVersions',
+    openStrategy: 'audio',
+    statusRefresh: 'audio',
     buildOptionsPath: '/api/audio-cpp/build-options',
     // R101: ModelConfig renders the audio panel for this family (declared here
     // instead of comparing engine ids at every site).

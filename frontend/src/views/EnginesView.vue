@@ -1119,22 +1119,34 @@ function withVersionListRefresh(probe) {
   }
 }
 
-const ENGINE_DIALOG_OPEN = {
-  llama_cpp: () => checkLlamaCppUpdates(),
-  ik_llama: () => checkIkLlamaUpdates(),
-  unsloth_llama: withVersionListRefresh(checkUnslothLlamaUpdates),
+const ENGINE_OPEN_STRATEGIES = {
+  llama: () => checkLlamaCppUpdates(),
+  ik: () => checkIkLlamaUpdates(),
+  unsloth: withVersionListRefresh(checkUnslothLlamaUpdates),
   lmdeploy: withVersionListRefresh(checkLmdeployUpdates),
-  '1cat_vllm': withVersionListRefresh(checkOnecatVllmUpdates),
-  ...Object.fromEntries(
-    SG_PANEL_ENGINE_IDS.map((engineId) => [
-      engineId,
-      withVersionListRefresh(() => enginesStore.fetchSglangStatus(engineId)),
-    ]),
-  ),
-  [audioEngineId]: () => {
+  onecat: withVersionListRefresh(checkOnecatVllmUpdates),
+  sglang: (engineId) => withVersionListRefresh(() => enginesStore.fetchSglangStatus(engineId)),
+  audio: () => {
     enginesStore.fetchLlamaVersions()
     enginesStore.fetchAudioCppStatus()
     checkAudioCppUpdates()
+  },
+}
+
+const ENGINE_DIALOG_OPEN = Object.fromEntries(
+  Object.entries(ENGINE_DESCRIPTORS).map(([engineId, descriptor]) => [
+    engineId,
+    () => ENGINE_OPEN_STRATEGIES[descriptor.openStrategy]?.(engineId),
+  ]),
+)
+
+const ENGINE_STATUS_REFRESH = {
+  lmdeploy: () => enginesStore.fetchLmdeployStatus(),
+  onecat: () => enginesStore.fetchOnecatVllmStatus(),
+  sglang: (engineId) => enginesStore.fetchSglangStatus(engineId),
+  audio: () => {
+    enginesStore.fetchLlamaVersions()
+    return enginesStore.fetchAudioCppStatus()
   },
 }
 
@@ -1145,10 +1157,10 @@ function openEngineModal(engineKey) {
 }
 
 function refreshEngineDialogStatus(engineKey) {
-  enginesStore.fetchLlamaVersions()
-  if (engineKey === 'lmdeploy') return enginesStore.fetchLmdeployStatus()
-  if (engineKey === '1cat_vllm') return enginesStore.fetchOnecatVllmStatus()
-  return enginesStore.fetchAudioCppStatus()
+  const strategy = ENGINE_DESCRIPTORS[engineKey]?.statusRefresh
+  const handler = ENGINE_STATUS_REFRESH[strategy]
+  if (handler) return handler(engineKey)
+  return enginesStore.fetchLlamaVersions()
 }
 
 async function refreshEnginesOverview() {
