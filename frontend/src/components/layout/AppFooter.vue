@@ -13,13 +13,7 @@
           aria-hidden="true"
         />{{ progressStore.isConnected ? 'Live' : 'Reconnecting…' }}</span
       >
-      <RouterLink class="footer-tools" to="/system"
-        ><i class="pi pi-sliders-h" aria-hidden="true" /> System<span
-          v-if="needsAttention"
-          class="footer-tools__badge"
-          >Needs attention</span
-        ></RouterLink
-      >
+      <span v-if="needsAttention" class="footer-attention">Needs attention</span>
     </div>
   </footer>
 </template>
@@ -63,16 +57,14 @@ const needsAttention = computed(() =>
   color: var(--status-success);
 }
 .footer-status--warn,
-.footer-tools__badge {
+.footer-attention {
   color: var(--status-warning);
 }
-.footer-tools {
+
+.footer-attention {
   flex-shrink: 0;
-  min-height: 1.5rem;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  color: var(--text-secondary);
+  white-space: nowrap;
+  font-weight: 600;
 }
 
 @media (max-width: 900px) {
@@ -81,9 +73,6 @@ const needsAttention = computed(() =>
   }
   .footer-content {
     font-size: var(--text-xs);
-  }
-  .footer-tools__badge {
-    display: none;
   }
 }
 </style>

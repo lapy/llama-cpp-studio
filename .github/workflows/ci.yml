@@ -226,12 +226,13 @@ jobs:
           path: artifacts/node24/browser.txt
           if-no-files-found: error
 
-  # Every run builds and smokes the production image. Release tags and manual
-  # deep runs additionally require the browser job and navigation/release gates.
+  # PRs run the code/test gates only. Non-PR pushes and manual/tag runs build,
+  # smoke and (where configured) publish the production image.
   image:
     needs: [dependency-audit, shell-syntax, backend, frontend, browser]
     if: >-
       ${{
+        github.event_name != 'pull_request' &&
         always() &&
         needs.dependency-audit.result == 'success' &&
         needs.shell-syntax.result == 'success' &&
