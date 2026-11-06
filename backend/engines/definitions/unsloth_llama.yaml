@@ -11,6 +11,7 @@ extends:
 - text_generation_tasks
 - gguf_llama_server
 label: Unsloth llama.cpp
+ui_kind: native
 repository_source: Unsloth llama.cpp
 native_host: release_assets
 install_kind: prebuilt

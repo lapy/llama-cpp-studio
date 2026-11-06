@@ -63,3 +63,10 @@ def test_gpu_archs_are_declared_and_exposed():
         assert get_engine_spec(engine_id).to_api_dict()["gpu_archs"] == [], engine_id
     definition = load_default_engine_definitions().definitions["sglang_v100"]
     assert list(dict(definition.launch_policy).get("gpu_archs") or ()) == ["sm70"]
+
+
+def test_ui_kind_is_declared_and_exposed():
+    assert get_engine_spec("audio_cpp").to_api_dict()["ui_kind"] == "audio"
+    assert get_engine_spec("sglang_v100").to_api_dict()["ui_kind"] == "sglang"
+    assert get_engine_spec("llama_cpp").to_api_dict()["ui_kind"] == "native"
+    assert get_engine_spec("lmdeploy").to_api_dict()["ui_kind"] == "venv"

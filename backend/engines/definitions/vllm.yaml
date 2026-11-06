@@ -12,6 +12,7 @@ extends:
 - text_generation_tasks
 - python_venv_safetensors
 label: vLLM
+ui_kind: sglang
 repository_source: vLLM
 runtime_kind: vllm
 scanner_kind: vllm_help

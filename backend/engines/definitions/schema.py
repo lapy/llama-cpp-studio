@@ -76,7 +76,11 @@ V2_ONLY_KEYS = (
     "fixture_only",
     # Declared native host mechanism. Selection is by host name, not engine id.
     "native_host",
+    # Presentation family consumed by the frontend overlay. Not engine logic.
+    "ui_kind",
 )
+
+UI_KINDS = frozenset({"audio", "sglang", "native", "venv"})
 
 # YAML campaign S3: what a generic (data-driven) lifecycle registration and
 # the GenericVenvInstaller need beyond identity/capabilities. Purely optional
@@ -2148,6 +2152,8 @@ class EngineDefinition:
     lifecycle: Tuple[Tuple[str, Any], ...] = ()
     # Native host mechanism (cmake_source/audio_cpp); empty for venv engines.
     native_host: str = ""
+    # Frontend presentation family. Empty falls back to the generic card.
+    ui_kind: str = ""
     launch_policy: Tuple[Tuple[str, Any], ...] = ()
     build_options: Tuple[Tuple[str, Any], ...] = ()
     protocol: Tuple[Tuple[str, Any], ...] = ()
@@ -2202,6 +2208,7 @@ class EngineDefinition:
             supports_embeddings=self.supports_embeddings,
             experimental=self.experimental,
             maturity_surfaces=self.maturity_surfaces,
+            ui_kind=self.ui_kind,
             lifecycle=dict(self.lifecycle),
             launch_policy=dict(self.launch_policy),
             build_options=dict(self.build_options),
@@ -2370,6 +2377,9 @@ def validate_definition(raw: Any, *, source: str) -> EngineDefinition:
             else (),
             native_host=_check_kind("native_host", raw.get("native_host"), NATIVE_HOST_KINDS, where)
             if raw.get("native_host")
+            else "",
+            ui_kind=_check_kind("ui_kind", raw.get("ui_kind"), UI_KINDS, where)
+            if raw.get("ui_kind")
             else "",
             launch_policy=_validate_launch_policy(raw["launch_policy"], where)
             if raw.get("launch_policy") is not None
