@@ -237,4 +237,10 @@ const runtimeLabel = computed(() => {
 .system-error {
   color: var(--status-warning);
 }
+
+@media (max-width: 600px) {
+  .system-card {
+    padding: 0.75rem;
+  }
+}
 </style>
