@@ -1483,7 +1483,6 @@ import ParseCommandDialog from '@/components/ParseCommandDialog.vue'
 import {
   useAudioModelConfig,
   AUDIO_NESTED_SCOPE_KEYS,
-  AUDIO_STUDIO_KNOWN_KEYS,
   coerceAudioParamValue,
   defaultValueForAudioParam,
   pruneStaleAudioRequestDefaults,
@@ -1956,8 +1955,6 @@ const currentEngineSection = computed(
   () => (config.value.engines && config.value.engines[config.value.engine]) || {},
 )
 
-const AUDIO_STUDIO_KNOWN_KEYS_REF = AUDIO_STUDIO_KNOWN_KEYS
-
 const unrecognizedSavedKeys = computed(() => {
   const known = new Set([
     'custom_args',
@@ -1970,7 +1967,7 @@ const unrecognizedSavedKeys = computed(() => {
     'gpu_devices',
     'load_options',
     'session_options',
-    ...(isAudioEngine.value ? AUDIO_STUDIO_KNOWN_KEYS_REF : []),
+    ...(ENGINE_DESCRIPTORS[config.value.engine]?.knownConfigKeys || []),
     ...(engineRuntimeKey.value ? [engineRuntimeKey.value] : []),
   ])
   for (const key of catalogParamByKey.value.keys()) known.add(key)

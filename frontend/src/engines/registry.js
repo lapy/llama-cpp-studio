@@ -270,6 +270,16 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
       modelUpdates: false,
       preserveUnknownKeys: true,
     }),
+    knownConfigKeys: Object.freeze([
+      'lazy_load',
+      'model_spec_override',
+      'voice_presets',
+      'default_voice_preset',
+      'speech_defaults',
+      'transcription_defaults',
+      'task_defaults',
+      'last_reviewed_fingerprint',
+    ]),
     paramRegistry: Object.freeze({
       family: true,
       task: true,
