@@ -11,6 +11,7 @@ extends:
 - text_generation_tasks
 - python_venv_safetensors
 label: 1Cat-vLLM
+ui_kind: venv
 repository_source: 1Cat-vLLM
 runtime_kind: onecat_vllm
 scanner_kind: vllm_help

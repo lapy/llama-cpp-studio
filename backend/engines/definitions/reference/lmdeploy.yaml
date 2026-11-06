@@ -5,6 +5,7 @@
 schema_version: 2
 id: lmdeploy
 label: LMDeploy
+ui_kind: venv
 repository_source: LMDeploy
 install_kind: python_venv
 runtime_kind: lmdeploy

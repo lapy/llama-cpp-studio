@@ -10,6 +10,7 @@
 schema_version: 2
 id: sglang_v100
 label: SGLang V100
+ui_kind: sglang
 repository_source: SGLang-V100
 install_kind: python_venv
 runtime_kind: sglang

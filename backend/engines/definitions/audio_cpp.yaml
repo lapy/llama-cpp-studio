@@ -8,6 +8,7 @@
 schema_version: 2
 id: audio_cpp
 label: audio.cpp
+ui_kind: audio
 repository_source: audio.cpp
 native_host: audio_cpp
 install_kind: cmake

@@ -49,7 +49,10 @@ AREA_CAPS: Dict[str, int] = {
     # R95 raised this 42 -> 44: the frontend descriptors now declare the
     # build-options catalog endpoint (one per catalog-bearing engine) instead of
     # the views branching on engine ids — reviewed diff.
-    "frontend/src/engines/": 58,
+    # 2026-11-06: 58 -> 74 for declared ui_kind/openStrategy/statusRefresh
+    # metadata in the presentation overlay (data, not control flow); the
+    # corresponding view literals fell 291 -> 265.
+    "frontend/src/engines/": 74,
     "frontend/src/stores/": 323,
     "frontend/src/test-fixtures/": 43,
     # R90 raised this 6 -> 7: the audio-package predicate now lives once in
@@ -62,7 +65,7 @@ AREA_CAPS: Dict[str, int] = {
     # R104 tightened this 376 -> 351: R90/R91/R101 moved the audio/text family
     # dispatch into descriptor data and the R88 stub fix removed dead reads, so
     # the measured total dropped; the cap now has NO slack.
-    "frontend/src/views/": 291,
+    "frontend/src/views/": 265,
     # Every engine conversion tightened this as recipes/constants moved out of
     # the exporter into authoritative definitions; deleting the exporter after
     # the final conversion took it to 40.

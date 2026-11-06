@@ -10,6 +10,7 @@ extends:
 - text_generation_tasks
 - gguf_llama_server
 label: llama.cpp
+ui_kind: native
 repository_source: llama.cpp
 native_host: cmake_source
 install_kind: cmake

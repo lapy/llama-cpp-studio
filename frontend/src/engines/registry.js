@@ -43,6 +43,7 @@
 export const ENGINE_DESCRIPTORS = Object.freeze({
   llama_cpp: Object.freeze({
     label: 'llama.cpp',
+    ui_kind: 'native',
     card: Object.freeze({
       mark: Object.freeze({ text: 'L', className: 'engine-mark--llama' }),
       subtitle: 'GGUF on CPU or GPU.',
@@ -70,6 +71,7 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
   }),
   ik_llama: Object.freeze({
     label: 'ik_llama.cpp',
+    ui_kind: 'native',
     card: Object.freeze({
       mark: Object.freeze({ text: 'IK', className: 'engine-mark--ik' }),
       subtitle: 'GGUF, including IQK quants.',
@@ -97,6 +99,7 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
   }),
   unsloth_llama: Object.freeze({
     label: 'Unsloth llama.cpp',
+    ui_kind: 'native',
     card: Object.freeze({
       mark: Object.freeze({ text: 'US', className: 'engine-mark--unsloth' }),
       subtitle: 'GGUF with Unsloth llama-server.',
@@ -112,6 +115,7 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
   }),
   lmdeploy: Object.freeze({
     label: 'LMDeploy',
+    ui_kind: 'venv',
     card: Object.freeze({
       mark: Object.freeze({ icon: 'pi pi-server' }),
       subtitle: 'Safetensors via a Python environment.',
@@ -133,6 +137,7 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
   }),
   '1cat_vllm': Object.freeze({
     label: '1Cat-vLLM',
+    ui_kind: 'venv',
     card: Object.freeze({
       mark: Object.freeze({ icon: 'pi pi-bolt' }),
       subtitle: 'Safetensors on SM70 GPUs.',
@@ -156,6 +161,7 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
   }),
   sglang: Object.freeze({
     label: 'SGLang',
+    ui_kind: 'sglang',
     panel: Object.freeze({
       variant: 'sglang',
       defaultRepo: 'https://github.com/sgl-project/sglang.git',
@@ -186,6 +192,7 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
   }),
   sglang_v100: Object.freeze({
     label: 'SGLang V100',
+    ui_kind: 'sglang',
     panel: Object.freeze({
       variant: 'v100',
       defaultRepo: 'https://github.com/haohervchb/sglang-V100.git',
@@ -217,6 +224,7 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
   }),
   vllm: Object.freeze({
     label: 'vLLM',
+    ui_kind: 'sglang',
     panel: Object.freeze({
       variant: 'vllm',
       defaultRepo: 'https://github.com/vllm-project/vllm.git',
@@ -246,6 +254,7 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
   }),
   audio_cpp: Object.freeze({
     label: 'audio.cpp',
+    ui_kind: 'audio',
     card: Object.freeze({
       mark: Object.freeze({ text: 'A', className: 'engine-mark--audio' }),
       badge: Object.freeze({ kind: 'maturity' }),
@@ -421,6 +430,62 @@ export function buildOptionsPath(engineId) {
  */
 export function isAudioEngineId(engineId) {
   return ENGINE_DESCRIPTORS[engineId]?.configPanel === 'audio'
+}
+
+const GENERIC_PRESENTATION = Object.freeze({
+  label: '',
+  icon: 'pi-server',
+  fallbackFormats: Object.freeze([]),
+  generic: true,
+})
+
+const PRESENTATION_BY_KIND = Object.freeze({
+  audio: Object.freeze({
+    icon: 'pi-volume-up',
+    card: Object.freeze({
+      mark: Object.freeze({ icon: 'pi pi-volume-up' }),
+      subtitle: 'Audio models and tasks.',
+    }),
+  }),
+  sglang: Object.freeze({
+    icon: 'pi-sparkles',
+    card: Object.freeze({
+      mark: Object.freeze({ icon: 'pi pi-sparkles' }),
+      subtitle: 'Safetensors, OpenAI-compatible API.',
+    }),
+  }),
+  native: Object.freeze({
+    icon: 'pi-microchip',
+    card: Object.freeze({
+      mark: Object.freeze({ icon: 'pi pi-microchip' }),
+      subtitle: 'Native GGUF server.',
+    }),
+  }),
+  venv: Object.freeze({
+    icon: 'pi-server',
+    card: Object.freeze({
+      mark: Object.freeze({ icon: 'pi pi-server' }),
+      subtitle: 'Safetensors via a Python environment.',
+    }),
+  }),
+})
+
+/**
+ * Presentation for a server-described engine. Local descriptors win; an
+ * engine with no local entry gets the declared ui_kind overlay + generic card.
+ */
+export function presentationForEngine(engineId, serverDescriptors = []) {
+  const local = ENGINE_DESCRIPTORS[engineId]
+  if (local) return local
+  const server = (serverDescriptors || []).find((entry) => entry.id === engineId) || {}
+  const kind = String(server.ui_kind || '')
+  return {
+    ...(PRESENTATION_BY_KIND[kind] || GENERIC_PRESENTATION),
+    label: String(server.label || engineId),
+    ui_kind: kind,
+    generic: true,
+    server,
+  }
 }
 
 /** Reverse map for task-completion code that only knows manager ids.

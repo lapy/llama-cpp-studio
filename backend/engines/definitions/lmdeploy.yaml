@@ -18,6 +18,7 @@ extends:
 - text_generation_tasks
 - python_venv_safetensors
 label: LMDeploy
+ui_kind: venv
 repository_source: LMDeploy
 runtime_kind: lmdeploy
 scanner_kind: lmdeploy_help

@@ -4,25 +4,10 @@
     "1cat_vllm": {
       "engines_home": [
         {
-          "count": 2,
-          "file": "backend/engines/vllm/onecat.py",
-          "lines": [
-            18,
-            46
-          ]
-        },
-        {
           "count": 1,
           "file": "backend/engines/activation.py",
           "lines": [
             27
-          ]
-        },
-        {
-          "count": 1,
-          "file": "backend/engines/adapters.py",
-          "lines": [
-            46
           ]
         },
         {
@@ -76,21 +61,6 @@
           ]
         },
         {
-          "count": 9,
-          "file": "frontend/src/views/EnginesView.vue",
-          "lines": [
-            991,
-            1123,
-            1146,
-            1248,
-            1273,
-            3403,
-            3775,
-            3794,
-            3938
-          ]
-        },
-        {
           "count": 8,
           "file": "frontend/src/stores/engines.js",
           "lines": [
@@ -105,6 +75,20 @@
           ]
         },
         {
+          "count": 8,
+          "file": "frontend/src/views/EnginesView.vue",
+          "lines": [
+            996,
+            1128,
+            1146,
+            1265,
+            3434,
+            3806,
+            3825,
+            3969
+          ]
+        },
+        {
           "count": 6,
           "file": "frontend/src/views/EnginesView.tasks.test.js",
           "lines": [
@@ -114,6 +98,17 @@
             526,
             622,
             648
+          ]
+        },
+        {
+          "count": 5,
+          "file": "frontend/src/engines/registry.js",
+          "lines": [
+            138,
+            150,
+            152,
+            153,
+            158
           ]
         },
         {
@@ -134,15 +129,6 @@
             5,
             6,
             11
-          ]
-        },
-        {
-          "count": 3,
-          "file": "frontend/src/engines/registry.js",
-          "lines": [
-            126,
-            137,
-            143
           ]
         },
         {
@@ -271,7 +257,7 @@
           "count": 1,
           "file": "backend/engines/adapters.py",
           "lines": [
-            124
+            89
           ]
         },
         {
@@ -338,28 +324,6 @@
             429,
             474,
             493
-          ]
-        },
-        {
-          "count": 16,
-          "file": "frontend/src/views/EnginesView.vue",
-          "lines": [
-            292,
-            302,
-            303,
-            452,
-            989,
-            1130,
-            1252,
-            1277,
-            1288,
-            1304,
-            1498,
-            1505,
-            2422,
-            2806,
-            2833,
-            3960
           ]
         },
         {
@@ -517,11 +481,11 @@
           "count": 5,
           "file": "frontend/src/engines/registry.js",
           "lines": [
-            227,
-            233,
-            234,
-            238,
-            247
+            255,
+            262,
+            263,
+            269,
+            278
           ]
         },
         {
@@ -546,16 +510,6 @@
         },
         {
           "count": 4,
-          "file": "frontend/src/views/ModelConfig.vue",
-          "lines": [
-            696,
-            1694,
-            2843,
-            4113
-          ]
-        },
-        {
-          "count": 4,
           "file": "frontend/src/views/ModelSearch.catalog.test.js",
           "lines": [
             96,
@@ -568,10 +522,10 @@
           "count": 4,
           "file": "frontend/e2e/fixtures/workspace.mjs",
           "lines": [
-            93,
-            94,
-            97,
-            107
+            103,
+            104,
+            107,
+            117
           ]
         },
         {
@@ -782,6 +736,20 @@
         },
         {
           "count": 1,
+          "file": "frontend/src/views/EnginesView.vue",
+          "lines": [
+            1305
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/views/ModelConfig.vue",
+          "lines": [
+            1693
+          ]
+        },
+        {
+          "count": 1,
           "file": "frontend/e2e/ui-refactor.spec.mjs",
           "lines": [
             76
@@ -837,15 +805,15 @@
         },
         {
           "count": 7,
-          "file": "backend/engines/llama_cpp/manager.py",
+          "file": "backend/engines/python/cmake_build.py",
           "lines": [
-            41,
-            176,
-            182,
-            185,
-            187,
-            188,
-            912
+            48,
+            183,
+            189,
+            192,
+            194,
+            195,
+            919
           ]
         },
         {
@@ -881,14 +849,6 @@
         },
         {
           "count": 2,
-          "file": "backend/engines/adapters.py",
-          "lines": [
-            120,
-            126
-          ]
-        },
-        {
-          "count": 2,
           "file": "backend/engines/registry.py",
           "lines": [
             121,
@@ -912,60 +872,65 @@
         },
         {
           "count": 1,
+          "file": "backend/engines/python/generic.py",
+          "lines": [
+            1288
+          ]
+        },
+        {
+          "count": 1,
           "file": "backend/engines/spec.py",
           "lines": [
-            86
+            88
           ]
         }
       ],
       "outside_engines": [
         {
-          "count": 43,
+          "count": 41,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            748,
-            751,
-            760,
-            770,
-            1107,
-            1120,
-            1245,
-            1270,
-            1284,
-            1714,
-            1772,
-            1789,
-            1862,
-            1879,
-            1895,
-            1900,
-            1954,
-            2047,
-            2214,
-            2354,
-            2355,
-            2369,
-            2370,
-            2374,
-            2378,
-            2426,
-            2438,
-            2441,
-            2520,
-            2521,
-            2527,
-            2533,
-            2551,
-            2574,
-            2584,
-            3578,
-            3629,
-            3632,
-            3636,
-            3643,
-            3646,
-            3669,
-            3670
+            749,
+            752,
+            761,
+            771,
+            1112,
+            1262,
+            1301,
+            1736,
+            1794,
+            1811,
+            1884,
+            1901,
+            1917,
+            1922,
+            1976,
+            2069,
+            2236,
+            2376,
+            2377,
+            2391,
+            2392,
+            2396,
+            2400,
+            2448,
+            2460,
+            2463,
+            2542,
+            2543,
+            2549,
+            2555,
+            2573,
+            2596,
+            2606,
+            3609,
+            3660,
+            3663,
+            3667,
+            3674,
+            3677,
+            3700,
+            3701
           ]
         },
         {
@@ -1081,15 +1046,15 @@
           "count": 9,
           "file": "frontend/src/engines/registry.js",
           "lines": [
-            55,
-            69,
-            70,
-            74,
-            76,
+            58,
+            72,
+            73,
             78,
-            83,
-            428,
-            450
+            80,
+            84,
+            89,
+            574,
+            596
           ]
         },
         {
@@ -1282,8 +1247,8 @@
             1591,
             1620,
             1643,
-            1704,
-            1748
+            1709,
+            1753
           ]
         },
         {
@@ -1330,15 +1295,15 @@
         },
         {
           "count": 7,
-          "file": "backend/engines/llama_cpp/manager.py",
+          "file": "backend/engines/python/cmake_build.py",
           "lines": [
-            912,
-            990,
-            992,
-            993,
-            1018,
-            1023,
-            1039
+            919,
+            997,
+            999,
+            1000,
+            1025,
+            1030,
+            1046
           ]
         },
         {
@@ -1354,29 +1319,19 @@
           ]
         },
         {
-          "count": 4,
-          "file": "backend/engines/unsloth_llama/installer.py",
-          "lines": [
-            1,
-            4,
-            141,
-            142
-          ]
-        },
-        {
-          "count": 2,
-          "file": "backend/engines/adapters.py",
-          "lines": [
-            114,
-            125
-          ]
-        },
-        {
           "count": 2,
           "file": "backend/engines/llama_cpp/server_exec.py",
           "lines": [
             1,
             54
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/engines/python/release_host.py",
+          "lines": [
+            126,
+            127
           ]
         },
         {
@@ -1395,6 +1350,13 @@
         },
         {
           "count": 1,
+          "file": "backend/engines/python/generic.py",
+          "lines": [
+            1288
+          ]
+        },
+        {
+          "count": 1,
           "file": "backend/engines/registry.py",
           "lines": [
             121
@@ -1409,38 +1371,6 @@
         }
       ],
       "outside_engines": [
-        {
-          "count": 26,
-          "file": "frontend/src/views/EnginesView.vue",
-          "lines": [
-            652,
-            1061,
-            1119,
-            1244,
-            1269,
-            1283,
-            1754,
-            1798,
-            1815,
-            1831,
-            2014,
-            2032,
-            2214,
-            2354,
-            2426,
-            2438,
-            2521,
-            2551,
-            2584,
-            3587,
-            3594,
-            3600,
-            3626,
-            3627,
-            3682,
-            3688
-          ]
-        },
         {
           "count": 25,
           "file": "frontend/src/stores/engines.test.js",
@@ -1470,6 +1400,36 @@
             295,
             301,
             302
+          ]
+        },
+        {
+          "count": 24,
+          "file": "frontend/src/views/EnginesView.vue",
+          "lines": [
+            653,
+            1066,
+            1261,
+            1300,
+            1776,
+            1820,
+            1837,
+            1853,
+            2036,
+            2054,
+            2236,
+            2376,
+            2448,
+            2460,
+            2543,
+            2573,
+            2606,
+            3618,
+            3625,
+            3631,
+            3657,
+            3658,
+            3713,
+            3719
           ]
         },
         {
@@ -1634,11 +1594,11 @@
           "file": "frontend/src/engines/registry.js",
           "lines": [
             44,
-            49,
-            55,
-            78,
-            98,
-            421
+            50,
+            58,
+            84,
+            105,
+            567
           ]
         },
         {
@@ -1739,18 +1699,18 @@
           "count": 3,
           "file": "frontend/src/views/ModelConfig.vue",
           "lines": [
-            2850,
-            3379,
-            3383
+            2875,
+            3408,
+            3412
           ]
         },
         {
           "count": 3,
           "file": "frontend/e2e/fixtures/workspace.mjs",
           "lines": [
-            80,
-            114,
-            123
+            90,
+            124,
+            133
           ]
         },
         {
@@ -1835,7 +1795,7 @@
           "count": 1,
           "file": "backend/operations/action_recovery.py",
           "lines": [
-            73
+            77
           ]
         },
         {
@@ -1930,14 +1890,6 @@
         },
         {
           "count": 2,
-          "file": "backend/engines/lmdeploy/installer.py",
-          "lines": [
-            40,
-            42
-          ]
-        },
-        {
-          "count": 2,
           "file": "backend/engines/scan/scanner.py",
           "lines": [
             69,
@@ -1953,13 +1905,6 @@
         },
         {
           "count": 1,
-          "file": "backend/engines/lmdeploy/__init__.py",
-          "lines": [
-            5
-          ]
-        },
-        {
-          "count": 1,
           "file": "backend/engines/scan/help_parsers.py",
           "lines": [
             2358
@@ -1968,25 +1913,24 @@
       ],
       "outside_engines": [
         {
-          "count": 16,
+          "count": 15,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
             543,
-            831,
-            990,
-            1122,
+            832,
+            995,
+            1127,
             1145,
-            1247,
-            1272,
-            1286,
-            3154,
-            3164,
-            3172,
-            3188,
-            3749,
-            3751,
-            3755,
-            3770
+            1264,
+            1303,
+            3176,
+            3186,
+            3197,
+            3219,
+            3780,
+            3782,
+            3786,
+            3801
           ]
         },
         {
@@ -2059,14 +2003,16 @@
           ]
         },
         {
-          "count": 5,
+          "count": 7,
           "file": "frontend/src/engines/registry.js",
           "lines": [
             34,
-            107,
-            112,
-            118,
-            122
+            116,
+            122,
+            128,
+            130,
+            131,
+            134
           ]
         },
         {
@@ -2183,25 +2129,6 @@
     "sglang": {
       "engines_home": [
         {
-          "count": 4,
-          "file": "backend/engines/sglang/installer.py",
-          "lines": [
-            17,
-            27,
-            32,
-            44
-          ]
-        },
-        {
-          "count": 3,
-          "file": "backend/engines/sglang/runtime.py",
-          "lines": [
-            6,
-            10,
-            14
-          ]
-        },
-        {
           "count": 2,
           "file": "backend/engines/scan/help_parsers.py",
           "lines": [
@@ -2214,13 +2141,6 @@
           "file": "backend/engines/activation.py",
           "lines": [
             27
-          ]
-        },
-        {
-          "count": 1,
-          "file": "backend/engines/adapters.py",
-          "lines": [
-            43
           ]
         },
         {
@@ -2240,6 +2160,32 @@
       ],
       "outside_engines": [
         {
+          "count": 20,
+          "file": "frontend/src/engines/registry.js",
+          "lines": [
+            162,
+            164,
+            166,
+            167,
+            168,
+            176,
+            177,
+            181,
+            185,
+            187,
+            195,
+            208,
+            209,
+            219,
+            227,
+            239,
+            240,
+            251,
+            388,
+            450
+          ]
+        },
+        {
           "count": 15,
           "file": "frontend/src/stores/engines.venv.test.js",
           "lines": [
@@ -2258,22 +2204,6 @@
             253,
             284,
             380
-          ]
-        },
-        {
-          "count": 10,
-          "file": "frontend/src/engines/registry.js",
-          "lines": [
-            147,
-            150,
-            151,
-            152,
-            163,
-            167,
-            169,
-            196,
-            223,
-            298
           ]
         },
         {
@@ -2303,14 +2233,15 @@
           ]
         },
         {
-          "count": 5,
+          "count": 6,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            1072,
-            1157,
-            1249,
-            1274,
-            3803
+            1077,
+            1129,
+            1147,
+            1174,
+            1266,
+            3834
           ]
         },
         {
@@ -2371,6 +2302,13 @@
         },
         {
           "count": 1,
+          "file": "frontend/src/components/layout/WorkspaceNavigator.vue",
+          "lines": [
+            98
+          ]
+        },
+        {
+          "count": 1,
           "file": "frontend/src/components/ParseCommandDialog.test.js",
           "lines": [
             157
@@ -2381,13 +2319,6 @@
           "file": "frontend/src/components/ParseCommandDialog.vue",
           "lines": [
             23
-          ]
-        },
-        {
-          "count": 1,
-          "file": "frontend/src/components/layout/WorkspaceNavigator.vue",
-          "lines": [
-            98
           ]
         },
         {
@@ -2422,22 +2353,6 @@
     },
     "sglang_v100": {
       "engines_home": [
-        {
-          "count": 2,
-          "file": "backend/engines/adapters.py",
-          "lines": [
-            27,
-            44
-          ]
-        },
-        {
-          "count": 2,
-          "file": "backend/engines/sglang/installer.py",
-          "lines": [
-            17,
-            36
-          ]
-        },
         {
           "count": 1,
           "file": "backend/engines/activation.py",
@@ -2500,18 +2415,6 @@
           ]
         },
         {
-          "count": 6,
-          "file": "frontend/src/views/EnginesView.vue",
-          "lines": [
-            1158,
-            1206,
-            1213,
-            1250,
-            1275,
-            3812
-          ]
-        },
-        {
           "count": 5,
           "file": "frontend/src/views/EnginesView.tasks.test.js",
           "lines": [
@@ -2520,6 +2423,17 @@
             472,
             496,
             662
+          ]
+        },
+        {
+          "count": 5,
+          "file": "frontend/src/views/EnginesView.vue",
+          "lines": [
+            1175,
+            1223,
+            1230,
+            1267,
+            3843
           ]
         },
         {
@@ -2556,9 +2470,9 @@
           "count": 3,
           "file": "frontend/src/engines/registry.js",
           "lines": [
-            173,
-            176,
-            194
+            193,
+            197,
+            217
           ]
         },
         {
@@ -2616,21 +2530,19 @@
           ]
         },
         {
-          "count": 4,
-          "file": "backend/engines/unsloth_llama/installer.py",
-          "lines": [
-            42,
-            161,
-            474,
-            495
-          ]
-        },
-        {
           "count": 2,
           "file": "backend/engines/llama_cpp/resolve.py",
           "lines": [
             55,
             70
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/engines/python/release_host.py",
+          "lines": [
+            456,
+            477
           ]
         },
         {
@@ -2694,28 +2606,29 @@
           ]
         },
         {
-          "count": 8,
-          "file": "frontend/src/views/EnginesView.vue",
+          "count": 7,
+          "file": "frontend/src/engines/registry.js",
           "lines": [
-            1121,
-            1246,
-            1271,
-            1285,
-            3581,
-            3672,
-            3675,
-            3945
+            100,
+            106,
+            110,
+            111,
+            114,
+            581,
+            597
           ]
         },
         {
-          "count": 5,
-          "file": "frontend/src/engines/registry.js",
+          "count": 7,
+          "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            94,
-            99,
-            105,
-            435,
-            451
+            1126,
+            1263,
+            1302,
+            3612,
+            3703,
+            3706,
+            3976
           ]
         },
         {
@@ -2781,7 +2694,7 @@
           "count": 1,
           "file": "backend/routes/unsloth_llama_versions.py",
           "lines": [
-            28
+            27
           ]
         },
         {
@@ -2795,15 +2708,6 @@
     },
     "vllm": {
       "engines_home": [
-        {
-          "count": 3,
-          "file": "backend/engines/vllm/installer.py",
-          "lines": [
-            1,
-            3,
-            15
-          ]
-        },
         {
           "count": 2,
           "file": "backend/engines/scan/help_parsers.py",
@@ -2821,13 +2725,6 @@
         },
         {
           "count": 1,
-          "file": "backend/engines/adapters.py",
-          "lines": [
-            45
-          ]
-        },
-        {
-          "count": 1,
           "file": "backend/engines/lifecycle.py",
           "lines": [
             57
@@ -2836,13 +2733,6 @@
         {
           "count": 1,
           "file": "backend/engines/python/installer.py",
-          "lines": [
-            1
-          ]
-        },
-        {
-          "count": 1,
-          "file": "backend/engines/vllm/__init__.py",
           "lines": [
             1
           ]
@@ -2880,16 +2770,16 @@
           "lines": [
             14,
             15,
-            200,
-            201,
-            203,
-            204,
-            205,
-            211,
-            216,
-            222,
-            294,
-            297
+            225,
+            226,
+            229,
+            230,
+            231,
+            237,
+            244,
+            250,
+            375,
+            387
           ]
         },
         {
@@ -2921,19 +2811,6 @@
           ]
         },
         {
-          "count": 7,
-          "file": "frontend/src/views/EnginesView.vue",
-          "lines": [
-            1159,
-            1208,
-            1215,
-            1251,
-            1276,
-            3785,
-            3821
-          ]
-        },
-        {
           "count": 6,
           "file": "frontend/src/stores/engines.test.js",
           "lines": [
@@ -2943,6 +2820,18 @@
             74,
             76,
             77
+          ]
+        },
+        {
+          "count": 6,
+          "file": "frontend/src/views/EnginesView.vue",
+          "lines": [
+            1176,
+            1225,
+            1232,
+            1268,
+            3816,
+            3852
           ]
         },
         {
@@ -3310,6 +3199,9 @@
     "lmdeploy": {
       "source": "backend/venv_install_settings.py:default_install_settings",
       "values": {
+        "compat_sm70": false,
+        "compat_torch_index_url": "https://download.pytorch.org/whl/cu126",
+        "compat_torch_spec": "torch==2.8.0+cu126 torchvision==0.23.0+cu126",
         "pip_version": "",
         "source_branch": "main",
         "source_repo": "https://github.com/InternLM/lmdeploy.git"
@@ -3606,7 +3498,8 @@
         "reranking",
         "text-generation",
         "text2text-generation"
-      ]
+      ],
+      "ui_kind": "venv"
     },
     "audio_cpp": {
       "active_path_fields": [
@@ -3665,7 +3558,8 @@
         "vad",
         "vc",
         "vdes"
-      ]
+      ],
+      "ui_kind": "audio"
     },
     "ik_llama": {
       "active_path_fields": [
@@ -3703,7 +3597,8 @@
         "reranking",
         "text-generation",
         "text2text-generation"
-      ]
+      ],
+      "ui_kind": "native"
     },
     "llama_cpp": {
       "active_path_fields": [
@@ -3741,7 +3636,8 @@
         "reranking",
         "text-generation",
         "text2text-generation"
-      ]
+      ],
+      "ui_kind": "native"
     },
     "lmdeploy": {
       "active_path_fields": [
@@ -3777,7 +3673,8 @@
         "reranking",
         "text-generation",
         "text2text-generation"
-      ]
+      ],
+      "ui_kind": "venv"
     },
     "sglang": {
       "active_path_fields": [
@@ -3788,7 +3685,13 @@
       ],
       "cpu_supported": false,
       "experimental": false,
-      "gpu_archs": [],
+      "gpu_archs": [
+        "sm75",
+        "sm80",
+        "sm86",
+        "sm89",
+        "sm90"
+      ],
       "id": "sglang",
       "input_modalities": [
         "image",
@@ -3815,7 +3718,8 @@
         "reranking",
         "text-generation",
         "text2text-generation"
-      ]
+      ],
+      "ui_kind": "sglang"
     },
     "sglang_v100": {
       "active_path_fields": [
@@ -3857,7 +3761,8 @@
         "reranking",
         "text-generation",
         "text2text-generation"
-      ]
+      ],
+      "ui_kind": "sglang"
     },
     "unsloth_llama": {
       "active_path_fields": [
@@ -3895,7 +3800,8 @@
         "reranking",
         "text-generation",
         "text2text-generation"
-      ]
+      ],
+      "ui_kind": "native"
     },
     "vllm": {
       "active_path_fields": [
@@ -3906,7 +3812,13 @@
       ],
       "cpu_supported": false,
       "experimental": false,
-      "gpu_archs": [],
+      "gpu_archs": [
+        "sm75",
+        "sm80",
+        "sm86",
+        "sm89",
+        "sm90"
+      ],
       "id": "vllm",
       "input_modalities": [
         "image",
@@ -3933,7 +3845,8 @@
         "reranking",
         "text-generation",
         "text2text-generation"
-      ]
+      ],
+      "ui_kind": "sglang"
     }
   },
   "response_shape_divergences": {

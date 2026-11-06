@@ -9,6 +9,7 @@ extends:
 - text_generation_tasks
 - gguf_llama_server
 label: ik_llama.cpp
+ui_kind: native
 repository_source: ik_llama.cpp
 native_host: cmake_source
 install_kind: cmake

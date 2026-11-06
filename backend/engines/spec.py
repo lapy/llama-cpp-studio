@@ -31,6 +31,8 @@ class EngineSpec:
     # Per-surface maturity labels (e.g. speech_asr=stable). When set, ``experimental``
     # is only a coarse UI hint — prefer maturity_surfaces for honesty.
     maturity_surfaces: Tuple[Tuple[str, str], ...] = ()
+    # Presentation family used by the frontend overlay; empty = generic card.
+    ui_kind: str = ""
     # Installer lifecycle facts (schema-v2 ``lifecycle``). Data only: it never
     # reaches the descriptor API (popped in ``to_api_dict``), so the frontend
     # payload is unchanged; the exporter writes it into the generated YAML so a

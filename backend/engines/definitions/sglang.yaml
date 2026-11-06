@@ -11,6 +11,7 @@ extends:
 - text_generation_tasks
 - python_venv_safetensors
 label: SGLang
+ui_kind: sglang
 repository_source: SGLang
 runtime_kind: sglang
 scanner_kind: sglang_help

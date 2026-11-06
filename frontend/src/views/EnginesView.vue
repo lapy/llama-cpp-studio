@@ -977,6 +977,7 @@ import {
   SG_PANEL_ENGINE_IDS,
   engineIdForManager,
   engineLabel,
+  presentationForEngine,
   serverBackedEngines,
 } from '@/engines/registry'
 import { FALLBACK_BUILD_DEFAULTS, FALLBACK_BUILD_TYPES } from '@/engines/buildDefaults'
@@ -1281,7 +1282,17 @@ function versionsFor(engineId) {
   return Array.isArray(list) ? list : []
 }
 
-const ENGINE_CARD_ORDER = Object.freeze(Object.keys(ENGINE_DESCRIPTORS))
+const ENGINE_CARD_ORDER = computed(() => {
+  const ids = Object.keys(ENGINE_DESCRIPTORS)
+  const known = new Set(ids)
+  for (const descriptor of enginesStore.engineDescriptors || []) {
+    if (descriptor?.id && !known.has(descriptor.id)) {
+      ids.push(descriptor.id)
+      known.add(descriptor.id)
+    }
+  }
+  return ids
+})
 
 // Update-info refs are declared later in setup; resolve them lazily so the
 // summary cards stay one descriptor-driven loop.
@@ -1301,8 +1312,8 @@ const ENGINE_UPDATE_FORMATTERS = {
 }
 
 const engineSummaryCards = computed(() =>
-  ENGINE_CARD_ORDER.map((engineId) => {
-    const descriptor = ENGINE_DESCRIPTORS[engineId]
+  ENGINE_CARD_ORDER.value.map((engineId) => {
+    const descriptor = presentationForEngine(engineId, enginesStore.engineDescriptors)
     const card = descriptor.card || {}
     const versions = versionsFor(engineId)
     const active = engineActive[engineId]?.value || null
