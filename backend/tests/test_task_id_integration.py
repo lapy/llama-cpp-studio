@@ -26,8 +26,8 @@ import backend.operations.progress as pm_mod
 import backend.routes.models as models_routes
 import backend.services.model_downloads as model_downloads
 from backend.cuda_installer import CUDAInstaller
-from backend.engines.lmdeploy import LMDeployManager
-from backend.engines.vllm import OneCatVllmManager
+from backend.tests.venv_fixtures import LMDeployManager
+from backend.tests.venv_fixtures import OneCatVllmManager
 
 # --- Task ID contract (kept inline — only used by these tests) ----------------
 
@@ -128,22 +128,19 @@ def _quiesce(instance) -> None:
 @pytest.fixture(autouse=True)
 def reset_manager_singletons():
     import backend.cuda_installer as cuda_mod
-    import backend.engines.lmdeploy.installer as lm_mod
-    import backend.engines.vllm.onecat as oc_mod
+    import backend.engines.python.generic as generic_mod
 
-    pairs = (
-        (cuda_mod, "_installer_instance"),
-        (lm_mod, "_manager_instance"),
-        (oc_mod, "_manager_instance"),
-    )
-    for module, attribute in pairs:
-        _quiesce(getattr(module, attribute, None))
-        setattr(module, attribute, None)
+    _quiesce(getattr(cuda_mod, "_installer_instance", None))
+    setattr(cuda_mod, "_installer_instance", None)
+    for installer in list(generic_mod._DEFINITION_INSTALLERS.values()):
+        _quiesce(installer)
+    generic_mod.reset_definition_installers()
     yield
-    for module, attribute in pairs:
-        instance = getattr(module, attribute, None)
-        _quiesce(instance)
-        setattr(module, attribute, None)
+    _quiesce(getattr(cuda_mod, "_installer_instance", None))
+    setattr(cuda_mod, "_installer_instance", None)
+    for installer in list(generic_mod._DEFINITION_INSTALLERS.values()):
+        _quiesce(installer)
+    generic_mod.reset_definition_installers()
 
 
 @pytest.fixture(autouse=True)

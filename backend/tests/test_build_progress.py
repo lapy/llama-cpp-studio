@@ -436,7 +436,7 @@ def test_onecat_release_log_progression():
 
 
 async def test_installer_broadcast_uses_pip_phases(tmp_path):
-    from backend.engines.vllm import OneCatVllmManager
+    from backend.tests.venv_fixtures import OneCatVllmManager
     from backend.operations.progress import get_progress_manager
 
     manager = OneCatVllmManager(
@@ -498,7 +498,7 @@ async def test_installer_broadcast_uses_pip_phases(tmp_path):
 
 
 async def test_source_install_broadcast_leaves_room_for_compile(tmp_path):
-    from backend.engines.vllm import OneCatVllmManager
+    from backend.tests.venv_fixtures import OneCatVllmManager
     from backend.operations.progress import get_progress_manager
 
     manager = OneCatVllmManager(

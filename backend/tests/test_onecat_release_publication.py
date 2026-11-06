@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.engines.vllm.onecat import ENGINE_ID, OneCatInstaller
+from backend.tests.venv_fixtures import ENGINE_ID, OneCatVllmInstaller as OneCatInstaller
 
 
 @pytest.mark.asyncio

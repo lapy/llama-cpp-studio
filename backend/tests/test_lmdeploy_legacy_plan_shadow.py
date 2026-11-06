@@ -21,7 +21,7 @@ from backend.engines.definitions import (
     load_engine_definitions,
     materialize_plan,
 )
-from backend.engines.lmdeploy import LMDeployManager
+from backend.tests.venv_fixtures import LMDeployManager
 
 
 @pytest.fixture(autouse=True)

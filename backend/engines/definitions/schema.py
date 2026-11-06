@@ -41,6 +41,7 @@ from backend.engines.spec import EngineSpec
 
 SCHEMA_VERSION = 1
 SUPPORTED_SCHEMA_VERSIONS = frozenset({1, 2})
+NATIVE_HOST_KINDS = frozenset({"cmake_source", "audio_cpp"})
 
 # Schema v2 adds the recipe/profile/settings sections validated by the
 # reference-definition spike (docs/config-driven-engine-refactoring-plan.md
@@ -73,6 +74,8 @@ V2_ONLY_KEYS = (
     # for the end-to-end harnesses but are NOT production engines, so the
     # import-time definition bootstrap must not register them.
     "fixture_only",
+    # Declared native host mechanism. Selection is by host name, not engine id.
+    "native_host",
 )
 
 # YAML campaign S3: what a generic (data-driven) lifecycle registration and
@@ -2117,6 +2120,8 @@ class EngineDefinition:
     runtime_profiles: Tuple[Tuple[str, Mapping[str, Any]], ...] = ()
     recipes: Tuple[Tuple[str, Tuple[Mapping[str, Any], ...]], ...] = ()
     lifecycle: Tuple[Tuple[str, Any], ...] = ()
+    # Native host mechanism (cmake_source/audio_cpp); empty for venv engines.
+    native_host: str = ""
     launch_policy: Tuple[Tuple[str, Any], ...] = ()
     build_options: Tuple[Tuple[str, Any], ...] = ()
     protocol: Tuple[Tuple[str, Any], ...] = ()
@@ -2337,6 +2342,9 @@ def validate_definition(raw: Any, *, source: str) -> EngineDefinition:
             lifecycle=_validate_lifecycle(raw["lifecycle"], where)
             if raw.get("lifecycle") is not None
             else (),
+            native_host=_check_kind("native_host", raw.get("native_host"), NATIVE_HOST_KINDS, where)
+            if raw.get("native_host")
+            else "",
             launch_policy=_validate_launch_policy(raw["launch_policy"], where)
             if raw.get("launch_policy") is not None
             else (),

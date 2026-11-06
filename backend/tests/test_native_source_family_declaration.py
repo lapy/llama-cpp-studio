@@ -100,3 +100,14 @@ def test_nativecraft_policy_is_loaded_from_definition_data(tmp_path):
         "cmake.build",
         "publish.finalize",
     }
+
+def test_native_host_selection_comes_from_the_definition():
+    from backend.engines.adapters import get_native_installer
+    from backend.engines.audio_cpp.installer import AudioCppInstaller
+    from backend.engines.python.cmake_source import CmakeSourceInstaller
+
+    assert isinstance(get_native_installer("llama_cpp"), CmakeSourceInstaller)
+    assert isinstance(get_native_installer("ik_llama"), CmakeSourceInstaller)
+    assert isinstance(get_native_installer("nativecraft"), CmakeSourceInstaller)
+    assert isinstance(get_native_installer("audio_cpp"), AudioCppInstaller)
+    assert get_native_installer("lmdeploy") is None
