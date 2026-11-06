@@ -224,6 +224,12 @@ textarea {
   .header-actions {
     margin-left: auto;
   }
+
+  .layout-header .workspace-search,
+  .layout-header .proxy-link,
+  .layout-header .theme-toggle {
+    border-radius: 999px;
+  }
   .layout-nav {
     position: fixed;
     inset: auto 0 0;

@@ -296,9 +296,10 @@ kbd {
     display: none;
   }
   .workspace-search {
-    min-width: 2.25rem;
-    min-height: 2.25rem;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
     justify-content: center;
+    padding: 0;
   }
 }
 </style>

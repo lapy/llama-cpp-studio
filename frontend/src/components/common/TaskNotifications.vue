@@ -522,6 +522,7 @@ function clearFinished() {
 }
 
 .activity-toggle {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -627,7 +628,7 @@ function clearFinished() {
   .activity-count {
     position: absolute;
     top: -0.25rem;
-    right: -0.2rem;
+    right: 0;
     margin: 0;
   }
 }

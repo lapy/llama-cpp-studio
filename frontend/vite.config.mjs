@@ -78,6 +78,11 @@ export default defineConfig(({ command, mode }) => {
       strictPort: true,
       // Loopback by default. Set VITE_DEV_HOST=0.0.0.0 when a WSL or LAN browser must reach Vite.
       host: process.env.VITE_DEV_HOST || '127.0.0.1',
+      // Hoisted pnpm/npm dependencies (primeicons fonts) live above the
+      // frontend root in the workspace; allow that root in dev so icons load.
+      fs: {
+        allow: [resolve(__dirname, '..'), resolve(__dirname, '../..')],
+      },
       watch: {
         usePolling: true,
       },

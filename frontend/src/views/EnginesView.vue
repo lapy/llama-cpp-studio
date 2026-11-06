@@ -1282,17 +1282,7 @@ function versionsFor(engineId) {
   return Array.isArray(list) ? list : []
 }
 
-const ENGINE_CARD_ORDER = computed(() => {
-  const ids = Object.keys(ENGINE_DESCRIPTORS)
-  const known = new Set(ids)
-  for (const descriptor of enginesStore.engineDescriptors || []) {
-    if (descriptor?.id && !known.has(descriptor.id)) {
-      ids.push(descriptor.id)
-      known.add(descriptor.id)
-    }
-  }
-  return ids
-})
+const ENGINE_CARD_ORDER = computed(() => Object.keys(ENGINE_DESCRIPTORS))
 
 // Update-info refs are declared later in setup; resolve them lazily so the
 // summary cards stay one descriptor-driven loop.

@@ -30,14 +30,16 @@
       error
     }}</Message>
     <Message v-if="!activeBackend && configuredBackend" severity="warn" :closable="false">
-      The proxy is stopped. Start it to accept inference requests.
-      <Button
-        label="Start proxy"
-        size="small"
-        severity="warn"
-        :loading="lifecycleBusy"
-        @click="lifecycle('start')"
-      />
+      <span class="proxy-stop-alert">
+        <span>The proxy is stopped. Start it to accept inference requests.</span>
+        <Button
+          label="Start proxy"
+          size="small"
+          severity="warn"
+          :loading="lifecycleBusy"
+          @click="lifecycle('start')"
+        />
+      </span>
     </Message>
     <Message v-else-if="restartRequired" severity="warn" :closable="false">
       Saved settings changed since the proxy last (re)started. Use “Restart &amp; apply” to activate
@@ -2651,6 +2653,29 @@ onUnmounted(() => {
   gap: 0.75rem;
   padding-bottom: 0.5rem;
 }
+.proxy-stop-alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.proxy-stop-alert > span:first-child {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+
+@media (max-width: 480px) {
+  .proxy-stop-alert {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .proxy-stop-alert > span:first-child {
+    flex: 0 0 auto;
+  }
+}
+
 .proxy-tabs {
   display: flex;
   flex-shrink: 0;
@@ -2658,6 +2683,7 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--border-primary);
 }
 .proxy-tabs button {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
