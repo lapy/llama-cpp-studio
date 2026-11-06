@@ -277,6 +277,7 @@ function dismiss() {
   font-size: 0.875rem;
   font-weight: 600;
 }
+
 @media (max-width: 480px) {
   .setup-checklist {
     padding: 0.75rem 1rem;
