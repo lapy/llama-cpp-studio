@@ -20,7 +20,7 @@ from backend.engines.definitions import (
 from backend.engines.definitions.executor import EXECUTION_COMPLETED
 from backend.models.config import collect_engine_model_references
 from backend.engines.registry import ENGINE_REGISTRY, VALID_ENGINE_IDS
-from backend.engines.llama_cpp.manager import LlamaManager, BuildConfig
+from backend.engines.python.cmake_build import BuildConfig, CmakeBuildHost
 from backend.engines.llama_cpp.build_options import (
     catalog_for_ui,
     coerce_build_settings,
@@ -69,7 +69,7 @@ from backend.engines.lifecycle import (
 )
 
 router = APIRouter()
-llama_manager = LlamaManager()
+llama_manager = CmakeBuildHost()
 logger = get_logger(__name__)
 
 _BUILD_CONFIG_FIELD_NAMES = {f.name for f in fields(BuildConfig)}
