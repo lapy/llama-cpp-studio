@@ -277,6 +277,21 @@ function dismiss() {
   font-size: 0.875rem;
   font-weight: 600;
 }
+@media (max-width: 480px) {
+  .setup-checklist {
+    padding: 0.75rem 1rem;
+  }
+
+  .setup-checklist__actions {
+    gap: 0.1rem;
+  }
+
+  .setup-checklist__actions button {
+    padding: 0.4rem 0.35rem;
+    font-size: 0.75rem;
+  }
+}
+
 .setup-reopen {
   align-self: flex-start;
   padding: 0.5rem 0.75rem;
