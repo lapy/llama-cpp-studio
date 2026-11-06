@@ -16,6 +16,7 @@ import socket
 import subprocess
 import time
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Mapping, Optional
 
@@ -44,6 +45,7 @@ class Generation:
     port: int
     process: subprocess.Popen[str]
     engine_id: str = ""
+    engine_install_id: str = ""
     created_at: float = field(default_factory=time.time)
     stats_since: float = field(default_factory=time.time)
     ready: bool = False
@@ -58,8 +60,17 @@ class Generation:
     output_bytes: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    input_tokens_cached: int = 0
+    input_tokens_cache_known: int = 0
+    confirmed_requests: int = 0
+    partial_requests: int = 0
+    cache_known_requests: int = 0
     latency_total_ms: float = 0.0
     latency_samples: EventRing[float] = field(default_factory=lambda: EventRing(1000))
+    ttft_samples: EventRing[float] = field(default_factory=lambda: EventRing(1000))
+    decode_samples: EventRing[float] = field(default_factory=lambda: EventRing(1000))
+    # Completion-attributed output increments for explicit rolling windows.
+    output_events: deque[tuple[float, int]] = field(default_factory=deque)
     last_used: float = field(default_factory=time.monotonic)
     logs: EventRing[str] = field(default_factory=lambda: EventRing(2000))
     exit_code: Optional[int] = None
@@ -164,15 +175,31 @@ class ProcessRegistry:
             else "loading"
         )
         samples = sorted(item.latency_samples.values())
+        ttft_samples = sorted(item.ttft_samples.values())
+        decode_samples = sorted(item.decode_samples.values())
 
-        def percentile(fraction: float) -> Optional[float]:
-            if not samples:
+        def percentile(fraction: float, values: Optional[list[float]] = None) -> Optional[float]:
+            values = samples if values is None else values
+            if not values:
                 return None
-            return samples[min(len(samples) - 1, max(0, math.ceil(len(samples) * fraction) - 1))]
+            return values[min(len(values) - 1, max(0, math.ceil(len(values) * fraction) - 1))]
 
+        now_wall = time.time()
+        # Bound the retained completion increments without pretending they are
+        # token-event observations; windows are explicitly completion-attributed.
+        while item.output_events and item.output_events[0][0] < now_wall - 300:
+            item.output_events.popleft()
+
+        def rolling_rate(seconds: float) -> Optional[float]:
+            cutoff = now_wall - seconds
+            tokens = sum(count for timestamp, count in item.output_events if timestamp >= cutoff)
+            return tokens / seconds
+
+        lifetime_rate = item.output_tokens / max(0.001, now_wall - item.stats_since)
         return {
             "model": item.model_id,
             "engine": item.engine_id,
+            "engine_build": item.engine_install_id,
             "revision": item.revision,
             "pid": item.process.pid,
             "port": item.port,
@@ -193,14 +220,30 @@ class ProcessRegistry:
             "output_bytes": item.output_bytes,
             "input_tokens": item.input_tokens,
             "output_tokens": item.output_tokens,
-            "output_tokens_per_second": (
-                item.output_tokens / max(0.001, time.time() - item.stats_since)
+            "input_tokens_cached": item.input_tokens_cached,
+            "cache_known_requests": item.cache_known_requests,
+            "cache_hit_ratio": (
+                item.input_tokens_cached / item.input_tokens_cache_known
+                if item.input_tokens_cache_known
+                else None
             ),
+            "confirmed_requests": item.confirmed_requests,
+            "partial_requests": item.partial_requests,
+            # Deprecated alias kept for older clients; this is wall-clock
+            # throughput including idle time, never generation speed.
+            "output_tokens_per_second": lifetime_rate,
+            "lifetime_output_tokens_per_second": lifetime_rate,
+            "rolling_10s_output_tokens_per_second": rolling_rate(10),
+            "rolling_60s_output_tokens_per_second": rolling_rate(60),
             "average_latency_ms": (
                 item.latency_total_ms / item.request_count if item.request_count else None
             ),
             "p50_latency_ms": percentile(0.50),
             "p95_latency_ms": percentile(0.95),
+            "p50_ttft_ms": percentile(0.50, ttft_samples),
+            "p95_ttft_ms": percentile(0.95, ttft_samples),
+            "p50_decode_tokens_per_second": percentile(0.50, decode_samples),
+            "p95_decode_tokens_per_second": percentile(0.95, decode_samples),
         }
 
     async def enter_request(self, model_id: str) -> None:
@@ -228,15 +271,27 @@ class ProcessRegistry:
         latency_ms: float,
         input_bytes: int,
         output_bytes: int,
-        input_tokens: int = 0,
-        output_tokens: int = 0,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
         method: str = "",
         path: str = "",
+        observation: Mapping[str, Any] | None = None,
     ) -> None:
+        """Consume a finalized observation, never raw pre-normalization counts.
+
+        ``observation`` is the record produced by ``finalize_observation``.
+        Unknown counts stay unknown and are not folded into committed totals.
+        """
+        record = dict(observation or {})
+        if input_tokens is not None and record.get("input_tokens") is None:
+            record["input_tokens"] = input_tokens
+        if output_tokens is not None and record.get("output_tokens") is None:
+            record["output_tokens"] = output_tokens
+        timestamp = time.time()
         self.requests.append(
             {
-                "id": uuid.uuid4().hex,
-                "completed_at": time.time(),
+                "id": record.get("id") or uuid.uuid4().hex,
+                "completed_at": timestamp,
                 "model": generation.model_id,
                 "engine": generation.engine_id,
                 "method": method,
@@ -245,8 +300,11 @@ class ProcessRegistry:
                 "latency_ms": latency_ms,
                 "input_bytes": input_bytes,
                 "output_bytes": output_bytes,
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
+                "input_tokens": record.get("input_tokens"),
+                "output_tokens": record.get("output_tokens"),
+                "input_tokens_cached": record.get("input_tokens_cached"),
+                "usage_status": record.get("usage_status"),
+                "schema_version": record.get("schema_version"),
                 "pid": generation.process.pid,
             }
         )
@@ -256,10 +314,34 @@ class ProcessRegistry:
         generation.server_error_count += int(status >= 500)
         generation.input_bytes += max(0, input_bytes)
         generation.output_bytes += max(0, output_bytes)
-        generation.input_tokens += max(0, input_tokens)
-        generation.output_tokens += max(0, output_tokens)
         generation.latency_total_ms += max(0.0, latency_ms)
         generation.latency_samples.append(max(0.0, latency_ms))
+        # Only confirmed/finalized counts are attributed to committed totals
+        # and rolling windows. A retained reservation is not measured output.
+        confirmed_output = record.get("output_tokens")
+        if confirmed_output is not None:
+            generation.output_tokens += max(0, int(confirmed_output))
+            generation.output_events.append((timestamp, max(0, int(confirmed_output))))
+            while len(generation.output_events) > 10000:
+                generation.output_events.popleft()
+        confirmed_input = record.get("input_tokens_total")
+        if confirmed_input is not None:
+            generation.input_tokens += max(0, int(confirmed_input))
+        cached_input = record.get("input_tokens_cached")
+        if confirmed_input is not None and cached_input is not None:
+            generation.input_tokens_cached += max(0, int(cached_input))
+            generation.input_tokens_cache_known += max(0, int(confirmed_input))
+            generation.cache_known_requests += 1
+        if record.get("usage_status") == "authoritative":
+            generation.confirmed_requests += 1
+        elif record.get("usage_status") in ("partial", "missing"):
+            generation.partial_requests += 1
+        ttft = record.get("ttft_ms")
+        if isinstance(ttft, (int, float)) and ttft >= 0:
+            generation.ttft_samples.append(float(ttft))
+        decode_rate = record.get("proxy_decode_tokens_per_second")
+        if isinstance(decode_rate, (int, float)) and decode_rate > 0:
+            generation.decode_samples.append(float(decode_rate))
 
     def reset_stats(self) -> None:
         for generation in self._generations.values():
@@ -272,10 +354,18 @@ class ProcessRegistry:
                 "output_bytes",
                 "input_tokens",
                 "output_tokens",
+                "input_tokens_cached",
+                "input_tokens_cache_known",
+                "confirmed_requests",
+                "partial_requests",
+                "cache_known_requests",
                 "latency_total_ms",
             ):
                 setattr(generation, name, 0)
             generation.latency_samples.clear()
+            generation.ttft_samples.clear()
+            generation.decode_samples.clear()
+            generation.output_events.clear()
             generation.stats_since = time.time()
 
     async def acquire(self, model_id: str) -> Generation:
@@ -432,7 +522,19 @@ class ProcessRegistry:
             bufsize=1,
             start_new_session=True,
         )
-        generation = Generation(spec.model_id, revision, port, process, spec.engine_id)
+        generation = Generation(
+            spec.model_id,
+            revision,
+            port,
+            process,
+            spec.engine_id,
+            engine_install_id=getattr(spec, "engine_install_id", "") or "",
+        )
+        # A restarted build may expose a different optional counting route than
+        # the previous process under the same nominal revision. Re-probe once.
+        from backend.engines.capabilities import probe_cache
+
+        probe_cache.invalidate(spec.engine_id, generation.engine_install_id or revision)
         self._generations[process.pid] = generation
         self._starting[spec.model_id] = generation
         generation._log_tasks = [

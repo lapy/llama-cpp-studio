@@ -28,6 +28,8 @@ class BenchmarkResponse(BaseModel):
     created_at: float
     model_id: str
     proxy_name: str
+    engine: str | None = None
+    engine_build: str | None = None
     config_revision: str
     config_fingerprint: str
     prompt: str
@@ -38,6 +40,16 @@ class BenchmarkResponse(BaseModel):
     tokens_per_second: float | None
     peak_observed_gpu_memory_bytes: int | None
     output_preview: str
+    # Additive observation fields. Older stored results keep null/defaults.
+    schema_version: int = 1
+    input_tokens_total: int | None = None
+    input_tokens_cached: int | None = None
+    output_interval_ms: float | None = None
+    tokens_per_second_source: str | None = None
+    decode_rate_quality: str | None = None
+    request_effective_tokens_per_second: float | None = None
+    engine_tokens_per_second: float | None = None
+    engine_metrics: dict[str, float] | None = None
 
 
 def _error(exc: BenchmarkError) -> JSONResponse:

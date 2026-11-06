@@ -266,7 +266,8 @@
               <h2 id="proxy-routing-heading">Routing</h2>
               <p>
                 Routing changes apply immediately without restarting engines or interrupting
-                streams. Choose a default model or route an alias to one or more targets. Multiple targets are selected round-robin.
+                streams. Choose a default model or route an alias to one or more targets. Multiple
+                targets are selected round-robin.
               </p>
             </div>
           </div>
@@ -413,8 +414,10 @@
               requested output allowance before generation. Auto mode uses a visible byte estimate
               for text when counting is unavailable; exact mode refuses that fallback. Actual engine
               usage replaces the reservation on completion; missing usage retains the estimate.
-              Daily and monthly budgets reset at midnight UTC. Text inference only when token limits
-              are enabled.
+              Exact mode guarantees exact admission counting where the installed engine supports it;
+              it cannot guarantee a final output count after an interrupted stream. Daily and
+              monthly budgets reset at midnight UTC. Text inference only when token limits are
+              enabled.
             </p>
             <div>
               <Button
@@ -501,11 +504,25 @@
               </div>
               <dl class="key-usage" v-if="key.usage">
                 <div>
-                  <dt>Today</dt>
+                  <dt>
+                    Today
+                    <i
+                      class="pi pi-info-circle metric-help"
+                      v-tooltip.top="
+                        'Enforcement total = confirmed usage + active reservations + retained conservative charges.'
+                      "
+                      aria-hidden="true"
+                    />
+                  </dt>
                   <dd>
                     {{ key.usage.daily_tokens.toLocaleString() }} /
                     {{ allowance(key.daily_token_budget) }} tokens
                   </dd>
+                  <small v-if="key.usage.daily_confirmed_tokens != null" class="ledger-breakdown">
+                    {{ number(key.usage.daily_confirmed_tokens) }} confirmed ·
+                    {{ number(key.usage.daily_reserved_tokens) }} reserved ·
+                    {{ number(key.usage.daily_retained_tokens) }} retained
+                  </small>
                   <small
                     >{{
                       key.usage.daily_remaining == null
@@ -525,6 +542,11 @@
                     {{ key.usage.monthly_tokens.toLocaleString() }} /
                     {{ allowance(key.monthly_token_budget) }} tokens
                   </dd>
+                  <small v-if="key.usage.monthly_confirmed_tokens != null" class="ledger-breakdown">
+                    {{ number(key.usage.monthly_confirmed_tokens) }} confirmed ·
+                    {{ number(key.usage.monthly_reserved_tokens) }} reserved ·
+                    {{ number(key.usage.monthly_retained_tokens) }} retained
+                  </small>
                   <small
                     >{{
                       key.usage.monthly_remaining == null
@@ -722,7 +744,9 @@
                 {{ metric(summary.p50_latency_ms) }}
                 <span>/ {{ metric(summary.p95_latency_ms) }}</span>
               </dd>
-              <dd class="summary-caption">All retained HTTP outcomes in this window</dd>
+              <dd class="summary-caption">
+                TTFT p50 {{ metric(summary.p50_ttft_ms) }} · all retained outcomes in this window
+              </dd>
             </div>
             <div class="summary-tile">
               <dt><i class="pi pi-exclamation-circle" aria-hidden="true" />HTTP 4xx / 5xx</dt>
@@ -743,6 +767,22 @@
                 </button>
               </dd>
               <dd class="summary-caption">Client responses / server failures</dd>
+            </div>
+            <div class="summary-tile">
+              <dt>
+                <i class="pi pi-database" aria-hidden="true" />Input cache
+                <i
+                  class="pi pi-info-circle metric-help"
+                  v-tooltip.top="metricNote('input_cache')"
+                  aria-hidden="true"
+                />
+              </dt>
+              <dd>{{ cacheRatio(summary.cache_hit_ratio) }}</dd>
+              <dd class="summary-caption">
+                {{ number(summary.input_tokens_cached) }} cached of
+                {{ number(summary.input_tokens_total) }} known input ·
+                {{ number(summary.cache_known_requests) }} cache-known samples
+              </dd>
             </div>
           </dl>
           <Message v-if="summary.dropped_history" severity="warn" :closable="false"
@@ -788,8 +828,18 @@
                     </dd>
                   </div>
                   <div>
-                    <dt>Unreported usage</dt>
-                    <dd>{{ number(summary.unknown_usage) }} requests</dd>
+                    <dt>Usage authority</dt>
+                    <dd>
+                      {{ number(summary.authoritative_usage_requests) }} confirmed ·
+                      {{ number(summary.unknown_usage) }} unreported
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Cache coverage</dt>
+                    <dd>
+                      {{ cacheRatio(summary.cache_hit_ratio) }} hit ratio ·
+                      {{ percent(summary.cache_coverage) }} of known input
+                    </dd>
                   </div>
                 </dl>
                 <div class="health-actions">
@@ -859,11 +909,54 @@
                   <dd>{{ metric(item.p50_latency_ms) }} · {{ metric(item.p95_latency_ms) }}</dd>
                 </div>
                 <div>
-                  <dt title="Average since the stats window began, including idle time">
-                    Tokens out · window avg.
+                  <dt>
+                    Lifetime throughput
+                    <i
+                      class="pi pi-info-circle metric-help"
+                      v-tooltip.top="metricNote('lifetime_output_tokens_per_second')"
+                      aria-hidden="true"
+                    />
+                  </dt>
+                  <dd>{{ rate(item.lifetime_output_tokens_per_second) }} tok/s</dd>
+                </div>
+                <div>
+                  <dt>
+                    Rolling 10 s / 60 s
+                    <i
+                      class="pi pi-info-circle metric-help"
+                      v-tooltip.top="metricNote('rolling_60s_output_tokens_per_second')"
+                      aria-hidden="true"
+                    />
                   </dt>
                   <dd>
-                    {{ item.output_tokens || 0 }} ({{ rate(item.output_tokens_per_second) }} tok/s)
+                    {{ rate(item.rolling_10s_output_tokens_per_second) }} /
+                    {{ rate(item.rolling_60s_output_tokens_per_second) }} tok/s
+                  </dd>
+                </div>
+                <div>
+                  <dt>
+                    Decode p50
+                    <i
+                      class="pi pi-info-circle metric-help"
+                      v-tooltip.top="metricNote('proxy_decode_tokens_per_second')"
+                      aria-hidden="true"
+                    />
+                  </dt>
+                  <dd>{{ rate(item.p50_decode_tokens_per_second) }} tok/s</dd>
+                </div>
+                <div>
+                  <dt>TTFT p50 / p95</dt>
+                  <dd>{{ metric(item.p50_ttft_ms) }} · {{ metric(item.p95_ttft_ms) }}</dd>
+                </div>
+                <div>
+                  <dt>Output tokens · cache</dt>
+                  <dd>
+                    {{ number(item.output_tokens) }} ·
+                    {{ cacheRatio(item.cache_hit_ratio) }}
+                  </dd>
+                  <dd class="summary-caption">
+                    {{ number(item.confirmed_requests) }} confirmed ·
+                    {{ number(item.partial_requests) }} partial
                   </dd>
                 </div>
                 <div>
@@ -882,6 +975,10 @@
                     <dd>
                       <code>{{ shortRevision(item.revision) }}</code>
                     </dd>
+                  </div>
+                  <div>
+                    <dt>Installed build</dt>
+                    <dd>{{ formatBuildIdentity(item.engine_build) }}</dd>
                   </div>
                   <div>
                     <dt>Started</dt>
@@ -1104,7 +1201,7 @@
                   <th>State / status</th>
                   <th>Queue / load</th>
                   <th>TTFT / total</th>
-                  <th>Tokens in / out</th>
+                  <th>Tokens in (cached) / out</th>
                   <th scope="col"><span class="sr-only">Actions</span></th>
                 </tr>
               </thead>
@@ -1139,8 +1236,12 @@
                   </td>
                   <td>{{ metric(request.queue_ms) }} / {{ metric(request.loading_ms) }}</td>
                   <td>{{ metric(request.ttft_ms) }} / {{ metric(request.latency_ms) }}</td>
-                  <td>
-                    {{ request.input_tokens ?? '—' }} / {{ request.output_tokens ?? '—'
+                  <td :title="tokenDetail(request)">
+                    {{ request.input_tokens ?? '—'
+                    }}<template v-if="request.input_tokens_cached != null"
+                      >({{ request.input_tokens_cached }})</template
+                    >
+                    / {{ request.output_tokens ?? '—'
                     }}<small class="usage-source">{{ request.usage_source || 'unknown' }}</small>
                   </td>
                   <td>
@@ -1395,6 +1496,10 @@ const requestDetailFields = [
   ['model', 'Resolved model'],
   ['routing_revision', 'Routing revision'],
   ['engine', 'Engine'],
+  ['engine_revision', 'Launch revision'],
+  ['engine_build', 'Installed engine build identity'],
+  ['protocol', 'Protocol adapter'],
+  ['observation_schema_version', 'Observation schema'],
   ['pid', 'Process ID'],
   ['method', 'Method'],
   ['path', 'Path'],
@@ -1409,16 +1514,41 @@ const requestDetailFields = [
   ['queue_ms', 'Queue wait'],
   ['loading_ms', 'Model acquisition'],
   ['first_byte_ms', 'Time to first byte'],
-  ['ttft_ms', 'Time to first token'],
-  ['generation_ms', 'Generation time'],
+  ['ttft_ms', 'Proxy TTFT'],
+  ['first_visible_text_ms', 'Time to first visible text'],
+  ['time_to_first_visible_text_ms', 'Time to first visible text (stable name)'],
+  ['first_output_ms', 'First output event'],
+  ['last_output_ms', 'Last output event'],
+  ['output_interval_ms', 'Proxy output interval'],
+  ['terminal_ms', 'Terminal event'],
+  ['generation_ms', 'Proxy output interval (legacy generation_ms)'],
   ['response_streaming_ms', 'Response streaming time'],
-  ['output_tokens_per_second', 'Output tokens per second'],
+  ['proxy_decode_tokens_per_second', 'Proxy decode rate (estimate)'],
+  ['decode_rate_quality', 'Decode rate quality'],
+  ['request_effective_tokens_per_second', 'Effective request throughput'],
+  ['output_tokens_per_second', 'Output tokens per second (legacy alias)'],
   ['latency_ms', 'Total duration'],
-  ['input_tokens', 'Input tokens'],
-  ['output_tokens', 'Output tokens'],
+  ['input_tokens', 'Input tokens (normalized alias)'],
+  ['input_tokens_total', 'Logical input tokens'],
+  ['input_tokens_cached', 'Cached input tokens'],
+  ['input_tokens_cache_write', 'Input cache write tokens'],
+  ['input_tokens_uncached', 'Logical uncached input tokens'],
+  ['input_tokens_processed', 'Engine processed prompt tokens'],
+  ['input_tokens_preflight', 'Preflight engine count'],
+  ['input_tokens_provenance', 'Input token provenance'],
+  ['output_tokens', 'Output tokens (normalized alias)'],
+  ['output_tokens_total', 'Output tokens total'],
+  ['output_tokens_reasoning', 'Reasoning output tokens'],
+  ['native_timing', 'Engine timing fields'],
+  ['engine_metrics', 'Engine metric fields'],
+  ['observed_input_tokens', 'Partial input tokens observed'],
   ['observed_output_tokens', 'Partial output tokens observed'],
+  ['usage_status', 'Usage authority'],
   ['usage_complete', 'Complete protocol usage'],
   ['usage_source', 'Usage source'],
+  ['observation_reasons', 'Observation reasons'],
+  ['retained_charge_reason', 'Retained charge reason'],
+  ['terminal_kind', 'Protocol terminal state'],
   ['input_reserved', 'Input token reservation'],
   ['output_reserved', 'Output token reservation'],
   ['input_bytes', 'Request bytes'],
@@ -1436,11 +1566,31 @@ watch(
 const requestDetailSections = [
   {
     title: 'Request & outcome',
-    names: ['id', 'state', 'status', 'http_status', 'method', 'path', 'error'],
+    names: [
+      'id',
+      'state',
+      'status',
+      'http_status',
+      'method',
+      'path',
+      'error',
+      'observation_schema_version',
+    ],
   },
   {
     title: 'Client & routing',
-    names: ['key_name', 'key_id', 'requested_model', 'model', 'routing_revision', 'engine', 'pid'],
+    names: [
+      'key_name',
+      'key_id',
+      'requested_model',
+      'model',
+      'routing_revision',
+      'engine',
+      'engine_revision',
+      'engine_build',
+      'protocol',
+      'pid',
+    ],
   },
   {
     title: 'Timing',
@@ -1454,9 +1604,18 @@ const requestDetailSections = [
       'loading_ms',
       'first_byte_ms',
       'ttft_ms',
+      'first_visible_text_ms',
+      'time_to_first_visible_text_ms',
+      'first_output_ms',
+      'last_output_ms',
+      'output_interval_ms',
+      'terminal_ms',
       'generation_ms',
       'response_streaming_ms',
       'latency_ms',
+      'proxy_decode_tokens_per_second',
+      'decode_rate_quality',
+      'request_effective_tokens_per_second',
       'output_tokens_per_second',
     ],
   },
@@ -1467,10 +1626,26 @@ const requestDetailSections = [
       'token_count_endpoint',
       'accounting_mode',
       'input_tokens',
+      'input_tokens_total',
+      'input_tokens_cached',
+      'input_tokens_cache_write',
+      'input_tokens_uncached',
+      'input_tokens_processed',
+      'input_tokens_preflight',
+      'input_tokens_provenance',
       'output_tokens',
+      'output_tokens_total',
+      'output_tokens_reasoning',
+      'native_timing',
+      'engine_metrics',
+      'observed_input_tokens',
       'observed_output_tokens',
+      'usage_status',
       'usage_complete',
       'usage_source',
+      'observation_reasons',
+      'retained_charge_reason',
+      'terminal_kind',
       'input_reserved',
       'output_reserved',
       'input_bytes',
@@ -1510,6 +1685,11 @@ function requestDetail(name) {
   if (value == null || value === '') return '—'
   if (name.endsWith('_at')) return formatTime(value)
   if (name.endsWith('_ms')) return metric(value)
+  if (name.endsWith('_tokens_per_second')) return `${Number(value).toFixed(2)} tok/s`
+  if (name === 'engine_build') return formatBuildIdentity(value)
+  if (name === 'observation_reasons') return Array.isArray(value) ? value.join(', ') : value
+  if (typeof value === 'object') return JSON.stringify(value)
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
   return value
 }
 function requestSeverity(request) {
@@ -1810,7 +1990,12 @@ async function performRefresh({ quiet = false, discardDraft = false } = {}, sign
     if (signal.aborted || disposed) return
     const preserveDraft = dirty.value && !discardDraft
     if (!preserveDraft) {
-      Object.assign(draft, Object.fromEntries(Object.keys(draft).map((key) => [key, data.settings?.[key] ?? draft[key]])))
+      Object.assign(
+        draft,
+        Object.fromEntries(
+          Object.keys(draft).map((key) => [key, data.settings?.[key] ?? draft[key]]),
+        ),
+      )
       aliasRows.value = Object.entries(data.settings?.routing_aliases || {}).map(
         ([alias, targets]) => ({
           alias,
@@ -1829,6 +2014,7 @@ async function performRefresh({ quiet = false, discardDraft = false } = {}, sign
       requestTotal.value = data.request_total ?? requests.value.length
     }
     summary.value = data.summary || {}
+    metricSemantics.value = data.metric_semantics || {}
     overviewRequests.value = data.requests || []
     observedAt.value = Date.now() / 1000
     observedSettings.value = data.settings || {}
@@ -2088,6 +2274,20 @@ function confirmStop() {
 function shortRevision(value) {
   return String(value || 'unknown').slice(0, 12)
 }
+function formatBuildIdentity(value) {
+  if (!value) return '—'
+  try {
+    const parsed = JSON.parse(value)
+    const bits = [parsed.version, parsed.source_commit && `commit ${parsed.source_commit}`].filter(
+      Boolean,
+    )
+    if (bits.length) return bits.join(' · ')
+    if (parsed.executable?.path) return parsed.executable.path
+  } catch {
+    /* plain identity string */
+  }
+  return String(value)
+}
 function formatClock(value) {
   return value ? new Date(value * 1000).toLocaleTimeString() : '—'
 }
@@ -2109,6 +2309,34 @@ function metric(value) {
 }
 function rate(value) {
   return value == null ? '—' : Number(value).toFixed(1)
+}
+const metricSemantics = ref({})
+function metricNote(key) {
+  if (key === 'input_cache') {
+    return 'Cache hit ratio = sum(cached input) / sum(total input) over requests with reported cache details. Requests with unknown cache reporting are excluded from the denominator.'
+  }
+  const note = metricSemantics.value?.[key]
+  if (!note) return ''
+  return `${note.label}: ${note.definition} Origin: ${note.origin}`
+}
+function percent(value) {
+  return value == null ? '—' : `${(Number(value) * 100).toFixed(1)}%`
+}
+function cacheRatio(value) {
+  return percent(value)
+}
+function tokenDetail(request) {
+  const bits = []
+  if (request.input_tokens_total != null) bits.push(`logical input ${request.input_tokens_total}`)
+  if (request.input_tokens_cached != null) bits.push(`cached ${request.input_tokens_cached}`)
+  if (request.input_tokens_uncached != null) bits.push(`uncached ${request.input_tokens_uncached}`)
+  if (request.input_tokens_processed != null)
+    bits.push(`engine processed ${request.input_tokens_processed}`)
+  if (request.output_tokens_reasoning != null)
+    bits.push(`reasoning ${request.output_tokens_reasoning}`)
+  if (request.usage_status) bits.push(`usage ${request.usage_status}`)
+  if (request.input_tokens_provenance) bits.push(`input from ${request.input_tokens_provenance}`)
+  return bits.join(' · ') || 'Usage was not reported for this request.'
 }
 function formatBytes(value) {
   const bytes = Number(value || 0)
@@ -2592,7 +2820,7 @@ onUnmounted(() => {
 
 .key-usage {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
   width: 100%;
   gap: 1rem;
   margin: 0;
@@ -2601,14 +2829,27 @@ onUnmounted(() => {
 .key-usage small {
   color: var(--text-secondary);
   font-size: 0.8rem;
+  overflow-wrap: anywhere;
 }
 .key-usage dd {
   margin: 0.3rem 0;
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 .key-usage .p-progressbar {
   height: 0.35rem;
   margin-top: 0.4rem;
+}
+.ledger-breakdown {
+  display: block;
+  margin-bottom: 0.15rem;
+  font-variant-numeric: tabular-nums;
+}
+.metric-help {
+  margin-left: 0.25rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  cursor: help;
 }
 .usage-source {
   display: block;
@@ -2622,7 +2863,7 @@ onUnmounted(() => {
   border: 1px solid var(--border-primary);
 }
 .proxy-summary {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
   padding: 0;
   gap: 0.75rem;
 }
@@ -2715,7 +2956,13 @@ onUnmounted(() => {
 }
 .request-table {
   overflow: auto;
+  max-width: 100%;
+  min-width: 0;
   max-height: min(55vh, 34rem);
+  -webkit-overflow-scrolling: touch;
+}
+.request-table table {
+  min-width: 48rem;
 }
 .request-table th {
   position: sticky;
@@ -2752,6 +2999,10 @@ td {
   background: var(--bg-card);
   display: grid;
   gap: 1rem;
+  min-width: 0;
+}
+.proxy-panels > * {
+  min-width: 0;
 }
 .section-head {
   display: flex;
@@ -2793,14 +3044,17 @@ td {
 }
 .settings-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
   gap: 1rem;
+  min-width: 0;
 }
 .settings-grid label {
   display: grid;
   gap: 0.45rem;
+  min-width: 0;
   font-size: 0.82rem;
   color: var(--text-secondary);
+  overflow-wrap: anywhere;
 }
 .field {
   width: 100%;
@@ -2925,7 +3179,7 @@ td {
 }
 .metrics {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
   gap: 0.6rem 1rem;
   margin: 0;
   font-size: 0.82rem;
@@ -3002,8 +3256,7 @@ td {
   gap: 0.7rem;
   font-size: 0.82rem;
   padding: 0.3rem 0;
-  border-bottom: 1px dashed
-    color-mix(in srgb, var(--border-primary) 55%, transparent);
+  border-bottom: 1px dashed color-mix(in srgb, var(--border-primary) 55%, transparent);
 }
 .activity-time {
   color: var(--text-secondary);
@@ -3016,7 +3269,7 @@ td {
 }
 .network {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
   gap: 1rem;
   margin: 0;
   font-size: 0.85rem;
@@ -3058,6 +3311,59 @@ td {
   }
   .runtime-actions {
     align-items: stretch;
+  }
+}
+
+@media (max-width: 600px) {
+  .proxy-card {
+    padding: 0.8rem;
+  }
+  .settings-grid {
+    gap: 0.75rem;
+    grid-template-columns: 1fr;
+  }
+  .request-filters {
+    align-items: stretch;
+  }
+  .request-filters :deep(.p-button) {
+    justify-self: stretch;
+  }
+  .request-details div {
+    grid-template-columns: 1fr;
+    gap: 0.15rem;
+  }
+  .summary-tile {
+    padding: 0.7rem;
+  }
+  .summary-tile dd {
+    font-size: 1.3rem;
+  }
+  .summary-caption {
+    font-size: var(--text-xs);
+  }
+  .key-row {
+    align-items: stretch;
+  }
+  .key-actions {
+    justify-content: flex-start;
+  }
+  .runtime-actions :deep(.p-button) {
+    flex: 1 1 auto;
+  }
+}
+
+@media (max-width: 420px) {
+  .proxy-summary {
+    grid-template-columns: 1fr;
+  }
+  .metrics {
+    grid-template-columns: 1fr;
+  }
+  .proxy-card {
+    padding: 0.7rem;
+  }
+  .section-head {
+    gap: 0.5rem;
   }
 }
 </style>

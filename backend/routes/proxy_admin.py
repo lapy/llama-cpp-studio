@@ -99,9 +99,17 @@ async def get_proxy_admin():
         asyncio.to_thread(accounting.summary),
         asyncio.to_thread(studio._catalog),
     )
+    from backend.engines.capabilities import ENGINE_CAPABILITIES
+    from backend.proxy.studio.observation import METRIC_SEMANTICS, SCHEMA_VERSION
+
     return {
         "summary": summary,
         "request_total": history["total"],
+        "observation_schema_version": SCHEMA_VERSION,
+        "metric_semantics": METRIC_SEMANTICS,
+        "engine_capabilities": {
+            name: capabilities.as_dict() for name, capabilities in ENGINE_CAPABILITIES.items()
+        },
         "settings": settings,
         "active_backend": active_backend,
         "routing_revision": getattr(getattr(studio, "_routing", None), "revision", None),

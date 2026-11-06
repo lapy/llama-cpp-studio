@@ -20,8 +20,17 @@ import httpx
 
 from backend.proxy.studio.accounting import Accounting, AdmissionError
 from backend.proxy.studio.usage import UsageObserver, UsageContentDecoder
+from backend.proxy.studio.observation import (
+    PROTOCOL_NATIVE_AUDIO,
+    PROTOCOL_NATIVE_SGLANG,
+    PROTOCOL_UNKNOWN,
+    SCHEMA_VERSION,
+    finalize_observation,
+    protocol_for_path,
+)
+from backend.engines.capabilities import VLLM_FAMILY, SGLANG_FAMILY, capabilities_for
 from backend.proxy.studio.transport import UpstreamTransport
-from backend.proxy.studio.tokenization import count_input, supported_engine
+from backend.proxy.studio.tokenization import count_input, count_route_supported
 from backend.proxy.studio.filters import apply_request_filters
 from backend.proxy.studio.registry import ProcessRegistry, RegistryError
 
@@ -200,6 +209,7 @@ class StudioDataPlane:
         started = time.monotonic()
         trace = {
             "id": uuid.uuid4().hex,
+            "schema_version": SCHEMA_VERSION,
             "started_at": time.time(),
             "state": "received",
             "method": scope.get("method"),
@@ -209,11 +219,25 @@ class StudioDataPlane:
             "input_tokens": None,
             "output_tokens": None,
             "usage_source": "unknown",
+            "usage_status": "missing",
+            "usage_complete": False,
+            "observation_reasons": [],
             "queue_ms": 0.0,
             "loading_ms": 0.0,
             "ttft_ms": None,
             "first_byte_ms": None,
+            "first_output_ms": None,
+            "last_output_ms": None,
+            "first_visible_text_ms": None,
+            "terminal_ms": None,
+            "output_interval_ms": None,
             "generation_ms": None,
+            "proxy_decode_tokens_per_second": None,
+            "output_tokens_per_second": None,
+            "request_effective_tokens_per_second": None,
+            "decode_rate_quality": None,
+            "sequence_scope": "single",
+            "output_event_count": 0,
             "status": 0,
         }
         scope = {**scope, "studio.trace": trace, "studio.started": started}
@@ -334,36 +358,76 @@ class StudioDataPlane:
                 trace["response_streaming_ms"] = max(
                     0, trace["latency_ms"] - trace["first_byte_ms"]
                 )
-            if trace.get("ttft_ms") is not None:
-                trace["generation_ms"] = max(0, trace["latency_ms"] - trace["ttft_ms"])
-                trace["output_tokens_per_second"] = (
-                    trace["output_tokens"] / max(0.001, trace["generation_ms"] / 1000)
-                    if trace["output_tokens"] is not None
-                    else None
-                )
-            if trace.get("dispatched") and not trace.get("usage_complete"):
-                trace["observed_input_tokens"] = trace["input_tokens"]
-                trace["observed_output_tokens"] = trace["output_tokens"]
-                trace["output_tokens"] = None
-                trace["output_tokens_per_second"] = None
-                trace["usage_source"] = "unknown"
-            if (
-                trace.get("dispatched")
-                and trace["input_tokens"] is None
-                and trace.get("counted_input_tokens") is not None
-            ):
-                trace["input_tokens"] = trace["counted_input_tokens"]
-                if trace["output_tokens"] is not None:
-                    trace["usage_source"] = "engine"
+            dispatched = bool(trace.get("dispatched"))
+            observation = finalize_observation(
+                engine=str(trace.get("engine") or ""),
+                engine_revision=str(trace.get("engine_revision") or ""),
+                engine_build=str(trace.get("engine_build") or ""),
+                protocol=str(trace.get("protocol") or PROTOCOL_UNKNOWN),
+                input_total=trace.get("observed_input_tokens"),
+                input_cached=trace.get("observed_input_cached"),
+                input_cache_write=trace.get("observed_input_cache_write"),
+                input_processed=trace.get("observed_input_processed"),
+                output_total=trace.get("observed_output_tokens"),
+                output_reasoning=trace.get("observed_output_reasoning"),
+                native_timing=trace.get("native_timing"),
+                usage_reported=bool(trace.get("usage_reported")),
+                usage_authoritative=bool(trace.get("usage_authoritative")),
+                output_authoritative=bool(trace.get("output_authoritative")),
+                preflight_input=trace.get("counted_input_tokens"),
+                reserved_input=trace.get("input_reserved"),
+                reserved_output=trace.get("output_reserved"),
+                observed_input=trace.get("observed_input_tokens"),
+                observed_output=trace.get("observed_output_tokens"),
+                dispatched=dispatched,
+                transport_complete=bool(trace.get("transport_complete")),
+                structural_complete=bool(trace.get("structural_complete")),
+                terminal_kind=str(trace.get("terminal_kind") or "none"),
+                terminal_error=bool(trace.get("terminal_error")),
+                error_after_usage=bool(trace.get("error_after_usage")),
+                reasons=[
+                    *trace.get("observer_reasons", []),
+                    *(["upstream_error"] if trace.get("error") and dispatched else []),
+                ],
+                first_output_ms=trace.get("first_output_ms"),
+                last_output_ms=trace.get("last_output_ms"),
+                first_visible_text_ms=trace.get("first_visible_text_ms"),
+                terminal_ms=trace.get("terminal_ms"),
+                ttft_ms=trace.get("ttft_ms"),
+                first_byte_ms=trace.get("first_byte_ms"),
+                latency_ms=trace["latency_ms"],
+                output_event_count=int(trace.get("output_event_count") or 0),
+                bundled_output_events=bool(trace.get("bundled_output_events")),
+                sequence_scope=str(trace.get("sequence_scope") or "single"),
+            )
+            trace.update(observation)
             trace.pop("phase_started_at", None)
-            if not trace.get("dispatched"):
-                trace.update(input_tokens=0, output_tokens=0, usage_source="not_dispatched")
+            if dispatched and trace.get("usage_status") in ("partial", "missing"):
+                unresolved = [
+                    name
+                    for name, value in (
+                        ("input", trace.get("input_tokens")),
+                        ("output", trace.get("output_tokens")),
+                    )
+                    if value is None
+                ]
+                if unresolved:
+                    trace["retained_charge_reason"] = (
+                        "Unknown " + " and ".join(unresolved) + " token count retained"
+                    )
+            if not dispatched:
+                trace.update(
+                    input_tokens=0,
+                    output_tokens=0,
+                    usage_source="not_dispatched",
+                    usage_status="not_dispatched",
+                )
             if trace.get("reserved"):
                 settlement = (
                     trace["id"],
                     trace["input_tokens"],
                     trace["output_tokens"],
-                    bool(trace.get("dispatched")),
+                    dispatched,
                 )
                 try:
                     # Disk work cannot be cancelled; a durable reservation must
@@ -374,11 +438,26 @@ class StudioDataPlane:
                     trace["accounting_note"] = "Usage reconciliation was deferred"
             if (
                 trace.get("reserved")
-                and trace["usage_source"] == "unknown"
-                and trace.get("dispatched")
+                and dispatched
+                and trace.get("usage_status") in ("partial", "missing")
                 and (trace.get("input_reserved", 0) + trace.get("output_reserved", 0))
             ):
                 trace["usage_source"] = "reservation"
+            generation = scope.get("studio.generation")
+            record_request = getattr(self.registry, "record_request", None)
+            if generation is not None and dispatched and record_request is not None:
+                record_request(
+                    generation,
+                    status=int(trace.get("status") or trace.get("http_status") or 0),
+                    latency_ms=trace["latency_ms"],
+                    input_bytes=int(trace.get("request_bytes") or 0),
+                    output_bytes=int(trace.get("output_bytes") or 0),
+                    input_tokens=trace.get("input_tokens"),
+                    output_tokens=trace.get("output_tokens"),
+                    method=str(trace.get("method") or ""),
+                    path=str(trace.get("path") or ""),
+                    observation=trace,
+                )
             trace.pop("reserved", None)
             self._observed_count -= 1
             if self.accounting:
@@ -643,7 +722,9 @@ class StudioDataPlane:
                             "monthly_token_budget",
                         )
                     )
-                    needs_count = token_limited and supported_engine(resolved.engine_id)
+                    needs_count = token_limited and count_route_supported(
+                        resolved.engine_id, upstream_path
+                    )
                     if (
                         token_limited
                         and identity.get("token_accounting") == "exact"
@@ -658,7 +739,11 @@ class StudioDataPlane:
                         "pending_engine_count" if needs_count else "byte_estimate"
                     )
                     body, estimate, output_reservation = self._budget_body(
-                        body, identity, upstream_path, engine_count=needs_count
+                        body,
+                        identity,
+                        upstream_path,
+                        engine_count=needs_count,
+                        engine=resolved.engine_id,
                     )
                 bounded_admission = any(
                     identity.get(name)
@@ -758,9 +843,15 @@ class StudioDataPlane:
             loading_started = time.monotonic()
             trace["phase_started_at"] = time.time()
             generation = await self.registry.acquire(resolved.model_id)
+            scope["studio.generation"] = generation
             trace.update(
                 loading_ms=(time.monotonic() - loading_started) * 1000,
                 engine=getattr(generation, "engine_id", ""),
+                engine_revision=getattr(generation, "revision", ""),
+                engine_build=_engine_build_label(getattr(generation, "engine_install_id", "")),
+                protocol=_protocol_for_request(upstream_path, resolved.engine_id),
+                sequence_scope=_sequence_scope(body, upstream_path),
+                request_bytes=len(body),
                 pid=getattr(getattr(generation, "process", None), "pid", None),
                 state="forwarding",
             )
@@ -773,6 +864,11 @@ class StudioDataPlane:
                     resolved.engine_id,
                     upstream_path,
                     json.loads(body),
+                    revision=str(
+                        getattr(generation, "engine_install_id", "")
+                        or getattr(generation, "revision", "")
+                        or ""
+                    ),
                 )
                 if counted is None:
                     if identity.get("token_accounting") == "exact":
@@ -783,7 +879,9 @@ class StudioDataPlane:
                         )
                     # Text fallback is visible. Complex/stateful requests still
                     # fail closed unless the engine counted the actual context.
-                    _, exact_input, _ = self._budget_body(body, identity, upstream_path)
+                    _, exact_input, _ = self._budget_body(
+                        body, identity, upstream_path, engine=resolved.engine_id
+                    )
                     trace["input_reserved_source"] = "byte_estimate"
                 else:
                     exact_input = counted.tokens
@@ -808,24 +906,10 @@ class StudioDataPlane:
                 )
             scope["studio.limit_headers"] = _quota_headers(trace)
             trace["dispatched"] = True
-            status, output_bytes, input_tokens, output_tokens = await self._proxy(
-                scope, send, generation, resolved, upstream_path, body, origin
-            )
-            record_request = getattr(self.registry, "record_request", None)
+            status = (
+                await self._proxy(scope, send, generation, resolved, upstream_path, body, origin)
+            )[0]
             trace["status"] = status
-            if record_request is not None:
-                record_request(
-                    generation,
-                    method=scope.get("method", ""),
-                    path=path,
-                    status=status,
-                    latency_ms=(time.monotonic() - scope.get("studio.started", queue_started))
-                    * 1000,
-                    input_bytes=len(body),
-                    output_bytes=output_bytes,
-                    input_tokens=input_tokens or 0,
-                    output_tokens=output_tokens or 0,
-                )
         except AdmissionError as exc:
             trace["error"] = exc.code
             await _json_response(
@@ -868,7 +952,13 @@ class StudioDataPlane:
                 self._global_slots.release()
 
     def _budget_body(
-        self, body: bytes, key: dict, path: str, *, engine_count: bool = False
+        self,
+        body: bytes,
+        key: dict,
+        path: str,
+        *,
+        engine_count: bool = False,
+        engine: str | None = None,
     ) -> tuple[bytes, int, int]:
         limited_tokens = any(
             key.get(name)
@@ -961,9 +1051,14 @@ class StudioDataPlane:
                 payload["max_output_tokens" if path.endswith("/responses") else "max_tokens"] = (
                     requested
                 )
-            # Usage is optional in OpenAI chat streams; request it for budgeted
-            # traffic. Engines without support fail clearly, never free-charge.
-            if payload.get("stream") and path.endswith("/chat/completions"):
+            # Usage is optional in OpenAI streams; request it for budgeted
+            # traffic. Chat is supported broadly; completion streams only for
+            # adapters whose completion schema declares stream_options.
+            family = capabilities_for(engine).family if engine else ""
+            wants_usage = bool(payload.get("stream")) and (
+                path.endswith("/chat/completions") or family in (VLLM_FAMILY, SGLANG_FAMILY)
+            )
+            if wants_usage:
                 if payload.get("stream_options") is not None and not isinstance(
                     payload["stream_options"], dict
                 ):
@@ -977,6 +1072,9 @@ class StudioDataPlane:
             n = payload.get("n", 1)
             if isinstance(n, bool) or not isinstance(n, int) or n < 1:
                 raise AdmissionError("n must be a positive integer", "invalid_n", 400)
+            best_of = payload.get("best_of", 1)
+            if isinstance(best_of, bool) or not isinstance(best_of, int) or best_of < 1:
+                raise AdmissionError("best_of must be a positive integer", "invalid_best_of", 400)
             prompts = payload.get("prompt")
             batch_size = (
                 len(prompts)
@@ -990,7 +1088,7 @@ class StudioDataPlane:
                 )
                 else 1
             )
-            output *= n * batch_size
+            output *= n * batch_size * best_of
             if output > 10**12:
                 raise AdmissionError("Output allowance is too large", "invalid_output_limit", 400)
             if cap and output > cap:
@@ -1306,57 +1404,60 @@ class StudioDataPlane:
                 response_started = True
                 await send({"type": "http.response.body", "body": html})
                 prompt_tokens, completion_tokens = _usage_tokens(html)
+                trace["observed_input_tokens"] = prompt_tokens if prompt_tokens else None
+                trace["observed_output_tokens"] = completion_tokens if completion_tokens else None
+                trace["usage_reported"] = bool(prompt_tokens or completion_tokens)
+                trace["transport_complete"] = True
+                trace["structural_complete"] = True
+                trace["usage_authoritative"] = bool(prompt_tokens or completion_tokens)
+                trace["output_authoritative"] = bool(prompt_tokens or completion_tokens)
                 return upstream.status_code, len(html), prompt_tokens, completion_tokens
             await _send_response_start(
                 send, upstream.status_code, _safe_upstream_headers(upstream), origin
             )
             response_started = True
+            request_started = scope.get("studio.started", time.monotonic())
             async for chunk in upstream.aiter_raw():
                 output_bytes += len(chunk)
                 if trace.get("first_byte_ms") is None:
-                    trace["first_byte_ms"] = (
-                        time.monotonic() - scope.get("studio.started", time.monotonic())
-                    ) * 1000
+                    trace["first_byte_ms"] = (time.monotonic() - request_started) * 1000
+                before_events = observer.output_event_count
                 if observe_usage:
                     for decoded in usage_decoder.chunks(chunk):
                         observer.feed(decoded)
-                if observer.saw_token and trace.get("ttft_ms") is None:
-                    trace["ttft_ms"] = (
-                        time.monotonic() - scope.get("studio.started", time.monotonic())
-                    ) * 1000
-                trace.update(
-                    input_tokens=observer.input_tokens,
-                    output_tokens=observer.output_tokens,
-                    usage_source="engine"
-                    if observer.input_tokens is not None and observer.output_tokens is not None
-                    else "unknown",
-                )
+                _touch_output_timing(trace, observer, request_started, before_events)
+                _sync_observer(trace, observer, usage_decoder)
                 await send({"type": "http.response.body", "body": chunk, "more_body": True})
             await send({"type": "http.response.body", "body": b"", "more_body": False})
+            before_finish = observer.output_event_count
             observer.finish()
-            trace["usage_complete"] = (
-                observe_usage and usage_decoder.complete and (not observer.sse or observer.finished)
-            )
+            _touch_output_timing(trace, observer, request_started, before_finish)
             if upstream_path.endswith("/embeddings") and observer.input_tokens is not None:
                 observer.output_tokens = 0
-            trace.update(
-                input_tokens=observer.input_tokens,
-                output_tokens=observer.output_tokens,
-                usage_source="engine"
-                if observer.input_tokens is not None and observer.output_tokens is not None
-                else "unknown",
+            _sync_observer(trace, observer, usage_decoder)
+            trace["transport_complete"] = bool(observe_usage and usage_decoder.complete)
+            trace["structural_complete"] = bool(observer.structural_complete)
+            trace["usage_authoritative"] = bool(
+                observe_usage and usage_decoder.complete and observer.usage_authoritative
             )
+            trace["output_authoritative"] = bool(
+                observe_usage and usage_decoder.complete and observer.output_authoritative
+            )
+            trace["output_event_count"] = observer.output_event_count
             return upstream.status_code, output_bytes, observer.input_tokens, observer.output_tokens
         except httpx.PoolTimeout as exc:
             trace["error"] = "upstream_pool_timeout"
+            _sync_observer(trace, observer, usage_decoder)
             await _late_error(send, 429, str(exc), response_started)
             return 429, output_bytes, observer.input_tokens, observer.output_tokens
         except httpx.TimeoutException as exc:
             trace["error"] = "upstream_stream_timeout"
+            _sync_observer(trace, observer, usage_decoder)
             await _late_error(send, 504, str(exc), response_started)
             return 504, output_bytes, observer.input_tokens, observer.output_tokens
         except httpx.HTTPError as exc:
             trace["error"] = "upstream_stream_error"
+            _sync_observer(trace, observer, usage_decoder)
             await _late_error(send, 502, str(exc), response_started)
             return 502, output_bytes, observer.input_tokens, observer.output_tokens
         finally:
@@ -1373,6 +1474,98 @@ def _quota_headers(record):
         )
         if value is not None
     ]
+
+
+def _sync_observer(trace: dict, observer: UsageObserver, decoder=None) -> None:
+    """Copy bounded observation evidence; finalization decides authority."""
+    reasons = list(observer.reasons)
+    if decoder is not None:
+        if not decoder.enabled:
+            reasons.append("unsupported_content_encoding")
+        elif not decoder.complete:
+            reasons.append("incomplete_content_encoding")
+    trace["observed_input_tokens"] = observer.input_tokens
+    trace["observed_input_cached"] = observer.input_tokens_cached
+    trace["observed_input_cache_write"] = observer.input_tokens_cache_write
+    trace["observed_input_processed"] = observer.input_tokens_processed
+    trace["observed_output_tokens"] = observer.output_tokens
+    trace["observed_output_reasoning"] = observer.output_reasoning_tokens
+    trace["native_timing"] = dict(observer.native_timing)
+    trace["usage_reported"] = bool(observer.usage_reported)
+    trace["output_authoritative"] = bool(observer.output_authoritative)
+    trace["terminal_kind"] = observer.terminal_kind
+    trace["terminal_error"] = bool(observer.terminal_error)
+    trace["error_after_usage"] = bool(observer.error_after_usage)
+    trace["output_event_count"] = observer.output_event_count
+    trace["observer_reasons"] = reasons
+
+
+def _touch_output_timing(
+    trace: dict, observer: UsageObserver, request_started: float, events_before: int
+) -> None:
+    elapsed_ms = (time.monotonic() - request_started) * 1000
+    if observer.finished and trace.get("terminal_ms") is None:
+        trace["terminal_ms"] = elapsed_ms
+    delta = observer.output_event_count - events_before
+    if delta <= 0:
+        return
+    if trace.get("first_output_ms") is None:
+        trace["first_output_ms"] = elapsed_ms
+    trace["last_output_ms"] = elapsed_ms
+    if trace.get("ttft_ms") is None:
+        trace["ttft_ms"] = elapsed_ms
+    if delta > 1:
+        # Several generated-output events in one transport chunk share the
+        # observation time; the derived decode rate is approximate.
+        trace["bundled_output_events"] = True
+    if observer.saw_text and trace.get("first_visible_text_ms") is None:
+        trace["first_visible_text_ms"] = elapsed_ms
+
+
+def _protocol_for_request(path: str, engine: str | None) -> str:
+    capabilities = capabilities_for(engine)
+    if capabilities.audio:
+        return PROTOCOL_NATIVE_AUDIO
+    if path.endswith("/generate") or "/generate" in path:
+        return PROTOCOL_NATIVE_SGLANG
+    return protocol_for_path(path)
+
+
+def _engine_build_label(raw: str | None) -> str:
+    """Compact request metadata label; full identity stays in launch manifests."""
+    if not raw:
+        return ""
+    try:
+        identity = json.loads(raw)
+    except (TypeError, ValueError):
+        return str(raw)[:160]
+    if not isinstance(identity, dict):
+        return str(raw)[:160]
+    version = str(identity.get("version") or "").strip()
+    commit = str(identity.get("source_commit") or identity.get("commit") or "").strip()
+    if version and commit:
+        return f"{version}@{commit[:12]}"
+    return version or (f"commit {commit[:12]}" if commit else str(raw)[:160])
+
+
+def _sequence_scope(body: bytes, path: str) -> str:
+    payload = _json_body(body)
+    n = payload.get("n", 1)
+    if isinstance(n, int) and not isinstance(n, bool) and n > 1:
+        return "multi_choice"
+    if path.endswith("/responses") and (
+        payload.get("previous_response_id") or payload.get("conversation")
+    ):
+        return "stateful"
+    prompt = payload.get("prompt")
+    if (
+        not path.endswith("/chat/completions")
+        and isinstance(prompt, list)
+        and prompt
+        and all(isinstance(item, str) for item in prompt)
+    ):
+        return "batched_prompts"
+    return "single"
 
 
 def _usage_tokens(body: bytes) -> tuple[int, int]:

@@ -20,6 +20,12 @@ from backend.proxy.client import (
     get_proxy_client,
     shared_proxy_client,
 )
+from backend.proxy.studio.observation import (
+    PROTOCOL_OPENAI_CHAT,
+    SCHEMA_VERSION,
+    finalize_observation,
+)
+from backend.proxy.studio.usage import UsageObserver
 
 
 _locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
@@ -48,16 +54,18 @@ async def run_model_benchmark(
         config_revision = store.document_revision("models.yaml")
         config_fingerprint = _fingerprint(model.get("config") or {})
     async with _locks[proxy_name]:
-        await _require_running(proxy_name)
+        running = await _require_running(proxy_name) or {}
         stop_sampling = asyncio.Event()
         sample = {"peak_gpu_memory_bytes": None}
         sampler = asyncio.create_task(_sample_gpu_memory(stop_sampling, sample))
         started = time.perf_counter()
         first_token_at: float | None = None
+        first_output_ms: float | None = None
+        last_output_ms: float | None = None
         inference_finished_at: float | None = None
-        completion_tokens: int | None = None
         output = ""
         timings: dict[str, Any] = {}
+        observer = UsageObserver(sse=True)
         client = shared_proxy_client(get_proxy_client().base_url)
         payload = {
             "model": proxy_name,
@@ -77,20 +85,46 @@ async def run_model_benchmark(
             ) as response:
                 response.raise_for_status()
                 async for line in response.aiter_lines():
+                    before_events = observer.output_event_count
+                    observer.feed(str(line).encode() + b"\n\n")
                     event = _sse_json(line)
                     if event is None:
                         continue
                     content = _content(event)
                     if content:
+                        output += content
+                    if observer.output_event_count > before_events:
+                        now_ms = (time.perf_counter() - started) * 1000
                         if first_token_at is None:
                             first_token_at = time.perf_counter()
-                        output += content
-                    usage = event.get("usage")
-                    if isinstance(usage, dict) and usage.get("completion_tokens") is not None:
-                        completion_tokens = int(usage["completion_tokens"])
+                            first_output_ms = now_ms
+                        last_output_ms = now_ms
                     event_timings = event.get("timings")
                     if isinstance(event_timings, dict):
-                        timings.update(event_timings)
+                        timings.update(
+                            {
+                                name: value
+                                for name, value in event_timings.items()
+                                if name
+                                in (
+                                    "prompt_n",
+                                    "prompt_ms",
+                                    "prompt_per_second",
+                                    "predicted_n",
+                                    "predicted_ms",
+                                    "predicted_per_second",
+                                )
+                            }
+                        )
+                    event_metrics = event.get("metrics")
+                    if isinstance(event_metrics, dict):
+                        timings.update(
+                            {
+                                f"metrics.{name}": value
+                                for name, value in list(event_metrics.items())[:32]
+                                if isinstance(value, (int, float))
+                            }
+                        )
                 inference_finished_at = time.perf_counter()
         except httpx.HTTPError as exc:
             raise BenchmarkError(
@@ -101,28 +135,69 @@ async def run_model_benchmark(
         finally:
             stop_sampling.set()
             await sampler
+        observer.finish()
 
         if first_token_at is None:
             raise BenchmarkError("BENCHMARK_EMPTY", "The model returned no generated text.", 502)
         finished = inference_finished_at or time.perf_counter()
         total_seconds = max(0.0, finished - started)
-        generation_seconds = max(0.000001, finished - first_token_at)
-        measured_rate = _number(timings.get("predicted_per_second"))
-        if measured_rate is None and completion_tokens is not None:
-            measured_rate = completion_tokens / generation_seconds
+        observation = finalize_observation(
+            protocol=PROTOCOL_OPENAI_CHAT,
+            input_total=observer.input_tokens,
+            input_cached=observer.input_tokens_cached,
+            input_cache_write=observer.input_tokens_cache_write,
+            input_processed=observer.input_tokens_processed,
+            output_total=observer.output_tokens,
+            output_reasoning=observer.output_reasoning_tokens,
+            native_timing=timings,
+            usage_reported=observer.usage_reported,
+            usage_authoritative=observer.usage_authoritative,
+            output_authoritative=observer.output_authoritative,
+            dispatched=True,
+            transport_complete=True,
+            structural_complete=True,
+            terminal_kind=observer.terminal_kind,
+            terminal_error=observer.terminal_error,
+            error_after_usage=observer.error_after_usage,
+            reasons=observer.reasons,
+            first_output_ms=first_output_ms,
+            last_output_ms=last_output_ms,
+            ttft_ms=first_output_ms,
+            latency_ms=total_seconds * 1000,
+            output_event_count=observer.output_event_count,
+            sequence_scope="single",
+        )
+        measured_rate = observation["proxy_decode_tokens_per_second"]
+        engine_rate = _number(timings.get("predicted_per_second"))
+        if measured_rate is None and observer.output_tokens is not None:
+            # A single observed event cannot establish a delivery interval.
+            measured_rate = None
         result = {
             "id": str(uuid.uuid4()),
             "created_at": time.time(),
+            "schema_version": SCHEMA_VERSION,
             "model_id": model_id,
             "proxy_name": proxy_name,
+            "engine": running.get("engine"),
+            "engine_build": running.get("engine_build"),
             "config_revision": config_revision,
             "config_fingerprint": config_fingerprint,
             "prompt": prompt,
             "max_tokens": max_tokens,
             "time_to_first_token_ms": round((first_token_at - started) * 1000, 2),
             "total_seconds": round(total_seconds, 3),
-            "completion_tokens": completion_tokens,
+            "completion_tokens": observer.output_tokens,
+            "input_tokens_total": observation["input_tokens_total"],
+            "input_tokens_cached": observation["input_tokens_cached"],
+            "output_interval_ms": observation["output_interval_ms"],
             "tokens_per_second": round(measured_rate, 3) if measured_rate is not None else None,
+            "tokens_per_second_source": "proxy_decode_estimate",
+            "decode_rate_quality": observation["decode_rate_quality"],
+            "request_effective_tokens_per_second": observation[
+                "request_effective_tokens_per_second"
+            ],
+            "engine_tokens_per_second": round(engine_rate, 3) if engine_rate is not None else None,
+            "engine_metrics": dict(timings),
             "peak_observed_gpu_memory_bytes": sample["peak_gpu_memory_bytes"],
             "output_preview": output[:240],
         }
@@ -150,7 +225,7 @@ async def _require_running(proxy_name: str) -> None:
     for row in rows if isinstance(rows, list) else []:
         if isinstance(row, dict) and row.get("model") == proxy_name:
             if str(row.get("state") or "").lower() in {"running", "ready"}:
-                return
+                return row
     raise BenchmarkError(
         "BENCHMARK_MODEL_NOT_RUNNING",
         "Start the model and wait until it is running before benchmarking.",

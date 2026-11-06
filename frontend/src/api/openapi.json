@@ -243,9 +243,89 @@
             "title": "Created At",
             "type": "number"
           },
+          "decode_rate_quality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decode Rate Quality"
+          },
+          "engine": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine"
+          },
+          "engine_build": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Build"
+          },
+          "engine_metrics": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Metrics"
+          },
+          "engine_tokens_per_second": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Tokens Per Second"
+          },
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "input_tokens_cached": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Tokens Cached"
+          },
+          "input_tokens_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Tokens Total"
           },
           "max_tokens": {
             "title": "Max Tokens",
@@ -254,6 +334,17 @@
           "model_id": {
             "title": "Model Id",
             "type": "string"
+          },
+          "output_interval_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Interval Ms"
           },
           "output_preview": {
             "title": "Output Preview",
@@ -278,6 +369,22 @@
             "title": "Proxy Name",
             "type": "string"
           },
+          "request_effective_tokens_per_second": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Effective Tokens Per Second"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
           "time_to_first_token_ms": {
             "title": "Time To First Token Ms",
             "type": "number"
@@ -292,6 +399,17 @@
               }
             ],
             "title": "Tokens Per Second"
+          },
+          "tokens_per_second_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tokens Per Second Source"
           },
           "total_seconds": {
             "title": "Total Seconds",

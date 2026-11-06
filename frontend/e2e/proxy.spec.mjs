@@ -199,6 +199,92 @@ for (const width of [1440, 390]) {
   })
 }
 
+for (const width of [320, 768, 1024, 1440]) {
+  test(`configuration cards fit the viewport at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    const key = {
+      id: 'production',
+      name: 'Production',
+      prefix: 'sk-studio-preview',
+      scopes: ['inference'],
+      models: [],
+      daily_token_budget: 10000,
+      monthly_token_budget: 100000,
+      usage: {
+        daily_tokens: 4200,
+        monthly_tokens: 19000,
+        daily_confirmed_tokens: 3000,
+        daily_reserved_tokens: 700,
+        daily_retained_tokens: 500,
+        monthly_confirmed_tokens: 15000,
+        monthly_reserved_tokens: 2000,
+        monthly_retained_tokens: 2000,
+        daily_remaining: 5800,
+        monthly_remaining: 81000,
+        day_resets_at: 1900000000,
+        month_resets_at: 1901000000,
+        requests_per_minute: 2,
+        input_tokens_per_minute: 50,
+        output_tokens_per_minute: 20,
+        concurrent_requests: 1,
+        estimated_requests: 1,
+      },
+    }
+    await page.route('**/api/**', async (route) => {
+      const path = new URL(route.request().url()).pathname
+      if (!path.startsWith('/api/')) return route.continue()
+      const data =
+        path === '/api/proxy'
+          ? {
+              settings: {
+                backend: 'studio',
+                proxy_port: 2000,
+                allow_anonymous: true,
+                max_queue_size: 100,
+              },
+              summary: { cache_hit_ratio: 0.8, cache_coverage: 0.75 },
+              active_backend: 'studio',
+              configured_backend: 'studio',
+              running: [],
+              catalog: [],
+              requests: [],
+            }
+          : path === '/api/inference/keys'
+            ? { keys: [key] }
+            : {}
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify(data) })
+    })
+    await page.goto('/proxy')
+    await page.getByRole('tab', { name: 'Settings & routing', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Serving limits' })).toBeVisible()
+    const panel = await page.locator('.proxy-panels').boundingBox()
+    for (const field of await page.locator('.settings-grid .field:visible').all()) {
+      const box = await field.boundingBox()
+      expect(box.x).toBeGreaterThanOrEqual(panel.x - 1)
+      expect(box.x + box.width).toBeLessThanOrEqual(panel.x + panel.width + 1)
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      width,
+    )
+    await page.getByRole('tab', { name: 'Access keys', exact: true }).click()
+    await expect(page.locator('.key-usage')).toContainText('confirmed')
+    const card = await page.locator('.proxy-card:visible').first().boundingBox()
+    const usage = await page.locator('.key-usage').boundingBox()
+    expect(usage.x).toBeGreaterThanOrEqual(card.x - 1)
+    expect(usage.x + usage.width).toBeLessThanOrEqual(card.x + card.width + 1)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      width,
+    )
+    await page.getByRole('button', { name: 'New key', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Create inference key' })
+    await expect(dialog).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      width,
+    )
+    await page.keyboard.press('Escape')
+  })
+}
+
 for (const width of [1440, 390]) {
   test(`workspace navigator and focused key creation work at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })
