@@ -17,6 +17,49 @@ _service_key = secrets.token_urlsafe(32)
 _lock = threading.RLock()
 _usage: dict[str, deque[float]] = defaultdict(deque)
 _last_touch: dict[str, float] = {}
+# Per-request admission used to deep-copy both YAML documents on the API event
+# loop. Inference traffic is the hottest path Studio serves, so cache the key
+# rows and proxy policy under the document revisions that produced them.
+_policy_cache: dict[str, tuple] = {}
+
+
+def _policy_revisions() -> tuple[str, str, str]:
+    store = get_store()
+    try:
+        return (
+            str(store._config_dir),
+            store.document_revision("inference_keys.yaml"),
+            store.document_revision("settings.yaml"),
+        )
+    except Exception:
+        return ("", "", "")
+
+
+def _policy_snapshot() -> tuple[list[dict], dict]:
+    """Key rows and the ``proxy`` settings block, cached by document revision."""
+    revisions = _policy_revisions()
+    cacheable = revisions != ("", "", "")
+    with _lock:
+        cached = _policy_cache.get("snapshot")
+        if cacheable and cached is not None and cached[0] == revisions:
+            return cached[1], cached[2]
+    rows = get_store().list_inference_keys()
+    settings = get_store().get_settings() or {}
+    proxy = settings.get("proxy") if isinstance(settings.get("proxy"), dict) else {}
+    if cacheable:
+        with _lock:
+            _policy_cache["snapshot"] = (revisions, rows, proxy)
+    return rows, proxy
+
+
+def clear_policy_cache() -> None:
+    """Drop the derived admission snapshot (tests and explicit invalidation)."""
+    with _lock:
+        _policy_cache.clear()
+
+
+def _key_rows() -> list[dict]:
+    return _policy_snapshot()[0]
 
 
 def internal_service_key() -> str:
@@ -82,6 +125,7 @@ def create_key(
     }
     with _lock:
         get_store().add_inference_key(record)
+    clear_policy_cache()
     return _public(record), token
 
 
@@ -91,7 +135,9 @@ def list_keys() -> list[dict]:
 
 def delete_key(key_id: str) -> bool:
     with _lock:
-        return get_store().delete_inference_key(str(key_id or ""))
+        deleted = get_store().delete_inference_key(str(key_id or ""))
+    clear_policy_cache()
+    return deleted
 
 
 def rotate_key(key_id: str) -> tuple[dict, str] | None:
@@ -117,11 +163,12 @@ def rotate_key(key_id: str) -> tuple[dict, str] | None:
         }
         if not get_store().update_inference_key(key_id, updates):
             return None
+        clear_policy_cache()
         return _public({**row, **updates}), token
 
 
 def has_keys() -> bool:
-    return bool(get_store().list_inference_keys())
+    return bool(_key_rows())
 
 
 def verify_token(token: str) -> bool:
@@ -133,7 +180,7 @@ def matching_key(token: str) -> dict | None:
     match = None
     # Do not return on the first match: keep comparison work independent of
     # the matching record's position.
-    for row in get_store().list_inference_keys():
+    for row in _key_rows():
         digest = str(row.get("digest") or "")
         if hmac.compare_digest(candidate, digest):
             match = row
@@ -169,9 +216,8 @@ def authorize_headers(headers: Mapping[str, str]) -> bool:
     service = str(headers.get("x-studio-service-key") or "")
     if service and hmac.compare_digest(service, _service_key):
         return True
-    settings = get_store().get_settings() or {}
-    proxy = settings.get("proxy") if isinstance(settings.get("proxy"), dict) else {}
-    if not has_keys() and bool(proxy.get("allow_anonymous", True)):
+    rows, proxy = _policy_snapshot()
+    if not rows and bool(proxy.get("allow_anonymous", True)):
         return True
     token = bearer_or_api_key(headers)
     token = token or basic_password(headers)
@@ -182,9 +228,8 @@ def authorize_model_headers(headers: Mapping[str, str], model: str) -> bool:
     service = str(headers.get("x-studio-service-key") or "")
     if service and hmac.compare_digest(service, _service_key):
         return True
-    settings = get_store().get_settings() or {}
-    proxy = settings.get("proxy") if isinstance(settings.get("proxy"), dict) else {}
-    if not has_keys() and bool(proxy.get("allow_anonymous", True)):
+    rows, proxy = _policy_snapshot()
+    if not rows and bool(proxy.get("allow_anonymous", True)):
         return True
     token = bearer_or_api_key(headers) or basic_password(headers)
     return bool(token and authorize_token(token, model=model))
@@ -290,8 +335,7 @@ def request_identity(headers: Mapping[str, str]) -> dict | None:
     service = str(headers.get("x-studio-service-key") or "")
     if service and hmac.compare_digest(service, _service_key):
         return {"id": "internal", "name": "Studio", "internal": True}
-    rows = get_store().list_inference_keys()
-    proxy = (get_store().get_settings() or {}).get("proxy") or {}
+    rows, proxy = _policy_snapshot()
     if not rows and proxy.get("allow_anonymous", True):
         return {"id": "anonymous", "name": "Anonymous", "anonymous": True}
     token = bearer_or_api_key(headers) or basic_password(headers)
@@ -350,4 +394,5 @@ def update_key_policy(key_id: str, body: dict) -> dict | None:
         if "expires_at" in body:
             updates["expires_at"] = _expiry(body["expires_at"])
         get_store().update_inference_key(key_id, updates)
+        clear_policy_cache()
         return _public({**row, **updates})

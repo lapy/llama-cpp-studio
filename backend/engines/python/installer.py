@@ -200,7 +200,11 @@ class PythonVenvInstaller(CancellableOperationManager, ABC):
             return
         os.makedirs(self._base_dir, exist_ok=True)
         try:
-            subprocess.run([sys.executable, "-m", "venv", self._venv_path], check=True)
+            subprocess.run(
+                [sys.executable, "-m", "venv", self._venv_path],
+                check=True,
+                timeout=300,
+            )
         except subprocess.CalledProcessError as exc:
             raise RuntimeError(
                 f"Failed to create {self.label} virtual environment: {exc}"
@@ -312,9 +316,10 @@ class PythonVenvInstaller(CancellableOperationManager, ABC):
                 [python_bin, "-c", script],
                 text=True,
                 stderr=subprocess.DEVNULL,
+                timeout=30,
             ).strip()
             return output or None
-        except (OSError, subprocess.CalledProcessError):
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
             return None
 
     @staticmethod
@@ -553,7 +558,11 @@ class PythonVenvInstaller(CancellableOperationManager, ABC):
         append: bool = True,
     ) -> int:
         if ensure_venv:
-            self._ensure_venv()
+            # ``venv`` creation runs a full interpreter bootstrap. It used to
+            # block the API event loop for seconds on the first pip command.
+            from backend.concurrency import run_blocking
+
+            await run_blocking(self._ensure_venv)
         python_exe = self._venv_python()
         if not os.path.exists(python_exe):
             raise RuntimeError(

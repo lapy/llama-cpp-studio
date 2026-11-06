@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, Optional
 import httpx
 from fastapi import APIRouter, Body, HTTPException
 
+from backend.concurrency import run_blocking
 from backend.data_store import get_store
 from backend.engines.protocol import EngineInstaller
 from backend.logging_config import get_logger
@@ -164,7 +165,9 @@ async def lifecycle_status(lc: EngineLifecycle) -> Dict[str, Any]:
     if lc.get_installer is None:
         raise _verb_unavailable(lc, "status")
     try:
-        return lc.get_installer().status()
+        # ``status()`` probes the managed virtualenv in a subprocess. Running it
+        # on the event loop froze every other request for the probe's duration.
+        return await run_blocking(lc.get_installer().status)
     except Exception as exc:
         logger.warning("%s/status: %s", lc.url_prefix.rstrip("/"), exc)
         fallback = {
@@ -192,7 +195,7 @@ async def lifecycle_get_build_settings(lc: EngineLifecycle) -> Dict[str, Any]:
         return await _maybe_await(fn())
     if lc.get_installer is None:
         raise _verb_unavailable(lc, "build-settings")
-    return _saved(lc)
+    return await run_blocking(_saved, lc)
 
 
 async def lifecycle_save_build_settings(
@@ -206,7 +209,7 @@ async def lifecycle_save_build_settings(
     if settings is not None and not isinstance(settings, dict):
         raise HTTPException(status_code=400, detail="settings must be an object")
     coerced = coerce_install_settings(lc.engine_id, settings or {})
-    get_store().replace_engine_build_settings(lc.engine_id, coerced)
+    await run_blocking(get_store().replace_engine_build_settings, lc.engine_id, coerced)
     return coerced
 
 

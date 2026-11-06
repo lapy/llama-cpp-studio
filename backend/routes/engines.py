@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter
 
+from backend.concurrency import run_blocking
 from backend.data_store import get_store
 from backend.engines.registry import (
     active_engine_row_is_runnable,
@@ -16,6 +17,11 @@ router = APIRouter()
 
 @router.get("")
 async def list_engine_descriptors():
+    """Engine descriptors plus per-engine store reads (off the event loop)."""
+    return await run_blocking(_engine_descriptors_payload)
+
+
+def _engine_descriptors_payload():
     store = get_store()
     payload = engine_registry_payload()
     for descriptor in payload["engines"]:

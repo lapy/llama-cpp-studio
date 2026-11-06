@@ -54,6 +54,28 @@ Request observations contain bounded metadata and usage rather than prompt/compl
 
 Quota reservations commit before dispatch, count against concurrent admissions, and survive process interruption. Batched telemetry has a different durability profile. The local accounting database is a single-volume service component, not a distributed multi-host quota store.
 
+## Concurrency model
+
+Studio runs one API process because operation admission, SSE subscribers, and
+proxy generations are in-process state. That process has one asyncio event
+loop, so blocking calls must not run on it.
+
+- Blocking subprocess probes, install-root/version scans, catalog assembly, and
+  the management routes that rewrite whole documents run on the bounded
+  `studio-blocking` pool (`backend/concurrency.py`). The pool is separate from
+  the event loop's default executor, so a burst of slow engine or model probes
+  does not starve ordinary synchronous routes.
+- Independent blocking probes run concurrently. Engine status pages issue one
+  probe per installed engine; those probes overlap instead of serializing on the
+  event loop.
+- Native engine builds and servers use their own subprocess threads/processes.
+  CMake builds use every CPU this process may actually use (affinity and cgroup
+  quota aware); `STUDIO_BUILD_THREADS` overrides that for hosts that want
+  headroom. `STUDIO_BLOCKING_WORKERS` sizes the blocking pool.
+- CPython's GIL still bounds pure-Python computation. Threads here provide
+  responsiveness and overlap IO/subprocesses; they are not a claim of multi-core
+  speedup for Python bytecode.
+
 ## API and version contracts
 
 `VERSION` supplies the application version. `scripts/check-version.py` checks consistency with package and backend metadata. `scripts/export-openapi.py` exports a deterministic management schema; the checked-in document is `frontend/src/api/openapi.json`.

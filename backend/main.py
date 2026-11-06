@@ -288,6 +288,12 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.exception("Error stopping %s proxy: %s", proxy_backend, e)
 
+    # Blocking probes are not cancellable mid-call; wait for the ones still
+    # running so no worker can touch the store after the drains above.
+    from backend.concurrency import shutdown_blocking
+
+    shutdown_blocking(wait=True)
+
 
 app = FastAPI(
     title="Studio",

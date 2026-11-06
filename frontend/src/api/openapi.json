@@ -2568,6 +2568,7 @@
     },
     "/api/engines": {
       "get": {
+        "description": "Engine descriptors plus per-engine store reads (off the event loop).",
         "operationId": "list_engine_descriptors_api_engines_get",
         "responses": {
           "200": {
@@ -3287,7 +3288,7 @@
     },
     "/api/llama-versions": {
       "get": {
-        "description": "List installed versions for every registered runtime engine.",
+        "description": "List installed versions for every registered runtime engine.\n\nThe payload repairs stale rows, reads every engine document and scans\ninstall roots for orphan folders. That is blocking filesystem work, so it\nruns on the blocking pool instead of stalling the event loop (which also\nserves task progress and the rest of the UI).",
         "operationId": "list_llama_versions_api_llama_versions_get",
         "responses": {
           "200": {
