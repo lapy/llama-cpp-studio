@@ -665,8 +665,10 @@ async def get_gpu_info() -> Dict[str, any]:
 
 async def detect_build_capabilities() -> Dict[str, Dict[str, any]]:
     """Detect available build backends and their capabilities"""
+    from backend.concurrency import run_blocking
+
     if _gpu_detection_disabled:
-        openblas_available = _check_openblas()
+        openblas_available = await run_blocking(_check_openblas)
         return {
             "cuda": {
                 "available": False,
@@ -692,7 +694,7 @@ async def detect_build_capabilities() -> Dict[str, Dict[str, any]]:
     if gpu_info.get("device_count", 0) > 0:
         cuda_available = vendor == "nvidia"
 
-    openblas_available = _check_openblas()
+    openblas_available = await run_blocking(_check_openblas)
 
     capabilities = {
         "cuda": {

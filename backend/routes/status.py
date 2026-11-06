@@ -231,7 +231,9 @@ async def put_inference_settings(body: dict):
         url = normalize_public_inference_url((body or {}).get("public_inference_url"))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    get_store().update_settings({"public_inference_url": url})
+    from backend.concurrency import run_blocking
+
+    await run_blocking(get_store().update_settings, {"public_inference_url": url})
     return {"proxy_port": get_proxy_port(), "public_inference_url": url}
 
 

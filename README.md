@@ -281,6 +281,8 @@ Portable configuration export contains selected preferences, model settings, and
 | `AUDIO_CPP_ENABLED`                | Audio integration toggle; enabled by default.                                                     |
 | `LMDEPLOY_BIN`                     | Optional LMDeploy executable override.                                                            |
 | `CMAKE`, `CMAKE_EXECUTABLE`        | Source-build CMake executable selection.                                                          |
+| `STUDIO_BUILD_THREADS`             | Override CMake/build parallelism; default is every CPU the process may use.                       |
+| `STUDIO_BLOCKING_WORKERS`          | Size the shared pool that runs blocking probes/scans off the API event loop.                      |
 
 `proxy_port` and the client-facing public inference URL are application settings. The port takes effect at listener restart; the public URL supplies client examples and connection details. TLS termination belongs at the deployment's reverse proxy.
 

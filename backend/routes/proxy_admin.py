@@ -10,6 +10,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from backend.access_policy import proxy_listen_host
+from backend.concurrency import run_blocking
 from backend.data_store import get_store
 from backend.inference_auth import rotate_key
 from backend.proxy.studio.manager import configured_proxy_backend, get_studio_proxy_manager
@@ -154,7 +155,7 @@ async def put_proxy_settings(body: ProxySettingsBody):
     proxy["backend"] = backend
     if any(not name.strip() for name in body.routing_aliases):
         raise HTTPException(status_code=400, detail="routing aliases cannot be empty")
-    get_store().update_settings({"proxy": proxy, "proxy_port": proxy_port})
+    await run_blocking(get_store().update_settings, {"proxy": proxy, "proxy_port": proxy_port})
     after = _settings_payload()
     changed = {name for name in after if before.get(name) != after[name]}
     live_fields = changed & {"routing_aliases", "default_model", "allow_anonymous"}

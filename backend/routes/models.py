@@ -15,6 +15,7 @@ from backend.data_store import (
     resolve_proxy_name,
     resolve_routing_name,
 )
+from backend.concurrency import run_blocking
 from backend.engines.registry import VALID_ENGINE_IDS, active_engine_row_is_runnable
 from backend.engines.audio_cpp.identity import is_audio_engine_id
 from backend.models.config import (
@@ -708,7 +709,7 @@ async def list_models():
     # individual quantizations; safetensors entries appear as a single logical
     # quantization per repo with format "safetensors".
     # Parsing the catalog can be large; keep it off the event loop.
-    models = list(await asyncio.to_thread(store.list_models))
+    models = list(await run_blocking(store.list_models))
     from backend.proxy.runtime_observation import (
         remember_running_models,
         runtime_fields_for,
@@ -722,104 +723,107 @@ async def list_models():
         logger.debug("Running-model lookup failed; preserving last observation: %s", exc)
         observation = stale_or_unreachable()
 
-    grouped_models = {}
-    for model in models:
-        source = model.get("source") if isinstance(model.get("source"), dict) else {}
-        hf_id = model.get("huggingface_id") or source.get("id") or ""
-        base_name = model.get("base_model_name") or (
-            hf_id.split("/")[-1] if hf_id else model.get("display_name") or "unknown"
-        )
-        proxy_model_id = resolve_model_id(model)
-        proxy_name = proxy_model_id
-        runtime = runtime_fields_for(observation, proxy_model_id)
-        is_embedding = model_is_embedding(model)
-        source_provider = source.get("provider") or (
-            "huggingface" if model.get("huggingface_id") else "local"
-        )
-        key = f"{source_provider}_{hf_id}_{base_name}"
-        if key not in grouped_models:
-            author = hf_id.split("/")[0] if isinstance(hf_id, str) and "/" in hf_id else ""
-            grouped_models[key] = {
-                "base_model_name": base_name,
-                "huggingface_id": hf_id,
-                "source": source,
-                "model_type": model.get("model_type"),
-                "family": model.get("family"),
-                "tasks": list(model.get("tasks") or []),
-                "input_modalities": list(model.get("input_modalities") or []),
-                "output_modalities": list(model.get("output_modalities") or []),
-                "capabilities": model.get("capabilities") or {},
-                "compatible_engines": compatible_engines_for_record(model),
-                "package_kind": (model.get("artifact") or {}).get("package_kind")
-                if isinstance(model.get("artifact"), dict)
-                else None,
-                "author": author,
-                "pipeline_tag": model.get("pipeline_tag"),
-                "is_embedding_model": is_embedding,
-                "quantizations": [],
-            }
-        else:
-            if model.get("pipeline_tag") and not grouped_models[key].get("pipeline_tag"):
-                grouped_models[key]["pipeline_tag"] = model.get("pipeline_tag")
-            if is_embedding and not grouped_models[key].get("is_embedding_model"):
-                grouped_models[key]["is_embedding_model"] = True
-
-        file_size = model.get("file_size") or 0
-
-        grouped_models[key]["quantizations"].append(
-            {
-                "id": model.get("id"),
-                "name": model.get("display_name") or model.get("name"),
-                # No filename persisted for GGUF models; a model is a single logical
-                # entity per (huggingface_id, quantization).
-                "file_size": file_size,
-                "quantization": model.get("quantization"),
-                "format": model.get("format")
-                or (
-                    (model.get("artifact") or {}).get("format")
+    def build_catalog():
+        grouped_models = {}
+        for model in models:
+            source = model.get("source") if isinstance(model.get("source"), dict) else {}
+            hf_id = model.get("huggingface_id") or source.get("id") or ""
+            base_name = model.get("base_model_name") or (
+                hf_id.split("/")[-1] if hf_id else model.get("display_name") or "unknown"
+            )
+            proxy_model_id = resolve_model_id(model)
+            proxy_name = proxy_model_id
+            runtime = runtime_fields_for(observation, proxy_model_id)
+            is_embedding = model_is_embedding(model)
+            source_provider = source.get("provider") or (
+                "huggingface" if model.get("huggingface_id") else "local"
+            )
+            key = f"{source_provider}_{hf_id}_{base_name}"
+            if key not in grouped_models:
+                author = hf_id.split("/")[0] if isinstance(hf_id, str) and "/" in hf_id else ""
+                grouped_models[key] = {
+                    "base_model_name": base_name,
+                    "huggingface_id": hf_id,
+                    "source": source,
+                    "model_type": model.get("model_type"),
+                    "family": model.get("family"),
+                    "tasks": list(model.get("tasks") or []),
+                    "input_modalities": list(model.get("input_modalities") or []),
+                    "output_modalities": list(model.get("output_modalities") or []),
+                    "capabilities": model.get("capabilities") or {},
+                    "compatible_engines": compatible_engines_for_record(model),
+                    "package_kind": (model.get("artifact") or {}).get("package_kind")
                     if isinstance(model.get("artifact"), dict)
-                    else None
-                )
-                or "gguf",
-                "artifact": model.get("artifact") or {},
-                "source": source,
-                "family": model.get("family"),
-                "tasks": list(model.get("tasks") or []),
-                "input_modalities": list(model.get("input_modalities") or []),
-                "output_modalities": list(model.get("output_modalities") or []),
-                "capabilities": model.get("capabilities") or {},
-                "compatible_engines": compatible_engines_for_record(model),
-                "downloaded_at": model.get("downloaded_at"),
-                "is_active": runtime["is_active"],
-                "status": runtime["status"],
-                "run_state": runtime["run_state"],
-                "runtime_quality": runtime["runtime_quality"],
-                "runtime_observed_at": runtime["runtime_observed_at"],
-                "has_config": bool(model.get("config")),
-                "config_reviewed": _config_was_reviewed(model),
-                "config_reviewed_at": model.get("config_reviewed_at"),
-                "mmproj_filename": model.get("mmproj_filename"),
-                "mtp_filename": model.get("mtp_filename"),
-                "dflash_filename": model.get("dflash_filename"),
-                "dspark_filename": model.get("dspark_filename"),
-                "huggingface_id": hf_id,
-                "base_model_name": base_name,
-                "model_type": model.get("model_type"),
-                "config": catalog_config_summary(model.get("config")),
-                "proxy_name": proxy_name,
-                "proxy_model_id": proxy_model_id,
-                "routing_name": resolve_routing_name(model),
-                "pipeline_tag": model.get("pipeline_tag"),
-                "is_embedding_model": is_embedding,
-            }
-        )
+                    else None,
+                    "author": author,
+                    "pipeline_tag": model.get("pipeline_tag"),
+                    "is_embedding_model": is_embedding,
+                    "quantizations": [],
+                }
+            else:
+                if model.get("pipeline_tag") and not grouped_models[key].get("pipeline_tag"):
+                    grouped_models[key]["pipeline_tag"] = model.get("pipeline_tag")
+                if is_embedding and not grouped_models[key].get("is_embedding_model"):
+                    grouped_models[key]["is_embedding_model"] = True
 
-    result = []
-    for group in grouped_models.values():
-        group["quantizations"].sort(key=lambda x: x.get("file_size") or 0)
-        result.append(group)
-    result.sort(key=lambda x: x.get("base_model_name") or "")
-    return result
+            file_size = model.get("file_size") or 0
+
+            grouped_models[key]["quantizations"].append(
+                {
+                    "id": model.get("id"),
+                    "name": model.get("display_name") or model.get("name"),
+                    # No filename persisted for GGUF models; a model is a single logical
+                    # entity per (huggingface_id, quantization).
+                    "file_size": file_size,
+                    "quantization": model.get("quantization"),
+                    "format": model.get("format")
+                    or (
+                        (model.get("artifact") or {}).get("format")
+                        if isinstance(model.get("artifact"), dict)
+                        else None
+                    )
+                    or "gguf",
+                    "artifact": model.get("artifact") or {},
+                    "source": source,
+                    "family": model.get("family"),
+                    "tasks": list(model.get("tasks") or []),
+                    "input_modalities": list(model.get("input_modalities") or []),
+                    "output_modalities": list(model.get("output_modalities") or []),
+                    "capabilities": model.get("capabilities") or {},
+                    "compatible_engines": compatible_engines_for_record(model),
+                    "downloaded_at": model.get("downloaded_at"),
+                    "is_active": runtime["is_active"],
+                    "status": runtime["status"],
+                    "run_state": runtime["run_state"],
+                    "runtime_quality": runtime["runtime_quality"],
+                    "runtime_observed_at": runtime["runtime_observed_at"],
+                    "has_config": bool(model.get("config")),
+                    "config_reviewed": _config_was_reviewed(model),
+                    "config_reviewed_at": model.get("config_reviewed_at"),
+                    "mmproj_filename": model.get("mmproj_filename"),
+                    "mtp_filename": model.get("mtp_filename"),
+                    "dflash_filename": model.get("dflash_filename"),
+                    "dspark_filename": model.get("dspark_filename"),
+                    "huggingface_id": hf_id,
+                    "base_model_name": base_name,
+                    "model_type": model.get("model_type"),
+                    "config": catalog_config_summary(model.get("config")),
+                    "proxy_name": proxy_name,
+                    "proxy_model_id": proxy_model_id,
+                    "routing_name": resolve_routing_name(model),
+                    "pipeline_tag": model.get("pipeline_tag"),
+                    "is_embedding_model": is_embedding,
+                }
+            )
+
+        result = []
+        for group in grouped_models.values():
+            group["quantizations"].sort(key=lambda x: x.get("file_size") or 0)
+            result.append(group)
+        result.sort(key=lambda x: x.get("base_model_name") or "")
+        return result
+
+    return await run_blocking(build_catalog)
 
 
 @router.post("/search")
@@ -868,6 +872,10 @@ async def get_search_file_sizes(
 @router.get("/safetensors")
 async def list_safetensors_models():
     """List safetensors downloads stored locally."""
+    return await run_blocking(_list_safetensors_models_payload)
+
+
+def _list_safetensors_models_payload():
     try:
         results = []
         for model in get_store().list_models():
@@ -1710,7 +1718,6 @@ async def update_model_dflash(
     }
 
 
-
 @router.post("/{model_id:path}/dspark")
 async def update_model_dspark(
     model_id: str,
@@ -1743,7 +1750,10 @@ async def update_model_dspark(
     huggingface_id = model.get("huggingface_id")
     cached_path = resolve_cached_model_path(huggingface_id, dspark_filename)
     if cached_path and os.path.exists(cached_path):
-        store.update_model(model_id, {"dspark_filename": dspark_filename, "mtp_filename": None, "dflash_filename": None})
+        store.update_model(
+            model_id,
+            {"dspark_filename": dspark_filename, "mtp_filename": None, "dflash_filename": None},
+        )
         remove_model_files(store, model_id, roles={"mtp", "dflash"})
         _record_cached_companion(
             store, model_id, huggingface_id, dspark_filename, "dspark", cached_path
@@ -1953,7 +1963,7 @@ async def upload_model_reference_audio(
 
 
 @router.delete("/{model_id:path}/reference-audio/{filename}")
-async def delete_model_reference_audio(model_id: str, filename: str):
+def delete_model_reference_audio(model_id: str, filename: str):
     """Delete a reference WAV from the per-model data refs/ directory."""
     store = get_store()
     model = _get_model_or_404(store, model_id)
@@ -1974,6 +1984,10 @@ async def delete_model_reference_audio(model_id: str, filename: str):
 @router.put("/{model_id:path}/config")
 async def update_model_config(model_id: str, config: dict):
     """Update model's llama.cpp configuration"""
+    return await run_blocking(_update_model_config_payload, model_id, config)
+
+
+def _update_model_config_payload(model_id: str, config: dict):
     store = get_store()
     model = _get_model_or_404(store, model_id)
     merged = merge_model_config_put(model.get("config"), config)
@@ -2017,6 +2031,10 @@ class ApplyConfigTemplateBody(BaseModel):
 @router.post("/{model_id:path}/config/save-template")
 async def save_model_config_as_template(model_id: str, body: SaveConfigTemplateBody):
     """Snapshot this model's configuration as a reusable template."""
+    return await run_blocking(_save_model_config_as_template_payload, model_id, body)
+
+
+def _save_model_config_as_template_payload(model_id: str, body: SaveConfigTemplateBody):
     store = get_store()
     model = _get_model_or_404(store, model_id)
     if body.use_saved or not body.config:
@@ -2041,6 +2059,10 @@ async def save_model_config_as_template(model_id: str, body: SaveConfigTemplateB
 @router.post("/{model_id:path}/config/apply-template")
 async def apply_model_config_template(model_id: str, body: ApplyConfigTemplateBody):
     """Apply a stored template to this model (form preview or persist)."""
+    return await run_blocking(_apply_model_config_template_payload, model_id, body)
+
+
+def _apply_model_config_template_payload(model_id: str, body: ApplyConfigTemplateBody):
     store = get_store()
     model = _get_model_or_404(store, model_id)
     template = store.get_config_template(body.template_id)

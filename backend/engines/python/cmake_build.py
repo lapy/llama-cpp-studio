@@ -11,7 +11,6 @@ import shlex
 import subprocess
 import shutil
 import time
-import multiprocessing
 from types import SimpleNamespace
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
@@ -527,14 +526,23 @@ class CmakeBuildHost:
         return detected
 
     def get_optimal_build_threads(self) -> int:
-        """Get optimal number of threads for building based on CPU cores"""
+        """Compiler parallelism: every CPU this process may actually use.
+
+        The previous 75% heuristic left a quarter of the host idle during the
+        longest CPU-bound work Studio runs. ``effective_cpu_count`` uses
+        affinity and the cgroup quota so the value also respects container
+        limits. ``STUDIO_BUILD_THREADS`` overrides it for hosts that want to
+        keep headroom for serving.
+        """
+        from backend.concurrency import effective_cpu_count
+
         try:
-            cpu_count = multiprocessing.cpu_count()
-            # Use 75% of cores, minimum 1, maximum cpu_count
-            optimal = max(1, min(cpu_count, int(cpu_count * 0.75)))
-            return optimal
-        except BaseException:
-            return 1  # Fallback to single thread
+            configured = os.getenv("STUDIO_BUILD_THREADS", "").strip()
+            if configured:
+                return max(1, int(configured))
+            return max(1, effective_cpu_count())
+        except (TypeError, ValueError):
+            return 1
 
     async def _run_command(
         self,

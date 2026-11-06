@@ -107,7 +107,9 @@ def _read_cgroup_available_kib() -> int:
 
 def safe_jobs() -> int:
     """Compiler parallelism budget using host and cgroup memory limits."""
-    cpu_jobs = max(1, os.cpu_count() or 1)
+    from backend.concurrency import effective_cpu_count
+
+    cpu_jobs = max(1, effective_cpu_count())
     available_kib = _read_meminfo_available_kib()
     cgroup_available_kib = _read_cgroup_available_kib()
     if cgroup_available_kib > 0 and (available_kib <= 0 or cgroup_available_kib < available_kib):

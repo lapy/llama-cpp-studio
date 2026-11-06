@@ -1,7 +1,6 @@
-import asyncio
-
 from fastapi import APIRouter, HTTPException
 
+from backend.concurrency import run_blocking
 from backend.inference_auth import create_key, delete_key, list_keys, rotate_key, update_key_policy
 
 router = APIRouter()
@@ -15,13 +14,13 @@ async def get_inference_keys():
         accounting = get_accounting()
         return {"keys": [{**key, "usage": accounting.key_usage(key)} for key in list_keys()]}
 
-    return await asyncio.to_thread(payload)
+    return await run_blocking(payload)
 
 
 @router.post("", status_code=201)
 async def post_inference_key(body: dict):
-    try:
-        record, token = create_key(
+    def create():
+        return create_key(
             body.get("name", ""),
             expires_at=body.get("expires_at"),
             models=body.get("models"),
@@ -40,6 +39,9 @@ async def post_inference_key(body: dict):
                 )
             },
         )
+
+    try:
+        record, token = await run_blocking(create)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {**record, "key": token}
@@ -48,7 +50,7 @@ async def post_inference_key(body: dict):
 @router.post("/{key_id}/rotate")
 async def rotate_inference_key(key_id: str):
     """Replace a key's secret; the old token stops working immediately."""
-    result = rotate_key(key_id)
+    result = await run_blocking(rotate_key, key_id)
     if result is None:
         raise HTTPException(status_code=404, detail="Inference key not found")
     record, token = result
@@ -57,7 +59,7 @@ async def rotate_inference_key(key_id: str):
 
 @router.delete("/{key_id}", status_code=204)
 async def remove_inference_key(key_id: str):
-    if not delete_key(key_id):
+    if not await run_blocking(delete_key, key_id):
         raise HTTPException(status_code=404, detail="Inference key not found")
     return None
 
@@ -68,8 +70,8 @@ async def patch_inference_key(key_id: str, body: dict):
         from backend.proxy.studio.accounting import get_accounting
 
         # Publish completed usage before switching an unlimited key to a cap.
-        await asyncio.to_thread(get_accounting().flush)
-        result = await asyncio.to_thread(update_key_policy, key_id, body)
+        await run_blocking(get_accounting().flush)
+        result = await run_blocking(update_key_policy, key_id, body)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if result is None:

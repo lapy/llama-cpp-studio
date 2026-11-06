@@ -32,6 +32,7 @@ from backend.operations.progress import get_progress_manager
 from backend.logging_config import get_logger
 from backend.task_cancel_registry import TaskCancelledError
 from backend.build_task_manager import BuildTaskManager
+from backend.concurrency import run_blocking
 from backend.gpu_detector import detect_build_capabilities
 from backend.cuda_installer import get_cuda_installer
 from backend.proxy.control import mark_runtime_changed
@@ -201,7 +202,17 @@ async def scan_engine_params_route(payload: dict = Body(default_factory=dict)):
 
 @router.get("")
 async def list_llama_versions():
-    """List installed versions for every registered runtime engine."""
+    """List installed versions for every registered runtime engine.
+
+    The payload repairs stale rows, reads every engine document and scans
+    install roots for orphan folders. That is blocking filesystem work, so it
+    runs on the blocking pool instead of stalling the event loop (which also
+    serves task progress and the rest of the UI).
+    """
+    return await run_blocking(_list_llama_versions_payload)
+
+
+def _list_llama_versions_payload():
     store = get_store()
     try:
         repair_stale_building_versions(store, get_task=get_progress_manager().get_task)
@@ -562,7 +573,7 @@ async def get_build_settings(engine: str = "llama_cpp"):
     if not _is_native_source_engine(engine):
         raise HTTPException(status_code=400, detail="engine must be 'llama_cpp' or 'ik_llama'")
     store = get_store()
-    settings = store.get_engine_build_settings(engine) or {}
+    settings = await run_blocking(store.get_engine_build_settings, engine) or {}
     cmake, _meta = _peel_build_meta(settings)
     # Always return a full shape so the frontend can rely on defaults.
     base = _default_build_settings()
@@ -585,7 +596,7 @@ async def update_build_settings(engine: str = "llama_cpp", settings: dict = Body
     filtered = {k: v for k, v in cmake_in.items() if k in allowed}
     filtered = _coerce_build_settings(filtered)
     filtered = _apply_engine_specific_build_defaults(engine, filtered)
-    existing = store.get_engine_build_settings(engine) or {}
+    existing = await run_blocking(store.get_engine_build_settings, engine) or {}
     _, existing_meta = _peel_build_meta(existing)
     to_store = dict(filtered)
     for key in _BUILD_META_KEYS:
@@ -595,7 +606,7 @@ async def update_build_settings(engine: str = "llama_cpp", settings: dict = Body
                 to_store[key] = meta_in[key]
         elif existing_meta.get(key):
             to_store[key] = existing_meta[key]
-    stored = store.replace_engine_build_settings(engine, to_store)
+    stored = await run_blocking(store.replace_engine_build_settings, engine, to_store)
     base = _default_build_settings()
     base.update({k: v for k, v in stored.items() if k in base})
     coerced = _apply_engine_specific_build_defaults(engine, _coerce_build_settings(base))
@@ -1931,7 +1942,8 @@ async def get_cuda_status():
     """Get CUDA installation status"""
     try:
         installer = get_cuda_installer()
-        status = installer.status()
+        # Toolkit/library detection runs subprocesses and scans install trees.
+        status = await run_blocking(installer.status)
         return status
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -1979,7 +1991,7 @@ async def get_cuda_logs():
     """Get CUDA installation logs"""
     try:
         installer = get_cuda_installer()
-        logs = installer.read_log_tail()
+        logs = await run_blocking(installer.read_log_tail)
         return {"logs": logs}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
