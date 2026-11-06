@@ -2690,10 +2690,13 @@ onUnmounted(() => {
   display: flex;
   flex-shrink: 0;
   overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: 0.5rem;
   border-bottom: 1px solid var(--border-primary);
 }
 .proxy-tabs button {
   flex: 0 0 auto;
+  scroll-snap-align: start;
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
