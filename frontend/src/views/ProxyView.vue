@@ -2654,6 +2654,14 @@ onUnmounted(() => {
   flex: 1;
   gap: 0.75rem;
   padding-bottom: 0.5rem;
+  scroll-padding-bottom: 1rem;
+}
+
+@media (max-width: 900px) {
+  .proxy-panels {
+    padding-bottom: calc(var(--bottom-nav-height) + 0.5rem);
+    scroll-padding-bottom: var(--bottom-nav-height);
+  }
 }
 .proxy-stop-alert {
   display: flex;
