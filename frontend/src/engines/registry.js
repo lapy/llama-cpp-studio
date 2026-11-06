@@ -282,8 +282,7 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
       stableIdLabel: 'Model ID while running',
       stableIdAria: 'Stable model ID',
       aliasLabel: 'Friendly API name',
-      aliasTooltip:
-        'Optional name apps send as model. Running state uses the stable ID.',
+      aliasTooltip: 'Optional name apps send as model. Running state uses the stable ID.',
       unknownKeysPrefix: 'Unrecognized audio.cpp keys are preserved on save:',
     }),
     configTabs: Object.freeze([
