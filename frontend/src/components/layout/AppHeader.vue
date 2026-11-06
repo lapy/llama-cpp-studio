@@ -224,6 +224,11 @@ const proxyLinkLabel = computed(() => `Open Proxy, status ${proxyState.value}`)
   }
 
   .header-actions {
+    gap: 0.25rem;
+    flex-shrink: 1;
+  }
+
+  .logo {
     gap: 0.5rem;
   }
 

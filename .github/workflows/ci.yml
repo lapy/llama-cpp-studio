@@ -173,6 +173,11 @@ jobs:
     # A prebuilt image avoids flaky hosted-runner browser installation.
     # Clipboard and accessibility journeys also gate pull requests.
     if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: ${{ fromJSON(github.event_name == 'pull_request' && '["chromium","firefox"]' || '["chromium","firefox","webkit"]') }}
+    name: browser (${{ matrix.browser }})
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
@@ -198,13 +203,13 @@ jobs:
         run: npm ci
 
       - name: Browser journeys
-        run: npm run test:browser
+        run: npm run test:browser -- --project=${{ matrix.browser }}
 
       - name: Upload accessibility and browser evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: frontend-accessibility-and-browser-results
+          name: frontend-accessibility-and-browser-results-${{ matrix.browser }}
           path: test-results/
           if-no-files-found: warn
 
@@ -215,14 +220,14 @@ jobs:
           {
             echo "node=$(node -v)"
             echo "npm=$(npm -v)"
-            echo "job=browser"
+            echo "job=browser-${{ matrix.browser }}"
           } > artifacts/node24/browser.txt
 
       - name: Upload Node runtime
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: node24-browser
+          name: node24-browser-${{ matrix.browser }}
           path: artifacts/node24/browser.txt
           if-no-files-found: error
 
