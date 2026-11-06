@@ -104,4 +104,16 @@ const items = [
     min-height: 3.5rem;
   }
 }
+
+@media (max-width: 360px) {
+  .nav-content .p-button {
+    gap: 0.2rem;
+    padding: 0.45rem 0.1rem;
+    font-size: 0.65rem;
+  }
+
+  .nav-content .p-button-label {
+    font-size: 0.65rem;
+  }
+}
 </style>
