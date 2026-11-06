@@ -119,11 +119,31 @@ class Accounting:
                 CREATE TABLE IF NOT EXISTS owners(id TEXT PRIMARY KEY, pid INTEGER, stamp TEXT);
                 CREATE TABLE IF NOT EXISTS metadata(name TEXT PRIMARY KEY, value REAL);
                 CREATE TABLE IF NOT EXISTS key_activity(id TEXT PRIMARY KEY, last_used REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS settlements(
+                    request_id TEXT NOT NULL, field TEXT NOT NULL, value INTEGER NOT NULL,
+                    settled_at REAL NOT NULL, PRIMARY KEY(request_id, field)
+                );
             """)
             db.execute("BEGIN IMMEDIATE")
             columns = {row[1] for row in db.execute("PRAGMA table_info(reservations)")}
-            if "owner" not in columns:
-                db.execute("ALTER TABLE reservations ADD COLUMN owner TEXT")
+            for name, definition in (
+                ("owner", "TEXT"),
+                ("input_known", "INTEGER NOT NULL DEFAULT 0"),
+                ("output_known", "INTEGER NOT NULL DEFAULT 0"),
+                ("input_confirmed", "INTEGER"),
+                ("output_confirmed", "INTEGER"),
+                ("settlement_seq", "INTEGER NOT NULL DEFAULT 0"),
+            ):
+                if name not in columns:
+                    db.execute(f"ALTER TABLE reservations ADD COLUMN {name} {definition}")
+            if "input_known" not in columns:
+                # A legacy row marked known carried both authoritative counts;
+                # an unknown inactive row is a retained conservative charge.
+                db.execute(
+                    "UPDATE reservations SET input_known=known,output_known=known,"
+                    "input_confirmed=CASE WHEN known=1 THEN input END,"
+                    "output_confirmed=CASE WHEN known=1 THEN output END"
+                )
             if not db.execute("SELECT 1 FROM metadata WHERE name='totals_migrated'").fetchone():
                 for name, modifier in (("day", "start of day"), ("month", "start of month")):
                     db.execute(
@@ -153,10 +173,16 @@ class Accounting:
                         "status": 499,
                         "error": "proxy_process_interrupted",
                         "usage_source": "reservation",
+                        "usage_status": "partial",
+                        "observation_reasons": ["proxy_process_interrupted"],
                         "input_tokens": None,
                         "output_tokens": None,
+                        "input_tokens_total": None,
+                        "output_tokens_total": None,
                         "input_reserved": input_tokens,
                         "output_reserved": output_tokens,
+                        "input_tokens_reserved": input_tokens,
+                        "output_tokens_reserved": output_tokens,
                     }
                     db.execute(
                         "INSERT OR IGNORE INTO requests VALUES(?,?,?,?,?,?,?)",
@@ -315,18 +341,25 @@ class Accounting:
                     "DELETE FROM requests WHERE id IN (SELECT id FROM requests ORDER BY started DESC LIMIT -1 OFFSET ?)",
                     (max_rows,),
                 )
+                db.execute(
+                    "DELETE FROM settlements WHERE settled_at < ?",
+                    (time.time() - retention_days * 86400,),
+                )
                 for row in batch:
                     if row.get("accounting_mode") == "batched_usage" and row.get("dispatched"):
                         known = (
                             row.get("input_tokens") is not None
                             and row.get("output_tokens") is not None
                         )
-                        input_tokens, output_tokens = (
-                            row.get("input_tokens") or 0,
-                            row.get("output_tokens") or 0,
-                        )
+                        input_known = row.get("input_tokens") is not None
+                        output_known = row.get("output_tokens") is not None
+                        input_tokens = row.get("input_tokens") or 0
+                        output_tokens = row.get("output_tokens") or 0
                         added = db.execute(
-                            "INSERT OR IGNORE INTO reservations(id,key_id,started,input,output,active,known,owner) VALUES(?,?,?,?,?,0,?,?)",
+                            "INSERT OR IGNORE INTO reservations"
+                            "(id,key_id,started,input,output,active,known,owner,"
+                            "input_known,output_known,input_confirmed,output_confirmed)"
+                            " VALUES(?,?,?,?,?,0,?,?,?,?,?,?)",
                             (
                                 row["id"],
                                 row["key_id"],
@@ -335,6 +368,10 @@ class Accounting:
                                 output_tokens,
                                 int(known),
                                 self._owner,
+                                int(input_known),
+                                int(output_known),
+                                input_tokens if input_known else None,
+                                output_tokens if output_known else None,
                             ),
                         )
                         if added.rowcount:
@@ -508,24 +545,99 @@ class Accounting:
     def settle(
         self, request_id: str, input_tokens: int | None, output_tokens: int | None, dispatched: bool
     ):
+        """Reconcile confirmed usage per field, retaining unknown allowances.
+
+        The first authoritative value for a field wins. Later retries with the
+        same or a conflicting value cannot replace a newer settlement; a field
+        that was still unknown can be upgraded by a deferred retry. A request
+        that never dispatched releases both fields.
+        """
         with self._db() as db:
             if not db.in_transaction:
                 db.execute("BEGIN IMMEDIATE")
             row = db.execute(
-                "SELECT key_id,started,input,output FROM reservations WHERE id=?", (request_id,)
+                "SELECT key_id,started,input,output,input_known,output_known,active "
+                "FROM reservations WHERE id=?",
+                (request_id,),
             ).fetchone()
             if row is None:
                 return
+            key_id, started, current_input, current_output, input_known, output_known, active = row
             if not dispatched:
-                input_tokens = output_tokens = 0
-            if input_tokens is not None and output_tokens is not None:
-                self._charge(db, row[0], row[1], input_tokens - row[2], output_tokens - row[3])
+                self._charge(db, key_id, started, -current_input, -current_output)
                 db.execute(
-                    "UPDATE reservations SET input=?,output=?,active=0,known=1 WHERE id=?",
-                    (input_tokens, output_tokens, request_id),
+                    "UPDATE reservations SET input=0,output=0,active=0,known=1,"
+                    "input_known=1,output_known=1,input_confirmed=0,output_confirmed=0,"
+                    "settlement_seq=settlement_seq+1 WHERE id=?",
+                    (request_id,),
                 )
-            else:
-                db.execute("UPDATE reservations SET active=0 WHERE id=?", (request_id,))
+                return
+            fields = (
+                ("input", input_tokens, current_input, bool(input_known)),
+                ("output", output_tokens, current_output, bool(output_known)),
+            )
+            for field, value, current, known in fields:
+                if value is None or known:
+                    continue
+                if value < 0:
+                    continue
+                inserted = db.execute(
+                    "INSERT OR IGNORE INTO settlements VALUES(?,?,?,?)",
+                    (request_id, field, value, time.time()),
+                )
+                if not inserted.rowcount:
+                    # A newer authoritative settlement already exists.
+                    continue
+                self._charge(
+                    db,
+                    key_id,
+                    started,
+                    value - current if field == "input" else 0,
+                    value - current if field == "output" else 0,
+                )
+                db.execute(
+                    f"UPDATE reservations SET {field}=?,{field}_known=1,"
+                    f"{field}_confirmed=?,settlement_seq=settlement_seq+1 WHERE id=?",
+                    (value, value, request_id),
+                )
+            db.execute(
+                "UPDATE reservations SET active=0,known=CASE WHEN input_known=1 AND "
+                "output_known=1 THEN 1 ELSE known END,settlement_seq=settlement_seq+1 "
+                "WHERE id=?",
+                (request_id,),
+            )
+
+    @staticmethod
+    def _ledger_components(db, key_id: str, started: float) -> dict:
+        """Confirmed, active-reserved and retained-uncertain components.
+
+        Each request field is classified independently. The enforcement total
+        (usage_totals) remains the sum of all three and is exposed alongside the
+        breakdown so remaining allowance can be reconstructed from the UI.
+        """
+        day = periods(started)[0]
+        row = db.execute(
+            """SELECT
+            coalesce(sum(CASE WHEN input_known=1 THEN input ELSE 0 END),0),
+            coalesce(sum(CASE WHEN output_known=1 THEN output ELSE 0 END),0),
+            coalesce(sum(CASE WHEN active=1 THEN input ELSE 0 END),0),
+            coalesce(sum(CASE WHEN active=1 THEN output ELSE 0 END),0),
+            coalesce(sum(CASE WHEN active=0 AND input_known=0 THEN input ELSE 0 END),0),
+            coalesce(sum(CASE WHEN active=0 AND output_known=0 THEN output ELSE 0 END),0)
+            FROM reservations WHERE key_id=? AND started>=?""",
+            (key_id, day),
+        ).fetchone()
+        return {
+            "confirmed_input_tokens": row[0],
+            "confirmed_output_tokens": row[1],
+            "confirmed_tokens": row[0] + row[1],
+            "reserved_input_tokens": row[2],
+            "reserved_output_tokens": row[3],
+            "reserved_tokens": row[2] + row[3],
+            "retained_input_tokens": row[4],
+            "retained_output_tokens": row[5],
+            "retained_tokens": row[4] + row[5],
+        }
 
     def key_usage(self, key: dict) -> dict:
         now = time.time()
@@ -537,11 +649,14 @@ class Accounting:
             ).fetchone()
             daily = self._total(db, key["id"], "day", day)
             monthly = self._total(db, key["id"], "month", month)
+            daily_components = self._ledger_components(db, key["id"], day)
+            monthly_components = self._ledger_components(db, key["id"], month)
             active = db.execute(
                 "SELECT count(*) FROM reservations WHERE key_id=? AND active=1", (key["id"],)
             ).fetchone()[0]
             estimated = db.execute(
-                "SELECT count(*) FROM reservations WHERE key_id=? AND known=0 AND active=0 AND started>=?",
+                "SELECT count(*) FROM reservations WHERE key_id=? AND "
+                "(input_known=0 OR output_known=0) AND active=0 AND started>=?",
                 (key["id"], month),
             ).fetchone()[0]
             activity = db.execute(
@@ -559,6 +674,24 @@ class Accounting:
             "concurrent_requests": active,
             "daily_tokens": daily,
             "monthly_tokens": monthly,
+            "daily_confirmed_tokens": daily_components["confirmed_tokens"],
+            "daily_reserved_tokens": daily_components["reserved_tokens"],
+            "daily_retained_tokens": daily_components["retained_tokens"],
+            "daily_confirmed_input_tokens": daily_components["confirmed_input_tokens"],
+            "daily_confirmed_output_tokens": daily_components["confirmed_output_tokens"],
+            "daily_reserved_input_tokens": daily_components["reserved_input_tokens"],
+            "daily_reserved_output_tokens": daily_components["reserved_output_tokens"],
+            "daily_retained_input_tokens": daily_components["retained_input_tokens"],
+            "daily_retained_output_tokens": daily_components["retained_output_tokens"],
+            "monthly_confirmed_tokens": monthly_components["confirmed_tokens"],
+            "monthly_reserved_tokens": monthly_components["reserved_tokens"],
+            "monthly_retained_tokens": monthly_components["retained_tokens"],
+            "monthly_confirmed_input_tokens": monthly_components["confirmed_input_tokens"],
+            "monthly_confirmed_output_tokens": monthly_components["confirmed_output_tokens"],
+            "monthly_reserved_input_tokens": monthly_components["reserved_input_tokens"],
+            "monthly_reserved_output_tokens": monthly_components["reserved_output_tokens"],
+            "monthly_retained_input_tokens": monthly_components["retained_input_tokens"],
+            "monthly_retained_output_tokens": monthly_components["retained_output_tokens"],
             "daily_remaining": max(0, key["daily_token_budget"] - daily)
             if key.get("daily_token_budget")
             else None,
@@ -659,7 +792,18 @@ class Accounting:
                 coalesce(sum(json_extract(payload,'$.input_tokens')),0),
                 coalesce(sum(json_extract(payload,'$.output_tokens')),0),
                 coalesce(sum(status>=400 AND status<500),0),
-                coalesce(sum(status>=500),0)
+                coalesce(sum(status>=500),0),
+                coalesce(sum(json_extract(payload,'$.input_tokens_total')),0),
+                coalesce(sum(json_extract(payload,'$.input_tokens_cached')),0),
+                coalesce(sum(CASE WHEN json_extract(payload,'$.usage_status')='authoritative'
+                    THEN 1 ELSE 0 END),0),
+                coalesce(sum(CASE WHEN json_extract(payload,'$.input_tokens_total') IS NOT NULL
+                    THEN 1 ELSE 0 END),0),
+                coalesce(sum(CASE WHEN json_extract(payload,'$.input_tokens_total') IS NOT NULL
+                    AND json_extract(payload,'$.input_tokens_cached') IS NOT NULL
+                    AND json_extract(payload,'$.input_tokens_cached')
+                        <= json_extract(payload,'$.input_tokens_total')
+                    THEN 1 ELSE 0 END),0)
                 FROM requests WHERE started>=?""",
                 (self._stats_since,),
             ).fetchone()
@@ -670,12 +814,40 @@ class Accounting:
                     (self._stats_since,),
                 )
             ]
+            ttft_values = [
+                r[0]
+                for r in db.execute(
+                    "SELECT json_extract(payload,'$.ttft_ms') FROM requests WHERE started>=? AND json_extract(payload,'$.ttft_ms') IS NOT NULL ORDER BY json_extract(payload,'$.ttft_ms')",
+                    (self._stats_since,),
+                )
+            ]
+            decode_values = [
+                r[0]
+                for r in db.execute(
+                    "SELECT json_extract(payload,'$.proxy_decode_tokens_per_second') FROM requests WHERE started>=? AND json_extract(payload,'$.proxy_decode_tokens_per_second') IS NOT NULL ORDER BY json_extract(payload,'$.proxy_decode_tokens_per_second')",
+                    (self._stats_since,),
+                )
+            ]
+            cache_total_known = (
+                db.execute(
+                    "SELECT coalesce(sum(json_extract(payload,'$.input_tokens_total')),0) "
+                    "FROM requests WHERE started>=? AND json_extract(payload,'$.input_tokens_total') IS NOT NULL "
+                    "AND json_extract(payload,'$.input_tokens_cached') IS NOT NULL "
+                    "AND json_extract(payload,'$.input_tokens_cached') <= json_extract(payload,'$.input_tokens_total')",
+                    (self._stats_since,),
+                ).fetchone()[0]
+                if counts[11]
+                else 0
+            )
 
-        def percentile(q):
+        def percentile(q, values=None):
             import math
 
-            return latencies[max(0, math.ceil(len(latencies) * q) - 1)] if latencies else None
+            values = latencies if values is None else values
+            return values[max(0, math.ceil(len(values) * q) - 1)] if values else None
 
+        cached_total = counts[8]
+        cache_known_requests = counts[11]
         return {
             "dropped_history": self.dropped_history,
             "since": self._stats_since,
@@ -689,9 +861,21 @@ class Accounting:
             "server_errors": counts[6],
             "p50_latency_ms": percentile(0.5),
             "p95_latency_ms": percentile(0.95),
+            "p50_ttft_ms": percentile(0.5, ttft_values),
+            "p95_ttft_ms": percentile(0.95, ttft_values),
+            "p50_decode_tokens_per_second": percentile(0.5, decode_values),
+            "p95_decode_tokens_per_second": percentile(0.95, decode_values),
             "unknown_usage": counts[2],
             "input_tokens": counts[3],
             "output_tokens": counts[4],
+            "input_tokens_total": counts[7],
+            "input_tokens_cached": cached_total,
+            "authoritative_usage_requests": counts[9],
+            "input_count_known_requests": counts[10],
+            "cache_known_requests": cache_known_requests,
+            "cache_unknown_requests": max(0, counts[10] - cache_known_requests),
+            "cache_hit_ratio": (cached_total / cache_total_known if cache_total_known else None),
+            "cache_coverage": (cache_known_requests / counts[10] if counts[10] else None),
         }
 
     def reset_stats(self):

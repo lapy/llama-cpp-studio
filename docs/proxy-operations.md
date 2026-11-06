@@ -25,12 +25,75 @@ Per-model start/stop, preload/warm, reload, logs, and runtime-apply APIs provide
 The Requests tab shows live requests and retained metadata, 100 per page. Filter
 by key, resolved model, state, exact HTTP status, HTTP outcome group (4xx/5xx), or metadata search. Details include
 request ID, client key ID/name, requested alias, resolved model, queue position,
-queue wait, model acquisition, time to first response byte, time to first content
-token (for supported SSE events), generation/stream duration, total duration,
-bytes, reported tokens, reservations, and a failure reason. No prompts,
+queue wait, model acquisition, proxy TTFT, time to first visible text, first/last
+output events, output interval, terminal event, total duration, bytes, normalized
+usage fields, reservations, and a failure reason. No prompts,
 completion bodies, authorization values, or query-string credentials are stored.
-Unknown usage is shown as unknown, not zero. Time to first token is unavailable
-when an engine does not send recognizable token events.
+Unknown usage is shown as unknown, not zero. Proxy TTFT is unavailable when an
+engine does not send recognizable generated-output events.
+
+Observation uses a versioned, protocol-aware record
+(`backend/proxy/studio/observation.py`). Schema version 1 records the engine,
+installed build revision, protocol adapter, field provenance, quality flags and
+observation failure reasons. The same finalized record feeds request history,
+registry statistics, benchmarks and settlement; the registry never consumes raw
+pre-normalization counts. Usage authority is separate from transport completion:
+
+- Nonstream usage is authoritative only after the bounded scanner proves one
+  complete JSON root with valid container, primitive and escape grammar and no
+  trailing data. The scanner never buffers the response body.
+- SSE `[DONE]` is stream termination, not proof that a preceding usage snapshot
+  is final. A terminal error after usage keeps the observed counts but never
+  promotes them to authoritative or replaces the conservative reservation.
+- `response.completed`, `response.incomplete` and `response.failed` are terminal
+  envelopes; a final usage envelope on a failed generation may still be
+  authoritative chargeable usage.
+- Chat `delta.content`, completion `choices[].text`, Responses text, tool-call
+  and reasoning deltas, and native llama/SGLang content all count as generated
+  output for TTFT and decode-rate boundaries. Reasoning and tool output are
+  recognized as output but are not counted as visible text.
+- Audio event detection stays separate; audio durations/RTF are never mapped to
+  text output-token charges.
+
+### Statistics contract
+
+The UI can explain why two rates differ because each metric has one definition:
+
+| Metric | Definition |
+| --- | --- |
+| Proxy TTFT | Request start to first recognized generated-output event. Includes Studio overhead; event-observed approximation. |
+| Time to first visible text | Request start to first non-empty user-visible text delta. Can follow reasoning/tool output. |
+| Proxy output interval | First to last generated-output event. Excludes TTFT and terminal cleanup. |
+| Proxy decode rate | `(output tokens - 1) / output interval` for a verified single sequence. Approximate when events bundle or omit tokens. |
+| Effective request throughput | Output tokens / complete request duration. Includes TTFT. |
+| Engine decode rate | Engine-reported/adapter-derived value with its original numerator and timing semantics. |
+| Lifetime wall-clock throughput | Output tokens / wall time since the generation stats window began. Includes idle time by design. |
+| Rolling 10 s / 60 s throughput | Completion-attributed output tokens over the explicit trailing window. |
+| Input cache hit ratio | `sum(cached input) / sum(total input)` over the cache-known cohort, with coverage shown. |
+
+A delayed terminal event or EOF does not change the decode measurement. Missing
+or incompatible coverage suppresses a rate instead of manufacturing one from a
+tiny denominator. Ratios never treat unknown cache reporting as zero. Engine and
+proxy rates remain side by side; their difference is not automatically proxy
+overhead.
+
+Studio also owns the engine flags that make metrics trustworthy. When the
+active build's scanned parameter catalog proves support, Studio adds
+`--metrics` and `--perf` for llama.cpp-family engines,
+`--enable-prompt-tokens-details`, `--enable-force-include-usage` and
+`--kv-cache-metrics` for 1Cat-vLLM/vLLM, and `--enable-cache-report`,
+`--enable-metrics` and `--stream-response-default-include-usage` for
+SGLang/SGLang-V100. These flags are reserved: a model's `custom_args` cannot
+duplicate or override them. The catalog gate means older builds without a flag
+are started without it rather than failing on an unknown argument. Engine
+Prometheus endpoints stay engine-owned; Studio does not map their values onto
+proxy rates.
+
+Input token fields are independent: logical total, cached subset, derived
+uncached input, engine processed prompt work, preflight count and admission
+reservation. A missing cache subset leaves the exact total usable and marks the
+cache count unknown. If `cached > total`, the total is retained, derived cache
+values are suppressed, and a metadata-only discrepancy reason is recorded.
 
 Header, query-key and UI-cookie credentials resolve to the same client identity
 before model/scope checks. Explicit header credentials take precedence; invalid
@@ -83,23 +146,48 @@ the prompt reservation atomically before generation. If the adjustment exceeds
 the budget, no generation is sent and the provisional token charge is released.
 `token_accounting: auto` permits a visible UTF-8 byte estimate for simple text
 when a counter is unavailable. `token_accounting: exact` refuses that fallback.
-Counters currently adapt llama.cpp/ik_llama/unsloth native chat/Responses counting
-and completion/embedding tokenization, plus vLLM/1cat_vllm tokenization and
-Responses input counting when exposed by the installed version. An adapter does
-not imply every engine version supports every route. The actual endpoint and
-counting time are visible in request details. See the [token-counting adapters](../backend/proxy/studio/tokenization.py). Output reservation is the requested maximum
-across all choices and batch prompts. If omitted, a key's output cap or the gateway default (4096)
+Counters adapt llama.cpp/ik_llama/unsloth native chat/Responses counting and
+completion/embedding tokenization, plus vLLM/1cat_vllm tokenization, and
+SGLang/SGLang-V100 `/v1/tokenize` chat/prompt counting. LMDeploy has no verified
+exact input-count contract yet, so exact mode fails closed with a specific
+capability reason. An adapter does not imply every engine version supports every
+route. Optional routes are probed once per engine build revision; a 404/405/501
+disables that route for the revision instead of retrying it on every request.
+The actual endpoint and counting time are visible in request details. See the
+[capability declarations](../backend/engines/capabilities.py) and
+[token-counting adapters](../backend/proxy/studio/tokenization.py). Output
+reservation is the requested maximum across all choices and batch prompts. If
+omitted, a key's output cap or the gateway default (4096)
 is applied to the upstream request. Requests explicitly exceeding the key output
 cap are rejected rather than silently changed. Engines must honor output limits.
 Reported engine usage replaces the estimate; an unexpectedly larger report is
 charged in full and can exhaust the budget for subsequent admissions.
+
+Settlement reconciles input and output independently. When an adapter proves one
+field authoritative, that field replaces its reservation while the other field
+retains the conservative allowance (for example, exact input on a truncated
+output stream). The first authoritative value for a field wins; a stale or
+duplicate retry cannot replace it. A field still unknown can be upgraded by a
+deferred retry. A request that never dispatched releases both fields. Retained
+charges keep their evidence (`reservation`, `preflight`, `partial` or
+`proxy_process_interrupted`) and are visible in the key ledger.
+
+Each key reports an enforcement total plus three independently reconstructed
+components for today and this month: **confirmed actual usage**, **active
+reservations** and **retained uncertain charges**. The enforcement invariant is
+confirmed + active reserved + retained = the charge counted against admission.
+Remaining allowance can therefore be reconstructed from visible components.
+
 
 For budgeted chat streams the proxy requests `stream_options.include_usage`.
 Usage parsing is incremental and bounded, including final usage after large
 responses. It observes an independently decoded copy of gzip/deflate responses
 without changing forwarded bytes; binary/audio payloads are not scanned as JSON.
 A bounded decompression budget prevents usage observation from expanding
-unbounded data. Partial/nonterminal SSE usage never replaces a full reservation. Missing or incomplete usage retains the full reservation after a
+unbounded data. Cumulative usage snapshots replace earlier values; they are never
+summed. Partial/nonterminal SSE usage never replaces a full reservation, and a
+terminal error after usage does not promote that snapshot to authoritative.
+Missing or incomplete usage retains the full reservation after a
 partial stream, disconnect, timeout or successful response. Embeddings generate
 zero output tokens. Requests rejected before upstream dispatch release their
 token reservation; their accepted request-rate slot still counts. Budgets are
@@ -180,8 +268,12 @@ STUDIO_BENCHMARK_KEY=... python -m scripts.proxy_benchmark \
   --model example --requests 100 --concurrency 8 --output benchmark.json
 ```
 
-Results include p50/p95 latency, first-byte/first-token latency, requests/second,
-byte and reported-token throughput, errors and benchmark-process peak RSS. The
+Results include p50/p95 latency, proxy first-output latency, recorded decode-rate
+estimate with its quality flag, effective request throughput, engine metrics
+(kept separate), requests/second, byte and reported-token throughput, errors and
+benchmark-process peak RSS. `tokens_per_second` is the proxy-observed
+`(N-1)/interval` estimate; `engine_tokens_per_second` preserves the engine's own
+value and is not silently preferred. The
 load generator uses a warmed aiohttp connection pool; a throwaway warmup client
 would not warm the measured connections. The fixture runs engine, proxy and load
 generator in one process, so its RSS is combined and its timings
@@ -217,7 +309,11 @@ The [feature guide's serving settings table](features.md#serving-settings) lists
 
 - [Native proxy management endpoints](../backend/routes/proxy_admin.py) expose listener/model lifecycle, logs, statistics reset, request queries, and saved settings.
 - [Inference-key endpoints](../backend/routes/inference_keys.py) expose key creation, rotation, revocation, policy changes, and usage.
-- [Accounting implementation](../backend/proxy/studio/accounting.py) defines policy validation, durable admission, settlement, retention, and usage queries.
+- [Accounting implementation](../backend/proxy/studio/accounting.py) defines policy validation, durable admission, per-field settlement, ledger components, retention, and usage queries.
+- [Observation contract](../backend/proxy/studio/observation.py) defines the versioned normalized record, metric formulas and protocol adapters.
+- [Engine capabilities](../backend/engines/capabilities.py) declares protocol/counting adapters, cache-reporting expectations and revision-scoped probe caching.
+- [Usage framing](../backend/proxy/studio/usage.py) owns bounded SSE/JSON observation and terminal/authority detection.
+- [Token counting](../backend/proxy/studio/tokenization.py) adapts llama.cpp, vLLM and SGLang exact input counts.
 - [Native dataplane](../backend/proxy/studio/dataplane.py) owns transport supervision, authorization, UI transport, filters, and response observations.
 - [Runtime manager](../backend/proxy/studio/manager.py) owns compiled catalog resolution and live route snapshots.
 
