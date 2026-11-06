@@ -180,6 +180,28 @@ def test_dflash_precedes_mtp_and_is_frozen(launch):
         assert spec.argv[-3].endswith("dflash.gguf")
 
 
+def test_dspark_precedes_dflash_and_mtp(launch):
+    for engine in launch.engines:
+        launch.resolve_model_to(launch.model_file(engine))
+        launch.resolve_companions(
+            {
+                "dspark.gguf": launch.companion_file(engine, "dspark.gguf"),
+                "dflash.gguf": launch.companion_file(engine, "dflash.gguf"),
+                "mtp.gguf": launch.companion_file(engine, "mtp.gguf"),
+            }
+        )
+        model = launch.model(
+            engine,
+            dspark_filename="dspark.gguf",
+            dflash_filename="dflash.gguf",
+            mtp_filename="mtp.gguf",
+        )
+        spec = _compile(launch, model, {}, engine)
+        assert spec.argv[-2:] == ["--spec-type", "draft-dspark"]
+        assert spec.argv[-4] == "--model-draft"
+        assert spec.argv[-3].endswith("dspark.gguf")
+
+
 def test_user_spec_type_suppresses_the_default_and_is_frozen(launch):
     for engine in launch.engines:
         launch.resolve_model_to(launch.model_file(engine))

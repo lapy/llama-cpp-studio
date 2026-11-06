@@ -79,8 +79,10 @@ GGUF companion roles include:
 | `mmproj`     | Vision/projector artifact for compatible multimodal models.           |
 | MTP draft    | Draft artifact for a compatible multi-token-prediction configuration. |
 | DFlash draft | Draft artifact for a compatible speculative-decoding configuration.   |
+| DSpark draft | Draft artifact for DeepSeek DSpark speculative decoding.              |
+| Engram table | Swappable n-gram table shard for DeepSeek Engram models.               |
 
-MTP and DFlash are mutually exclusive selections. Runtime validation checks the paths and engine flags needed for the selected model and companions.
+MTP, DFlash and DSpark are mutually exclusive draft selections. Engram tables are listed for manual shard swapping, not selected as a draft. Runtime validation checks the paths and engine flags needed for the selected model and companions.
 
 ### Model library
 

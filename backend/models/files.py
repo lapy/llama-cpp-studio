@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, Iterator, Optional
 
-MODEL_FILE_ROLES = frozenset({"weight", "shard", "mmproj", "mtp", "dflash"})
+MODEL_FILE_ROLES = frozenset({"weight", "shard", "mmproj", "mtp", "dflash", "dspark", "engram"})
 
 
 def infer_file_role(filename: str) -> str:
@@ -16,6 +16,10 @@ def infer_file_role(filename: str) -> str:
         return "mmproj"
     if "dflash" in name:
         return "dflash"
+    if "dspark" in name:
+        return "dspark"
+    if name.endswith(".gguf_file") and "engram" in name:
+        return "engram"
     if re.search(r"(?:^|[/\\\-_.])mtp(?:[/\\\-_.]|$)", name):
         return "mtp"
     if re.search(r"-\d{5}-of-\d{5}(?=\.gguf$|\.safetensors$)", name) or re.search(

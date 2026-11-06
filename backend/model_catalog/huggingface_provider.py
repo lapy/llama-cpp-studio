@@ -156,6 +156,8 @@ class HuggingFaceCatalogProvider:
                 "multimodal" if raw.get("mmproj_files") else "",
                 "mtp" if raw.get("mtp_files") else "",
                 "dflash" if raw.get("dflash_files") else "",
+                "dspark" if raw.get("dspark_files") else "",
+                "engram" if raw.get("engram_files") else "",
             ],
             compatible_engines=compatible,
             compatibility={

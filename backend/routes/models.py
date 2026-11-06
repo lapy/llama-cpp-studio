@@ -46,6 +46,7 @@ from backend.models.hub import (
     collect_model_refresh_plan,
     list_repo_companion_files,
     is_dflash_filename as _hf_is_dflash_filename,
+    is_dspark_filename as _hf_is_dspark_filename,
     is_mmproj_filename as _hf_is_mmproj_filename,
     is_mtp_filename as _hf_is_mtp_filename,
 )
@@ -57,6 +58,7 @@ from backend.services.model_downloads import (
     ActiveDownloadConflict,
     download_gguf_bundle_task,
     download_model_dflash_task,
+    download_model_dspark_task,
     download_model_mtp_task,
     download_model_projector_task,
     download_model_task,
@@ -64,6 +66,7 @@ from backend.services.model_downloads import (
     refresh_model_task,
     register_gguf_bundle_download,
     register_gguf_dflash_download,
+    register_gguf_dspark_download,
     register_gguf_mtp_download,
     register_gguf_projector_download,
     register_model_refresh_download,
@@ -116,6 +119,10 @@ def _is_mtp_filename(filename: Optional[str]) -> bool:
 
 def _is_dflash_filename(filename: Optional[str]) -> bool:
     return _hf_is_dflash_filename(filename)
+
+
+def _is_dspark_filename(filename: Optional[str]) -> bool:
+    return _hf_is_dspark_filename(filename)
 
 
 def _get_model_or_404(store, model_id: str) -> dict:
@@ -794,6 +801,7 @@ async def list_models():
                 "mmproj_filename": model.get("mmproj_filename"),
                 "mtp_filename": model.get("mtp_filename"),
                 "dflash_filename": model.get("dflash_filename"),
+                "dspark_filename": model.get("dspark_filename"),
                 "huggingface_id": hf_id,
                 "base_model_name": base_name,
                 "model_type": model.get("model_type"),
@@ -1166,6 +1174,8 @@ async def download_gguf_bundle(
     mtp_size = max(int(request.get("mtp_size") or 0), 0)
     dflash_filename = (request.get("dflash_filename") or "").strip()
     dflash_size = max(int(request.get("dflash_size") or 0), 0)
+    dspark_filename = (request.get("dspark_filename") or "").strip()
+    dspark_size = max(int(request.get("dspark_size") or 0), 0)
 
     if not huggingface_id:
         raise HTTPException(status_code=400, detail="huggingface_id is required")
@@ -1179,10 +1189,13 @@ async def download_gguf_bundle(
         raise HTTPException(status_code=400, detail="Invalid MTP draft filename")
     if dflash_filename and not _is_dflash_filename(dflash_filename):
         raise HTTPException(status_code=400, detail="Invalid DFlash draft filename")
-    if mtp_filename and dflash_filename:
+    if dspark_filename and not _is_dspark_filename(dspark_filename):
+        raise HTTPException(status_code=400, detail="Invalid DSpark draft filename")
+    drafts = [name for name in (mtp_filename, dflash_filename, dspark_filename) if name]
+    if len(drafts) > 1:
         raise HTTPException(
             status_code=400,
-            detail="Choose either an MTP or DFlash draft, not both",
+            detail="Choose only one draft: MTP, DFlash or DSpark",
         )
 
     sanitized_files = []
@@ -1212,6 +1225,11 @@ async def download_gguf_bundle(
     if dflash_filename:
         declared_total += dflash_size
         dflash_payload = {"filename": dflash_filename, "size": dflash_size}
+
+    dspark_payload = None
+    if dspark_filename:
+        declared_total += dspark_size
+        dspark_payload = {"filename": dspark_filename, "size": dspark_size}
 
     task_id = f"download_gguf_bundle_{huggingface_id.replace('/', '_')}_{quantization}_{int(time.time() * 1000)}"
 
@@ -1250,6 +1268,7 @@ async def download_gguf_bundle(
         projector_payload,
         mtp_payload,
         dflash_payload,
+        dspark_payload,
     )
 
     return {
@@ -1325,6 +1344,7 @@ async def get_model_companions(model_id: str):
             "mmproj_filename": model.get("mmproj_filename"),
             "mtp_filename": model.get("mtp_filename"),
             "dflash_filename": model.get("dflash_filename"),
+            "dspark_filename": model.get("dspark_filename"),
         },
     }
 
@@ -1685,6 +1705,88 @@ async def update_model_dflash(
     )
     return {
         "message": "DFlash draft download started",
+        "task_id": task_id,
+        "applied": False,
+    }
+
+
+
+@router.post("/{model_id:path}/dspark")
+async def update_model_dspark(
+    model_id: str,
+    request: dict,
+    background_tasks: BackgroundTasks,
+):
+    store = get_store()
+    model = _get_model_or_404(store, model_id)
+    if (model.get("format")) != "gguf":
+        raise HTTPException(
+            status_code=400, detail="DSpark drafts are only supported for GGUF models"
+        )
+
+    dspark_filename = (request.get("dspark_filename") or "").strip() or None
+    total_bytes = max(int(request.get("total_bytes") or 0), 0)
+
+    if dspark_filename and not _is_dspark_filename(dspark_filename):
+        raise HTTPException(status_code=400, detail="Invalid DSpark draft filename")
+
+    current_dspark = model.get("dspark_filename")
+    if dspark_filename == current_dspark:
+        return {"message": "DSpark draft already selected", "applied": True}
+
+    if not dspark_filename:
+        store.update_model(model_id, {"dspark_filename": None})
+        remove_model_files(store, model_id, roles={"dspark"})
+        _mark_runtime_changed()
+        return {"message": "DSpark draft cleared", "applied": True}
+
+    huggingface_id = model.get("huggingface_id")
+    cached_path = resolve_cached_model_path(huggingface_id, dspark_filename)
+    if cached_path and os.path.exists(cached_path):
+        store.update_model(model_id, {"dspark_filename": dspark_filename, "mtp_filename": None, "dflash_filename": None})
+        remove_model_files(store, model_id, roles={"mtp", "dflash"})
+        _record_cached_companion(
+            store, model_id, huggingface_id, dspark_filename, "dspark", cached_path
+        )
+        _mark_runtime_changed()
+        return {"message": "DSpark draft applied", "applied": True}
+
+    task_id = f"download_dspark_{model_id.replace('/', '_')}_{int(time.time() * 1000)}"
+    try:
+        await register_gguf_dspark_download(
+            task_id=task_id,
+            huggingface_id=huggingface_id,
+            model_id=model_id,
+            dspark_filename=dspark_filename,
+        )
+    except ActiveDownloadConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+
+    pm = get_progress_manager()
+    pm.create_task(
+        "download",
+        f"DSpark draft {dspark_filename}",
+        {
+            "huggingface_id": huggingface_id,
+            "filename": dspark_filename,
+            "model_id": model_id,
+            "resource_key": f"hf:{huggingface_id}:{dspark_filename}",
+        },
+        task_id=task_id,
+    )
+    await _fence_download(task_id)
+    background_tasks.add_task(
+        _spawn_background_operation,
+        task_id,
+        download_model_dspark_task,
+        model_id,
+        dspark_filename,
+        pm,
+        task_id,
+        total_bytes,
+    )
+    return {
+        "message": "DSpark draft download started",
         "task_id": task_id,
         "applied": False,
     }

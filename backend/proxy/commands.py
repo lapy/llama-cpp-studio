@@ -877,10 +877,13 @@ def _resolve_mmproj_path(
 def _resolve_draft_companion(
     model: Any, hf_id: Optional[str], hf_repo_arg: Optional[str]
 ) -> tuple[Optional[str], Optional[str]]:
-    """Return ``(draft_path, spec_type)`` for MTP or DFlash companions.
+    """Return ``(draft_path, spec_type)`` for DSpark, DFlash or MTP companions.
 
-    DFlash takes precedence when both fields are set (they share ``--model-draft``).
+    DSpark takes precedence, then DFlash, then MTP (all share ``--model-draft``).
     """
+    dspark_path = _resolve_companion_path(model, hf_id, hf_repo_arg, "dspark_filename")
+    if dspark_path:
+        return dspark_path, "draft-dspark"
     dflash_path = _resolve_companion_path(model, hf_id, hf_repo_arg, "dflash_filename")
     if dflash_path:
         return dflash_path, "draft-dflash"

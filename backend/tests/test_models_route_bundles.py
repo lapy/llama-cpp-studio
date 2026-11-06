@@ -144,7 +144,7 @@ def test_download_gguf_bundle_route_validates_and_schedules(monkeypatch):
             )
         )
 
-    with pytest.raises(HTTPException, match="either an MTP or DFlash"):
+    with pytest.raises(HTTPException, match="Choose only one draft"):
         asyncio.run(
             models_routes.download_gguf_bundle(
                 {
@@ -176,12 +176,13 @@ def test_download_gguf_bundle_route_validates_and_schedules(monkeypatch):
         scheduled = background_tasks.tasks[0]
         assert scheduled.func is models_routes._spawn_background_operation
         assert scheduled.args[1] is model_downloads.download_gguf_bundle_task
-        assert scheduled.args[-1] is None
-        assert scheduled.args[-2] == {
+        assert scheduled.args[-1] is None  # DSpark
+        assert scheduled.args[-2] is None  # DFlash
+        assert scheduled.args[-3] == {
             "filename": "MTP/mtp-model-Q8_0.gguf",
             "size": 8,
         }
-        assert scheduled.args[-3] == {"filename": "mmproj-F16.gguf", "size": 5}
+        assert scheduled.args[-4] == {"filename": "mmproj-F16.gguf", "size": 5}
         assert pm.created[0][0] == "download"
     finally:
         model_downloads.active_downloads.clear()

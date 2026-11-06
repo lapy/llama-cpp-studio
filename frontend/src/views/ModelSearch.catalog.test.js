@@ -390,6 +390,8 @@ describe('ModelSearch catalog integration', () => {
       0,
       null,
       0,
+      null,
+      0,
     )
     expect(installCatalogModel).not.toHaveBeenCalled()
   })
@@ -416,6 +418,8 @@ describe('ModelSearch catalog integration', () => {
       'text-generation',
       'mmproj-F32.gguf',
       90,
+      null,
+      0,
       null,
       0,
       null,
@@ -451,6 +455,8 @@ describe('ModelSearch catalog integration', () => {
       80,
       null,
       0,
+      null,
+      0,
     )
   })
 
@@ -474,6 +480,8 @@ describe('ModelSearch catalog integration', () => {
       0,
       'MTP/mtp-model-Q4_0.gguf',
       40,
+      null,
+      0,
       null,
       0,
     )
@@ -502,6 +510,8 @@ describe('ModelSearch catalog integration', () => {
       0,
       'laguna-s-2.1-DFlash-BF16.gguf',
       2200,
+      null,
+      0,
     )
   })
 
@@ -530,6 +540,8 @@ describe('ModelSearch catalog integration', () => {
       'Q4_K_M',
       [{ filename: 'model-Q4_K_M.gguf', size: 100 }],
       'text-generation',
+      null,
+      0,
       null,
       0,
       null,

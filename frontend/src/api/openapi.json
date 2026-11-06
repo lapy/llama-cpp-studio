@@ -5623,6 +5623,58 @@
         ]
       }
     },
+    "/api/models/{model_id}/dspark": {
+      "post": {
+        "operationId": "update_model_dspark_api_models__model_id__dspark_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_id",
+            "required": true,
+            "schema": {
+              "title": "Model Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Request",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Model Dspark",
+        "tags": [
+          "models"
+        ]
+      }
+    },
     "/api/models/{model_id}/mtp": {
       "post": {
         "operationId": "update_model_mtp_api_models__model_id__mtp_post",

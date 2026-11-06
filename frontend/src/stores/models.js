@@ -276,6 +276,8 @@ export const useModelStore = defineStore('models', () => {
     mtpSize = 0,
     dflashFilename = null,
     dflashSize = 0,
+    dsparkFilename = null,
+    dsparkSize = 0,
   ) {
     const { data } = await axios.post('/api/models/gguf/download-bundle', {
       huggingface_id: huggingfaceId,
@@ -288,6 +290,8 @@ export const useModelStore = defineStore('models', () => {
       mtp_size: mtpSize,
       dflash_filename: dflashFilename,
       dflash_size: dflashSize,
+      dspark_filename: dsparkFilename,
+      dspark_size: dsparkSize,
     })
     return data
   }
@@ -385,6 +389,15 @@ export const useModelStore = defineStore('models', () => {
   async function updateModelDflash(modelId, dflashFilename = null, totalBytes = 0) {
     const { data } = await axios.post(`/api/models/${apiModelSegment(modelId)}/dflash`, {
       dflash_filename: dflashFilename,
+      total_bytes: totalBytes,
+    })
+    notifyRuntimeChanged()
+    return data
+  }
+
+  async function updateModelDspark(modelId, dsparkFilename = null, totalBytes = 0) {
+    const { data } = await axios.post(`/api/models/${apiModelSegment(modelId)}/dspark`, {
+      dspark_filename: dsparkFilename,
       total_bytes: totalBytes,
     })
     notifyRuntimeChanged()
@@ -489,6 +502,7 @@ export const useModelStore = defineStore('models', () => {
     updateModelProjector,
     updateModelMtp,
     updateModelDflash,
+    updateModelDspark,
     refreshModel,
     fetchModelCompanions,
     fetchHuggingfaceTokenStatus,

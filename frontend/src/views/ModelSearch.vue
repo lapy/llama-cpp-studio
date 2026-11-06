@@ -308,6 +308,22 @@
                 value="DFlash"
                 severity="info"
               />
+              <Tag
+                v-if="
+                  (result.features || []).includes('dspark') ||
+                  (result.metadata?.raw?.dspark_files || []).length
+                "
+                value="DSpark"
+                severity="info"
+              />
+              <Tag
+                v-if="
+                  (result.features || []).includes('engram') ||
+                  (result.metadata?.raw?.engram_files || []).length
+                "
+                value="Engram"
+                severity="info"
+              />
             </div>
           </div>
 
@@ -440,7 +456,8 @@
                     v-if="
                       catalogHasProjector(result) ||
                       catalogHasMtp(result) ||
-                      catalogHasDflash(result)
+                      catalogHasDflash(result) ||
+                      catalogHasDspark(result)
                     "
                     class="install-variant__companions"
                   >
@@ -481,6 +498,19 @@
                         class="projector-select"
                         :disabled="isCatalogVariantBusy(result, variant)"
                         @update:model-value="setCatalogDflash(result, variant, $event)"
+                      />
+                    </div>
+                    <div v-if="catalogHasDspark(result)" class="install-variant__projector">
+                      <label :for="`catalog-dspark-${result.id}-${variant.id}`">DSpark draft</label>
+                      <Select
+                        :id="`catalog-dspark-${result.id}-${variant.id}`"
+                        :model-value="getCatalogDspark(result, variant)"
+                        :options="catalogDsparkOptions(result)"
+                        optionLabel="label"
+                        optionValue="value"
+                        class="projector-select"
+                        :disabled="isCatalogVariantBusy(result, variant)"
+                        @update:model-value="setCatalogDspark(result, variant, $event)"
                       />
                     </div>
                   </div>
@@ -537,6 +567,17 @@
                       :loading="isCatalogVariantBusy(result, variant)"
                       :disabled="isCatalogVariantBusy(result, variant)"
                       @click="updateCatalogDflash(result, variant)"
+                    />
+                    <Button
+                      v-if="hasCatalogDsparkSelectionChanged(result, variant)"
+                      label="Apply DSpark"
+                      icon="pi pi-save"
+                      size="small"
+                      severity="success"
+                      outlined
+                      :loading="isCatalogVariantBusy(result, variant)"
+                      :disabled="isCatalogVariantBusy(result, variant)"
+                      @click="updateCatalogDspark(result, variant)"
                     />
                   </template>
                   <Button
@@ -742,6 +783,7 @@
                   <th v-if="searchFormat === 'gguf'">Projector</th>
                   <th v-if="searchFormat === 'gguf'">MTP</th>
                   <th v-if="searchFormat === 'gguf'">DFlash</th>
+                  <th v-if="searchFormat === 'gguf'">DSpark</th>
                   <th>Status</th>
                   <th></th>
                 </tr>
@@ -810,6 +852,22 @@
                       :disabled="isFileDownloading(result.modelId || result.id, file)"
                       @update:model-value="
                         setSelectedDflash(result.modelId || result.id, file, $event)
+                      "
+                    />
+                  </td>
+                  <td v-if="searchFormat === 'gguf'" class="projector-cell">
+                    <Select
+                      v-if="
+                        file.kind === 'quant' && (file.dsparkOptions || []).some((opt) => opt.value)
+                      "
+                      :model-value="getSelectedDspark(result.modelId || result.id, file)"
+                      :options="file.dsparkOptions || [{ label: 'None', value: '' }]"
+                      optionLabel="label"
+                      optionValue="value"
+                      class="projector-select"
+                      :disabled="isFileDownloading(result.modelId || result.id, file)"
+                      @update:model-value="
+                        setSelectedDspark(result.modelId || result.id, file, $event)
                       "
                     />
                   </td>
@@ -888,6 +946,21 @@
                         outlined
                         :loading="isFileDownloading(result.modelId || result.id, file)"
                         @click="updateDflash(result, file)"
+                      />
+                      <Button
+                        v-if="
+                          file.downloaded &&
+                          searchFormat === 'gguf' &&
+                          file.kind === 'quant' &&
+                          hasDsparkSelectionChanged(result.modelId || result.id, file)
+                        "
+                        label="Apply DSpark"
+                        icon="pi pi-save"
+                        size="small"
+                        severity="success"
+                        outlined
+                        :loading="isFileDownloading(result.modelId || result.id, file)"
+                        @click="updateDspark(result, file)"
                       />
                       <Button
                         v-if="!file.downloaded"
@@ -1346,6 +1419,7 @@ const filesCache = ref({}) // modelId -> files[]
 const projectorSelections = ref({})
 const mtpSelections = ref({})
 const dflashSelections = ref({})
+const dsparkSelections = ref({})
 const catalogMode = ref(import.meta.env.MODE !== 'test')
 const catalogActionKey = ref(null)
 const catalogDownloadingKeys = ref(new Set())
@@ -2424,6 +2498,10 @@ function catalogHasDflash(result) {
   return result?.artifact_format === 'gguf' && (result.metadata?.raw?.dflash_files || []).length > 0
 }
 
+function catalogHasDspark(result) {
+  return result?.artifact_format === 'gguf' && (result.metadata?.raw?.dspark_files || []).length > 0
+}
+
 function catalogProjectorOptions(result) {
   return getProjectorOptions(result?.metadata?.raw?.mmproj_files || [])
 }
@@ -2434,6 +2512,10 @@ function catalogMtpOptions(result) {
 
 function catalogDflashOptions(result) {
   return getDflashOptions(result?.metadata?.raw?.dflash_files || [])
+}
+
+function catalogDsparkOptions(result) {
+  return getDsparkOptions(result?.metadata?.raw?.dspark_files || [])
 }
 
 function catalogProjectorFile(result, variant) {
@@ -2454,6 +2536,13 @@ function catalogDflashFile(result, variant) {
   return {
     quantizationKey: variant.id,
     dflashOptions: catalogDflashOptions(result),
+  }
+}
+
+function catalogDsparkFile(result, variant) {
+  return {
+    quantizationKey: variant.id,
+    dsparkOptions: catalogDsparkOptions(result),
   }
 }
 
@@ -2510,6 +2599,24 @@ function getCatalogDflash(result, variant) {
   return getDefaultDflashValue(file)
 }
 
+function getCatalogDspark(result, variant) {
+  const hfId = catalogHfId(result)
+  const file = catalogDsparkFile(result, variant)
+  const key = getDsparkSelectionKey(hfId, file)
+  if (Object.prototype.hasOwnProperty.call(dsparkSelections.value, key)) {
+    return dsparkSelections.value[key]
+  }
+  const downloaded = findCatalogDownloadedModel(result, variant)
+  if (downloaded) {
+    return downloaded.dspark_filename || ''
+  }
+  return getDefaultDsparkValue(file)
+}
+
+function setCatalogDspark(result, variant, value) {
+  setSelectedDspark(catalogHfId(result), catalogDsparkFile(result, variant), value)
+}
+
 function setCatalogDflash(result, variant, value) {
   setSelectedDflash(catalogHfId(result), catalogDflashFile(result, variant), value)
   if (value) {
@@ -2533,6 +2640,12 @@ function hasCatalogDflashSelectionChanged(result, variant) {
   const downloaded = findCatalogDownloadedModel(result, variant)
   if (!downloaded || !catalogHasDflash(result)) return false
   return (getCatalogDflash(result, variant) || '') !== (downloaded.dflash_filename || '')
+}
+
+function hasCatalogDsparkSelectionChanged(result, variant) {
+  const downloaded = findCatalogDownloadedModel(result, variant)
+  if (!downloaded || !catalogHasDspark(result)) return false
+  return (getCatalogDspark(result, variant) || '') !== (downloaded.dspark_filename || '')
 }
 
 function catalogVariantHasActiveDownloadTask(result, variant) {
@@ -2596,6 +2709,9 @@ async function downloadHfCatalogVariant(result, variant) {
       const dflashFile = catalogDflashFile(result, variant)
       const selectedDflash = getCatalogDflash(result, variant) || ''
       const dflashOption = getSelectedDflashOption(dflashFile, selectedDflash)
+      const dsparkFile = catalogDsparkFile(result, variant)
+      const selectedDspark = getCatalogDspark(result, variant) || ''
+      const dsparkOption = getSelectedDsparkOption(dsparkFile, selectedDspark)
       await modelStore.downloadGgufBundle(
         hfId,
         variant.id,
@@ -2607,6 +2723,8 @@ async function downloadHfCatalogVariant(result, variant) {
         mtpOption?.size || 0,
         selectedDflash || null,
         dflashOption?.size || 0,
+        selectedDspark || null,
+        dsparkOption?.size || 0,
       )
     }
     toast.add({
@@ -2841,6 +2959,7 @@ async function loadFiles(modelId) {
       const projectorOptions = getProjectorOptions(result.mmproj_files || [])
       const mtpOptions = getMtpOptions(result.mtp_files || [])
       const dflashOptions = getDflashOptions(result.dflash_files || [])
+      const dsparkOptions = getDsparkOptions(result.dspark_files || [])
       const quantEntries = Object.entries(result.quantizations || {}).map(([key, entry]) => ({
         key,
         kind: 'quant',
@@ -2851,6 +2970,7 @@ async function loadFiles(modelId) {
         projectorOptions,
         mtpOptions,
         dflashOptions,
+        dsparkOptions,
         files: (entry.files || []).map((f) => ({
           filename: f.filename,
           size: f.size || 0,
@@ -2898,6 +3018,7 @@ async function loadFiles(modelId) {
         ensureProjectorSelection(modelId, entry, entry.downloaded?.mmproj_filename || '')
         ensureMtpSelection(modelId, entry, entry.downloaded?.mtp_filename || '')
         ensureDflashSelection(modelId, entry, entry.downloaded?.dflash_filename || '')
+        ensureDsparkSelection(modelId, entry, entry.downloaded?.dspark_filename || '')
       })
     } else {
       const stFiles = result.safetensors_files || []
@@ -3157,6 +3278,55 @@ async function updateDflash(result, file) {
   }
 }
 
+async function updateDspark(result, file) {
+  const repoId = result.modelId || result.id
+  const downloadKey = getDownloadKey(repoId, file)
+  const model = file.modelId
+    ? modelStore.allQuantizations.find((m) => m.id === file.modelId)
+    : findDownloadedQuantization(repoId, file, file.files || [])
+  if (!model?.id) return
+
+  const selectedDspark = getSelectedDspark(repoId, file) || null
+  const selectedDsparkOption = getSelectedDsparkOption(file, selectedDspark)
+
+  downloadingFiles.value.add(downloadKey)
+  downloadingFiles.value = new Set(downloadingFiles.value)
+  try {
+    const response = await modelStore.updateModelDspark(
+      model.id,
+      selectedDspark,
+      selectedDsparkOption?.size || 0,
+    )
+    if (response?.applied) {
+      downloadingFiles.value.delete(downloadKey)
+      downloadingFiles.value = new Set(downloadingFiles.value)
+      await refreshModelSearchState()
+      toast.add({
+        severity: 'success',
+        summary: 'DSpark draft updated',
+        detail: response.message,
+        life: 3000,
+      })
+    } else {
+      toast.add({
+        severity: 'success',
+        summary: 'DSpark draft update started',
+        detail: response?.message || 'Track progress in notifications',
+        life: 3000,
+      })
+    }
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'DSpark draft update failed',
+      detail: e.message,
+      life: 4000,
+    })
+    downloadingFiles.value.delete(downloadKey)
+    downloadingFiles.value = new Set(downloadingFiles.value)
+  }
+}
+
 async function updateCatalogProjector(result, variant) {
   const model = findCatalogDownloadedModel(result, variant)
   if (!model?.id) return
@@ -3298,6 +3468,53 @@ async function updateCatalogDflash(result, variant) {
   }
 }
 
+async function updateCatalogDspark(result, variant) {
+  const model = findCatalogDownloadedModel(result, variant)
+  if (!model?.id) return
+  const hfId = catalogHfId(result)
+  const downloadKey = `${hfId}:${variant.id}`
+  const dsparkFile = catalogDsparkFile(result, variant)
+  const selectedDspark = getCatalogDspark(result, variant) || ''
+  const dsparkOption = getSelectedDsparkOption(dsparkFile, selectedDspark)
+
+  catalogDownloadingKeys.value.add(downloadKey)
+  catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
+  try {
+    const response = await modelStore.updateModelDspark(
+      model.id,
+      selectedDspark || null,
+      dsparkOption?.size || 0,
+    )
+    if (response?.applied) {
+      catalogDownloadingKeys.value.delete(downloadKey)
+      catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
+      await refreshModelSearchState()
+      toast.add({
+        severity: 'success',
+        summary: 'DSpark draft updated',
+        detail: response.message,
+        life: 3000,
+      })
+    } else {
+      toast.add({
+        severity: 'success',
+        summary: 'DSpark draft update started',
+        detail: response?.message || 'Track progress in notifications',
+        life: 3000,
+      })
+    }
+  } catch (e) {
+    toast.add({
+      severity: 'error',
+      summary: 'DSpark draft update failed',
+      detail: e?.response?.data?.detail || e.message,
+      life: 4000,
+    })
+    catalogDownloadingKeys.value.delete(downloadKey)
+    catalogDownloadingKeys.value = new Set(catalogDownloadingKeys.value)
+  }
+}
+
 function configureDownloaded(modelId, file) {
   const model =
     searchFormat.value === 'safetensors'
@@ -3398,6 +3615,18 @@ function getDflashSelectionKey(modelId, file) {
   return `${modelId}:${file.quantizationKey || file.filename}:dflash`
 }
 
+function getDsparkSelectionKey(modelId, file) {
+  return `${modelId}:${file.quantizationKey || file.filename}:dspark`
+}
+
+function parseDsparkLabel(filename) {
+  const upper = (filename || '').toUpperCase()
+  for (const label of ['Q8_0', 'BF16', 'F16', 'F32', 'Q6_K', 'Q5_K', 'Q4_K_M']) {
+    if (upper.includes(label)) return label
+  }
+  return 'Default'
+}
+
 function parseProjectorPrecision(filename) {
   const upper = (filename || '').toUpperCase()
   if (upper.includes('BF16')) return 'BF16'
@@ -3493,6 +3722,29 @@ function getDflashOptions(dflashFiles = []) {
   ]
 }
 
+function getDsparkOptions(dsparkFiles = []) {
+  const byLabel = new Map()
+  dsparkFiles.forEach((file) => {
+    const label = file.label || parseDsparkLabel(file.filename)
+    if (byLabel.has(label)) return
+    byLabel.set(label, {
+      label,
+      value: file.filename,
+      size: file.size || 0,
+    })
+  })
+  const preferred = ['Q8_0', 'BF16', 'F16', 'Default']
+  return [
+    { label: 'None', value: '', size: 0 },
+    ...Array.from(byLabel.values()).sort((a, b) => {
+      const ia = preferred.indexOf(a.label)
+      const ib = preferred.indexOf(b.label)
+      if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
+      return a.label.localeCompare(b.label)
+    }),
+  ]
+}
+
 function ensureProjectorSelection(modelId, file, value = '') {
   const key = getProjectorSelectionKey(modelId, file)
   if (Object.prototype.hasOwnProperty.call(projectorSelections.value, key)) return
@@ -3519,6 +3771,16 @@ function ensureDflashSelection(modelId, file, value = '') {
   const defaultValue = value || getDefaultDflashValue(file)
   dflashSelections.value = {
     ...dflashSelections.value,
+    [key]: defaultValue,
+  }
+}
+
+function ensureDsparkSelection(modelId, file, value = '') {
+  const key = getDsparkSelectionKey(modelId, file)
+  if (Object.prototype.hasOwnProperty.call(dsparkSelections.value, key)) return
+  const defaultValue = value || getDefaultDsparkValue(file)
+  dsparkSelections.value = {
+    ...dsparkSelections.value,
     [key]: defaultValue,
   }
 }
@@ -3608,6 +3870,46 @@ function getSelectedDflashOption(file, value) {
   return (file.dflashOptions || []).find((option) => option.value === (value || '')) || null
 }
 
+function setSelectedDspark(modelId, file, value) {
+  dsparkSelections.value = {
+    ...dsparkSelections.value,
+    [getDsparkSelectionKey(modelId, file)]: value || '',
+  }
+  if (value) {
+    mtpSelections.value = {
+      ...mtpSelections.value,
+      [getMtpSelectionKey(modelId, file)]: '',
+    }
+    dflashSelections.value = {
+      ...dflashSelections.value,
+      [getDflashSelectionKey(modelId, file)]: '',
+    }
+  }
+}
+
+function getSelectedDspark(modelId, file) {
+  const key = getDsparkSelectionKey(modelId, file)
+  if (Object.prototype.hasOwnProperty.call(dsparkSelections.value, key)) {
+    return dsparkSelections.value[key]
+  }
+  return file.downloaded?.dspark_filename || ''
+}
+
+function getSelectedDsparkOption(file, value) {
+  return (file.dsparkOptions || []).find((option) => option.value === (value || '')) || null
+}
+
+function getDefaultDsparkValue(file) {
+  const options = file.dsparkOptions || []
+  const preferred = ['Q8_0', 'BF16', 'F16', 'Default']
+  for (const label of preferred) {
+    const match = options.find((option) => option.label === label && option.value)
+    if (match) return match.value
+  }
+  const first = options.find((option) => option.value)
+  return first?.value || ''
+}
+
 function getDefaultDflashValue(file) {
   const options = file.dflashOptions || []
   const preferred = ['BF16', 'F16', 'Default']
@@ -3629,6 +3931,10 @@ function hasMtpSelectionChanged(modelId, file) {
 
 function hasDflashSelectionChanged(modelId, file) {
   return (getSelectedDflash(modelId, file) || '') !== (file.downloaded?.dflash_filename || '')
+}
+
+function hasDsparkSelectionChanged(modelId, file) {
+  return (getSelectedDspark(modelId, file) || '') !== (file.downloaded?.dspark_filename || '')
 }
 
 function findDownloadedQuantization(hfId, entry, files = []) {
@@ -3782,6 +4088,7 @@ function markDownloadedFromEvent(payload) {
       mmproj_filename: payload?.mmproj_filename || row.downloaded?.mmproj_filename || '',
       mtp_filename: payload?.mtp_filename || row.downloaded?.mtp_filename || '',
       dflash_filename: payload?.dflash_filename || row.downloaded?.dflash_filename || '',
+      dspark_filename: payload?.dspark_filename || row.downloaded?.dspark_filename || '',
     }
 
     const updatedRow = {

@@ -12,6 +12,7 @@ from backend.models.hub import (
     download_model,
     download_model_with_progress,
     extract_quantization,
+    extract_quantization_key,
     get_model_details,
     get_remote_file_info,
     get_safetensors_metadata_summary,
@@ -680,7 +681,7 @@ async def record_gguf_download_post_fetch(
     Create/update a GGUF model row after a file has been downloaded.
     Returns (model_record dict, metadata_result).
     """
-    quantization = extract_quantization(filename)
+    quantization = extract_quantization_key(filename)
     repo_name = huggingface_id.split("/")[-1] if isinstance(huggingface_id, str) else ""
     base_model_name = repo_name
     if repo_name.endswith("-GGUF"):
@@ -1045,6 +1046,7 @@ async def download_gguf_bundle_task(
     projector: Optional[Dict[str, Any]] = None,
     mtp: Optional[Dict[str, Any]] = None,
     dflash: Optional[Dict[str, Any]] = None,
+    dspark: Optional[Dict[str, Any]] = None,
 ):
     store = get_store()
     try:
@@ -1052,10 +1054,11 @@ async def download_gguf_bundle_task(
             (1 if projector and projector.get("filename") else 0)
             + (1 if mtp and mtp.get("filename") else 0)
             + (1 if dflash and dflash.get("filename") else 0)
+            + (1 if dspark and dspark.get("filename") else 0)
         )
         total_files = len(files) + companion_count
         bytes_completed = 0
-        companions = [projector, mtp, dflash]
+        companions = [projector, mtp, dflash, dspark]
         _resolve_bundle_file_sizes(huggingface_id, [*files, *companions])
         aggregate_total = sum(
             max((f or {}).get("size") or 0, 0) for f in [*files, *companions]
@@ -1166,16 +1169,24 @@ async def download_gguf_bundle_task(
         # and clear the other field so serve macros stay unambiguous.
         mtp_filename = None
         dflash_filename = None
-        if dflash and dflash.get("filename"):
+        dspark_filename = None
+        if dspark and dspark.get("filename"):
+            dspark_filename = await _download_companion(dspark, "dspark_filename")
+            if dspark_filename:
+                store.update_model(
+                    model_id, {"mtp_filename": None, "dflash_filename": None}
+                )
+                remove_model_files(store, model_id, roles={"mtp", "dflash"})
+        elif dflash and dflash.get("filename"):
             dflash_filename = await _download_companion(dflash, "dflash_filename")
             if dflash_filename:
-                store.update_model(model_id, {"mtp_filename": None})
-                remove_model_files(store, model_id, roles={"mtp"})
+                store.update_model(model_id, {"mtp_filename": None, "dspark_filename": None})
+                remove_model_files(store, model_id, roles={"mtp", "dspark"})
         elif mtp and mtp.get("filename"):
             mtp_filename = await _download_companion(mtp, "mtp_filename")
             if mtp_filename:
-                store.update_model(model_id, {"dflash_filename": None})
-                remove_model_files(store, model_id, roles={"dflash"})
+                store.update_model(model_id, {"dflash_filename": None, "dspark_filename": None})
+                remove_model_files(store, model_id, roles={"dflash", "dspark"})
 
         if model_record and bundle_model_bytes > 0:
             try:
@@ -1217,6 +1228,7 @@ async def download_gguf_bundle_task(
                 "mmproj_filename": projector_filename,
                 "mtp_filename": mtp_filename,
                 "dflash_filename": dflash_filename,
+                "dspark_filename": dspark_filename,
                 "model_id": model_id,
                 "timestamp": datetime.utcnow().isoformat(),
             }
@@ -1707,3 +1719,126 @@ async def refresh_model_task(
             unregister_task_cancel(task_id)
             async with download_lock:
                 active_downloads.pop(task_id, None)
+
+
+async def download_model_dspark_task(
+    model_id: str,
+    dspark_filename: str,
+    progress_manager,
+    task_id: str,
+    total_bytes: int = 0,
+):
+    store = get_store()
+    try:
+        model = store.get_model(model_id)
+        if not model:
+            raise RuntimeError("Model no longer exists")
+
+        huggingface_id = model.get("huggingface_id")
+        if not huggingface_id:
+            raise RuntimeError("Model is missing huggingface_id")
+
+        cached_path = resolve_cached_model_path(huggingface_id, dspark_filename)
+        if cached_path and os.path.exists(cached_path):
+            file_path = cached_path
+            try:
+                file_size = os.path.getsize(cached_path)
+            except OSError:
+                file_size = max(int(total_bytes or 0), 0)
+        else:
+            file_path, file_size = await download_model_with_progress(
+                huggingface_id,
+                dspark_filename,
+                progress_manager,
+                task_id,
+                total_bytes,
+                "gguf",
+                huggingface_id,
+            )
+
+        store.update_model(
+            model_id, {"dspark_filename": dspark_filename, "mtp_filename": None, "dflash_filename": None}
+        )
+        remove_model_files(store, model_id, roles={"mtp", "dflash"})
+        _record_model_file(
+            store,
+            model_id,
+            huggingface_id,
+            dspark_filename,
+            file_size,
+            role="dspark",
+        )
+
+        if progress_manager:
+            progress_manager.complete_task(
+                task_id, f"Applied DSpark draft {dspark_filename}"
+            )
+            await progress_manager.broadcast(
+                {
+                    "type": "download_complete",
+                    "status": "completed",
+                    "huggingface_id": huggingface_id,
+                    "model_format": "gguf-dspark",
+                    "model_id": model_id,
+                    "filename": dspark_filename,
+                    "dspark_filename": dspark_filename,
+                    "file_size": file_size,
+                    "file_path": file_path,
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
+            )
+            await progress_manager.send_notification(
+                title="DSpark Draft Ready",
+                message=f"Applied DSpark draft {dspark_filename}",
+                type="success",
+            )
+        mark_native_proxy_stale_after_download()
+    except TaskCancelledError:
+        if progress_manager:
+            progress_manager.fail_task(task_id, "Download cancelled by user")
+            await progress_manager.send_notification(
+                title="Download Cancelled",
+                message="DSpark draft update was cancelled.",
+                type="warn",
+            )
+    except Exception as exc:
+        if progress_manager:
+            progress_manager.fail_task(task_id, str(exc))
+            await progress_manager.send_notification(
+                title="DSpark Draft Update Failed",
+                message=str(exc),
+                type="error",
+            )
+    finally:
+        if task_id:
+            unregister_task_cancel(task_id)
+            async with download_lock:
+                active_downloads.pop(task_id, None)
+
+
+
+
+async def register_gguf_dspark_download(
+    *,
+    task_id: str,
+    huggingface_id: str,
+    model_id: str,
+    dspark_filename: str,
+) -> None:
+    async with download_lock:
+        if any(
+            d.get("model_id") == model_id
+            and d.get("filename") == dspark_filename
+            and d.get("model_format") == "gguf-dspark"
+            for d in active_downloads.values()
+        ):
+            raise ActiveDownloadConflict("This DSpark draft is already being applied")
+        active_downloads[task_id] = {
+            "huggingface_id": huggingface_id,
+            "model_id": model_id,
+            "filename": dspark_filename,
+            "model_format": "gguf-dspark",
+        }
+        register_task_cancel(task_id)
+
+
