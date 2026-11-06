@@ -289,7 +289,7 @@
               size="small"
               aria-label="Reload versions and status"
               v-tooltip.top="'Reload versions and status'"
-              @click="refreshEngineDialogStatus('audio_cpp')"
+              @click="refreshEngineDialogStatus(audioEngineId)"
             />
             <Button
               icon="pi pi-book"
@@ -299,8 +299,8 @@
               size="small"
               aria-label="Rescan audio.cpp capabilities"
               v-tooltip.top="'Rescan audio.cpp capabilities'"
-              :loading="paramScanLoading === 'audio_cpp'"
-              @click="rescanEngineCliParams('audio_cpp')"
+              :loading="paramScanLoading === audioEngineId"
+              @click="rescanEngineCliParams(audioEngineId)"
             />
           </template>
         </EngineDialogHeader>
@@ -449,7 +449,7 @@
         <div class="ev-section-body engine-modal-body">
           <EngineBuildSettingsHint
             :key="`audio-hint-${hintRevAudio}`"
-            engine-key="audio_cpp"
+            :engine-key="audioEngineId"
             @open-settings="openAudioCppBuildSettings"
           />
           <EngineCheckUpdatesCta :loading="checkingAudioCpp" @check="checkAudioCppUpdates" />
@@ -972,6 +972,7 @@ import { engineCardCta, engineCardOrder, engineMatchesFilters } from '@/composab
 import { activeVersionDeletePlan } from '@/composables/engineVersionDelete'
 import { lmdeployCompatibilityFor } from '@/utils/lmdeployCompatibility'
 import {
+  AUDIO_ENGINE_IDS,
   ENGINE_DESCRIPTORS,
   SG_PANEL_ENGINE_IDS,
   engineIdForManager,
@@ -988,7 +989,8 @@ const enginesStore = useEnginesStore()
 
 // R88: statuses live in the store's keyed map; the view keeps named computeds
 // (template-friendly) instead of the removed per-engine status refs.
-const audioCppStatus = computed(() => enginesStore.statusForEngine('audio_cpp'))
+const audioEngineId = AUDIO_ENGINE_IDS[0] || ''
+const audioCppStatus = computed(() => enginesStore.statusForEngine(audioEngineId))
 const lmdeployStatus = computed(() => enginesStore.statusForEngine('lmdeploy'))
 const onecatVllmStatus = computed(() => enginesStore.statusForEngine('1cat_vllm'))
 const progressStore = useProgressStore()
@@ -1129,7 +1131,7 @@ const ENGINE_DIALOG_OPEN = {
       withVersionListRefresh(() => enginesStore.fetchSglangStatus(engineId)),
     ]),
   ),
-  audio_cpp: () => {
+  [audioEngineId]: () => {
     enginesStore.fetchLlamaVersions()
     enginesStore.fetchAudioCppStatus()
     checkAudioCppUpdates()
@@ -1251,7 +1253,7 @@ const engineActive = {
   sglang: activeSglang,
   sglang_v100: activeSglangV100,
   vllm: activeVllm,
-  audio_cpp: activeAudioCpp,
+  [audioEngineId]: activeAudioCpp,
 }
 
 function resetEngineFilters() {
@@ -1276,7 +1278,7 @@ const ENGINE_CARD_ORDER = Object.freeze([
   'sglang',
   'sglang_v100',
   'vllm',
-  'audio_cpp',
+  audioEngineId,
 ])
 
 // Update-info refs are declared later in setup; resolve them lazily so the
@@ -1303,7 +1305,7 @@ const engineSummaryCards = computed(() =>
     const versions = versionsFor(engineId)
     const active = engineActive[engineId]?.value || null
     const update = card.update ? ENGINE_UPDATE_SOURCES[card.update.key]?.() || null : null
-    const disabled = card.featureFlag === 'audio_cpp' ? !audioCppFeatureEnabled.value : false
+    const disabled = card.featureFlag === audioEngineId ? !audioCppFeatureEnabled.value : false
     let badge = card.badge || null
     if (badge?.kind === 'audio-maturity') {
       badge = audioCppFeatureEnabled.value
@@ -1497,14 +1499,14 @@ const audioCppActiveStatusRows = computed(() => {
 })
 const audioCppFeatureEnabled = computed(() => {
   const descriptor = (enginesStore.engineDescriptors || []).find(
-    (engine) => engine.id === 'audio_cpp',
+    (engine) => engine.id === audioEngineId,
   )
   return descriptor?.enabled !== false
 })
 
 const audioCppMaturitySurfaces = computed(() => {
   const descriptor = (enginesStore.engineDescriptors || []).find(
-    (engine) => engine.id === 'audio_cpp',
+    (engine) => engine.id === audioEngineId,
   )
   return descriptor?.maturity_surfaces || {}
 })
@@ -2421,7 +2423,7 @@ async function openVersionBuildConfig(versionId) {
   }
   const id = String(version.id || '')
   const engine = id.includes(':') ? id.split(':')[0] : ''
-  if (engine === 'audio_cpp') {
+  if (engine === audioEngineId) {
     await openAudioVersionBuildConfig(version)
     return
   }
@@ -2805,7 +2807,7 @@ async function ensureAudioCppOptionsCatalog() {
   if ((audioCppOptionsCatalog.value?.categories || []).length) return
   audioCppOptionsLoading.value = true
   try {
-    const data = await enginesStore.fetchBuildOptionsForEngine('audio_cpp')
+    const data = await enginesStore.fetchBuildOptionsForEngine(audioEngineId)
     if (data?.categories?.length) {
       audioCppOptionsCatalog.value = data
     }
@@ -2832,7 +2834,7 @@ async function openAudioCppBuildSettings() {
     audioCppBuildForm.value.source_ref = audioCppStatus.value?.tracking_ref || 'main'
   }
   audioCppBuildForm.value.versionSuffix = ''
-  persistBuildHintDismissed('audio_cpp')
+  persistBuildHintDismissed(audioEngineId)
   hintRevAudio.value += 1
   audioCppBuildDialogVisible.value = true
 }
@@ -3968,7 +3970,7 @@ onMounted(() => {
 
     if (task?.type === 'build') {
       const refreshTasks = [enginesStore.fetchLlamaVersions(), enginesStore.fetchSystemStatus()]
-      if (task.metadata?.engine === 'audio_cpp') {
+      if (task.metadata?.engine === audioEngineId) {
         refreshTasks.push(enginesStore.fetchAudioCppStatus())
       }
       await Promise.allSettled(refreshTasks)
