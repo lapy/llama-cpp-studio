@@ -198,6 +198,15 @@ test('touch layouts retain minimum target sizes and reflow at 320 CSS pixels', a
           )
         expect(clippedNavLabels).toEqual([])
         await audit(page, testInfo, `touch-${theme}-${path.replaceAll('/', '-').replace('#', '-')}`)
+        if (path === '/system#config-backup') {
+          // The hardware view is not axe-audited here yet, but it must still
+          // reflow without horizontal scrolling at 320 CSS pixels.
+          await page.goto('http://127.0.0.1:4179/system')
+          await expect(page.locator('main h1').first()).toBeVisible()
+          expect(
+            await page.evaluate(() => document.documentElement.scrollWidth),
+          ).toBeLessThanOrEqual(320)
+        }
         if (path === '/proxy') {
           await page.getByRole('tab', { name: 'Overview', exact: true }).focus()
           for (const label of ['Requests', 'Events', 'Access keys', 'Settings & routing']) {
