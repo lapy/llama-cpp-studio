@@ -1269,17 +1269,7 @@ function versionsFor(engineId) {
   return Array.isArray(list) ? list : []
 }
 
-const ENGINE_CARD_ORDER = Object.freeze([
-  'llama_cpp',
-  'ik_llama',
-  'unsloth_llama',
-  'lmdeploy',
-  '1cat_vllm',
-  'sglang',
-  'sglang_v100',
-  'vllm',
-  audioEngineId,
-])
+const ENGINE_CARD_ORDER = Object.freeze(Object.keys(ENGINE_DESCRIPTORS))
 
 // Update-info refs are declared later in setup; resolve them lazily so the
 // summary cards stay one descriptor-driven loop.
