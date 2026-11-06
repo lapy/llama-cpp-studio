@@ -312,6 +312,8 @@ describe('models store', () => {
       mtp_size: 80,
       dflash_filename: null,
       dflash_size: 0,
+      dspark_filename: null,
+      dspark_size: 0,
     })
   })
 

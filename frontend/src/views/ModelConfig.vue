@@ -3362,12 +3362,18 @@ async function checkForModelUpdates() {
 
 function onMtpSelected(value) {
   selectedMtp.value = value || ''
-  if (selectedMtp.value) selectedDflash.value = ''
+  if (selectedMtp.value) {
+    selectedDflash.value = ''
+    selectedDspark.value = ''
+  }
 }
 
 function onDflashSelected(value) {
   selectedDflash.value = value || ''
-  if (selectedDflash.value) selectedMtp.value = ''
+  if (selectedDflash.value) {
+    selectedMtp.value = ''
+    selectedDspark.value = ''
+  }
 }
 
 function onDsparkSelected(value) {
