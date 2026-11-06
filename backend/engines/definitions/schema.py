@@ -804,6 +804,7 @@ PROFILE_KEYS: FrozenSet[str] = frozenset(
         "scan",
         "runtime_switch",
         "launch_family",
+        "launch_args",
     }
 )
 # A profile may NAME the launch mechanism that composes it (family profile)
@@ -815,7 +816,17 @@ PROFILE_KEYS: FrozenSet[str] = frozenset(
 # composes: a declared-but-ignored key is worse than an absent one.
 LAUNCH_FAMILIES: FrozenSet[str] = frozenset({"gguf_llama_server"})
 FAMILY_PROFILE_KEYS: FrozenSet[str] = frozenset(
-    {"description", "default", "launch_family", "argv_prefix", "port_binding"}
+    {
+        "description",
+        "default",
+        "launch_family",
+        "argv_prefix",
+        "port_binding",
+        "launch_args",
+    }
+)
+LAUNCH_ARG_KEYS: FrozenSet[str] = frozenset(
+    {"model", "hf_repo", "alias", "mmproj", "draft", "spec_type"}
 )
 RECIPE_STEP_KEYS: FrozenSet[str] = frozenset(
     {
@@ -1623,6 +1634,21 @@ def _validate_profile(name: str, value: Any, where: str) -> Dict[str, Any]:
             f"profile {name!r} requires 'port_binding'",
             item_where,
         )
+        launch_args = value.get("launch_args")
+        if launch_args is not None:
+            _require(
+                isinstance(launch_args, Mapping),
+                "launch_args must be a mapping",
+                item_where,
+            )
+            unknown = set(launch_args) - LAUNCH_ARG_KEYS
+            _require(
+                not unknown,
+                f"launch_args has unknown keys {sorted(unknown)}",
+                item_where,
+            )
+            for key, flag in launch_args.items():
+                _check_str(f"launch_args.{key}", flag, item_where)
     else:
         for required in ("executable", "model_binding", "port_binding"):
             _require(required in value, f"profile {name!r} requires '{required}'", item_where)

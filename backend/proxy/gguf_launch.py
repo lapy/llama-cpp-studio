@@ -96,20 +96,25 @@ def compile_gguf_family_launch(
             field="model",
         )
 
+    launch_args = dict(spec.get("launch_args") or {})
+
+    def arg(key: str, default: str) -> str:
+        return str(launch_args.get(key) or default)
+
     prefix = [str(token) for token in (spec.get("argv_prefix") or ())]
     argv: List[Any] = list(prefix)
     identities: Dict[str, Dict[str, Any]] = {}
     if hf_repo:
-        argv.extend(["--hf-repo", hf_repo])
+        argv.extend([arg("hf_repo", "--hf-repo"), hf_repo])
     else:
-        argv.extend(["--model", str(model_path or "")])
+        argv.extend([arg("model", "--model"), str(model_path or "")])
         identities["model"] = _file_identity(model_path)
     port_flag = str((spec.get("port_binding") or {}).get("flag") or "--port")
-    argv.extend([port_flag, dict(PORT_PLACEHOLDER), "--alias", stable_id])
+    argv.extend([port_flag, dict(PORT_PLACEHOLDER), arg("alias", "--alias"), stable_id])
 
     mmproj = _resolve_mmproj_path(model, hf_id, hf_repo)
     if mmproj:
-        argv.extend(["--mmproj", mmproj])
+        argv.extend([arg("mmproj", "--mmproj"), mmproj])
         identities["mmproj"] = _file_identity(mmproj)
     draft, draft_spec = _resolve_draft_companion(model, hf_id, hf_repo)
 
@@ -126,10 +131,11 @@ def compile_gguf_family_launch(
     _reject_owned_flags(structured, owned=owned)
 
     if draft:
-        argv.extend(["--model-draft", draft])
+        argv.extend([arg("draft", "--model-draft"), draft])
         identities["draft"] = _file_identity(draft)
-        if "--spec-type" not in structured:
-            argv.extend(["--spec-type", draft_spec or "draft-mtp"])
+        spec_type_flag = arg("spec_type", "--spec-type")
+        if spec_type_flag not in structured:
+            argv.extend([spec_type_flag, draft_spec or "draft-mtp"])
     argv.extend(structured)
 
     library = _resolve_cuda_library_path(cwd)

@@ -150,6 +150,13 @@ runtime_profiles:
     launch_family: gguf_llama_server
     port_binding:
       flag: --port
+    launch_args:
+      model: --model
+      hf_repo: --hf-repo
+      alias: --alias
+      mmproj: --mmproj
+      draft: --model-draft
+      spec_type: --spec-type
 launch_policy:
   runtime_context_key: ctx_size
   capcompat: true
