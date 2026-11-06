@@ -216,6 +216,34 @@ class OperationSupervisor:
         current["updated_at"] = time.time()
         return current
 
+    async def consume_resource_confirmation(self, resource_key: str) -> int:
+        """Retire every unresolved row that governs *resource_key*.
+
+        A launch apply is recorded twice: the request row here and its launch
+        journal. A journal confirmation already names the attempt, so it also
+        releases the request rows for the same resource instead of asking for
+        a second, unrelated token.
+        """
+        from backend.data_store import get_store
+        from backend.operations.action_recovery import keys_overlap
+        from backend.store_io import run_store_durable
+
+        consumed = 0
+        for row in get_store().list_operations():
+            if not keys_overlap(str(row.get("resource_key") or ""), resource_key):
+                continue
+            if str(row.get("status") or "") not in {"unknown", "interrupted"}:
+                continue
+            detail = row.get("detail") if isinstance(row.get("detail"), dict) else {}
+            if detail.get("confirmation_consumed"):
+                continue
+            current = self._confirmation_row(str(row.get("operation_id") or ""))
+            if current is None:
+                continue
+            await self._persist_durable(current, run_store_durable)
+            consumed += 1
+        return consumed
+
     async def fence_effect_started(self, operation_id: str) -> None:
         """Durably record that the effect may have started, before any launch.
 

@@ -545,8 +545,8 @@ def withheld_apply(
     """A prior apply whose result is still unknown.
 
     A confirmation must name that journal and its current state token. The
-    token changes once the confirmation is consumed, so it cannot authorize
-    a later or different attempt.
+    confirmed journal settles as ``interrupted``, so one confirmation releases
+    one retry and the same pair cannot authorize a later attempt.
     """
     from backend.operations.action_recovery import state_token
 
@@ -554,6 +554,8 @@ def withheld_apply(
     directory = _ops_dir(store)
     if not os.path.isdir(directory):
         return None
+    wanted = {model_id} if isinstance(model_id, str) else {str(item) for item in model_id}
+    matches = []
     for name in os.listdir(directory):
         if not name.endswith(".json"):
             continue
@@ -565,7 +567,6 @@ def withheld_apply(
             continue
         if str(journal.get("phase") or "") != "unknown":
             continue
-        wanted = {model_id} if isinstance(model_id, str) else {str(item) for item in model_id}
         if not wanted.intersection(
             {
                 str(journal.get("model_id") or ""),
@@ -576,39 +577,64 @@ def withheld_apply(
         recovery = journal.get("recovery") if isinstance(journal.get("recovery"), dict) else {}
         if recovery.get("retry") != "withheld":
             continue
-        token = state_token(
-            {
-                "operation_id": journal.get("operation_id"),
-                "resource_key": journal.get("model_id"),
-                "status": journal.get("phase"),
-                "updated_at": journal.get("observed_published_revision"),
-                "detail": {
-                    "effect_started": journal.get("observed_running_revision"),
-                    "launch_id": journal.get("prior_launch_id"),
-                },
-            }
-        )
-        operation_id = str(journal.get("operation_id") or "")
-        if confirm_operation_id == operation_id and confirm_state == token:
-            journal["confirmation_consumed"] = token
-            journal["observed_published_revision"] = (
-                str(journal.get("observed_published_revision") or "") + "#confirmed"
-            )
-            _write_json(path, journal)
-            return None
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            mtime = 0.0
+        matches.append((mtime, name, path, journal, recovery))
+    if not matches:
+        return None
+    # The newest unresolved attempt speaks for the model. Sorting keeps the
+    # state token stable across retries instead of following directory order.
+    matches.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    _, _, path, journal, recovery = matches[0]
+    token = state_token(
+        {
+            "operation_id": journal.get("operation_id"),
+            "resource_key": journal.get("model_id"),
+            "status": journal.get("phase"),
+            "updated_at": journal.get("observed_published_revision"),
+            "detail": {
+                "effect_started": journal.get("observed_running_revision"),
+                "launch_id": journal.get("prior_launch_id"),
+            },
+        }
+    )
+    operation_id = str(journal.get("operation_id") or "")
+    if confirm_operation_id == operation_id and confirm_state == token:
+        # One confirmation retires this attempt for good. Leaving it unknown
+        # would withhold the replacement and consume the same token again.
+        journal["confirmation_consumed"] = token
+        journal["phase"] = "interrupted"
+        journal["message"] = "The earlier attempt was confirmed by the user and was not replayed."
+        journal["recovery"] = {
+            "kind": "runtime_apply",
+            "evidence": "confirmed",
+            "status": "interrupted",
+            "retry": "safe",
+            "replayed": 0,
+            "message": journal["message"],
+        }
+        _write_json(path, journal)
         return {
-            "code": "ACTION_RETRY_WITHHELD",
-            "retry": "withheld",
+            "code": "ACTION_CONFIRMED",
+            "retry": "confirmed",
             "operation_id": operation_id,
             "state_token": token,
-            "message": journal.get("message")
-            or recovery.get("message")
-            or (
-                "Prior work may already have happened. "
-                "Confirm this operation and its current state before trying again."
-            ),
+            "message": journal["message"],
         }
-    return None
+    return {
+        "code": "ACTION_RETRY_WITHHELD",
+        "retry": "withheld",
+        "operation_id": operation_id,
+        "state_token": token,
+        "message": journal.get("message")
+        or recovery.get("message")
+        or (
+            "Prior work may already have happened. "
+            "Confirm this operation and its current state before trying again."
+        ),
+    }
 
 
 def verified_running_revision(store: LaunchManifestStore, model_id: str) -> Optional[str]:

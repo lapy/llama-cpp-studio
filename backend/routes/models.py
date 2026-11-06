@@ -2120,16 +2120,22 @@ async def apply_model_runtime(model_id: str, body: RuntimeApplyBody):
     bind_action_confirmation(body.model_dump())
     store = get_store()
     model = _get_model_or_404(store, model_id)
+    supervisor = get_supervisor()
     held = withheld_apply(
         None,
         [model_id, resolve_proxy_name(model)],
         confirm_operation_id=body.confirm_operation_id,
         confirm_state=body.confirm_state,
     )
-    if held:
+    if held and held.get("code") != "ACTION_CONFIRMED":
         raise HTTPException(status_code=409, detail=held)
+    if held:
+        # The journal and the request row describe the same attempt. The
+        # confirmation above already named it, so release the request rows and
+        # stop binding that pair: admit_action would call it stale.
+        await supervisor.consume_resource_confirmation(f"runtime-apply:{model_id}")
+        bind_action_confirmation(None)
     manager = get_proxy_controller()
-    supervisor = get_supervisor()
     try:
         supervisor.start_operation(
             body.idempotency_key,
