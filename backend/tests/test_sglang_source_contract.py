@@ -307,6 +307,7 @@ def _real_v100_checkout(tmp_path) -> Path:
         'name = "sglang"\n'
         'version = "0.0.0"\n'
         "dependencies = [\n"
+        '    "cuda-python>=13.0",\n'
         + "".join(
             "    " + item["search"] + "\n" for item in pyproject_asset.operations[0]["replacements"]
         )
@@ -316,10 +317,12 @@ def _real_v100_checkout(tmp_path) -> Path:
 
     install_asset = load_transform("sglang_v100/install_v100_studio")
     region = next(op for op in install_asset.operations if op["kind"] == "replace_region")
-    requirements = next(
-        op for op in install_asset.operations if "requirements.txt" in op.get("search", "")
+    marlin_stage = next(
+        op for op in install_asset.operations if "V100 Marlin" in op.get("marker", "")
     )
-    marlin_stage = next(op for op in install_asset.operations if op["kind"] == "insert_after")
+    flashinfer_stage = next(
+        op for op in install_asset.operations if "FLASHINFER_DIR" in op.get("marker", "")
+    )
     sparse_checkout = next(
         op for op in install_asset.operations if "sparse-checkout set" in op.get("search", "")
     )
@@ -335,7 +338,7 @@ def _real_v100_checkout(tmp_path) -> Path:
         + "\necho root\n"
         + region["end"]
         + "\n"
-        + requirements["search"]
+        + flashinfer_stage["marker"]
         + "\n"
         + marlin_stage["marker"]
         + "\n"
@@ -354,8 +357,40 @@ def _real_v100_checkout(tmp_path) -> Path:
         "#!/usr/bin/env bash\n" + patch_op["search"] + "\n" + build_op["search"] + "\n",
         encoding="utf-8",
     )
+    return checkout
 
-    ipc_asset = load_transform("sglang_v100/cuda_ipc")
+
+def _real_sxm2_checkout(tmp_path) -> Path:
+    """Smallest sglang-sxm2 checkout the versioned sglang_sxm2 assets apply to."""
+    from backend.engines.definitions.transforms import load_transform
+
+    checkout = tmp_path / "checkout"
+    scripts = checkout / "scripts"
+    scripts.mkdir(parents=True)
+
+    install_asset = load_transform("sglang_sxm2/install_v100_studio")
+    region = next(op for op in install_asset.operations if op["kind"] == "replace_region")
+    marlin_stage = next(
+        op for op in install_asset.operations if "V100 Marlin" in op.get("marker", "")
+    )
+    complete = next(
+        op for op in install_asset.operations if "Complete. Run" in op.get("search", "")
+    )
+    (scripts / "install_v100.sh").write_text(
+        "#!/usr/bin/env bash\n"
+        + region["start"]
+        + "\necho root\n"
+        + region["end"]
+        + "\n"
+        + 'python -m pip install --no-deps -r "$REPO_ROOT/requirements.txt"\n'
+        + marlin_stage["marker"]
+        + "\n"
+        + complete["search"]
+        + "\n",
+        encoding="utf-8",
+    )
+
+    ipc_asset = load_transform("sglang_sxm2/cuda_ipc")
     ipc = checkout / "python" / "sglang" / "kernels" / "jit" / "csrc" / "distributed" / "ipc.cuh"
     ipc.parent.mkdir(parents=True)
     ipc.write_text(
@@ -368,21 +403,55 @@ def _real_v100_checkout(tmp_path) -> Path:
 def test_v100_transform_assets_rewrite_a_real_checkout(tmp_path):
     """The versioned assets (not a class) must rewrite a real checkout."""
     checkout = _real_v100_checkout(tmp_path)
-    for name in ("pyproject", "cuda_ipc", "marlin_builder", "install_v100_studio"):
+    for name in ("pyproject", "marlin_builder", "install_v100_studio"):
         apply_transform("sglang_v100/" + name, str(checkout))
 
     script_path = checkout / "scripts" / "install_v100_studio.sh"
     rewritten = script_path.read_text(encoding="utf-8")
     assert "Studio owns host packages" in rewritten
     assert "SGLANG_STUDIO_PYTHON" in rewritten
+    assert "Building the SM70 FlashAttention vision package" in rewritten
+    assert "flash-attention-v100.git" in rewritten
+    assert "vision_host_compat.patch" in rewritten
+    assert rewritten.index(
+        'python -m pip install --no-deps --no-build-isolation -e "$FLASHINFER_DIR"'
+    ) < rewritten.index("Building the SM70 FlashAttention vision package")
     assert os.access(script_path, os.X_OK)
     pyproject = (checkout / "python" / "pyproject.toml").read_text(encoding="utf-8")
     assert "Studio SM70 dependency overrides applied" in pyproject
-    assert '"cuda-python==12.8.0",' in pyproject
     assert '"sglang-kernel==0.4.3",' not in pyproject
+    assert '"flashinfer_python==0.6.12",' not in pyproject
+    # Studio no longer overrides the fork's cuda-python pin: the fork's own
+    # resolved set is the validated one.
+    assert '"cuda-python>=13.0",' in pyproject
     marlin = (checkout / "scripts" / "setup_v100_marlin.sh").read_text(encoding="utf-8")
     assert "apply_sm70_patches()" in marlin
     assert "Studio: drop verbose ptxas" in marlin
+
+
+def test_sxm2_transform_assets_rewrite_a_real_checkout(tmp_path):
+    """sglang-sxm2 keeps the fork's requirements.txt and Marlin installer."""
+    checkout = _real_sxm2_checkout(tmp_path)
+    for name in ("cuda_ipc", "install_v100_studio"):
+        apply_transform("sglang_sxm2/" + name, str(checkout))
+
+    script_path = checkout / "scripts" / "install_v100_studio.sh"
+    rewritten = script_path.read_text(encoding="utf-8")
+    assert "Studio owns host packages" in rewritten
+    assert "SGLANG_STUDIO_PYTHON" in rewritten
+    assert "NVCC_PREPEND_FLAGS" in rewritten
+    assert "unset CMAKE_ARGS" in rewritten
+    assert "Studio environment: $VIRTUAL_ENV" in rewritten
+    # The maintainer's dependency strategy is untouched: the --no-deps
+    # requirements install and the patch-stack-aware Marlin script stay as
+    # shipped.
+    assert 'python -m pip install --no-deps -r "$REPO_ROOT/requirements.txt"' in rewritten
+    assert os.access(script_path, os.X_OK)
+    ipc = (
+        checkout / "python" / "sglang" / "kernels" / "jit" / "csrc" / "distributed" / "ipc.cuh"
+    ).read_text(encoding="utf-8")
+    assert "to_ipc_handle(pair.get<0>())" in ipc
+    assert "const auto offset = pair.get<1>();" in ipc
 
 
 def test_v100_transform_assets_fail_descriptively_when_layout_changes(tmp_path):
@@ -405,8 +474,8 @@ def test_v100_transform_assets_fail_descriptively_when_layout_changes(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_v100_prepare_fork_preserves_bad_dependencies(tmp_path, monkeypatch):
-    """Real dependency recovery: stale Marlin checkout is moved aside."""
+async def test_prepare_fork_preserves_declared_bad_dependencies(tmp_path, monkeypatch):
+    """Generic primitive: a dependency matching its preserve rule is moved aside."""
     manager, _calls = _manager(tmp_path, monkeypatch=None, v100=True)
     manager._prepare_versioned_paths("source")
     python_bin = Path(manager._venv_path) / "bin" / "python"
@@ -418,22 +487,32 @@ async def test_v100_prepare_fork_preserves_bad_dependencies(tmp_path, monkeypatc
     stale = base / "dependencies" / "marlin-v100" / "csrc"
     stale.mkdir(parents=True)
     (stale / "sm70_bf16_compat.h").write_text("// legacy shim\n", encoding="utf-8")
-    turbomind = base / "dependencies" / "turbomind-sm70-source"
-    (turbomind / "csrc").mkdir(parents=True)
     monkeypatch.setattr(fork_build.shutil, "which", lambda tool, path=None: f"/usr/bin/{tool}")
     monkeypatch.setattr(fork_build, "_compiler_major", lambda _compiler: 12)
     monkeypatch.setattr(fork_build, "safe_jobs", lambda: 2)
 
-    options = _v100_option("prepare_build")
-    options["require_cuda_nvcc"] = False
+    options = {
+        "dependencies": [
+            {
+                "path": "{dependencies}/marlin-v100",
+                "preserve_if_file": "csrc/sm70_bf16_compat.h",
+                "reason": "legacy BF16 compatibility header conflicts with CUDA 12.8",
+            }
+        ],
+        "variables": {
+            "HOME": "{root}/home",
+            "MARLIN_V100_REPO": "{dependencies}/marlin-v100",
+            "MARLIN_V100_SKIP_BF16_COMPAT": "1",
+        },
+    }
     env = await prepare_fork_build(
         manager,
         options,
         checkout=str(checkout),
         base_env={"SGLANG_STUDIO_PYTHON": "/studio/venv/bin/python"},
     )
-    assert env["HOME"] == str(base / "home")
-    assert env["MARLIN_V100_REPO"] == str(base / "dependencies" / "marlin-v100")
+    assert Path(env["HOME"]) == base / "home"
+    assert Path(env["MARLIN_V100_REPO"]) == base / "dependencies" / "marlin-v100"
     assert env["MARLIN_V100_SKIP_BF16_COMPAT"] == "1"
     backups = list((base / "dependencies").glob("marlin-v100.preserved-*"))
     assert len(backups) == 1, backups

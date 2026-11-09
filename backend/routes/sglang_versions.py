@@ -12,3 +12,4 @@ from backend.routes.engine_versions import definition_compat_router
 router = APIRouter()
 router.include_router(definition_compat_router("sglang", "/sglang"))
 router.include_router(definition_compat_router("sglang_v100", "/sglang-v100"))
+router.include_router(definition_compat_router("sglang_sxm2", "/sglang-sxm2"))

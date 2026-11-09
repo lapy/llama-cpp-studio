@@ -25,6 +25,9 @@ _SECRET_NAME_RE = re.compile(
     re.IGNORECASE,
 )
 _STUDIO_PREFIX = "LLAMA_STUDIO_"
+# SGLang SM70 forks whose runtime accepts numeric CUDA ids only and expects the
+# current allocator-conf spelling.
+_SM70_SGLANG_ENGINES = frozenset({"sglang_v100", "sglang_sxm2"})
 _COMPOSITIONAL_KEYS = frozenset({"PATH", "LD_LIBRARY_PATH"})
 _BASELINE_KEYS = (
     "HOME",
@@ -576,7 +579,7 @@ def _compile_env(
     active: Mapping[str, Any],
 ) -> EnvSpec:
     user_set, user_unset = _user_env(config)
-    if engine == "sglang_v100" and "PYTORCH_CUDA_ALLOC_CONF" in user_set:
+    if engine in _SM70_SGLANG_ENGINES and "PYTORCH_CUDA_ALLOC_CONF" in user_set:
         user_set.setdefault("PYTORCH_ALLOC_CONF", user_set["PYTORCH_CUDA_ALLOC_CONF"])
         user_set.pop("PYTORCH_CUDA_ALLOC_CONF", None)
     _apply_gpu_contract(config, user_set, user_unset, engine=engine, active=active)
@@ -727,7 +730,7 @@ def _apply_gpu_contract(
 
 def _cuda_device_ids_for_engine(ordered: Sequence[str], engine: str) -> List[str]:
     """Translate UUID selections for runtimes that only accept numeric CUDA ids."""
-    if engine != "sglang_v100":
+    if engine not in _SM70_SGLANG_ENGINES:
         return list(ordered)
     try:
         from backend.services.model_metadata import get_startup_gpu_list

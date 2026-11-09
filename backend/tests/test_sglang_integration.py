@@ -392,7 +392,7 @@ def test_sglang_diffusion_preview_uses_diffusion_cli_and_free_form_quantization(
     assert "--tensor-parallel-size" not in preview["cmd"]
 
 
-def test_v100_patches_cuda_ipc_tuple_access_for_nvcc_12_8(tmp_path):
+def test_sxm2_patches_cuda_ipc_tuple_access_for_nvcc_12_8(tmp_path):
     source = tmp_path / "source"
     ipc = source / "python" / "sglang" / "kernels" / "jit" / "csrc" / "distributed" / "ipc.cuh"
     ipc.parent.mkdir(parents=True)
@@ -401,7 +401,7 @@ def test_v100_patches_cuda_ipc_tuple_access_for_nvcc_12_8(tmp_path):
         encoding="utf-8",
     )
 
-    apply_transform("sglang_v100/cuda_ipc", str(source))
+    apply_transform("sglang_sxm2/cuda_ipc", str(source))
     patched = ipc.read_text(encoding="utf-8")
 
     assert "to_ipc_handle(pair.get<0>())" in patched
@@ -409,7 +409,7 @@ def test_v100_patches_cuda_ipc_tuple_access_for_nvcc_12_8(tmp_path):
     assert "get<0>(pair)" not in patched
     assert "get<1>(pair)" not in patched
     # Retrying an installation must remain idempotent.
-    apply_transform("sglang_v100/cuda_ipc", str(source))
+    apply_transform("sglang_sxm2/cuda_ipc", str(source))
 
 
 def test_v100_marlin_builder_strips_verbose_ptxas_and_exports_parallel_level(tmp_path):

@@ -411,6 +411,7 @@ def test_model_list_expands_stale_safetensors_compatible_engines(
         "vllm",
         "sglang",
         "sglang_v100",
+        "sglang_sxm2",
     }
 
 
@@ -600,6 +601,7 @@ def test_model_config_save_persists_updated_safetensors_compatible_engines(
         "vllm",
         "sglang",
         "sglang_v100",
+        "sglang_sxm2",
     }
 
 

@@ -54,6 +54,8 @@ def _select_compiler(path: str, minimum: int, maximum: int, error: str) -> str:
         shutil.which("g++-12", path=path),
         shutil.which("g++-11", path=path),
         shutil.which("g++-10", path=path),
+        shutil.which("g++-14", path=path),
+        shutil.which("g++-13", path=path),
         shutil.which("g++", path=path),
         shutil.which("c++", path=path),
     ]

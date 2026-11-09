@@ -138,6 +138,15 @@ ENGINE_CAPABILITIES: Mapping[str, EngineCapabilities] = {
         timing_semantics="fork meta_info; independent fixtures required",
         notes=("Usage-processor details differ from current mainline SGLang.",),
     ),
+    "sglang_sxm2": EngineCapabilities(
+        engine="sglang_sxm2",
+        family=SGLANG_FAMILY,
+        protocols=_SGLANG_PROTOCOLS,
+        count_adapter="sglang_tokenize",
+        native_timing=True,
+        timing_semantics="fork meta_info; independent fixtures required",
+        notes=("Separate fork (dg1kjd/sglang-sxm2) from sglang-v100; probe per build.",),
+    ),
     "lmdeploy": EngineCapabilities(
         engine="lmdeploy",
         family=LMDEPLOY_FAMILY,

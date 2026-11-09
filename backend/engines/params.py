@@ -403,7 +403,7 @@ def registry_payload_from_entry(
         "inspection": (profile or {}).get("inspection") if profile else None,
         "compatibility_warnings": list(compatibility_warnings or []),
     }
-    if engine in {"sglang", "sglang_v100"}:
+    if engine in {"sglang", "sglang_v100", "sglang_sxm2"}:
         # LLM and diffusion flags can share names but have different types,
         # defaults, and choices. Keep their catalogs separate all the way to
         # the form rather than merging e.g. the two quantization parameters.

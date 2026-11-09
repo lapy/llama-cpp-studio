@@ -93,6 +93,9 @@ def test_default_shadow_registry_untouched_by_reference_directory():
         # source flow at the manager level (legacy behavior), so its plan
         # set is source/sync/remove.
         "sglang_v100": {"source", "sync", "remove", "remove_version"},
+        # sglang-sxm2 is the second SM70 source-only fork: same four flows,
+        # its own asset directory and provisioner preamble.
+        "sglang_sxm2": {"source", "sync", "remove", "remove_version"},
         # 1Cat-vLLM executes all four flows: the release wheel-URL install,
         # the venv-scoped removal, and the wheel-forge source/sync plans
         # (rust bootstrap + conditional flash-attention stay composite

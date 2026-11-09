@@ -1,9 +1,17 @@
 # AUTHORITATIVE engine definition (hand-authored; NOT exported).
 #
-# The SGLang V100 fork converted to definition-owned configuration: identity,
-# recipes, lifecycle, launch profile and discovery are declared here. The fork's
-# patch/build mechanism is still provided by the specialised mixins (priority 2
-# boundary work); the class must not own any value that lives in this file.
+# Target: haohervchb/sglang-V100 only. sglang-sxm2 (dg1kjd/sglang-sxm2) is a
+# different project with its own tree layout, dependency strategy and Marlin
+# installer, and owns backend/engines/definitions/sglang_sxm2.yaml. Do not add
+# sxm2-shaped patches here: an op whose anchor is missing in this fork silently
+# no-ops (optional: true) and hides drift.
+#
+# Install contract: the fork's scripts/install_v100.sh stays the builder. Studio
+# replaces ONLY the host-provisioning prologue (apt/conda/CUDA/rustup) with its
+# managed Python/CUDA/Rust, then applies the patches in
+# assets/sglang_v100/ whose reasons are recorded beside them. MAX_JOBS and
+# CMAKE_BUILD_PARALLEL_LEVEL are deliberately left unset so prepare_fork's
+# memory-aware budget fills them instead of a hardcoded 4.
 schema_version: 2
 id: sglang_v100
 extends:
@@ -58,12 +66,6 @@ recipes:
     - checkout
     with:
       transform: sglang_v100/pyproject
-  - id: patch_cuda_ipc
-    uses: vcs.apply_transform
-    requires:
-    - checkout
-    with:
-      transform: sglang_v100/cuda_ipc
   - id: patch_marlin
     uses: vcs.apply_transform
     requires:
@@ -87,7 +89,6 @@ recipes:
     produces:
     - install_env
     with:
-      ccache: true
       require_cuda_nvcc: true
       cuda_error: SGLang V100 requires Studio-managed CUDA 12.8. Install CUDA 12.8 from
         Engines > NVIDIA CUDA before building the fork.
@@ -103,25 +104,11 @@ recipes:
         CARGO_HOME: '{root}/cargo-home'
         CARGO_TARGET_DIR: '{root}/cargo-target'
         RUSTUP_TOOLCHAIN: stable
-        MAX_JOBS: '4'
-        CMAKE_BUILD_PARALLEL_LEVEL: '4'
-        CCACHE_DISABLE: '1'
       create_dirs:
       - '{root}/home'
       - '{root}/cargo-home'
       - '{root}/cargo-target'
       rustup_home_fallback: '{root}/rustup-home'
-      dependencies:
-      - path: '{dependencies}/marlin-v100'
-        preserve_if_file: csrc/sm70_bf16_compat.h
-        reason: legacy BF16 compatibility header conflicts with CUDA 12.8
-      - path: '{dependencies}/turbomind-sm70-source'
-        require_files:
-        - csrc/sm70_tile_runtime_signal.cuh
-        - csrc/custom_all_reduce.cuh
-        - csrc/cub_helpers.h
-        preserve_if_missing: true
-        reason: sparse checkout is missing required TurboMind headers
       toolchain:
         major_min: 10
         major_max: 12
@@ -204,12 +191,6 @@ recipes:
     - checkout
     with:
       transform: sglang_v100/pyproject
-  - id: patch_cuda_ipc
-    uses: vcs.apply_transform
-    requires:
-    - checkout
-    with:
-      transform: sglang_v100/cuda_ipc
   - id: patch_marlin
     uses: vcs.apply_transform
     requires:
@@ -233,7 +214,6 @@ recipes:
     produces:
     - install_env
     with:
-      ccache: true
       require_cuda_nvcc: true
       cuda_error: SGLang V100 requires Studio-managed CUDA 12.8. Install CUDA 12.8 from
         Engines > NVIDIA CUDA before building the fork.
@@ -249,25 +229,11 @@ recipes:
         CARGO_HOME: '{root}/cargo-home'
         CARGO_TARGET_DIR: '{root}/cargo-target'
         RUSTUP_TOOLCHAIN: stable
-        MAX_JOBS: '4'
-        CMAKE_BUILD_PARALLEL_LEVEL: '4'
-        CCACHE_DISABLE: '1'
       create_dirs:
       - '{root}/home'
       - '{root}/cargo-home'
       - '{root}/cargo-target'
       rustup_home_fallback: '{root}/rustup-home'
-      dependencies:
-      - path: '{dependencies}/marlin-v100'
-        preserve_if_file: csrc/sm70_bf16_compat.h
-        reason: legacy BF16 compatibility header conflicts with CUDA 12.8
-      - path: '{dependencies}/turbomind-sm70-source'
-        require_files:
-        - csrc/sm70_tile_runtime_signal.cuh
-        - csrc/custom_all_reduce.cuh
-        - csrc/cub_helpers.h
-        preserve_if_missing: true
-        reason: sparse checkout is missing required TurboMind headers
       toolchain:
         major_min: 10
         major_max: 12
@@ -402,6 +368,9 @@ lifecycle:
     - contains: 'installing the proven flashinfer'
       progress: 42
       message: Building FlashInfer SM70
+    - contains: 'building the sm70 flashattention vision package'
+      progress: 46
+      message: Building SM70 vision attention
     - contains: 'fetching the attributed'
       progress: 50
       message: Fetching V100 kernel sources
