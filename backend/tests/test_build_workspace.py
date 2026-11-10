@@ -234,6 +234,136 @@ def test_retarget_stops_at_the_workspace_prefix(tmp_path):
     assert link.read_text(encoding="utf-8").strip() == str(os.path.abspath(new))
 
 
+def test_seal_rewrites_and_verifies_in_one_pass(tmp_path):
+    """The fused pass rewrites both prefixes, skips binaries/large files, and
+    still proves nothing points at the workspace afterwards."""
+    import backend.engines.build_workspace as workspace_module
+
+    site = tmp_path / "site-packages"
+    site.mkdir()
+    workspace = tmp_path / "ws"
+    checkout = workspace / "source"
+    published = tmp_path / "version" / "source"
+
+    pointer = site / "__editable__.pth"
+    pointer.write_text(f"path={checkout}\n", encoding="utf-8")
+    finder = site / "finder.py"
+    finder.write_text(f'ROOT = "{workspace}"\n', encoding="utf-8")
+    binary = site / "libfake.so"
+    binary.write_bytes(b"\x7fELF\x00" + str(workspace).encode())
+    large = site / "big.txt"
+    large.write_text(str(workspace) + "x" * 2_000_001, encoding="utf-8")
+    quiet = site / "notes.txt"
+    quiet.write_text("nothing to see\n", encoding="utf-8")
+
+    changed = workspace_module._rewrite_paths(
+        str(site),
+        [(str(checkout), str(published)), (str(workspace), str(published.parent))],
+        forbidden=str(workspace),
+    )
+
+    assert changed == 2
+    assert str(published) in pointer.read_text(encoding="utf-8")
+    assert str(published.parent) in finder.read_text(encoding="utf-8")
+    assert binary.read_bytes().endswith(str(workspace).encode())  # binary: untouched
+    assert large.read_text(encoding="utf-8").startswith(str(workspace))  # too large
+    assert quiet.read_text(encoding="utf-8") == "nothing to see\n"
+
+
+def test_seal_fails_when_a_text_reference_survives(tmp_path):
+    import backend.engines.build_workspace as workspace_module
+
+    site = tmp_path / "site-packages"
+    site.mkdir()
+    workspace = tmp_path / "ws"
+    (site / "stray.txt").write_text(f"mount={workspace}/x\n", encoding="utf-8")
+
+    with pytest.raises(WorkspaceIsolationError, match="still reference"):
+        workspace_module._rewrite_paths(str(site), (), forbidden=str(workspace))
+
+
+def test_seal_scans_snapshot_library_dirs_once(tmp_path, monkeypatch):
+    """Regression: the per-binary rescan made sealing a large venv quadratic."""
+    from types import SimpleNamespace
+
+    import backend.engines.build_workspace as workspace_module
+
+    ws = BuildWorkspace.open(
+        "llama_cpp", "https://example.invalid/repo.git", root=str(tmp_path / "ws")
+    )
+    checkout = Path(ws.checkout_dir)
+    checkout.mkdir(parents=True)
+    (checkout / "README").write_text("source\n", encoding="utf-8")
+
+    venv = tmp_path / "venv"
+    site = venv / "lib" / "python3.12" / "site-packages"
+    site.mkdir(parents=True)
+    (site / "a.so").write_bytes(b"\x7fELF")
+    (site / "b.so").write_bytes(b"\x7fELF")
+    (site / "notes.txt").write_text("plain\n", encoding="utf-8")
+
+    dir_calls: list = []
+    monkeypatch.setattr(
+        workspace_module,
+        "_snapshot_library_dirs",
+        lambda path: dir_calls.append(path) or [],
+    )
+    monkeypatch.setattr(
+        workspace_module, "_is_linked_elf", lambda path: path.endswith(".so")
+    )
+    monkeypatch.setattr(
+        shutil, "which", lambda name: "/usr/bin/ldd" if name == "ldd" else None
+    )
+    monkeypatch.setattr(
+        workspace_module.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=0, stdout="not a dynamic executable\n", stderr=""
+        ),
+    )
+
+    sealed = ws.seal_installed_source(str(tmp_path / "version" / "source"), str(venv))
+
+    assert Path(sealed).is_dir()
+    # one scan for the sealed snapshot, one for the venv - never one per binary
+    assert dir_calls.count(str(site)) == 1
+
+
+def test_assert_dynamic_libs_resolve_accepts_precomputed_dirs(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    import backend.engines.build_workspace as workspace_module
+
+    binary = tmp_path / "libx.so"
+    binary.write_bytes(b"x")
+    libs = tmp_path / "libs"
+    libs.mkdir()
+    seen = {}
+
+    monkeypatch.setattr(workspace_module, "_is_linked_elf", lambda path: True)
+    monkeypatch.setattr(
+        shutil, "which", lambda name: "/usr/bin/ldd" if name == "ldd" else None
+    )
+    monkeypatch.setattr(workspace_module, "_read_rpath", lambda path: "")
+
+    def fake_run(argv, **kwargs):
+        seen["env"] = kwargs.get("env")
+        return SimpleNamespace(returncode=0, stdout="not a dynamic executable\n", stderr="")
+
+    monkeypatch.setattr(workspace_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        workspace_module,
+        "_snapshot_library_dirs",
+        lambda path: pytest.fail("must not rescan the snapshot"),
+    )
+
+    workspace_module.assert_dynamic_libs_resolve(
+        str(binary), str(tmp_path / "ws"), "", lib_dirs=[str(libs)]
+    )
+
+    assert seen["env"]["LD_LIBRARY_PATH"].split(os.pathsep)[-1] == str(libs)
+
+
 def test_ccache_environment_skips_nvcc_when_unsupported(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "backend.engines.build_workspace.shutil.which",

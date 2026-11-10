@@ -938,9 +938,14 @@ class GenericVenvInstaller(PythonVenvInstaller):
             destination = os.path.join(
                 self._base_dir, str(step.with_.get("destination") or "source")
             )
+            # Sealing copies the checkout and rewrites the virtualenv; on a
+            # multi-GB venv it takes minutes and used to look frozen at the
+            # builder's last line. Say what it is doing.
+            await self._update_progress_task(98, "Sealing the installed source")
             sealed = await asyncio.to_thread(
                 workspace.seal_installed_source, destination, self._venv_path
             )
+            await self._update_progress_task(98, "Sealed; publishing the version")
             return {"checkout": sealed, "checkout_sealed": sealed}
 
         async def publish_source(step, requirements, context):

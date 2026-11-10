@@ -393,6 +393,8 @@ def assert_dynamic_libs_resolve(
     binary: str,
     forbidden_root: str,
     snapshot_root: str = "",
+    *,
+    lib_dirs: Optional[Sequence[str]] = None,
 ) -> None:
     """Fail when an ELF loads a library from the workspace.
 
@@ -400,18 +402,26 @@ def assert_dynamic_libs_resolve(
     of the system) may be unresolved here. A library that was copied into the
     snapshot must resolve to that copy, never to the workspace that still holds
     the same file.
+
+    ``lib_dirs`` lets a caller that inspects many binaries compute the snapshot
+    library directories ONCE; recomputing them per binary re-walks the whole
+    tree and made sealing a large venv quadratic (769 binaries x 76k files).
     """
     if not _is_linked_elf(binary) or not shutil.which("ldd"):
         return
     assert_rpath_stays_outside(binary, forbidden_root)
     env = os.environ.copy()
-    lib_dirs = _snapshot_library_dirs(snapshot_root) if snapshot_root else []
+    dirs = (
+        list(lib_dirs)
+        if lib_dirs is not None
+        else (_snapshot_library_dirs(snapshot_root) if snapshot_root else [])
+    )
     binary_dir = os.path.dirname(os.path.abspath(binary))
-    if binary_dir not in lib_dirs:
-        lib_dirs.insert(0, binary_dir)
+    if binary_dir not in dirs:
+        dirs.insert(0, binary_dir)
     # Do not inherit the process library path. It can point at the workspace
     # and hide an isolation failure, or hide a library the snapshot actually ships.
-    env["LD_LIBRARY_PATH"] = os.pathsep.join(lib_dirs)
+    env["LD_LIBRARY_PATH"] = os.pathsep.join(dirs)
     try:
         proc = subprocess.run(
             ["ldd", binary],
@@ -479,69 +489,92 @@ def site_packages_dir(venv_path: str) -> str:
 
 def retarget_text_tree(root: str, old: str, new: str) -> int:
     """Replace an absolute checkout prefix in text files. Returns files changed."""
-    if not root or not os.path.isdir(root) or not old or old == new:
+    if not root or not os.path.isdir(root) or not old or not new:
         return 0
-    old_real = os.path.abspath(old)
-    new_real = os.path.abspath(new)
+    return _rewrite_paths(root, [(old, new)])
+
+
+_MAX_TEXT_BYTES = 2_000_000
+_BINARY_PROBE_BYTES = 8192
+
+
+def _rewrite_paths(
+    root: str,
+    mappings: Sequence[tuple],
+    *,
+    forbidden: str = "",
+) -> int:
+    """Rewrite path prefixes in text files and prove none of them survive.
+
+    One walk does the rewriting AND the containment check. Sealing a source
+    install used to walk the whole site-packages tree three times (retarget,
+    second retarget, verify), decoding every text file; on a 6.7 GB venv with
+    76k files that alone is minutes. The byte pre-filter keeps unrelated and
+    binary files from ever being decoded.
+    """
+    pairs = []
+    needles = []
+    for old, new in mappings:
+        if not old or not new:
+            continue
+        old_abs, new_abs = os.path.abspath(old), os.path.abspath(new)
+        if old_abs == new_abs:
+            continue
+        pairs.append((old_abs, new_abs))
+        needles.append(old_abs.encode("utf-8", "surrogateescape"))
+        if old != old_abs:
+            # The checkpoints also match the raw spelling they were given.
+            pairs.append((old, new_abs))
+            needles.append(old.encode("utf-8", "surrogateescape"))
+    forbidden_abs = os.path.abspath(forbidden) if forbidden else ""
+    if forbidden_abs:
+        needles.append(forbidden.encode("utf-8", "surrogateescape"))
+        needles.append(forbidden_abs.encode("utf-8", "surrogateescape"))
+    if not needles:
+        return 0
     changed = 0
+    hits: List[str] = []
     for dirpath, _, filenames in os.walk(root):
+        if len(hits) >= 8:
+            break
         for name in filenames:
             path = os.path.join(dirpath, name)
             if os.path.islink(path) or not os.path.isfile(path):
                 continue
             try:
-                if os.path.getsize(path) > 2_000_000:
+                if os.path.getsize(path) > _MAX_TEXT_BYTES:
                     continue
                 with open(path, "rb") as handle:
                     blob = handle.read()
             except OSError:
                 continue
-            if b"\x00" in blob[:8192]:
+            if b"\x00" in blob[:_BINARY_PROBE_BYTES]:
+                continue
+            if not any(needle in blob for needle in needles):
                 continue
             text = blob.decode("utf-8", "surrogateescape")
-            if old_real not in text and old not in text:
-                continue
-            updated = text.replace(old_real, new_real).replace(old, new_real)
-            if updated == text:
-                continue
-            tmp = path + ".retarget"
-            with open(tmp, "wb") as handle:
-                handle.write(updated.encode("utf-8", "surrogateescape"))
-            os.replace(tmp, path)
-            changed += 1
+            updated = text
+            for old, new in pairs:
+                updated = updated.replace(old, new)
+            if updated != text:
+                tmp = path + ".retarget"
+                with open(tmp, "wb") as handle:
+                    handle.write(updated.encode("utf-8", "surrogateescape"))
+                os.replace(tmp, path)
+                changed += 1
+            if forbidden_abs and (forbidden_abs in updated or forbidden in updated):
+                hits.append(path)
+    if hits:
+        raise WorkspaceIsolationError(
+            "Installed files still reference the build workspace: " + ", ".join(hits)
+        )
     return changed
 
 
 def assert_no_forbidden_text(root: str, forbidden: str) -> None:
     if not root or not os.path.isdir(root) or not forbidden:
         return
-    needle = os.path.abspath(forbidden)
-    hits: List[str] = []
-    for dirpath, _, filenames in os.walk(root):
-        for name in filenames:
-            path = os.path.join(dirpath, name)
-            if os.path.islink(path) or not os.path.isfile(path):
-                continue
-            try:
-                if os.path.getsize(path) > 2_000_000:
-                    continue
-                with open(path, "rb") as handle:
-                    blob = handle.read()
-            except OSError:
-                continue
-            if b"\x00" in blob[:8192]:
-                continue
-            text = blob.decode("utf-8", "surrogateescape")
-            if needle in text or forbidden in text:
-                hits.append(path)
-                if len(hits) >= 8:
-                    break
-        if len(hits) >= 8:
-            break
-    if hits:
-        raise WorkspaceIsolationError(
-            "Installed files still reference the build workspace: " + ", ".join(hits)
-        )
+    _rewrite_paths(root, (), forbidden=forbidden)
 
 
 def assert_outside_install_roots(path: str) -> None:
@@ -827,15 +860,25 @@ class BuildWorkspace:
         site = site_packages_dir(venv_path)
         try:
             if site:
-                retarget_text_tree(site, self.checkout_dir, published)
-                retarget_text_tree(site, self.path, os.path.dirname(published))
-                assert_no_forbidden_text(site, self.path)
+                # One pass rewrites the editable-install pointers AND proves
+                # none still resolve into the workspace.
+                _rewrite_paths(
+                    site,
+                    [
+                        (self.checkout_dir, published),
+                        (self.path, os.path.dirname(published)),
+                    ],
+                    forbidden=self.path,
+                )
+                lib_dirs = _snapshot_library_dirs(site)
                 for dirpath, _, filenames in os.walk(site):
                     for name in filenames:
                         candidate = os.path.join(dirpath, name)
                         if _is_linked_elf(candidate):
                             repair_workspace_rpath(candidate, self.path)
-                            assert_dynamic_libs_resolve(candidate, self.path, site)
+                            assert_dynamic_libs_resolve(
+                                candidate, self.path, site, lib_dirs=lib_dirs
+                            )
         except Exception:
             self.note("failed", error="installed files still reference the workspace")
             hidden = os.path.join(
@@ -928,17 +971,25 @@ def _copy_tree(src: str, dst: str, *, exclude_dirs: Sequence[str] = ()) -> None:
 
 
 def _repair_published_binaries(root: str, forbidden_root: str) -> None:
+    lib_dirs: Optional[List[str]] = None
     for dirpath, _, filenames in os.walk(root):
         for name in filenames:
             path = os.path.join(dirpath, name)
             if not _is_linked_elf(path):
                 continue
+            if lib_dirs is None:
+                # Computed once: the per-binary rescan was the quadratic term.
+                lib_dirs = _snapshot_library_dirs(root)
             repair_workspace_rpath(path, forbidden_root)
             try:
-                assert_dynamic_libs_resolve(path, forbidden_root, root)
+                assert_dynamic_libs_resolve(
+                    path, forbidden_root, root, lib_dirs=lib_dirs
+                )
             except WorkspaceIsolationError:
                 _ensure_origin_rpath(path)
-                assert_dynamic_libs_resolve(path, forbidden_root, root)
+                assert_dynamic_libs_resolve(
+                    path, forbidden_root, root, lib_dirs=lib_dirs
+                )
 
 
 def _clean_excludes() -> List[str]:
