@@ -63,8 +63,8 @@ const LIVE_DESCRIPTORS = [
 ]
 
 describe('engines/registry — server-backed overlay', () => {
-  it('never adds entries to the local table (nine stay nine)', () => {
-    expect(Object.keys(ENGINE_DESCRIPTORS)).toHaveLength(9)
+  it('never adds entries to the local table (ten stay ten)', () => {
+    expect(Object.keys(ENGINE_DESCRIPTORS)).toHaveLength(10)
     expect(ENGINE_DESCRIPTORS.yamlcraft).toBeUndefined()
   })
 

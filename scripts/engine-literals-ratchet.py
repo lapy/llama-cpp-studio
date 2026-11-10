@@ -37,7 +37,8 @@ AREA_CAPS: Dict[str, int] = {
     # Converting every engine to declared profiles deleted the legacy venv
     # launch compilers and their binary/CUDA resolvers: 76 -> 38.
     # Capability declarations moved to backend/engines/: 28 -> 24.
-    "backend/proxy/": 24,
+    # sglang-sxm2 folded two SM70-fork checks into one declared set: 24 -> 23.
+    "backend/proxy/": 23,
     # R105 tightened this 162 -> 152: the source-build routes now ask the spec
     # for the native family instead of six id tuples.
     # LMDeploy conversion tightened 152 -> 151: its compatibility module now

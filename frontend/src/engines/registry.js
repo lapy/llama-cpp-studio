@@ -222,6 +222,38 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     buildHint:
       'Set the V100 fork repo and branch. Install Studio-managed CUDA 12.8 first; the fork then builds only its SM70-specific dependencies.',
   }),
+  sglang_sxm2: Object.freeze({
+    label: 'SGLang SXM2',
+    ui_kind: 'sglang',
+    panel: Object.freeze({
+      variant: 'v100',
+      defaultRepo: 'https://github.com/dg1kjd/sglang-sxm2.git',
+      projectUrl: 'https://github.com/dg1kjd/sglang-sxm2',
+    }),
+    card: Object.freeze({
+      mark: Object.freeze({ icon: 'pi pi-bolt' }),
+      badge: Object.freeze({ value: 'SM70', severity: 'warn' }),
+      subtitle: 'SXM2 / SM70 source build.',
+    }),
+    repoSource: 'SGLang-SXM2',
+    versionsKey: 'sglangSxm2Versions',
+    openStrategy: 'sglang',
+    statusRefresh: 'sglang',
+    icon: 'pi-sparkles',
+    fallbackFormats: Object.freeze(['safetensors']),
+    venv: true,
+    apiSegment: 'sglang-sxm2',
+    nullSafeStatus: true,
+    dialogIcon: 'pi-bolt',
+    genericApi: true,
+    managerKey: 'sglang_sxm2',
+    sglangRuntimeUi: true,
+    panelFamily: 'sglang',
+    runtimeProfiles: Object.freeze({ llm: 'default', diffusion: 'diffusion' }),
+    runtimeKey: 'sglang_runtime',
+    buildHint:
+      'Set the SXM2 fork repo and branch. Install Studio-managed CUDA 12.8 first; the fork then builds its own validated dependency set.',
+  }),
   vllm: Object.freeze({
     label: 'vLLM',
     ui_kind: 'sglang',
