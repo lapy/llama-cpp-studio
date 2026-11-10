@@ -3,6 +3,10 @@
 > **Historical evidence — not the release entry point.** Start at the
 > [delivery map](delivery-map.md); the [change inventory](change-inventory.md)
 > maps this work to the review series.
+>
+> **Retired 2026-11-10:** the `yamlcraft` fixture persona and its harness tests
+> were removed once the YAML definitions were authoritative. Kept as the design
+> record.
 
 Goal: deliver the plan's central promise — *"Add an engine by adding one
 validated YAML definition, without adding an installer class, runtime

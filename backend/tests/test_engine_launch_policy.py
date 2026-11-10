@@ -84,11 +84,6 @@ def test_engines_without_constraints_carry_no_policy():
     # audio.cpp declares CPU support (R77) so the frontend filter needs no id
     # special case; it is the only generated engine whose policy is that small.
     assert dict(get_engine_spec("audio_cpp").launch_policy) == {"cpu_supported": True}
-    for engine_id in ("launchcraft", "launchforge", "yamlcraft"):
-        spec = get_engine_spec(engine_id)
-        # Authoritative engines register at app startup; before it they are
-        # simply absent, which must not imply a policy either.
-        assert spec is None or dict(spec.launch_policy) == {}, engine_id
 
 
 def test_policy_is_not_part_of_the_descriptor_payload():

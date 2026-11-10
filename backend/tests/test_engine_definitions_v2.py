@@ -77,11 +77,8 @@ def test_reference_definitions_stay_registry_equivalent(reference):
 
 def test_default_shadow_registry_untouched_by_reference_directory():
     registry = load_default_engine_definitions()
-    # Every shipped engine (generated + definition-owned) has a definition;
-    # the harness personas are the only additions.
-    assert set(registry.ids()) - {"launchcraft", "launchforge", "nativecraft", "yamlcraft"} == set(
-        SHIPPED_ENGINE_IDS
-    )
+    # Every shipped engine (generated + definition-owned) has a definition.
+    assert set(registry.ids()) == set(SHIPPED_ENGINE_IDS)
     cut_over = {
         "lmdeploy": {"release", "source", "sync", "remove", "remove_version"},
         "vllm": {"release", "source", "sync", "remove", "remove_version"},
@@ -122,19 +119,6 @@ def test_default_shadow_registry_untouched_by_reference_directory():
         "ik_llama": {"source", "remove_version"},
     }
     for definition in registry.all():
-        if definition.id == "nativecraft":
-            # Third native fork: source-build proof only.
-            assert definition.schema_version == 2
-            assert set(dict(definition.recipes)) == {"source"}
-            continue
-        if definition.id in {"launchcraft", "launchforge", "yamlcraft"}:
-            # The authoritative fixtures (S4 control plane, R3 launch) are v2
-            # BY CONSTRUCTION — never Python-authored to cut over; YAML is
-            # their only source. Engine-wide remove only; version-scoped
-            # delete is deliberately unproven for the pip-wheel persona.
-            assert definition.schema_version == 2
-            assert set(dict(definition.recipes)) == {"release", "source", "sync", "remove"}
-            continue
         # Only engines whose Phase 3 cutover has shipped carry v2 recipes;
         # descriptors stay registry-equivalent either way (tested above).
         if definition.id in cut_over:

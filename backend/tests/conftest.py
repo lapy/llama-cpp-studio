@@ -76,7 +76,7 @@ def reset_store_persistence_events():
 
     Store-write fault-injection tests record a durability failure in the
     in-memory ring; a later test that asserts a clean persistence status (the
-    launchcraft journey) sees it as its own. Clearing around every test keeps
+    launch journey harness) sees it as its own. Clearing around every test keeps
     that assertion order- and worker-independent.
     """
     from backend.store_io import clear_persistence_events
@@ -122,6 +122,24 @@ def client():
     from backend.main import app
 
     return TestClient(app)
+
+
+@pytest.fixture
+def stub_studio_proxy(monkeypatch):
+    """Replace the studio proxy manager with a no-op for activation tests.
+
+    Activation ends by asking the studio proxy to (re)start; without this the
+    test binds the real proxy port, which fails when another Studio instance
+    already owns it.
+    """
+    from backend.proxy.studio import manager as studio_manager
+
+    class _NoopProxy:
+        async def start_proxy(self):
+            return None
+
+    monkeypatch.setattr(studio_manager, "get_studio_proxy_manager", lambda: _NoopProxy())
+    return _NoopProxy
 
 
 @pytest.fixture

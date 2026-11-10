@@ -66,41 +66,6 @@ def test_scanner_uses_the_declared_family():
     assert 'in ("llama_cpp", "ik_llama", "unsloth_llama")' not in source
 
 
-def test_nativecraft_policy_is_loaded_from_definition_data(tmp_path):
-    """A third native fork is configured by data, not a new installer branch."""
-    from types import SimpleNamespace
-
-    from backend.engines.python.cmake_source import CmakeSourceInstaller
-
-    installer = CmakeSourceInstaller(
-        "nativecraft",
-        manager=SimpleNamespace(llama_dir=str(tmp_path / "nativecraft")),
-    )
-
-    assert installer.engine_id == "nativecraft"
-    assert installer._repository_name == "nativecraft"
-    assert installer._source_dir == "nativecraft"
-    assert installer._binary_name == "native-server"
-    assert installer._build_examples_required is True
-    assert installer._blas_supported is False
-    assert installer._stable_release_versions is False
-
-    plan = installer._recipe("source")
-    assert [step.primitive for step in plan.steps] == [
-        "vcs.workspace_checkout",
-        "vcs.apply_patch",
-        "cmake.configure",
-        "cmake.build",
-        "artifact.locate",
-        "publish.finalize",
-    ]
-    assert set(installer._extra_plan_handlers()) >= {
-        "vcs.workspace_checkout",
-        "cmake.configure",
-        "cmake.build",
-        "publish.finalize",
-    }
-
 def test_native_gguf_profiles_declare_their_launch_args():
     from backend.engines.definitions.loader import load_default_engine_definitions
 
@@ -121,6 +86,5 @@ def test_native_host_selection_comes_from_the_definition():
     assert isinstance(get_native_installer("unsloth_llama"), GenericReleaseInstaller)
     assert isinstance(get_native_installer("llama_cpp"), CmakeSourceInstaller)
     assert isinstance(get_native_installer("ik_llama"), CmakeSourceInstaller)
-    assert isinstance(get_native_installer("nativecraft"), CmakeSourceInstaller)
     assert isinstance(get_native_installer("audio_cpp"), AudioCppInstaller)
     assert get_native_installer("lmdeploy") is None

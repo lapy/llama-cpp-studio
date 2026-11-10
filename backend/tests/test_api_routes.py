@@ -1150,7 +1150,9 @@ def test_preview_routes_use_async_wrapper(client, monkeypatch, tmp_path):
     assert to_thread_calls["n"] >= 2
 
 
-def test_activate_version_scans_when_catalog_missing(client, monkeypatch, tmp_path):
+def test_activate_version_scans_when_catalog_missing(
+    client, monkeypatch, tmp_path, stub_studio_proxy
+):
     store = _install_temp_store(monkeypatch, tmp_path)
     store.add_engine_version(
         "llama_cpp",

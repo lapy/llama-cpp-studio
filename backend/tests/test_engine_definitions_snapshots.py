@@ -110,21 +110,13 @@ def test_digest_includes_referenced_transform_asset_content(monkeypatch):
 def test_digests_are_unique_across_all_shipped_definitions():
     definitions = load_default_engine_definitions().definitions
     digests = {engine_id: d.definition_digest for engine_id, d in definitions.items()}
-    # every shipped engine + the three authoritative harness personas
-    assert set(digests) == set(SHIPPED_ENGINE_IDS) | {
-        "launchcraft",
-        "launchforge",
-        "nativecraft",
-        "yamlcraft",
-    }
+    # every shipped engine
+    assert set(digests) == set(SHIPPED_ENGINE_IDS)
     assert len(set(digests.values())) == len(digests)
 
 
 def test_tier_classification_and_startup_acceptance_owns_registration():
     assert all(definition_tier(engine_id) == "definition" for engine_id in SHIPPED_ENGINE_IDS)
-    assert definition_tier("yamlcraft") == "authoritative"  # fixture: YAML-only
-    assert definition_tier("no_such_engine") == "authoritative"
-    assert definition_tier("yamlcraft") == "authoritative"  # fixture: YAML-only
     assert definition_tier("no_such_engine") == "authoritative"
     from backend.engines import registry as registry_module
 
@@ -140,11 +132,9 @@ def test_tier_classification_and_startup_acceptance_owns_registration():
         )
     }
     try:
-        # S4+ acceptance: every shipped engine is registry-equivalent (the
-        # converted one is loaded by the import-time bootstrap) AND both
-        # YAML-only fixtures are registered from YAML into the derived view.
-        assert verify_engine_definitions() == len(SHIPPED_ENGINE_IDS) + 4
-        assert "yamlcraft" in registry_module.ENGINE_REGISTRY
+        # Every shipped engine is registry-equivalent (the converted ones are
+        # loaded by the import-time bootstrap).
+        assert verify_engine_definitions() == len(SHIPPED_ENGINE_IDS)
     finally:
         registry_module.ENGINE_REGISTRY.clear()
         registry_module.ENGINE_REGISTRY.update(dict_copy)

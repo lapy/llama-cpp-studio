@@ -70,10 +70,6 @@ V2_ONLY_KEYS = (
     # Prebuilt-archive release policy (repository, manifest/checksum asset
     # names, release walk-back budget) consumed by a native release host.
     "release_assets",
-    # Repository metadata: fixture personas live in the definitions directory
-    # for the end-to-end harnesses but are NOT production engines, so the
-    # import-time definition bootstrap must not register them.
-    "fixture_only",
     # Declared native host mechanism. Selection is by host name, not engine id.
     "native_host",
     # Presentation family consumed by the frontend overlay. Not engine logic.
@@ -2166,10 +2162,6 @@ class EngineDefinition:
     build_defaults: Tuple[Tuple[str, Any], ...] = ()
     source_build: Tuple[Tuple[str, Any], ...] = ()
     release_assets: Tuple[Tuple[str, Any], ...] = ()
-    # Repository metadata (not an engine capability): fixture-only definitions
-    # power the onboarding/launch harnesses and are excluded from the
-    # production registry bootstrap.
-    fixture_only: bool = False
 
     def profile(self, name: str = "") -> Mapping[str, Any]:
         """Named runtime profile (default-marked when no name is given)."""
@@ -2417,7 +2409,6 @@ def validate_definition(raw: Any, *, source: str) -> EngineDefinition:
             source_build=_validate_source_build(raw["source_build"], where)
             if raw.get("source_build") is not None
             else (),
-            fixture_only=_check_bool("fixture_only", raw.get("fixture_only", False), where),
         )
     except KeyError as e:
         raise DefinitionError(f"{where}: missing required field {e}") from None

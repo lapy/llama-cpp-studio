@@ -8,7 +8,7 @@ for machine consumption.
 - Engines: 10
 - `/api` routes: 165
 - Scanner kinds dispatched: audio_cpp, llama_help
-- Shadow definitions loaded: 14
+- Shadow definitions loaded: 10
 
 ## Hardcoded engine-ID literals (outside `backend/engines/` homes)
 

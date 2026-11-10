@@ -168,7 +168,7 @@ def test_cancel_after_publish_does_not_fail_the_ready_row(tmp_path):
     from backend.engines.definitions.loader import load_default_engine_definitions
     from backend.engines.python.native import GenericNativeInstaller
 
-    definition = load_default_engine_definitions().definitions["nativecraft"]
+    definition = load_default_engine_definitions().definitions["llama_cpp"]
     failed = []
 
     class Host(GenericNativeInstaller):

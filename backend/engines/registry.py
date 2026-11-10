@@ -180,9 +180,8 @@ def active_engine_row_is_runnable(engine_id: str, row: Optional[dict]) -> bool:
 # converted and generated engines, so a YAML edit changes production behavior
 # with no Python edit and no regeneration step.
 #
-# Fixture definitions (``fixture_only``) are deliberately NOT registered here:
-# the startup gate accepts them exactly as before, keeping the process-wide
-# registry identical to production for the harnesses that opt in.
+# Definition-owned engines are validated and loaded here, at import, into the
+# SAME typed registry, so the registry stays a derived view of the YAML.
 DEFINITION_ENGINE_IDS: Set[str] = set()
 
 
@@ -196,7 +195,7 @@ def _bootstrap_definition_engines() -> None:
             f"Engine definitions invalid; refusing to build the engine registry: {exc}"
         ) from exc
     for engine_id, definition in sorted(registry.definitions.items()):
-        if definition.fixture_only or engine_id in ENGINE_REGISTRY:
+        if engine_id in ENGINE_REGISTRY:
             continue
         ENGINE_REGISTRY[engine_id] = definition.to_spec()
         DEFINITION_ENGINE_IDS.add(engine_id)

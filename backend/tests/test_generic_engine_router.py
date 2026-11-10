@@ -133,9 +133,6 @@ def test_registry_covers_venv_and_native_engines():
         "llama_cpp",
         "ik_llama",
         "unsloth_llama",
-        "launchcraft",
-        "launchforge",
-        "yamlcraft",
     }
     for engine_id in VENV_ENGINES:
         assert ev.LIFECYCLE[engine_id].verbs == {}  # venv runs the shared machinery

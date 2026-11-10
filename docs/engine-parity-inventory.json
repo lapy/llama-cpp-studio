@@ -5950,16 +5950,12 @@
     "1cat_vllm",
     "audio_cpp",
     "ik_llama",
-    "launchcraft",
-    "launchforge",
     "llama_cpp",
     "lmdeploy",
-    "nativecraft",
     "sglang",
     "sglang_sxm2",
     "sglang_v100",
     "unsloth_llama",
-    "vllm",
-    "yamlcraft"
+    "vllm"
   ]
 }
