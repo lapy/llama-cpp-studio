@@ -184,7 +184,7 @@ def test_publish_excludes_build_dependencies_but_validates_runtime_files(
 
         inspected = set()
 
-        def inspect(path, *_args):
+        def inspect(path, *_args, **_kwargs):
             if path.endswith(".node"):
                 raise WorkspaceIsolationError("invalid ELF header: optional musl build tool")
             inspected.add(os.path.basename(path))
@@ -210,7 +210,7 @@ def test_publish_excludes_build_dependencies_but_validates_runtime_files(
         assert (dest / "build/bin/ui/index.html").read_text() == "built web UI"
         assert {"llama-server", "libggml.so"} <= inspected
 
-        def bad_runtime(*_args):
+        def bad_runtime(*_args, **_kwargs):
             raise WorkspaceIsolationError("runtime library resolves inside workspace")
 
         monkeypatch.setattr(workspace_module, "assert_dynamic_libs_resolve", bad_runtime)
