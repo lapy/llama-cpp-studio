@@ -42,3 +42,19 @@ operations:
   replace: 'log "Complete. Studio environment: $VIRTUAL_ENV"'
   optional: true
   skip_if_contains: 'Studio environment: $VIRTUAL_ENV'
+# The fork's sparse list omits the TurboMind headers that sit at the ROOT of
+# csrc/ (cub_helpers.h, custom_all_reduce.cuh, sm70_tile_runtime_signal.cuh).
+# In cone mode the parent directory's files come along, but a checkout that was
+# ever initialised non-cone (an older installer or a reused dependency dir)
+# silently drops them and nvcc dies hours later on
+#   epilogue.h: fatal error: ../../../../../../sm70_tile_runtime_signal.cuh
+# Pin the mode and the headers explicitly, and fail loudly if the fork changes
+# the list instead of no-oping into that failure.
+- kind: replace
+  search: git -C "$destination" sparse-checkout set "$@"
+  replace: git -C "$destination" sparse-checkout set --no-cone "$@"
+  skip_if_contains: sparse-checkout set --no-cone
+- kind: replace
+  search: LICENSE csrc/core csrc/sm70_turbomind csrc/moe
+  replace: /LICENSE csrc/core csrc/sm70_turbomind csrc/moe 'csrc/*.h' 'csrc/*.cuh'
+  skip_if_contains: csrc/*.cuh
