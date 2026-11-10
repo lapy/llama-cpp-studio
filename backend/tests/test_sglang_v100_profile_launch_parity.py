@@ -27,8 +27,10 @@ def _profiled_engine() -> str:
         if MODULE in ENGINE_REGISTRY[engine_id].runtime_profile.get("argv_prefix", [])
         and (ENGINE_REGISTRY[engine_id].runtime_profile.get("env") or {}).get("required")
     ]
-    assert len(candidates) == 1, candidates
-    return candidates[0]
+    # Sibling SM70 forks (sglang-sxm2) declare the same launch_server profile;
+    # this suite pins sglang_v100's parity contract, so select it by id.
+    assert "sglang_v100" in candidates, candidates
+    return "sglang_v100"
 
 
 def _make_bin(path, name: str) -> str:

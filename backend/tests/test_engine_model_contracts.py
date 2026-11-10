@@ -45,7 +45,14 @@ def test_inferred_safetensors_engines_include_sglang_families_and_vllm():
     engines = inferred_engines_for_artifact_format("safetensors")
     # Registry order is definition load order (filename order), so the
     # compatibility SET is the contract here.
-    assert set(engines) == {"lmdeploy", "1cat_vllm", "vllm", "sglang", "sglang_v100"}
+    assert set(engines) == {
+        "lmdeploy",
+        "1cat_vllm",
+        "vllm",
+        "sglang",
+        "sglang_v100",
+        "sglang_sxm2",
+    }
     assert HF_SNAPSHOT_ENGINE_IDS == frozenset(engines)
     assert "audio_cpp" not in engines
     # The legacy GGUF family is always present (the launch campaign's second
@@ -72,7 +79,14 @@ def test_stale_safetensors_engine_list_gains_new_registry_engines():
         }
     )
     assert engines[:2] == ["lmdeploy", "1cat_vllm"]
-    assert set(engines) == {"lmdeploy", "1cat_vllm", "vllm", "sglang", "sglang_v100"}
+    assert set(engines) == {
+        "lmdeploy",
+        "1cat_vllm",
+        "vllm",
+        "sglang",
+        "sglang_v100",
+        "sglang_sxm2",
+    }
     curated = compatible_engines_for_record(
         {
             "format": "safetensors",

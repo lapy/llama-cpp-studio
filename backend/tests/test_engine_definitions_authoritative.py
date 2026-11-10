@@ -10,7 +10,7 @@ startup, and ``missing=`` semantics are unchanged.
 RED-first record (pre-inversion legacy bytes): with an authoritative
 definition present, ``verify_engine_definitions()`` raised
 ``RuntimeError("Engine definitions diverged from the Python registry;
-refusing startup (drifted=['yamlcraft'], …)")`` — the assertions below
+refusing startup (drifted=['synthcraft'], …)")`` — the assertions below
 expect the NEW acceptance behavior and failed against the old code with
 exactly that refusal.
 """
@@ -29,8 +29,8 @@ from backend.engines.definitions.schema import validate_definition
 
 
 def _craft_raw(**overrides):
-    # SYNTHETIC engine id — deliberately NOT the shipped `yamlcraft`
-    # fixture (S4), so these pins cannot collide with tree contents.
+    # SYNTHETIC engine id: never a shipped engine, so these pins cannot
+    # collide with tree contents.
     doc = {
         "schema_version": 2,
         "id": "synthcraft",

@@ -42,7 +42,7 @@ vi.mock('axios', () => ({
   },
 }))
 
-const SG_FAMILY = ['sglang', 'sglang_v100', 'vllm']
+const SG_FAMILY = ['sglang', 'sglang_v100', 'sglang_sxm2', 'vllm']
 
 // Per-engine entry points exactly as the store exports them today.
 const CALLS = {
@@ -66,6 +66,7 @@ const CALLS = {
   },
   sglang: sgFamilyCalls('sglang'),
   sglang_v100: sgFamilyCalls('sglang_v100'),
+  sglang_sxm2: sgFamilyCalls('sglang_sxm2'),
   vllm: sgFamilyCalls('vllm'),
 }
 
@@ -86,7 +87,7 @@ function sgFamilyCalls(engine) {
 describe('engines/registry', () => {
   it('routes genericApi engines through the generic router, by literal', () => {
     expect([...VENV_ENGINE_IDS].sort()).toEqual(
-      ['1cat_vllm', 'lmdeploy', 'sglang', 'sglang_v100', 'vllm'].sort(),
+      ['1cat_vllm', 'lmdeploy', 'sglang', 'sglang_v100', 'sglang_sxm2', 'vllm'].sort(),
     )
     expect(Object.keys(VENV_DESCRIPTORS).sort()).toEqual([...VENV_ENGINE_IDS].sort())
     expect(venvApiPath('sglang_v100', 'status')).toBe('/api/engines/sglang_v100/status')
@@ -133,6 +134,7 @@ describe('engines/registry', () => {
       vllm: '/api/engines/vllm/cancel',
       sglang: '/api/engines/sglang/cancel',
       sglang_v100: '/api/engines/sglang_v100/cancel',
+      sglang_sxm2: '/api/engines/sglang_sxm2/cancel',
       // manager id differs from the engine id for 1Cat-vLLM
       onecat_vllm: '/api/engines/1cat_vllm/cancel',
     })
@@ -147,7 +149,7 @@ describe('engines/registry', () => {
   })
 
   it('v3: one descriptor per engine replaces the six parallel records', () => {
-    expect(Object.keys(ENGINE_DESCRIPTORS)).toHaveLength(9)
+    expect(Object.keys(ENGINE_DESCRIPTORS)).toHaveLength(10)
     // ENGINE_LABELS (engineVersionDelete)
     expect(ENGINE_LABELS).toEqual({
       llama_cpp: 'llama.cpp',
@@ -157,6 +159,7 @@ describe('engines/registry', () => {
       '1cat_vllm': '1Cat-vLLM',
       sglang: 'SGLang',
       sglang_v100: 'SGLang V100',
+      sglang_sxm2: 'SGLang SXM2',
       vllm: 'vLLM',
       audio_cpp: 'audio.cpp',
     })
@@ -169,6 +172,7 @@ describe('engines/registry', () => {
       '1cat_vllm',
       'sglang',
       'sglang_v100',
+      'sglang_sxm2',
       'vllm',
       'audio_cpp',
     ])
@@ -182,7 +186,7 @@ describe('engines/registry', () => {
       ['llama_cpp', 'ik_llama', 'unsloth_llama'].sort(),
     )
     expect([...ENGINE_IDS_BY_FALLBACK_FORMAT.safetensors].sort()).toEqual(
-      ['lmdeploy', '1cat_vllm', 'vllm', 'sglang', 'sglang_v100'].sort(),
+      ['lmdeploy', '1cat_vllm', 'vllm', 'sglang', 'sglang_v100', 'sglang_sxm2'].sort(),
     )
     // CMAKE_ENGINES (VersionTable)
     expect([...CMAKE_ENGINE_IDS].sort()).toEqual(['audio_cpp', 'ik_llama', 'llama_cpp'].sort())
@@ -199,6 +203,7 @@ describe('engines/registry', () => {
       '1cat_vllm': '1Cat-vLLM',
       sglang: 'SGLang',
       sglang_v100: 'SGLang-V100',
+      sglang_sxm2: 'SGLang-SXM2',
       vllm: 'vLLM',
       audio_cpp: 'audio.cpp',
     })
@@ -217,8 +222,12 @@ describe('engines/registry', () => {
     expect(ENGINE_DESCRIPTORS.vllm.dialogIcon).toBe('pi-sparkles')
     expect(ENGINE_DESCRIPTORS.vllm.icon).toBe('pi-server')
     // Two DISTINCT sglang families — the v3 trap deliberately pinned:
-    expect([...SGLANG_RUNTIME_UI_IDS].sort()).toEqual(['sglang', 'sglang_v100'].sort())
-    expect([...SG_PANEL_ENGINE_IDS].sort()).toEqual(['sglang', 'sglang_v100', 'vllm'].sort())
+    expect([...SGLANG_RUNTIME_UI_IDS].sort()).toEqual(
+      ['sglang', 'sglang_v100', 'sglang_sxm2'].sort(),
+    )
+    expect([...SG_PANEL_ENGINE_IDS].sort()).toEqual(
+      ['sglang', 'sglang_v100', 'sglang_sxm2', 'vllm'].sort(),
+    )
     // EngineBuildSettingsHint copy, incl. the unsloth no-hint hole
     expect(engineBuildHint('vllm')).toContain('CUDA toolkit')
     expect(engineBuildHint('sglang_v100')).toContain('SM70')
@@ -250,6 +259,7 @@ describe('version status refresh fan-out (activate/delete)', () => {
     '/api/engines/lmdeploy/status',
     '/api/engines/1cat_vllm/status',
     '/api/engines/sglang_v100/status',
+    '/api/engines/sglang_sxm2/status',
     '/api/engines/sglang/status',
     '/api/engines/vllm/status',
     '/api/audio-cpp/status',
@@ -280,6 +290,11 @@ describe('version status refresh fan-out (activate/delete)', () => {
       'sglang_v100:2026-01-02',
       ['/api/engines/sglang_v100/status'],
       ['/api/engines/sglang_v100/status'],
+    ],
+    [
+      'sglang_sxm2:2026-01-02',
+      ['/api/engines/sglang_sxm2/status'],
+      ['/api/engines/sglang_sxm2/status'],
     ],
     ['sglang:abc', ['/api/engines/sglang/status'], ['/api/engines/sglang/status']],
     ['vllm:0.17.0', ['/api/engines/vllm/status'], ['/api/engines/vllm/status']],

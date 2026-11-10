@@ -38,6 +38,11 @@ MANAGED_METRIC_ARGS: Mapping[str, tuple[str, ...]] = {
         "--enable-metrics",
         "--stream-response-default-include-usage",
     ),
+    "sglang_sxm2": (
+        "--enable-cache-report",
+        "--enable-metrics",
+        "--stream-response-default-include-usage",
+    ),
 }
 
 

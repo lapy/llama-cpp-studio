@@ -197,7 +197,7 @@ def test_generic_and_compat_status_agree_for_an_old_row(old_install, client):
     assert generic.json()["version"] == "0.6.0"
 
 
-def test_activation_and_launch_use_the_old_venv(old_install, client):
+def test_activation_and_launch_use_the_old_venv(old_install, client, stub_studio_proxy):
     activated = client.post(
         "/api/llama-versions/versions/activate",
         json={"version_id": "lmdeploy:0.6.0"},

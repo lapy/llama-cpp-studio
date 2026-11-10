@@ -416,7 +416,14 @@ def test_huggingface_catalog_treats_sglang_and_vllm_as_safetensors():
     from backend.model_catalog.huggingface_provider import HuggingFaceCatalogProvider
     from backend.model_catalog.service import ModelCatalogService
 
-    for engine in ("lmdeploy", "1cat_vllm", "vllm", "sglang", "sglang_v100"):
+    for engine in (
+        "lmdeploy",
+        "1cat_vllm",
+        "vllm",
+        "sglang",
+        "sglang_v100",
+        "sglang_sxm2",
+    ):
         assert HuggingFaceCatalogProvider._formats({"engine": engine}) == ["safetensors"]
         assert ModelCatalogService._provider_ids({"engine": engine}) == ["huggingface"]
 
@@ -432,6 +439,7 @@ def test_huggingface_catalog_treats_sglang_and_vllm_as_safetensors():
         "vllm",
         "sglang",
         "sglang_v100",
+        "sglang_sxm2",
     }
     assert "audio_cpp" not in item["compatible_engines"]
     assert item["artifact_format"] == "safetensors"

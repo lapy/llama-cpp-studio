@@ -223,8 +223,8 @@ def test_template_deterministic_merge(tmp_path):
 
 def test_shipped_definitions_load_and_match_directory():
     registry = load_engine_definitions(DEFINITIONS_DIR)
-    # nine shipped + the four harness personas (S4, launch, native source)
-    assert len(registry.ids()) == 13
+    # every shipped engine has exactly one definition file
+    assert len(registry.ids()) == 10
 
 
 # ---------------------------------------------------------------------------

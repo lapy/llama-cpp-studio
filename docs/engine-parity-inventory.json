@@ -1,8 +1,16 @@
 {
-  "engine_count": 9,
+  "engine_count": 10,
   "engine_id_literals": {
     "1cat_vllm": {
       "engines_home": [
+        {
+          "count": 2,
+          "file": "backend/engines/capabilities.py",
+          "lines": [
+            116,
+            117
+          ]
+        },
         {
           "count": 1,
           "file": "backend/engines/activation.py",
@@ -16,6 +24,13 @@
           "lines": [
             54
           ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/metrics_flags.py",
+          "lines": [
+            22
+          ]
         }
       ],
       "outside_engines": [
@@ -24,22 +39,22 @@
           "file": "frontend/src/stores/engines.venv.test.js",
           "lines": [
             58,
-            89,
-            93,
-            124,
-            137,
-            157,
-            169,
-            185,
-            199,
-            210,
-            211,
-            212,
-            234,
-            251,
-            273,
-            276,
-            277
+            90,
+            94,
+            125,
+            139,
+            159,
+            172,
+            189,
+            203,
+            215,
+            216,
+            217,
+            243,
+            260,
+            283,
+            286,
+            287
           ]
         },
         {
@@ -66,12 +81,12 @@
           "lines": [
             156,
             305,
-            511,
-            515,
-            519,
-            523,
-            527,
-            531
+            512,
+            516,
+            520,
+            524,
+            528,
+            532
           ]
         },
         {
@@ -81,11 +96,11 @@
             996,
             1128,
             1146,
-            1265,
-            3434,
-            3806,
-            3825,
-            3969
+            1272,
+            3433,
+            3805,
+            3824,
+            3968
           ]
         },
         {
@@ -104,11 +119,11 @@
           "count": 5,
           "file": "frontend/src/engines/registry.js",
           "lines": [
-            138,
-            150,
-            152,
-            153,
-            158
+            151,
+            163,
+            165,
+            166,
+            171
           ]
         },
         {
@@ -136,7 +151,7 @@
           "file": "backend/routes/llama_versions.py",
           "lines": [
             222,
-            265
+            266
           ]
         },
         {
@@ -160,13 +175,6 @@
           "file": "backend/main.py",
           "lines": [
             458
-          ]
-        },
-        {
-          "count": 1,
-          "file": "backend/proxy/studio/tokenization.py",
-          "lines": [
-            20
           ]
         },
         {
@@ -206,14 +214,14 @@
           "count": 8,
           "file": "backend/engines/lifecycle.py",
           "lines": [
-            58,
-            381,
-            428,
-            433,
-            435,
+            59,
+            382,
+            429,
+            434,
             436,
-            519,
-            625
+            437,
+            520,
+            626
           ]
         },
         {
@@ -251,6 +259,14 @@
             3,
             42,
             64
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/engines/capabilities.py",
+          "lines": [
+            161,
+            162
           ]
         },
         {
@@ -330,19 +346,19 @@
           "count": 13,
           "file": "frontend/src/stores/engines.venv.test.js",
           "lines": [
-            117,
             118,
-            161,
-            173,
-            188,
-            203,
-            238,
-            255,
-            287,
-            426,
-            428,
-            430,
-            435
+            119,
+            164,
+            177,
+            192,
+            208,
+            247,
+            265,
+            302,
+            441,
+            443,
+            445,
+            450
           ]
         },
         {
@@ -367,15 +383,15 @@
           "file": "backend/routes/llama_versions.py",
           "lines": [
             169,
-            235,
-            237,
+            236,
             238,
-            242,
-            269,
-            468,
-            822,
-            832,
-            1568
+            239,
+            243,
+            271,
+            470,
+            824,
+            834,
+            1570
           ]
         },
         {
@@ -421,7 +437,7 @@
             189,
             194,
             199,
-            312
+            313
           ]
         },
         {
@@ -429,14 +445,14 @@
           "file": "frontend/src/views/ModelSearch.vue",
           "lines": [
             276,
-            1502,
-            1895,
-            1954,
-            2054,
-            2081,
-            2112,
-            2129,
-            3893
+            1571,
+            1964,
+            2023,
+            2123,
+            2150,
+            2181,
+            2198,
+            4195
           ]
         },
         {
@@ -481,11 +497,11 @@
           "count": 5,
           "file": "frontend/src/engines/registry.js",
           "lines": [
-            255,
-            262,
-            263,
-            269,
-            278
+            289,
+            296,
+            297,
+            303,
+            312
           ]
         },
         {
@@ -515,7 +531,7 @@
             96,
             97,
             104,
-            673
+            685
           ]
         },
         {
@@ -542,9 +558,9 @@
           "count": 3,
           "file": "backend/proxy/launch_spec.py",
           "lines": [
-            331,
-            354,
-            674
+            334,
+            357,
+            677
           ]
         },
         {
@@ -578,9 +594,9 @@
           "count": 3,
           "file": "frontend/src/stores/models.js",
           "lines": [
-            351,
-            356,
-            362
+            355,
+            360,
+            366
           ]
         },
         {
@@ -738,14 +754,14 @@
           "count": 1,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            1305
+            1303
           ]
         },
         {
           "count": 1,
           "file": "frontend/src/views/ModelConfig.vue",
           "lines": [
-            1693
+            1733
           ]
         },
         {
@@ -764,15 +780,15 @@
           "file": "backend/engines/lifecycle.py",
           "lines": [
             51,
-            325,
             326,
-            330,
+            327,
             331,
-            406,
-            414,
-            507,
-            562,
-            614
+            332,
+            407,
+            415,
+            508,
+            563,
+            615
           ]
         },
         {
@@ -849,6 +865,14 @@
         },
         {
           "count": 2,
+          "file": "backend/engines/capabilities.py",
+          "lines": [
+            88,
+            89
+          ]
+        },
+        {
+          "count": 2,
           "file": "backend/engines/registry.py",
           "lines": [
             121,
@@ -868,6 +892,13 @@
           "file": "backend/engines/llama_cpp/__init__.py",
           "lines": [
             1
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/metrics_flags.py",
+          "lines": [
+            20
           ]
         },
         {
@@ -895,75 +926,75 @@
             761,
             771,
             1112,
-            1262,
-            1301,
-            1736,
-            1794,
-            1811,
-            1884,
-            1901,
-            1917,
-            1922,
-            1976,
-            2069,
-            2236,
+            1269,
+            1299,
+            1735,
+            1793,
+            1810,
+            1883,
+            1900,
+            1916,
+            1921,
+            1975,
+            2068,
+            2235,
+            2375,
             2376,
-            2377,
+            2390,
             2391,
-            2392,
-            2396,
-            2400,
-            2448,
-            2460,
-            2463,
+            2395,
+            2399,
+            2447,
+            2459,
+            2462,
+            2541,
             2542,
-            2543,
-            2549,
-            2555,
-            2573,
-            2596,
-            2606,
-            3609,
-            3660,
-            3663,
-            3667,
-            3674,
-            3677,
-            3700,
-            3701
+            2548,
+            2554,
+            2572,
+            2595,
+            2605,
+            3608,
+            3659,
+            3662,
+            3666,
+            3673,
+            3676,
+            3699,
+            3700
           ]
         },
         {
           "count": 27,
           "file": "frontend/src/stores/engines.venv.test.js",
           "lines": [
-            104,
-            107,
+            105,
             108,
-            144,
-            154,
-            166,
-            182,
-            188,
-            191,
-            196,
-            238,
-            265,
-            369,
-            404,
-            405,
-            413,
-            414,
-            422,
-            427,
-            432,
-            444,
-            445,
-            446,
-            448,
-            454,
-            455,
-            457
+            109,
+            146,
+            156,
+            169,
+            186,
+            192,
+            195,
+            200,
+            247,
+            275,
+            384,
+            419,
+            420,
+            428,
+            429,
+            437,
+            442,
+            447,
+            459,
+            460,
+            461,
+            463,
+            469,
+            470,
+            472
           ]
         },
         {
@@ -971,27 +1002,27 @@
           "file": "backend/routes/llama_versions.py",
           "lines": [
             213,
-            262,
-            444,
-            467,
-            505,
-            518,
-            561,
+            263,
+            446,
+            469,
+            507,
+            520,
             563,
-            576,
+            565,
             578,
-            607,
-            648,
-            702,
-            703,
-            748,
-            881,
-            927,
-            978,
-            1009,
-            1231,
-            2019,
-            2111
+            580,
+            609,
+            650,
+            704,
+            705,
+            750,
+            883,
+            929,
+            980,
+            1011,
+            1233,
+            2021,
+            2113
           ]
         },
         {
@@ -1012,12 +1043,12 @@
             271,
             279,
             291,
-            333,
-            364,
-            373,
-            379,
-            384,
-            670
+            334,
+            365,
+            374,
+            380,
+            385,
+            671
           ]
         },
         {
@@ -1046,15 +1077,15 @@
           "count": 9,
           "file": "frontend/src/engines/registry.js",
           "lines": [
-            58,
-            72,
-            73,
-            78,
-            80,
-            84,
-            89,
-            574,
-            596
+            71,
+            85,
+            86,
+            91,
+            93,
+            97,
+            102,
+            607,
+            629
           ]
         },
         {
@@ -1186,13 +1217,6 @@
         },
         {
           "count": 1,
-          "file": "backend/proxy/studio/tokenization.py",
-          "lines": [
-            19
-          ]
-        },
-        {
-          "count": 1,
           "file": "backend/routes/engine_versions.py",
           "lines": [
             86
@@ -1256,13 +1280,13 @@
           "file": "backend/engines/lifecycle.py",
           "lines": [
             50,
-            328,
-            332,
-            406,
-            413,
-            506,
-            562,
-            614
+            329,
+            333,
+            407,
+            414,
+            507,
+            563,
+            615
           ]
         },
         {
@@ -1320,6 +1344,14 @@
         },
         {
           "count": 2,
+          "file": "backend/engines/capabilities.py",
+          "lines": [
+            79,
+            80
+          ]
+        },
+        {
+          "count": 2,
           "file": "backend/engines/llama_cpp/server_exec.py",
           "lines": [
             1,
@@ -1346,6 +1378,13 @@
           "file": "backend/engines/llama_cpp/__init__.py",
           "lines": [
             1
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/metrics_flags.py",
+          "lines": [
+            19
           ]
         },
         {
@@ -1408,28 +1447,28 @@
           "lines": [
             653,
             1066,
-            1261,
-            1300,
-            1776,
-            1820,
-            1837,
-            1853,
-            2036,
-            2054,
-            2236,
-            2376,
-            2448,
-            2460,
-            2543,
-            2573,
-            2606,
-            3618,
-            3625,
-            3631,
+            1268,
+            1298,
+            1775,
+            1819,
+            1836,
+            1852,
+            2035,
+            2053,
+            2235,
+            2375,
+            2447,
+            2459,
+            2542,
+            2572,
+            2605,
+            3617,
+            3624,
+            3630,
+            3656,
             3657,
-            3658,
-            3713,
-            3719
+            3712,
+            3718
           ]
         },
         {
@@ -1437,56 +1476,56 @@
           "file": "backend/routes/llama_versions.py",
           "lines": [
             212,
-            261,
-            467,
-            505,
-            560,
-            561,
+            262,
+            469,
+            507,
+            562,
             563,
-            575,
-            576,
+            565,
+            577,
             578,
-            608,
-            705,
-            927,
-            978,
-            1009,
-            1139,
-            1231,
-            1592,
-            1609,
+            580,
+            610,
+            707,
+            929,
+            980,
+            1011,
+            1141,
+            1233,
+            1594,
             1611,
-            1826,
-            2084,
-            2111
+            1613,
+            1828,
+            2086,
+            2113
           ]
         },
         {
           "count": 22,
           "file": "frontend/src/stores/engines.venv.test.js",
           "lines": [
-            103,
-            143,
-            153,
-            165,
-            182,
-            188,
-            191,
+            104,
+            145,
+            155,
+            168,
+            186,
+            192,
             195,
-            238,
-            265,
-            286,
-            369,
-            402,
-            415,
-            416,
-            422,
-            427,
-            432,
-            448,
-            450,
-            462,
-            466
+            199,
+            247,
+            275,
+            301,
+            384,
+            417,
+            430,
+            431,
+            437,
+            442,
+            447,
+            463,
+            465,
+            477,
+            481
           ]
         },
         {
@@ -1533,12 +1572,12 @@
             271,
             279,
             291,
-            333,
-            364,
-            373,
-            379,
-            384,
-            670
+            334,
+            365,
+            374,
+            380,
+            385,
+            671
           ]
         },
         {
@@ -1593,12 +1632,12 @@
           "count": 6,
           "file": "frontend/src/engines/registry.js",
           "lines": [
-            44,
-            50,
-            58,
-            84,
-            105,
-            567
+            57,
+            63,
+            71,
+            97,
+            118,
+            600
           ]
         },
         {
@@ -1699,9 +1738,9 @@
           "count": 3,
           "file": "frontend/src/views/ModelConfig.vue",
           "lines": [
-            2875,
-            3408,
-            3412
+            2921,
+            3482,
+            3486
           ]
         },
         {
@@ -1800,13 +1839,6 @@
         },
         {
           "count": 1,
-          "file": "backend/proxy/studio/tokenization.py",
-          "lines": [
-            19
-          ]
-        },
-        {
-          "count": 1,
           "file": "backend/routes/engine_versions.py",
           "lines": [
             86
@@ -1816,7 +1848,7 @@
           "count": 1,
           "file": "backend/routes/models.py",
           "lines": [
-            653
+            660
           ]
         },
         {
@@ -1889,6 +1921,15 @@
           ]
         },
         {
+          "count": 3,
+          "file": "backend/engines/capabilities.py",
+          "lines": [
+            28,
+            150,
+            151
+          ]
+        },
+        {
           "count": 2,
           "file": "backend/engines/scan/scanner.py",
           "lines": [
@@ -1921,16 +1962,16 @@
             995,
             1127,
             1145,
-            1264,
-            1303,
-            3176,
-            3186,
-            3197,
-            3219,
-            3780,
-            3782,
-            3786,
-            3801
+            1271,
+            1301,
+            3175,
+            3185,
+            3196,
+            3218,
+            3779,
+            3781,
+            3785,
+            3800
           ]
         },
         {
@@ -1938,18 +1979,18 @@
           "file": "frontend/src/stores/engines.venv.test.js",
           "lines": [
             49,
-            89,
-            94,
-            125,
-            132,
-            156,
-            168,
-            185,
-            198,
-            233,
-            250,
-            271,
-            377
+            90,
+            95,
+            126,
+            133,
+            158,
+            171,
+            189,
+            202,
+            242,
+            259,
+            281,
+            392
           ]
         },
         {
@@ -1994,12 +2035,12 @@
             152,
             296,
             304,
-            485,
-            489,
-            493,
-            497,
-            501,
-            505
+            486,
+            490,
+            494,
+            498,
+            502,
+            506
           ]
         },
         {
@@ -2007,12 +2048,12 @@
           "file": "frontend/src/engines/registry.js",
           "lines": [
             34,
-            116,
-            122,
-            128,
-            130,
-            131,
-            134
+            129,
+            135,
+            141,
+            143,
+            144,
+            147
           ]
         },
         {
@@ -2040,7 +2081,7 @@
           "file": "backend/routes/llama_versions.py",
           "lines": [
             221,
-            264
+            265
           ]
         },
         {
@@ -2093,7 +2134,7 @@
           "count": 1,
           "file": "backend/proxy/studio/registry.py",
           "lines": [
-            34
+            35
           ]
         },
         {
@@ -2129,6 +2170,15 @@
     "sglang": {
       "engines_home": [
         {
+          "count": 3,
+          "file": "backend/engines/capabilities.py",
+          "lines": [
+            27,
+            123,
+            124
+          ]
+        },
+        {
           "count": 2,
           "file": "backend/engines/scan/help_parsers.py",
           "lines": [
@@ -2152,6 +2202,13 @@
         },
         {
           "count": 1,
+          "file": "backend/engines/metrics_flags.py",
+          "lines": [
+            31
+          ]
+        },
+        {
+          "count": 1,
           "file": "backend/engines/params.py",
           "lines": [
             406
@@ -2160,50 +2217,43 @@
       ],
       "outside_engines": [
         {
-          "count": 20,
-          "file": "frontend/src/engines/registry.js",
-          "lines": [
-            162,
-            164,
-            166,
-            167,
-            168,
-            176,
-            177,
-            181,
-            185,
-            187,
-            195,
-            208,
-            209,
-            219,
-            227,
-            239,
-            240,
-            251,
-            388,
-            450
-          ]
-        },
-        {
           "count": 15,
           "file": "frontend/src/stores/engines.venv.test.js",
           "lines": [
             45,
             67,
-            89,
-            127,
-            134,
-            158,
-            170,
-            185,
-            200,
-            219,
-            220,
-            221,
-            253,
-            284,
-            380
+            90,
+            128,
+            135,
+            160,
+            173,
+            189,
+            204,
+            224,
+            226,
+            229,
+            263,
+            299,
+            395
+          ]
+        },
+        {
+          "count": 13,
+          "file": "frontend/src/engines/registry.js",
+          "lines": [
+            50,
+            51,
+            52,
+            53,
+            175,
+            179,
+            180,
+            181,
+            192,
+            196,
+            285,
+            421,
+            483
           ]
         },
         {
@@ -2211,13 +2261,13 @@
           "file": "frontend/src/stores/engines.js",
           "lines": [
             298,
-            309,
-            536,
-            540,
-            544,
-            548,
-            552,
-            556
+            310,
+            537,
+            541,
+            545,
+            549,
+            553,
+            557
           ]
         },
         {
@@ -2240,8 +2290,8 @@
             1129,
             1147,
             1174,
-            1266,
-            3834
+            1273,
+            3833
           ]
         },
         {
@@ -2269,7 +2319,7 @@
           "file": "backend/routes/llama_versions.py",
           "lines": [
             223,
-            266
+            267
           ]
         },
         {
@@ -2290,7 +2340,7 @@
           "count": 1,
           "file": "backend/proxy/studio/registry.py",
           "lines": [
-            34
+            35
           ]
         },
         {
@@ -2354,6 +2404,14 @@
     "sglang_v100": {
       "engines_home": [
         {
+          "count": 2,
+          "file": "backend/engines/capabilities.py",
+          "lines": [
+            132,
+            133
+          ]
+        },
+        {
           "count": 1,
           "file": "backend/engines/activation.py",
           "lines": [
@@ -2365,6 +2423,13 @@
           "file": "backend/engines/lifecycle.py",
           "lines": [
             56
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/metrics_flags.py",
+          "lines": [
+            36
           ]
         },
         {
@@ -2382,23 +2447,23 @@
           "lines": [
             45,
             68,
-            89,
-            92,
-            123,
-            135,
-            159,
-            171,
-            175,
-            176,
-            185,
-            201,
-            220,
-            221,
-            224,
-            252,
-            280,
-            281,
-            282
+            90,
+            93,
+            124,
+            136,
+            161,
+            174,
+            179,
+            180,
+            189,
+            205,
+            226,
+            229,
+            233,
+            261,
+            290,
+            291,
+            292
           ]
         },
         {
@@ -2430,10 +2495,10 @@
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
             1175,
-            1223,
-            1230,
-            1267,
-            3843
+            1226,
+            1235,
+            1274,
+            3842
           ]
         },
         {
@@ -2445,6 +2510,16 @@
             62,
             291,
             375
+          ]
+        },
+        {
+          "count": 4,
+          "file": "frontend/src/engines/registry.js",
+          "lines": [
+            203,
+            207,
+            225,
+            236
           ]
         },
         {
@@ -2467,28 +2542,11 @@
           ]
         },
         {
-          "count": 3,
-          "file": "frontend/src/engines/registry.js",
-          "lines": [
-            193,
-            197,
-            217
-          ]
-        },
-        {
-          "count": 2,
-          "file": "backend/proxy/launch_spec.py",
-          "lines": [
-            579,
-            730
-          ]
-        },
-        {
           "count": 2,
           "file": "backend/routes/llama_versions.py",
           "lines": [
             224,
-            267
+            268
           ]
         },
         {
@@ -2497,6 +2555,13 @@
           "lines": [
             298,
             308
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/proxy/launch_spec.py",
+          "lines": [
+            30
           ]
         },
         {
@@ -2522,11 +2587,19 @@
           "file": "backend/engines/lifecycle.py",
           "lines": [
             52,
-            174,
-            438,
-            443,
-            447,
-            513
+            175,
+            439,
+            444,
+            448,
+            514
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/engines/capabilities.py",
+          "lines": [
+            97,
+            98
           ]
         },
         {
@@ -2562,6 +2635,13 @@
         },
         {
           "count": 1,
+          "file": "backend/engines/metrics_flags.py",
+          "lines": [
+            21
+          ]
+        },
+        {
+          "count": 1,
           "file": "backend/engines/scan/scanner.py",
           "lines": [
             205
@@ -2573,22 +2653,22 @@
           "count": 16,
           "file": "frontend/src/stores/engines.venv.test.js",
           "lines": [
-            105,
-            111,
+            106,
             112,
-            114,
+            113,
             115,
-            145,
-            155,
-            167,
-            182,
-            197,
-            222,
-            225,
-            238,
-            407,
-            468,
-            472
+            116,
+            147,
+            157,
+            170,
+            186,
+            201,
+            231,
+            234,
+            247,
+            422,
+            483,
+            487
           ]
         },
         {
@@ -2609,13 +2689,13 @@
           "count": 7,
           "file": "frontend/src/engines/registry.js",
           "lines": [
-            100,
-            106,
-            110,
-            111,
-            114,
-            581,
-            597
+            113,
+            119,
+            123,
+            124,
+            127,
+            614,
+            630
           ]
         },
         {
@@ -2623,12 +2703,12 @@
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
             1126,
-            1263,
-            1302,
-            3612,
-            3703,
-            3706,
-            3976
+            1270,
+            1300,
+            3611,
+            3702,
+            3705,
+            3975
           ]
         },
         {
@@ -2636,9 +2716,9 @@
           "file": "backend/routes/llama_versions.py",
           "lines": [
             214,
-            263,
-            468,
-            1540
+            264,
+            470,
+            1542
           ]
         },
         {
@@ -2685,13 +2765,6 @@
         },
         {
           "count": 1,
-          "file": "backend/proxy/studio/tokenization.py",
-          "lines": [
-            19
-          ]
-        },
-        {
-          "count": 1,
           "file": "backend/routes/unsloth_llama_versions.py",
           "lines": [
             27
@@ -2708,6 +2781,16 @@
     },
     "vllm": {
       "engines_home": [
+        {
+          "count": 4,
+          "file": "backend/engines/capabilities.py",
+          "lines": [
+            26,
+            106,
+            107,
+            121
+          ]
+        },
         {
           "count": 2,
           "file": "backend/engines/scan/help_parsers.py",
@@ -2727,7 +2810,14 @@
           "count": 1,
           "file": "backend/engines/lifecycle.py",
           "lines": [
-            57
+            58
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/metrics_flags.py",
+          "lines": [
+            27
           ]
         },
         {
@@ -2744,24 +2834,24 @@
           "file": "frontend/src/stores/engines.venv.test.js",
           "lines": [
             45,
-            69,
-            89,
-            126,
-            133,
-            160,
-            172,
-            185,
-            202,
-            213,
-            221,
-            223,
-            247,
-            248,
-            254,
-            274,
-            276,
-            277,
-            285
+            70,
+            90,
+            127,
+            134,
+            163,
+            176,
+            189,
+            207,
+            218,
+            229,
+            232,
+            256,
+            257,
+            264,
+            284,
+            286,
+            287,
+            300
           ]
         },
         {
@@ -2770,16 +2860,16 @@
           "lines": [
             14,
             15,
-            225,
-            226,
-            229,
-            230,
-            231,
-            237,
-            244,
-            250,
-            375,
-            387
+            261,
+            262,
+            265,
+            266,
+            267,
+            273,
+            278,
+            284,
+            408,
+            420
           ]
         },
         {
@@ -2827,11 +2917,11 @@
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
             1176,
-            1225,
-            1232,
-            1268,
-            3816,
-            3852
+            1230,
+            1239,
+            1276,
+            3815,
+            3851
           ]
         },
         {
@@ -2862,8 +2952,8 @@
           "lines": [
             300,
             301,
-            310,
-            534
+            311,
+            535
           ]
         },
         {
@@ -2880,15 +2970,15 @@
           "file": "backend/proxy/studio/tokenization.py",
           "lines": [
             3,
-            20
+            150
           ]
         },
         {
           "count": 2,
           "file": "backend/routes/llama_versions.py",
           "lines": [
-            225,
-            268
+            226,
+            270
           ]
         },
         {
@@ -2916,7 +3006,7 @@
           "count": 1,
           "file": "backend/proxy/studio/registry.py",
           "lines": [
-            34
+            35
           ]
         },
         {
@@ -3215,6 +3305,13 @@
         "source_repo": "https://github.com/sgl-project/sglang.git"
       }
     },
+    "sglang_sxm2": {
+      "source": "backend/venv_install_settings.py:default_install_settings",
+      "values": {
+        "source_branch": "main",
+        "source_repo": "https://github.com/dg1kjd/sglang-sxm2.git"
+      }
+    },
     "sglang_v100": {
       "source": "backend/venv_install_settings.py:default_install_settings",
       "values": {
@@ -3368,34 +3465,42 @@
     },
     "sglang": {
       "cancel": [
+        "POST /api/sglang-sxm2/cancel",
         "POST /api/sglang-v100/cancel",
         "POST /api/sglang/cancel"
       ],
       "check_updates": [
+        "GET /api/sglang-sxm2/check-updates",
         "GET /api/sglang-v100/check-updates",
         "GET /api/sglang/check-updates"
       ],
       "delete": [
+        "POST /api/sglang-sxm2/remove",
         "POST /api/sglang-v100/remove",
         "POST /api/sglang/remove"
       ],
       "install_release": [
+        "POST /api/sglang-sxm2/install",
         "POST /api/sglang-v100/install",
         "POST /api/sglang/install"
       ],
       "install_source": [
+        "POST /api/sglang-sxm2/install-source",
         "POST /api/sglang-v100/install-source",
         "POST /api/sglang/install-source"
       ],
       "settings": [
+        "GET,PUT /api/sglang-sxm2/build-settings",
         "GET,PUT /api/sglang-v100/build-settings",
         "GET,PUT /api/sglang/build-settings"
       ],
       "status": [
+        "GET /api/sglang-sxm2/status",
         "GET /api/sglang-v100/status",
         "GET /api/sglang/status"
       ]
     },
+    "sglang_sxm2": {},
     "sglang_v100": {
       "cancel": [
         "POST /api/sglang-v100/cancel"
@@ -3721,6 +3826,49 @@
       ],
       "ui_kind": "sglang"
     },
+    "sglang_sxm2": {
+      "active_path_fields": [
+        "venv_path"
+      ],
+      "artifact_formats": [
+        "safetensors"
+      ],
+      "cpu_supported": false,
+      "experimental": true,
+      "gpu_archs": [
+        "sm70"
+      ],
+      "id": "sglang_sxm2",
+      "input_modalities": [
+        "image",
+        "text",
+        "video"
+      ],
+      "install_kind": "python_venv",
+      "label": "SGLang SXM2",
+      "maturity_surfaces": {
+        "nvidia_sm70": "specialized"
+      },
+      "output_modalities": [
+        "embedding",
+        "score",
+        "text"
+      ],
+      "package_kinds": [
+        "hf_snapshot"
+      ],
+      "repository_source": "SGLang-SXM2",
+      "runtime_kind": "sglang",
+      "scanner_kind": "sglang_help",
+      "supports_embeddings": true,
+      "tasks": [
+        "embeddings",
+        "reranking",
+        "text-generation",
+        "text2text-generation"
+      ],
+      "ui_kind": "sglang"
+    },
     "sglang_v100": {
       "active_path_fields": [
         "venv_path"
@@ -3877,6 +4025,7 @@
       "install_release": "POST /api/sglang/install -> object",
       "status": "GET /api/sglang/status -> object"
     },
+    "sglang_sxm2": {},
     "sglang_v100": {
       "check_updates": "GET /api/sglang-v100/check-updates -> object",
       "install_release": "POST /api/sglang-v100/install -> object",
@@ -4989,6 +5138,16 @@
       "methods": [
         "POST"
       ],
+      "path": "/api/models/{model_id}/dspark",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
       "path": "/api/models/{model_id}/mtp",
       "responses": {
         "POST": "unknown"
@@ -5278,6 +5437,92 @@
       "responses": {
         "GET": "unknown",
         "PUT": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "sglang"
+      ],
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "path": "/api/sglang-sxm2/build-settings",
+      "responses": {
+        "GET": "object",
+        "PUT": "object"
+      }
+    },
+    {
+      "engines": [
+        "sglang"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/sglang-sxm2/cancel",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "sglang"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/sglang-sxm2/check-updates",
+      "responses": {
+        "GET": "object"
+      }
+    },
+    {
+      "engines": [
+        "sglang"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/sglang-sxm2/install",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "sglang"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/sglang-sxm2/install-source",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "sglang"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/sglang-sxm2/remove",
+      "responses": {
+        "POST": "object"
+      }
+    },
+    {
+      "engines": [
+        "sglang"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/sglang-sxm2/status",
+      "responses": {
+        "GET": "object"
       }
     },
     {
@@ -5705,15 +5950,12 @@
     "1cat_vllm",
     "audio_cpp",
     "ik_llama",
-    "launchcraft",
-    "launchforge",
     "llama_cpp",
     "lmdeploy",
-    "nativecraft",
     "sglang",
+    "sglang_sxm2",
     "sglang_v100",
     "unsloth_llama",
-    "vllm",
-    "yamlcraft"
+    "vllm"
   ]
 }

@@ -95,16 +95,16 @@ def test_unknown_engine_still_raises():
 
 def test_authoritative_registration_still_wins():
     register_engine_install_settings(
-        "yamlcraft",
-        {"source_repo": "https://github.com/acme/yamlcraft.git", "source_branch": "main"},
+        "custom_engine",
+        {"source_repo": "https://github.com/acme/custom-engine.git", "source_branch": "main"},
     )
     try:
-        assert default_install_settings("yamlcraft") == {
-            "source_repo": "https://github.com/acme/yamlcraft.git",
+        assert default_install_settings("custom_engine") == {
+            "source_repo": "https://github.com/acme/custom-engine.git",
             "source_branch": "main",
         }
     finally:
         # Authoritative registrations are process-global; leave no residue.
         import backend.venv_install_settings as vis
 
-        vis._ENGINE_DEFAULTS.pop("yamlcraft", None)
+        vis._ENGINE_DEFAULTS.pop("custom_engine", None)

@@ -3,6 +3,10 @@
 > **Historical evidence — not the release entry point.** Start at the
 > [delivery map](delivery-map.md); the [change inventory](change-inventory.md)
 > maps this work to the review series.
+>
+> **Retired 2026-11-10:** the `launchcraft`/`launchforge` fixture personas, the
+> `launchcraft-fixture` test package and their harness tests were removed once
+> the YAML definitions were authoritative. Kept as the design record.
 
 Status: **SIGNED** (2026-11-03, owner via decision prompt — all four
 recommended). Executed R1–R4, gate G5, review follow-ups R6–R8; optional

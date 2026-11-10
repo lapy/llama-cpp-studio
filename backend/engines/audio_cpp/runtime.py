@@ -232,8 +232,10 @@ def build_audio_cpp_runtime(
         # Source-checkout model_specs/ does not contain every bundled family
         # (silero_vad is embedded). Only inject the override when this family
         # actually has a spec file, otherwise the server fails to start.
-        if discovered and os.path.isdir(discovered) and os.path.isfile(
-            os.path.join(discovered, f"{family}.json")
+        if (
+            discovered
+            and os.path.isdir(discovered)
+            and os.path.isfile(os.path.join(discovered, f"{family}.json"))
         ):
             spec_override = discovered
     model_row: Dict[str, Any] = {

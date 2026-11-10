@@ -1,15 +1,13 @@
 schema_version: 1
 name: sglang_v100/pyproject
-description: Align the fork's Python CUDA pins with Studio CUDA 12.8 and drop the stock SM70 wheel pins
-  that the source build replaces.
+description: Drop the stock wheel pins the source build replaces, so pip cannot install a PyPI
+  FlashInfer/sglang-kernel beside the SM70 builds. Tolerant of upstream pin bumps by design.
 file: python/pyproject.toml
 marker: '# Studio SM70 dependency overrides applied'
 prepend_marker: true
 operations:
-- kind: replace_all
+- kind: replace_all_or_none
   replacements:
-  - search: '"cuda-python>=13.0",'
-    replace: '"cuda-python==12.8.0",'
   - search: '"flashinfer_python==0.6.12",'
     replace: ''
   - search: '"flashinfer_cubin==0.6.11.post1",'

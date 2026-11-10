@@ -24,7 +24,7 @@ logger = get_logger(__name__)
 
 _LLAMA_SERVER_ENGINES = frozenset({"llama_cpp", "unsloth_llama"})
 _PYTHON_SERVER_ENGINES = frozenset(
-    {"lmdeploy", "1cat_vllm", "sglang", "sglang_v100", "vllm"}
+    {"lmdeploy", "1cat_vllm", "sglang", "sglang_v100", "sglang_sxm2", "vllm"}
 )
 _AUDIO_ASYNC_ENGINES = frozenset({"audio_cpp"})
 

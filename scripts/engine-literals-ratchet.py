@@ -37,7 +37,8 @@ AREA_CAPS: Dict[str, int] = {
     # Converting every engine to declared profiles deleted the legacy venv
     # launch compilers and their binary/CUDA resolvers: 76 -> 38.
     # Capability declarations moved to backend/engines/: 28 -> 24.
-    "backend/proxy/": 24,
+    # sglang-sxm2 folded two SM70-fork checks into one declared set: 24 -> 23.
+    "backend/proxy/": 23,
     # R105 tightened this 162 -> 152: the source-build routes now ask the spec
     # for the native family instead of six id tuples.
     # LMDeploy conversion tightened 152 -> 151: its compatibility module now
@@ -53,7 +54,10 @@ AREA_CAPS: Dict[str, int] = {
     # 2026-11-06: 58 -> 74 for declared ui_kind/openStrategy/statusRefresh
     # metadata in the presentation overlay (data, not control flow); the
     # corresponding view literals fell 291 -> 265.
-    "frontend/src/engines/": 74,
+    # 2026-11-10: 74 -> 68. The panel family's ui_kind/openStrategy/
+    # statusRefresh/panelFamily now live in one SGLANG_PANEL_BASE declaration
+    # (12 -> 4 sites) when sglang-sxm2 joined; its identity fields add 2.
+    "frontend/src/engines/": 68,
     "frontend/src/stores/": 323,
     "frontend/src/test-fixtures/": 43,
     # R90 raised this 6 -> 7: the audio-package predicate now lives once in

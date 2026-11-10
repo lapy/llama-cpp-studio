@@ -40,6 +40,19 @@
  *   carry (the SECOND identity system — owned here, matched nowhere else).
  */
 
+/**
+ * Fields every SGLang installer-panel engine shares (mainline, both SM70 forks
+ * and the OpenAI-compatible server engine). Declaring them once keeps the
+ * per-engine blocks to identity and runtime metadata, and keeps the engine-id
+ * literal sites the ratchet counts in one place instead of five-per-descriptor.
+ */
+const SGLANG_PANEL_BASE = Object.freeze({
+  ui_kind: 'sglang',
+  openStrategy: 'sglang',
+  statusRefresh: 'sglang',
+  panelFamily: 'sglang',
+})
+
 export const ENGINE_DESCRIPTORS = Object.freeze({
   llama_cpp: Object.freeze({
     label: 'llama.cpp',
@@ -161,7 +174,7 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
   }),
   sglang: Object.freeze({
     label: 'SGLang',
-    ui_kind: 'sglang',
+    ...SGLANG_PANEL_BASE,
     panel: Object.freeze({
       variant: 'sglang',
       defaultRepo: 'https://github.com/sgl-project/sglang.git',
@@ -173,8 +186,6 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     }),
     repoSource: 'SGLang',
     versionsKey: 'sglangVersions',
-    openStrategy: 'sglang',
-    statusRefresh: 'sglang',
     icon: 'pi-sparkles',
     fallbackFormats: Object.freeze(['safetensors']),
     venv: true,
@@ -184,7 +195,6 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     genericApi: true,
     managerKey: 'sglang',
     sglangRuntimeUi: true,
-    panelFamily: 'sglang',
     runtimeProfiles: Object.freeze({ llm: 'default', diffusion: 'diffusion' }),
     runtimeKey: 'sglang_runtime',
     buildHint:
@@ -192,7 +202,7 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
   }),
   sglang_v100: Object.freeze({
     label: 'SGLang V100',
-    ui_kind: 'sglang',
+    ...SGLANG_PANEL_BASE,
     panel: Object.freeze({
       variant: 'v100',
       defaultRepo: 'https://github.com/haohervchb/sglang-V100.git',
@@ -205,8 +215,6 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     }),
     repoSource: 'SGLang-V100',
     versionsKey: 'sglangV100Versions',
-    openStrategy: 'sglang',
-    statusRefresh: 'sglang',
     icon: 'pi-sparkles',
     fallbackFormats: Object.freeze(['safetensors']),
     venv: true,
@@ -216,15 +224,43 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     genericApi: true,
     managerKey: 'sglang_v100',
     sglangRuntimeUi: true,
-    panelFamily: 'sglang',
     runtimeProfiles: Object.freeze({ llm: 'default', diffusion: 'diffusion' }),
     runtimeKey: 'sglang_runtime',
     buildHint:
       'Set the V100 fork repo and branch. Install Studio-managed CUDA 12.8 first; the fork then builds only its SM70-specific dependencies.',
   }),
+  sglang_sxm2: Object.freeze({
+    label: 'SGLang SXM2',
+    ...SGLANG_PANEL_BASE,
+    panel: Object.freeze({
+      variant: 'v100',
+      defaultRepo: 'https://github.com/dg1kjd/sglang-sxm2.git',
+      projectUrl: 'https://github.com/dg1kjd/sglang-sxm2',
+    }),
+    card: Object.freeze({
+      mark: Object.freeze({ icon: 'pi pi-bolt' }),
+      badge: Object.freeze({ value: 'SM70', severity: 'warn' }),
+      subtitle: 'SXM2 / SM70 source build.',
+    }),
+    repoSource: 'SGLang-SXM2',
+    versionsKey: 'sglangSxm2Versions',
+    icon: 'pi-sparkles',
+    fallbackFormats: Object.freeze(['safetensors']),
+    venv: true,
+    apiSegment: 'sglang-sxm2',
+    nullSafeStatus: true,
+    dialogIcon: 'pi-bolt',
+    genericApi: true,
+    managerKey: 'sglang_sxm2',
+    sglangRuntimeUi: true,
+    runtimeProfiles: Object.freeze({ llm: 'default', diffusion: 'diffusion' }),
+    runtimeKey: 'sglang_runtime',
+    buildHint:
+      'Set the SXM2 fork repo and branch. Install Studio-managed CUDA 12.8 first; the fork then builds its own validated dependency set.',
+  }),
   vllm: Object.freeze({
     label: 'vLLM',
-    ui_kind: 'sglang',
+    ...SGLANG_PANEL_BASE,
     panel: Object.freeze({
       variant: 'vllm',
       defaultRepo: 'https://github.com/vllm-project/vllm.git',
@@ -236,8 +272,6 @@ export const ENGINE_DESCRIPTORS = Object.freeze({
     }),
     repoSource: 'vLLM',
     versionsKey: 'vllmVersions',
-    openStrategy: 'sglang',
-    statusRefresh: 'sglang',
     icon: 'pi-server',
     fallbackFormats: Object.freeze(['safetensors']),
     venv: true,

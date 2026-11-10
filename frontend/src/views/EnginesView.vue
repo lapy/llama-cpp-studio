@@ -1216,22 +1216,29 @@ const activeSglang = computed(
 const activeSglangV100 = computed(
   () => (enginesStore.sglangV100Versions || []).find((v) => v.is_active) ?? null,
 )
+const activeSglangSxm2 = computed(
+  () => (enginesStore.sglangSxm2Versions || []).find((v) => v.is_active) ?? null,
+)
 const activeVllm = computed(
   () => (enginesStore.vllmVersions || []).find((v) => v.is_active) ?? null,
 )
 const selectedSglangActive = computed(() =>
   selectedEngine.value === 'sglang_v100'
     ? activeSglangV100.value
-    : selectedEngine.value === 'vllm'
-      ? activeVllm.value
-      : activeSglang.value,
+    : selectedEngine.value === 'sglang_sxm2'
+      ? activeSglangSxm2.value
+      : selectedEngine.value === 'vllm'
+        ? activeVllm.value
+        : activeSglang.value,
 )
 const selectedSglangVersions = computed(() =>
   selectedEngine.value === 'sglang_v100'
     ? enginesStore.sglangV100Versions || []
-    : selectedEngine.value === 'vllm'
-      ? enginesStore.vllmVersions || []
-      : enginesStore.sglangVersions || [],
+    : selectedEngine.value === 'sglang_sxm2'
+      ? enginesStore.sglangSxm2Versions || []
+      : selectedEngine.value === 'vllm'
+        ? enginesStore.vllmVersions || []
+        : enginesStore.sglangVersions || [],
 )
 const activeAudioCpp = computed(
   () => enginesStore.audioCppVersions.find((v) => v.is_active) ?? null,
@@ -1265,6 +1272,7 @@ const engineActive = {
   '1cat_vllm': activeOnecatVllm,
   sglang: activeSglang,
   sglang_v100: activeSglangV100,
+  sglang_sxm2: activeSglangSxm2,
   vllm: activeVllm,
   [audioEngineId]: activeAudioCpp,
 }
@@ -1615,6 +1623,7 @@ function findListedVersion(versionId) {
     ...(enginesStore.onecatVllmVersions || []),
     ...(enginesStore.sglangVersions || []),
     ...(enginesStore.sglangV100Versions || []),
+    ...(enginesStore.sglangSxm2Versions || []),
     ...(enginesStore.vllmVersions || []),
     ...(enginesStore.audioCppVersions || []),
   ]

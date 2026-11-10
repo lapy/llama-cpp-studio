@@ -5,10 +5,10 @@ behavior migration. Inputs to the parity checklist for
 `docs/config-driven-engine-refactoring-plan.md` (Phase 1). See the JSON twin
 for machine consumption.
 
-- Engines: 9
-- `/api` routes: 157
+- Engines: 10
+- `/api` routes: 165
 - Scanner kinds dispatched: audio_cpp, llama_help
-- Shadow definitions loaded: 13
+- Shadow definitions loaded: 10
 
 ## Hardcoded engine-ID literals (outside `backend/engines/` homes)
 
@@ -19,14 +19,15 @@ where a specialized id nests in a family id (`sglang_v100` also matches
 
 | Engine | Out-of-home literals | Files | Top files |
 | --- | --- | --- | --- |
-| `1cat_vllm` | 73 | 14 | `frontend/src/stores/engines.venv.test.js` (17), `frontend/src/test-fixtures/taskFixtures.js` (12), `frontend/src/stores/engines.js` (8), `frontend/src/views/EnginesView.vue` (8) |
+| `1cat_vllm` | 72 | 13 | `frontend/src/stores/engines.venv.test.js` (17), `frontend/src/test-fixtures/taskFixtures.js` (12), `frontend/src/stores/engines.js` (8), `frontend/src/views/EnginesView.vue` (8) |
 | `audio_cpp` | 188 | 45 | `frontend/src/views/AudioWorkspace.test.js` (23), `frontend/src/stores/engines.venv.test.js` (13), `frontend/src/views/ModelConfig.audioProfiles.test.js` (11), `backend/routes/llama_versions.py` (10) |
-| `ik_llama` | 182 | 24 | `frontend/src/views/EnginesView.vue` (41), `frontend/src/stores/engines.venv.test.js` (27), `backend/routes/llama_versions.py` (22), `frontend/src/stores/engines.js` (20) |
-| `llama_cpp` | 246 | 43 | `frontend/src/stores/engines.test.js` (25), `frontend/src/views/EnginesView.vue` (24), `backend/routes/llama_versions.py` (23), `frontend/src/stores/engines.venv.test.js` (22) |
+| `ik_llama` | 181 | 23 | `frontend/src/views/EnginesView.vue` (41), `frontend/src/stores/engines.venv.test.js` (27), `backend/routes/llama_versions.py` (22), `frontend/src/stores/engines.js` (20) |
+| `llama_cpp` | 245 | 42 | `frontend/src/stores/engines.test.js` (25), `frontend/src/views/EnginesView.vue` (24), `backend/routes/llama_versions.py` (23), `frontend/src/stores/engines.venv.test.js` (22) |
 | `lmdeploy` | 92 | 20 | `frontend/src/views/EnginesView.vue` (15), `frontend/src/stores/engines.venv.test.js` (13), `frontend/src/test-fixtures/taskFixtures.js` (12), `frontend/src/views/EnginesView.tasks.test.js` (11) |
-| `sglang` | 76 | 19 | `frontend/src/engines/registry.js` (20), `frontend/src/stores/engines.venv.test.js` (15), `frontend/src/stores/engines.js` (8), `frontend/src/views/EnginesView.tasks.test.js` (6) |
+| `sglang` | 69 | 19 | `frontend/src/stores/engines.venv.test.js` (15), `frontend/src/engines/registry.js` (13), `frontend/src/stores/engines.js` (8), `frontend/src/views/EnginesView.tasks.test.js` (6) |
+| `sglang_sxm2` | 0 | 0 |  |
 | `sglang_v100` | 59 | 13 | `frontend/src/stores/engines.venv.test.js` (19), `frontend/src/components/system/SglangEnginePanel.test.js` (7), `frontend/src/views/EnginesView.tasks.test.js` (5), `frontend/src/views/EnginesView.vue` (5) |
-| `unsloth_llama` | 57 | 13 | `frontend/src/stores/engines.venv.test.js` (16), `frontend/src/views/EnginesView.tasks.test.js` (8), `frontend/src/engines/registry.js` (7), `frontend/src/views/EnginesView.vue` (7) |
+| `unsloth_llama` | 56 | 12 | `frontend/src/stores/engines.venv.test.js` (16), `frontend/src/views/EnginesView.tasks.test.js` (8), `frontend/src/engines/registry.js` (7), `frontend/src/views/EnginesView.vue` (7) |
 | `vllm` | 88 | 20 | `frontend/src/stores/engines.venv.test.js` (19), `frontend/src/engines/registry.js` (12), `frontend/src/composables/engineReadiness.test.js` (9), `frontend/src/views/EnginesView.tasks.test.js` (7) |
 
 ## Per-engine operation endpoints
@@ -42,7 +43,8 @@ difference) before its legacy router can retire.
 | `ik_llama` | 0 | 1 | 1 | 1 | 2 | 1 | 0 | 0 | 0 | 1 | 1 | settings |
 | `llama_cpp` | 0 | 1 | 1 | 1 | 2 | 1 | 0 | 0 | 0 | 1 | 1 | settings |
 | `lmdeploy` | 1 | 1 | 0 | 0 | 1 | 0 | 1 | 1 | 0 | 1 | 0 | settings |
-| `sglang` | 2 | 2 | 0 | 0 | 2 | 0 | 2 | 2 | 0 | 2 | 0 | settings |
+| `sglang` | 3 | 3 | 0 | 0 | 3 | 0 | 3 | 3 | 0 | 3 | 0 | settings |
+| `sglang_sxm2` | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | `sglang_v100` | 1 | 1 | 0 | 0 | 1 | 0 | 1 | 1 | 0 | 1 | 0 | settings |
 | `unsloth_llama` | 1 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 1 | 0 | 0 |
 | `vllm` | 2 | 2 | 0 | 0 | 2 | 0 | 2 | 2 | 0 | 2 | 0 | settings |
@@ -60,6 +62,7 @@ before legacy routers retire; today they differ per engine.
 | `llama_cpp` | `GET /api/llama-versions/check-updates -> UpdateCheckResponse` | — | — | — |
 | `lmdeploy` | `GET /api/lmdeploy/check-updates -> object` | `GET /api/lmdeploy/status -> object` | `POST /api/lmdeploy/install -> object` | — |
 | `sglang` | `GET /api/sglang/check-updates -> object` | `GET /api/sglang/status -> object` | `POST /api/sglang/install -> object` | — |
+| `sglang_sxm2` | — | — | — | — |
 | `sglang_v100` | `GET /api/sglang-v100/check-updates -> object` | `GET /api/sglang-v100/status -> object` | `POST /api/sglang-v100/install -> object` | — |
 | `unsloth_llama` | `GET /api/unsloth-llama/check-updates -> object` | — | `POST /api/unsloth-llama/install -> object` | — |
 | `vllm` | `GET /api/vllm/check-updates -> object` | `GET /api/vllm/status -> object` | `POST /api/vllm/install -> object` | — |
@@ -77,6 +80,7 @@ Persisted defaults each engine must keep producing after migration
 | `llama_cpp` | `backend/engines/llama_cpp/build_options.py:default_build_settings (shared llama-server family)` | `accelerate`, `all_warnings`, `amx_bf16`, `amx_int8`, `amx_tile`, `avx`, `avx2`, `avx512`, `avx512_bf16`, `avx512_vbmi`, `avx512_vnni`, `avx_vnni`, `backend_dir`, `backend_dl`, `blas`, `blas_vendor`, `bmi2`, `build_app`, `build_common`, `build_examples`, `build_mtmd`, `build_server`, `build_tests`, `build_tools`, `build_type`, `build_ui`, `ccache`, `cflags`, `cpu`, `cpu_all_variants`, `cpu_arm_arch`, `cpu_hbm`, `cpu_kleidiai`, `cpu_powerpc_cputype`, `cpu_repack`, `cuda`, `cuda_architectures`, `cuda_compression_mode`, `cuda_dmmv_x`, `cuda_f16`, `cuda_fa`, `cuda_fa_quants`, `cuda_force_cublas`, `cuda_force_dmmv`, `cuda_force_mmq`, `cuda_fusion`, `cuda_graphs`, `cuda_iqk_force_bf16`, `cuda_kquants_iter`, `cuda_min_batch_offload`, `cuda_mmv_y`, `cuda_nccl`, `cuda_no_peer_copy`, `cuda_no_vmm`, `cuda_peer_max_batch_size`, `custom_cmake_args`, `cxxflags`, `expert_chunking`, `f16c`, `fatal_warnings`, `flash_attention`, `fma`, `gprof`, `install_tests`, `install_tools`, `iqk_fa_all_quants`, `iqk_flash_attention`, `iqk_mul_mat`, `lasx`, `llamafile`, `llguidance`, `lsx`, `lto`, `max_contexts`, `native`, `nccl`, `openmp`, `openmp_fetch`, `openssl`, `rv_zfh`, `rv_zicbop`, `rv_zihintpause`, `rv_zvfbfwma`, `rv_zvfh`, `rvv`, `sanitize_address`, `sanitize_thread`, `sanitize_undefined`, `sched_max_copies`, `sched_no_realloc`, `sse42`, `static`, `subprocess`, `sve`, `use_prebuilt_ui`, `vxe`, `xtheadvector` |
 | `lmdeploy` | `backend/venv_install_settings.py:default_install_settings` | `compat_sm70`, `compat_torch_index_url`, `compat_torch_spec`, `pip_version`, `source_branch`, `source_repo` |
 | `sglang` | `backend/venv_install_settings.py:default_install_settings` | `pip_version`, `source_branch`, `source_repo` |
+| `sglang_sxm2` | `backend/venv_install_settings.py:default_install_settings` | `source_branch`, `source_repo` |
 | `sglang_v100` | `backend/venv_install_settings.py:default_install_settings` | `source_branch`, `source_repo` |
 | `unsloth_llama` | `—` | prebuilt installs have no persisted settings surface |
 | `vllm` | `backend/venv_install_settings.py:default_install_settings` | `pip_version`, `source_branch`, `source_repo` |
@@ -180,6 +184,7 @@ Persisted defaults each engine must keep producing after migration
 | `/api/models/{model_id}/config/save-template` | POST → unknown | — |
 | `/api/models/{model_id}/connect-test` | POST → unknown | — |
 | `/api/models/{model_id}/dflash` | POST → unknown | — |
+| `/api/models/{model_id}/dspark` | POST → unknown | — |
 | `/api/models/{model_id}/mtp` | POST → unknown | — |
 | `/api/models/{model_id}/preview-command` | POST → unknown | — |
 | `/api/models/{model_id}/projector` | POST → unknown | — |
@@ -209,6 +214,13 @@ Persisted defaults each engine must keep producing after migration
 | `/api/runtime/stale` | GET → unknown | — |
 | `/api/session` | POST → unknown | — |
 | `/api/settings/inference` | GET → unknown, PUT → unknown | — |
+| `/api/sglang-sxm2/build-settings` | GET → object, PUT → object | sglang |
+| `/api/sglang-sxm2/cancel` | POST → object | sglang |
+| `/api/sglang-sxm2/check-updates` | GET → object | sglang |
+| `/api/sglang-sxm2/install` | POST → object | sglang |
+| `/api/sglang-sxm2/install-source` | POST → object | sglang |
+| `/api/sglang-sxm2/remove` | POST → object | sglang |
+| `/api/sglang-sxm2/status` | GET → object | sglang |
 | `/api/sglang-v100/build-settings` | GET → object, PUT → object | sglang, sglang_v100 |
 | `/api/sglang-v100/cancel` | POST → object | sglang, sglang_v100 |
 | `/api/sglang-v100/check-updates` | GET → object | sglang, sglang_v100 |

@@ -9,9 +9,10 @@ Two definition tiers exist, and every startup re-verifies both:
 * ``authoritative`` (new ids) — validated by the schema/vocabularies at load,
   then REGISTERED into ``ENGINE_REGISTRY`` via ``register_engine_spec``
   (identical re-verification is idempotent; any disagreement with an existing
-  entry refuses startup). Today these are the ``fixture_only`` harness
-  personas; a new production engine would be picked up by the import-time
-  bootstrap instead and appear in the definition-owned tier.
+  entry refuses startup). This tier is what a newly added definition lands in
+  before its id is added to the registry's shipped set; production engines are
+  picked up by the import-time bootstrap and appear in the definition-owned
+  tier instead.
 
 This module is the common startup gate for both tiers. Runtime readers gate
 per engine on whether the definition declares the relevant section (profiles,

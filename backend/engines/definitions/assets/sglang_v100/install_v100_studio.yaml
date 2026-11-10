@@ -1,7 +1,8 @@
 schema_version: 1
 name: sglang_v100/install_v100_studio
-description: Rewrite the fork's host bootstrap to consume Studio Python/CUDA, keep the Python toolkit
-  on CUDA 12.8, and write the Studio entry point.
+description: Replace the fork's host bootstrap with Studio's Python/CUDA/Rust environment and build
+  the SM70 vision attention package the fork leaves opt-in, so --mm-attention-backend fa2_v100 is
+  importable at model load.
 file: scripts/install_v100.sh
 output: scripts/install_v100_studio.sh
 executable: true
@@ -9,60 +10,32 @@ operations:
 - kind: replace_region
   start: if [[ ${EUID} -eq 0 ]]; then
   end: '# Use every CPU only when RAM can sustain'
-  replace: '# Studio owns host packages, Python, and CUDA.
-
+  replace: |
+    # Studio owns host packages, Python, CUDA and Rust.
     [[ -n "${SGLANG_STUDIO_PYTHON:-}" ]] || die "SGLANG_STUDIO_PYTHON is required."
-
     [[ -x "$SGLANG_STUDIO_PYTHON" ]] || die "Studio Python is not executable: $SGLANG_STUDIO_PYTHON"
-
     [[ -n "${SGLANG_STUDIO_CUDA_HOME:-}" ]] || die "SGLANG_STUDIO_CUDA_HOME is required."
-
     [[ -x "$SGLANG_STUDIO_CUDA_HOME/bin/nvcc" ]] || die "Studio CUDA nvcc is missing."
-
     export VIRTUAL_ENV="$(dirname "$(dirname "$SGLANG_STUDIO_PYTHON")")"
-
     export CUDA_HOME="$SGLANG_STUDIO_CUDA_HOME"
-
     export CUDA_PATH="$CUDA_HOME"
-
     export PATH="$(dirname "$SGLANG_STUDIO_PYTHON"):$CUDA_HOME/bin:$PATH"
-
     export CUDAHOSTCXX="${SGLANG_STUDIO_CUDAHOSTCXX:-${CUDAHOSTCXX:-}}"
-
     export TORCH_CUDA_ARCH_LIST=7.0
-
+    # A bare `nvcc` (runtime JIT kernels) reads NVCC_PREPEND_FLAGS, not
+    # CUDAHOSTCXX; pin the host compiler for both.
+    if [[ -n "${CUDAHOSTCXX:-}" ]]; then
+      export NVCC_PREPEND_FLAGS="${NVCC_PREPEND_FLAGS:--ccbin $CUDAHOSTCXX}"
+      export CXX="${CXX:-$CUDAHOSTCXX}"
+    fi
     log "Using Studio Python: $SGLANG_STUDIO_PYTHON"
-
     log "Using Studio CUDA: $CUDA_HOME"
-
-    # A failed pre-adapter attempt may have populated this versioned venv with
-
-    # CUDA 13 Python-toolkit packages. These are not the NVIDIA driver and are not
-
-    # used with Studio''s managed CUDA 12.8 toolkit.
-
-    python -m pip uninstall -y   cuda-python cuda-bindings cuda-core cuda-pathfinder cuda-toolkit   nvidia-cuda-crt
-    nvidia-cuda-nvcc nvidia-cuda-runtime   nvidia-cuda-tileiras nvidia-nvjitlink nvidia-nvvm || true
-
-
-    '
   skip_if_contains: Studio owns host packages
-- kind: replace
-  search: python -m pip install --no-deps -r "$REPO_ROOT/requirements.txt"
-  replace: "# Studio keeps the Python CUDA toolkit aligned with its managed CUDA 12.8.\nSTUDIO_REQUIREMENTS=\"\
-    $REPO_ROOT/.studio-v100-requirements.txt\"\nawk '!/^(cuda-python|cuda-bindings|cuda-core|cuda-pathfinder|cuda-toolkit|nvidia-cuda-crt|nvidia-cuda-nvcc|nvidia-cuda-runtime|nvidia-cuda-tileiras|nvidia-nvjitlink|nvidia-nvvm)([<>=!~]|$)/'\
-    \ \\\n  \"$REPO_ROOT/requirements.txt\" > \"$STUDIO_REQUIREMENTS\"\npython -m pip install --no-deps\
-    \ -r \"$STUDIO_REQUIREMENTS\"\n# FlashInfer imports CUDA's Python driver bindings at runtime.  The\
-    \ source\n# build intentionally uses --no-deps, so restore the bindings explicitly\n# after filtering\
-    \ the fork's CUDA 13 packages above.  This does not install a\n# CUDA toolkit; it only installs cuda-python\
-    \ and its matching bindings.\npython -m pip install \"cuda-python==12.8.0\""
-  optional: true
-  skip_if_contains: STUDIO_REQUIREMENTS
 - kind: insert_after
   marker: log "Building V100 Marlin GPTQ/AWQ kernels"
-  text: '# Do not leak sglang-kernel-only CMake flags into Marlin.
-
-    unset CMAKE_ARGS'
+  text: |
+    # Do not leak sglang-kernel-only CMake flags into Marlin.
+    unset CMAKE_ARGS
   skip_if_contains: unset CMAKE_ARGS
 - kind: replace
   search: git -C "$destination" sparse-checkout set "$@"
@@ -79,3 +52,36 @@ operations:
   replace: 'log "Complete. Studio environment: $VIRTUAL_ENV"'
   optional: true
   skip_if_contains: 'Studio environment: $VIRTUAL_ENV'
+- kind: insert_after
+  marker: python -m pip install --no-deps --no-build-isolation -e "$FLASHINFER_DIR"
+  skip_if_contains: SM70 FlashAttention vision package
+  text: |
+    # Studio owns the SM70 vision attention dependency. The Qwen3.8 profile
+    # selects --mm-attention-backend fa2_v100, and that backend imports the
+    # separate flash_attn_v100 package while the model is being built. The
+    # fork keeps the package opt-in, so a fork-only install loads language
+    # models but kills the Scheduler on the first multimodal model with
+    # "ModuleNotFoundError: No module named 'flash_attn_v100'".
+    VISION_BACKEND_SOURCE="$REPO_ROOT/python/sglang/srt/layers/attention/vision.py"
+    if [[ -f "$VISION_BACKEND_SOURCE" ]] && grep -q '"fa2_v100"' "$VISION_BACKEND_SOURCE"; then
+      FLASH_V100_DIR="$DEPS_ROOT/flash-v100-vision"
+      FLASH_V100_REV="d89800edf608d85744f3ab6188be5fd0736acf39"
+      FLASH_V100_PATCH="$REPO_ROOT/python/sglang/jit_kernel/third_party/flash_v100/vision_host_compat.patch"
+      if python -c 'from flash_attn_v100 import flash_attn_varlen_func' >/dev/null 2>&1; then
+        log "Reusing the installed SM70 FlashAttention vision package"
+      else
+        log "Building the SM70 FlashAttention vision package (flash_attn_v100)"
+        if [[ ! -d "$FLASH_V100_DIR/.git" ]]; then
+          rm -rf "$FLASH_V100_DIR"
+          git clone https://github.com/ai-bond/flash-attention-v100.git "$FLASH_V100_DIR"
+        fi
+        git -C "$FLASH_V100_DIR" fetch --quiet origin "$FLASH_V100_REV" || true
+        git -C "$FLASH_V100_DIR" checkout --force --detach "$FLASH_V100_REV"
+        git -C "$FLASH_V100_DIR" reset --hard --quiet "$FLASH_V100_REV"
+        [[ -f "$FLASH_V100_PATCH" ]] || die "missing vision compatibility patch: $FLASH_V100_PATCH"
+        git -C "$FLASH_V100_DIR" apply "$FLASH_V100_PATCH"
+        MAX_JOBS=2 NVCC_THREADS=2 python -m pip install --no-deps --no-build-isolation "$FLASH_V100_DIR"
+        python -c 'from flash_attn_v100 import flash_attn_varlen_func' ||
+          die "flash_attn_v100 is not importable after the SM70 vision build"
+      fi
+    fi

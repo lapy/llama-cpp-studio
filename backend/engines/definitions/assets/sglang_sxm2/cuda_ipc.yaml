@@ -1,5 +1,5 @@
 schema_version: 1
-name: sglang_v100/cuda_ipc
+name: sglang_sxm2/cuda_ipc
 description: Use explicit Tuple member access in the custom all-reduce JIT (NVCC 12.8).
 file: python/sglang/kernels/jit/csrc/distributed/ipc.cuh
 optional_file: true
