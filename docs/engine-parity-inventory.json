@@ -150,8 +150,8 @@
           "count": 2,
           "file": "backend/routes/llama_versions.py",
           "lines": [
-            222,
-            266
+            233,
+            277
           ]
         },
         {
@@ -174,7 +174,7 @@
           "count": 1,
           "file": "backend/main.py",
           "lines": [
-            458
+            464
           ]
         },
         {
@@ -382,16 +382,16 @@
           "count": 10,
           "file": "backend/routes/llama_versions.py",
           "lines": [
-            169,
-            236,
-            238,
-            239,
-            243,
-            271,
-            470,
-            824,
-            834,
-            1570
+            170,
+            247,
+            249,
+            250,
+            254,
+            282,
+            481,
+            835,
+            845,
+            1581
           ]
         },
         {
@@ -627,8 +627,8 @@
           "count": 2,
           "file": "backend/operations/supervisor.py",
           "lines": [
-            334,
-            336
+            362,
+            364
           ]
         },
         {
@@ -643,8 +643,8 @@
           "count": 2,
           "file": "backend/routes/engines.py",
           "lines": [
-            27,
-            34
+            33,
+            40
           ]
         },
         {
@@ -823,13 +823,13 @@
           "count": 7,
           "file": "backend/engines/python/cmake_build.py",
           "lines": [
-            48,
-            183,
-            189,
-            192,
+            47,
+            182,
+            188,
+            191,
+            193,
             194,
-            195,
-            919
+            927
           ]
         },
         {
@@ -1001,28 +1001,28 @@
           "count": 22,
           "file": "backend/routes/llama_versions.py",
           "lines": [
-            213,
-            263,
-            446,
-            469,
-            507,
-            520,
-            563,
-            565,
-            578,
-            580,
-            609,
-            650,
-            704,
-            705,
-            750,
-            883,
-            929,
-            980,
-            1011,
-            1233,
-            2021,
-            2113
+            224,
+            274,
+            457,
+            480,
+            518,
+            531,
+            574,
+            576,
+            589,
+            591,
+            620,
+            661,
+            715,
+            716,
+            761,
+            894,
+            940,
+            991,
+            1022,
+            1244,
+            2033,
+            2125
           ]
         },
         {
@@ -1165,8 +1165,8 @@
           "count": 2,
           "file": "backend/main.py",
           "lines": [
-            413,
-            451
+            419,
+            457
           ]
         },
         {
@@ -1219,7 +1219,7 @@
           "count": 1,
           "file": "backend/routes/engine_versions.py",
           "lines": [
-            86
+            87
           ]
         },
         {
@@ -1321,13 +1321,13 @@
           "count": 7,
           "file": "backend/engines/python/cmake_build.py",
           "lines": [
-            919,
-            997,
-            999,
-            1000,
-            1025,
-            1030,
-            1046
+            927,
+            1005,
+            1007,
+            1008,
+            1033,
+            1038,
+            1054
           ]
         },
         {
@@ -1475,29 +1475,29 @@
           "count": 23,
           "file": "backend/routes/llama_versions.py",
           "lines": [
-            212,
-            262,
-            469,
-            507,
-            562,
-            563,
-            565,
-            577,
-            578,
-            580,
-            610,
-            707,
-            929,
-            980,
-            1011,
-            1141,
-            1233,
-            1594,
-            1611,
-            1613,
-            1828,
-            2086,
-            2113
+            223,
+            273,
+            480,
+            518,
+            573,
+            574,
+            576,
+            588,
+            589,
+            591,
+            621,
+            718,
+            940,
+            991,
+            1022,
+            1152,
+            1244,
+            1605,
+            1622,
+            1624,
+            1839,
+            2098,
+            2125
           ]
         },
         {
@@ -1756,8 +1756,8 @@
           "count": 2,
           "file": "backend/main.py",
           "lines": [
-            413,
-            451
+            419,
+            457
           ]
         },
         {
@@ -1841,14 +1841,14 @@
           "count": 1,
           "file": "backend/routes/engine_versions.py",
           "lines": [
-            86
+            87
           ]
         },
         {
           "count": 1,
           "file": "backend/routes/models.py",
           "lines": [
-            660
+            661
           ]
         },
         {
@@ -2080,8 +2080,8 @@
           "count": 2,
           "file": "backend/routes/llama_versions.py",
           "lines": [
-            221,
-            265
+            232,
+            276
           ]
         },
         {
@@ -2120,7 +2120,7 @@
           "count": 1,
           "file": "backend/main.py",
           "lines": [
-            457
+            463
           ]
         },
         {
@@ -2318,15 +2318,15 @@
           "count": 2,
           "file": "backend/routes/llama_versions.py",
           "lines": [
-            223,
-            267
+            234,
+            278
           ]
         },
         {
           "count": 1,
           "file": "backend/main.py",
           "lines": [
-            460
+            466
           ]
         },
         {
@@ -2352,13 +2352,6 @@
         },
         {
           "count": 1,
-          "file": "frontend/src/components/layout/WorkspaceNavigator.vue",
-          "lines": [
-            98
-          ]
-        },
-        {
-          "count": 1,
           "file": "frontend/src/components/ParseCommandDialog.test.js",
           "lines": [
             157
@@ -2369,6 +2362,13 @@
           "file": "frontend/src/components/ParseCommandDialog.vue",
           "lines": [
             23
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/components/layout/WorkspaceNavigator.vue",
+          "lines": [
+            98
           ]
         },
         {
@@ -2545,8 +2545,8 @@
           "count": 2,
           "file": "backend/routes/llama_versions.py",
           "lines": [
-            224,
-            268
+            235,
+            279
           ]
         },
         {
@@ -2715,10 +2715,10 @@
           "count": 4,
           "file": "backend/routes/llama_versions.py",
           "lines": [
-            214,
-            264,
-            470,
-            1542
+            225,
+            275,
+            481,
+            1553
           ]
         },
         {
@@ -2977,15 +2977,15 @@
           "count": 2,
           "file": "backend/routes/llama_versions.py",
           "lines": [
-            226,
-            270
+            237,
+            281
           ]
         },
         {
           "count": 1,
           "file": "backend/main.py",
           "lines": [
-            459
+            465
           ]
         },
         {

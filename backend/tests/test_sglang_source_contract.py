@@ -376,6 +376,12 @@ def _real_sxm2_checkout(tmp_path) -> Path:
     complete = next(
         op for op in install_asset.operations if "Complete. Run" in op.get("search", "")
     )
+    sparse_checkout = next(
+        op for op in install_asset.operations if "sparse-checkout set" in op.get("search", "")
+    )
+    sparse_paths = next(
+        op for op in install_asset.operations if "LICENSE csrc" in op.get("search", "")
+    )
     (scripts / "install_v100.sh").write_text(
         "#!/usr/bin/env bash\n"
         + region["start"]
@@ -384,6 +390,10 @@ def _real_sxm2_checkout(tmp_path) -> Path:
         + "\n"
         + 'python -m pip install --no-deps -r "$REPO_ROOT/requirements.txt"\n'
         + marlin_stage["marker"]
+        + "\n"
+        + sparse_paths["search"]
+        + "\n"
+        + sparse_checkout["search"]
         + "\n"
         + complete["search"]
         + "\n",
@@ -446,6 +456,12 @@ def test_sxm2_transform_assets_rewrite_a_real_checkout(tmp_path):
     # requirements install and the patch-stack-aware Marlin script stay as
     # shipped.
     assert 'python -m pip install --no-deps -r "$REPO_ROOT/requirements.txt"' in rewritten
+    # TurboMind headers live at the ROOT of csrc/, which the fork's sparse list
+    # omits in non-cone mode; the transform must pin both the mode and the
+    # headers (a missing one only fails the nvcc build an hour later).
+    assert 'sparse-checkout set --no-cone "$@"' in rewritten
+    assert "'csrc/*.h' 'csrc/*.cuh'" in rewritten
+    assert "/LICENSE csrc/core" in rewritten
     assert os.access(script_path, os.X_OK)
     ipc = (
         checkout / "python" / "sglang" / "kernels" / "jit" / "csrc" / "distributed" / "ipc.cuh"
