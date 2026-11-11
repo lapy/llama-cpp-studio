@@ -88,8 +88,8 @@ recipes:
     - install_env
     with:
       require_cuda_nvcc: true
-      cuda_error: SGLang SM70 requires Studio-managed CUDA 12.8. Install CUDA 12.8 from
-        Engines > NVIDIA CUDA before building the fork.
+      cuda_error: SGLang SM70 requires Studio-managed CUDA 12.8 or 12.9 (CUDA 13 dropped Volta).
+        Install one from Engines > NVIDIA CUDA before building the fork.
       variables:
         HOME: '{root}/home'
         SGLANG_STUDIO_PYTHON: '{venv_python}'
@@ -208,8 +208,8 @@ recipes:
     - install_env
     with:
       require_cuda_nvcc: true
-      cuda_error: SGLang SM70 requires Studio-managed CUDA 12.8. Install CUDA 12.8 from
-        Engines > NVIDIA CUDA before building the fork.
+      cuda_error: SGLang SM70 requires Studio-managed CUDA 12.8 or 12.9 (CUDA 13 dropped Volta).
+        Install one from Engines > NVIDIA CUDA before building the fork.
       variables:
         HOME: '{root}/home'
         SGLANG_STUDIO_PYTHON: '{venv_python}'
@@ -326,8 +326,10 @@ lifecycle:
   python_exact: '3.12'
   build_env: cuda
   build_rust: true
-  runtime_metadata:
-    cuda_version: '12.8'
+  # No fixed runtime_metadata: the fork builds and runs with CUDA 12.8 OR 12.9
+  # (CUDA 13 dropped Volta), so the row must record the toolkit the build
+  # actually used. A hardcoded version here would make a 12.9 build launch
+  # against 12.8 and silently mix toolchains.
   status:
     binary: venv_python
     include_engine: true
@@ -386,15 +388,16 @@ discovery:
   parser: sglang_help
   primary_runtime: llm
   cwd: venv_root
-  # The fork always probes against the Studio-managed CUDA 12.8 toolkit.
-  cuda_env: '12.8'
+  # Probe against the toolkit the version row recorded (12.8 or 12.9, both
+  # Volta-capable), falling back to the active managed toolkit.
+  cuda_env: true
   env:
     defaults:
       FLASHINFER_DISABLE_VERSION_CHECK: '1'
       TORCH_CUDA_ARCH_LIST: '7.0'
     required:
     - name: CUDA_HOME
-      error: Studio-managed CUDA 12.8 is unavailable
+      error: Studio-managed CUDA 12.8/12.9 is unavailable
   probe_variants:
   - executable:
       kind: venv_python
@@ -432,14 +435,16 @@ runtime_profiles:
       flag: --port
     env:
       cwd: venv_root
-      cuda: '12.8'
+      # Follow the version row (its recorded 12.8/12.9 build toolkit); the
+      # active managed toolkit is the fallback when a row carries none.
+      cuda: true
       defaults:
         FLASHINFER_DISABLE_VERSION_CHECK: '1'
         TORCH_CUDA_ARCH_LIST: '7.0'
         CUDA_DEVICE_ORDER: PCI_BUS_ID
       required:
       - name: CUDA_HOME
-        error: SGLang SM70 requires Studio-managed CUDA 12.8
+        error: SGLang SM70 requires a Studio-managed CUDA 12.8/12.9 toolkit
     runtime_switch:
       config_key: sglang_runtime
       default: llm
