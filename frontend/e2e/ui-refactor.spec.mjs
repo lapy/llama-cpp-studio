@@ -28,6 +28,25 @@ const registry = {
   ],
 }
 
+/**
+ * Axe measures computed colors, so a dialog that is still inside its enter
+ * transition is audited with a partially transparent subtree: both the text and
+ * the surface it sits on get composited, which moves a 6.0:1 pair to 4.38:1.
+ * That is what made this audit fail on CI (headless Chromium reaches the audit
+ * while the mask animation is still running) for colours that pass once the UI
+ * settles. Collapse the durations and wait for the running animations, so the
+ * audit sees the state users actually get.
+ */
+async function settleAnimations(page) {
+  await page.addStyleTag({
+    content:
+      '*,*::before,*::after{animation-duration:0s!important;transition-duration:0s!important}',
+  })
+  await page.evaluate(() =>
+    Promise.allSettled(document.getAnimations().map((animation) => animation.finished)),
+  )
+}
+
 async function installConfiguration(page) {
   await page.route('**/api/models/param-registry*', (route) => route.fulfill({ json: registry }))
   await page.route('**/api/models/demo-model/config', (route) =>
@@ -186,6 +205,7 @@ test('Connect request formats and error states pass automated accessibility chec
       'aria-invalid',
       'true',
     )
+    await settleAnimations(page)
     const audit = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa', 'best-practice'])
       .analyze()

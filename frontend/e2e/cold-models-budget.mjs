@@ -6,7 +6,12 @@ import { fileURLToPath } from 'node:url'
 // Compressed asset-size budget. This recompresses built files; it does not
 // measure network transfer. Keep the ceiling aligned with
 // COLD_MODELS_GZIP_BUDGET_BYTES.
-const BUDGET_BYTES = 250_000
+//
+// 2026-11-11: 250_000 -> 270_000 for the frontend dependency refresh
+// (Vue 3.5.45, PrimeVue 5.0.4, @primeuix/themes 3.1.0, Vite 8.3.6): the
+// cold /models graph measured 260_419 bytes gzip, ~10.4 KB above the old
+// ceiling with no code change of our own.
+const BUDGET_BYTES = 270_000
 const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
 function add(chosen, relative) {
