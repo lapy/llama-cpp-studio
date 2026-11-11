@@ -124,6 +124,42 @@ def safe_jobs() -> int:
     return max(1, min(cpu_jobs, memory_jobs))
 
 
+def cuda_arch_count(raw: Any) -> int:
+    """Device architectures a build targets, from TORCH_CUDA_ARCH_LIST."""
+    text = str(raw or "").strip()
+    if not text:
+        return 1
+    return max(1, len([part for part in re.split(r"[;,\s]+", text) if part.strip()]))
+
+
+def nvcc_threads_for(budget: int, archs: int) -> int:
+    """Per-compile nvcc parallelism that still fits the host budget.
+
+    ``nvcc --threads`` only parallelizes the work INSIDE one compilation (its
+    per-architecture passes), so it buys nothing for a single-architecture
+    build where the file-level jobs already fill the host. When a build targets
+    several architectures it is split across them, bounded so
+    ``jobs * threads`` does not oversubscribe the budget, and capped because
+    each nvcc worker is memory-hungry.
+    """
+    if archs <= 1 or budget < 8:
+        return 1
+    return max(1, min(archs, budget // 8, 4))
+
+
+def host_nvcc_threads(raw_arch_list: Any = "", budget: Optional[int] = None) -> int:
+    """Per-compile nvcc parallelism for a build environment on THIS host.
+
+    The single policy every Studio build environment uses, so an engine that
+    reads ``NVCC_THREADS`` never needs a hardcoded value in its definition: the
+    file-level job budget (``safe_jobs``: affinity, cgroup quota and RAM) and
+    the declared architecture count decide it.
+    """
+    budget_value = int(budget) if budget is not None else safe_jobs()
+    return nvcc_threads_for(budget_value, cuda_arch_count(raw_arch_list))
+
+
+
 async def prepare_fork_build(
     host,
     options: Mapping[str, Any],
@@ -142,6 +178,7 @@ async def prepare_fork_build(
         "required_tools",
         "toolchain",
         "concurrency",
+        "caches",
         "require_cuda_nvcc",
         "cuda_error",
     }
@@ -164,6 +201,19 @@ async def prepare_fork_build(
         from backend.engines.build_workspace import ccache_base_dir, ccache_environment
 
         env.update(ccache_environment(ccache_base_dir(checkout), launchers=True, cuda=True))
+    else:
+        # A fork's OWN build system may turn ccache on without Studio asking
+        # for it: the SGLang SM70 fork's sglang-kernel CMakeLists does exactly
+        # that whenever a `ccache` binary is on PATH. Such a build inherits
+        # whatever CCACHE_DIR the service environment carries, and a foreign
+        # value (the standalone image exports one under another user's data
+        # root) makes every cache miss die with "ccache: error: Permission
+        # denied". Normalize only the cache LOCATION: the launchers stay off,
+        # so this does not opt an engine into ccache, it just gives a build
+        # that opts itself in a writable cache.
+        from backend.engines.build_workspace import ccache_base_dir, ccache_environment
+
+        env.update(ccache_environment(ccache_base_dir(checkout), launchers=False))
 
     def expand(template: Any) -> str:
         return (
@@ -230,19 +280,41 @@ async def prepare_fork_build(
             env[name] = compiler
 
     concurrency = dict(options.get("concurrency") or {})
+    budget = safe_jobs()
+    declared_threads = concurrency.get("nvcc_threads")
+    auto_threads = declared_threads is None or str(declared_threads).strip().lower() == "auto"
+    threads = (
+        nvcc_threads_for(budget, cuda_arch_count(env.get("TORCH_CUDA_ARCH_LIST")))
+        if auto_threads
+        else max(1, int(declared_threads))
+    )
     if concurrency:
         unknown = set(concurrency) - {"memory_aware", "env_vars", "nvcc_threads"}
         _require(not unknown, f"concurrency has unknown keys {sorted(unknown)}")
         if concurrency.get("memory_aware"):
-            limit = safe_jobs()
+            # The per-file knob multiplies the file-level jobs, so the jobs are
+            # rebalanced against it: jobs * nvcc_threads stays inside the budget
+            # (a single-architecture build keeps the whole budget for jobs).
+            limit = max(1, budget // threads)
             for name in _string_list(concurrency.get("env_vars") or [], "concurrency env_vars"):
                 try:
                     configured = int(env.get(name, limit))
                 except (TypeError, ValueError):
                     configured = limit
                 env[name] = str(max(1, min(configured, limit)))
-        if concurrency.get("nvcc_threads") is not None:
-            env["NVCC_THREADS"] = str(concurrency["nvcc_threads"])
+    # Host-derived by default: a definition only overrides NVCC_THREADS to pin
+    # it. The fork scripts read it for `nvcc --threads` and the kernel build's
+    # internal compile-thread count.
+    env["NVCC_THREADS"] = str(threads)
+
+    cached_vars = _string_list(options.get("caches") or [], "caches")
+    if cached_vars:
+        # Same managed cache root the launch profile resolves, so the builder's
+        # precompile/smoke step fills what the server will read on start.
+        from backend.engines.caches import cache_environment, ensure_cache_dirs
+
+        ensure_cache_dirs(root, cached_vars)
+        env.update(cache_environment(root, cached_vars))
 
     missing = [
         tool

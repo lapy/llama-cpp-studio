@@ -427,7 +427,6 @@ lifecycle:
   build_env_vars:
     TORCH_CUDA_ARCH_LIST: '7.0'
     MAX_JOBS: '12'
-    NVCC_THREADS: '1'
   build_rust: true
   source_dist_dir: dist
   # Legacy task/manager token parsed by the routes and the UI.
@@ -470,6 +469,17 @@ runtime_profiles:
       flag: --port
     env:
       cwd: venv_root
+      # Managed JIT/kernel caches: Studio points these at
+      # <install_dir>/caches/<var> and flushes that tree on an in-place
+      # rebuild or a source sync.
+      caches:
+      - XDG_CACHE_HOME
+      - TRITON_CACHE_DIR
+      - TORCHINDUCTOR_CACHE_DIR
+      - TORCH_EXTENSIONS_DIR
+      - VLLM_CACHE_ROOT
+      - TIKTOKEN_CACHE_DIR
+      - CUDA_CACHE_PATH
 launch_policy:
   cpu_supported: false
   gpu_archs:

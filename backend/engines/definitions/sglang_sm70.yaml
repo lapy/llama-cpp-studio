@@ -13,9 +13,9 @@
 # Install contract: the fork's scripts/install_v100.sh stays the builder. Studio
 # replaces ONLY the host-provisioning prologue (apt/conda/CUDA/rustup) with its
 # managed Python/CUDA/Rust, then applies the patches in assets/sglang_sm70/ whose
-# reasons are recorded beside them. MAX_JOBS and CMAKE_BUILD_PARALLEL_LEVEL are
-# deliberately left unset so prepare_fork's memory-aware budget fills them
-# instead of a hardcoded job count.
+# reasons are recorded beside them. Build parallelism is host-derived: MAX_JOBS,
+# CMAKE_BUILD_PARALLEL_LEVEL and NVCC_THREADS are all filled by prepare_fork from
+# the effective CPU budget (cgroup quota and RAM included), never hardcoded.
 schema_version: 2
 id: sglang_sm70
 extends:
@@ -76,6 +76,12 @@ recipes:
     - checkout
     with:
       transform: sglang_sm70/install_v100_studio
+  - id: patch_dual_gemm
+    uses: vcs.apply_transform
+    requires:
+    - checkout
+    with:
+      transform: sglang_sm70/dual_gemm_cuda_guard
     produces:
     - builder_script
   - id: prepare_build
@@ -88,8 +94,8 @@ recipes:
     - install_env
     with:
       require_cuda_nvcc: true
-      cuda_error: SGLang SM70 requires Studio-managed CUDA 12.8. Install CUDA 12.8 from
-        Engines > NVIDIA CUDA before building the fork.
+      cuda_error: SGLang SM70 requires Studio-managed CUDA 12.8 or 12.9 (CUDA 13 dropped Volta).
+        Install one from Engines > NVIDIA CUDA before building the fork.
       variables:
         HOME: '{root}/home'
         SGLANG_STUDIO_PYTHON: '{venv_python}'
@@ -121,12 +127,27 @@ recipes:
       - cmake
       - ninja
       - curl
+      caches:
+      - XDG_CACHE_HOME
+      - TRITON_HOME
+      - TRITON_CACHE_DIR
+      - TORCHINDUCTOR_CACHE_DIR
+      - TORCH_EXTENSIONS_DIR
+      - TVM_FFI_CACHE_DIR
+      - TILELANG_CACHE_DIR
+      - SGLANG_CACHE_DIR
+      - SGLANG_DIFFUSION_CACHE_ROOT
+      - DG_JIT_CACHE_DIR
+      - TIKTOKEN_CACHE_DIR
+      - CUDA_CACHE_PATH
       concurrency:
         memory_aware: true
         env_vars:
         - MAX_JOBS
         - CMAKE_BUILD_PARALLEL_LEVEL
-        nvcc_threads: 1
+        # No nvcc_threads pin: prepare_fork derives it from the host budget and
+        # the architecture count (single-arch sm_70 keeps the whole budget for
+        # file-level jobs).
   - id: run_builder
     uses: exec.run_logged
     requires:
@@ -140,6 +161,19 @@ recipes:
       cwd_from: checkout
       env_from: install_env
       error: SGLang-SM70 installer failed with status {code}
+  # The fork's python/pyproject.toml declares these runtime dependencies but
+  # scripts/install_v100.sh installs requirements.txt with --no-deps, and
+  # requirements.txt omits them, so the server cannot import (blake3 is reached
+  # from schedule_batch, zstandard from the HTTP entrypoint). Install the gap
+  # here; drop this step once the fork's requirements.txt carries them.
+  - id: install_runtime_deps
+    uses: pip.install_package
+    with:
+      packages:
+      - blake3>=1.0.0
+      - zstandard
+      stage: install_source
+      error: SGLang SM70 runtime dependency install failed with status {code}
   - id: seal_checkout
     uses: vcs.seal_checkout
     requires:
@@ -196,6 +230,12 @@ recipes:
     - checkout
     with:
       transform: sglang_sm70/install_v100_studio
+  - id: patch_dual_gemm
+    uses: vcs.apply_transform
+    requires:
+    - checkout
+    with:
+      transform: sglang_sm70/dual_gemm_cuda_guard
     produces:
     - builder_script
   - id: prepare_build
@@ -208,8 +248,8 @@ recipes:
     - install_env
     with:
       require_cuda_nvcc: true
-      cuda_error: SGLang SM70 requires Studio-managed CUDA 12.8. Install CUDA 12.8 from
-        Engines > NVIDIA CUDA before building the fork.
+      cuda_error: SGLang SM70 requires Studio-managed CUDA 12.8 or 12.9 (CUDA 13 dropped Volta).
+        Install one from Engines > NVIDIA CUDA before building the fork.
       variables:
         HOME: '{root}/home'
         SGLANG_STUDIO_PYTHON: '{venv_python}'
@@ -241,12 +281,27 @@ recipes:
       - cmake
       - ninja
       - curl
+      caches:
+      - XDG_CACHE_HOME
+      - TRITON_HOME
+      - TRITON_CACHE_DIR
+      - TORCHINDUCTOR_CACHE_DIR
+      - TORCH_EXTENSIONS_DIR
+      - TVM_FFI_CACHE_DIR
+      - TILELANG_CACHE_DIR
+      - SGLANG_CACHE_DIR
+      - SGLANG_DIFFUSION_CACHE_ROOT
+      - DG_JIT_CACHE_DIR
+      - TIKTOKEN_CACHE_DIR
+      - CUDA_CACHE_PATH
       concurrency:
         memory_aware: true
         env_vars:
         - MAX_JOBS
         - CMAKE_BUILD_PARALLEL_LEVEL
-        nvcc_threads: 1
+        # No nvcc_threads pin: prepare_fork derives it from the host budget and
+        # the architecture count (single-arch sm_70 keeps the whole budget for
+        # file-level jobs).
   - id: run_builder
     uses: exec.run_logged
     requires:
@@ -260,6 +315,19 @@ recipes:
       cwd_from: checkout
       env_from: install_env
       error: SGLang-SM70 installer failed with status {code}
+  # The fork's python/pyproject.toml declares these runtime dependencies but
+  # scripts/install_v100.sh installs requirements.txt with --no-deps, and
+  # requirements.txt omits them, so the server cannot import (blake3 is reached
+  # from schedule_batch, zstandard from the HTTP entrypoint). Install the gap
+  # here; drop this step once the fork's requirements.txt carries them.
+  - id: install_runtime_deps
+    uses: pip.install_package
+    with:
+      packages:
+      - blake3>=1.0.0
+      - zstandard
+      stage: install_source
+      error: SGLang SM70 runtime dependency install failed with status {code}
   - id: capture_commit
     uses: vcs.capture_commit
     requires:
@@ -326,8 +394,10 @@ lifecycle:
   python_exact: '3.12'
   build_env: cuda
   build_rust: true
-  runtime_metadata:
-    cuda_version: '12.8'
+  # No fixed runtime_metadata: the fork builds and runs with CUDA 12.8 OR 12.9
+  # (CUDA 13 dropped Volta), so the row must record the toolkit the build
+  # actually used. A hardcoded version here would make a 12.9 build launch
+  # against 12.8 and silently mix toolchains.
   status:
     binary: venv_python
     include_engine: true
@@ -386,15 +456,16 @@ discovery:
   parser: sglang_help
   primary_runtime: llm
   cwd: venv_root
-  # The fork always probes against the Studio-managed CUDA 12.8 toolkit.
-  cuda_env: '12.8'
+  # Probe against the toolkit the version row recorded (12.8 or 12.9, both
+  # Volta-capable), falling back to the active managed toolkit.
+  cuda_env: true
   env:
     defaults:
       FLASHINFER_DISABLE_VERSION_CHECK: '1'
       TORCH_CUDA_ARCH_LIST: '7.0'
     required:
     - name: CUDA_HOME
-      error: Studio-managed CUDA 12.8 is unavailable
+      error: Studio-managed CUDA 12.8/12.9 is unavailable
   probe_variants:
   - executable:
       kind: venv_python
@@ -432,14 +503,32 @@ runtime_profiles:
       flag: --port
     env:
       cwd: venv_root
-      cuda: '12.8'
+      # Follow the version row (its recorded 12.8/12.9 build toolkit); the
+      # active managed toolkit is the fallback when a row carries none.
+      cuda: true
+      # Managed JIT/kernel caches: Studio points these at <install_dir>/caches/<var>
+      # and flushes that tree on an in-place rebuild or source sync, so a start
+      # reuses what the installer's precompile/smoke step already produced.
+      caches:
+      - XDG_CACHE_HOME
+      - TRITON_HOME
+      - TRITON_CACHE_DIR
+      - TORCHINDUCTOR_CACHE_DIR
+      - TORCH_EXTENSIONS_DIR
+      - TVM_FFI_CACHE_DIR
+      - TILELANG_CACHE_DIR
+      - SGLANG_CACHE_DIR
+      - SGLANG_DIFFUSION_CACHE_ROOT
+      - DG_JIT_CACHE_DIR
+      - TIKTOKEN_CACHE_DIR
+      - CUDA_CACHE_PATH
       defaults:
         FLASHINFER_DISABLE_VERSION_CHECK: '1'
         TORCH_CUDA_ARCH_LIST: '7.0'
         CUDA_DEVICE_ORDER: PCI_BUS_ID
       required:
       - name: CUDA_HOME
-        error: SGLang SM70 requires Studio-managed CUDA 12.8
+        error: SGLang SM70 requires a Studio-managed CUDA 12.8/12.9 toolkit
     runtime_switch:
       config_key: sglang_runtime
       default: llm

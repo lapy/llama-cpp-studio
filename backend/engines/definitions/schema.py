@@ -1691,8 +1691,30 @@ def _validate_profile(name: str, value: Any, where: str) -> Dict[str, Any]:
     if "env" in value:
         env = value["env"]
         _require(isinstance(env, Mapping), "env must be a mapping", item_where)
-        unknown = set(env) - {"required", "defaults", "prepend_bin_to_path", "cwd", "cuda"}
+        unknown = set(env) - {
+            "required",
+            "defaults",
+            "prepend_bin_to_path",
+            "cwd",
+            "cuda",
+            "caches",
+        }
         _require(not unknown, f"env has unknown keys {sorted(unknown)}", item_where)
+        if "caches" in env:
+            # Managed JIT/kernel caches resolved to <install_dir>/caches/<var>.
+            # The variable NAMES are data; Studio owns the path and the flush.
+            caches = env["caches"]
+            _require(
+                isinstance(caches, list) and bool(caches),
+                "env.caches must be a non-empty list of environment variable names",
+                item_where,
+            )
+            for cache_name in caches:
+                _require(
+                    isinstance(cache_name, str) and bool(_ENV_NAME_RE.match(cache_name)),
+                    f"env.caches contains invalid name {cache_name!r}",
+                    item_where,
+                )
         if "cuda" in env:
             # Studio-managed CUDA environment resolved per active install
             # (mirrors the installer's `build_env: cuda`). A string value is
@@ -1800,6 +1822,7 @@ _FORK_OPTION_KEYS = frozenset(
         "required_tools",
         "toolchain",
         "concurrency",
+        "caches",
         "require_cuda_nvcc",
         "cuda_error",
     }
@@ -1885,15 +1908,34 @@ def _validate_fork_with(step_id: str, value: Any, where: str) -> None:
     _require(isinstance(concurrency, Mapping), "build.prepare_fork.concurrency must map", where)
     unknown = set(concurrency) - {"memory_aware", "env_vars", "nvcc_threads"}
     _require(not unknown, f"concurrency has unknown keys {sorted(unknown)}", where)
+    if "caches" in value:
+        # Same contract as runtime_profiles.<name>.env.caches: the declared
+        # variables point inside this install's managed cache root, so the
+        # builder's precompile/smoke step fills what the server will read.
+        caches = value["caches"]
+        _require(
+            isinstance(caches, list) and bool(caches),
+            "build.prepare_fork.caches must be a non-empty list of environment variable names",
+            where,
+        )
+        for cache_name in caches:
+            _require(
+                isinstance(cache_name, str) and bool(_ENV_NAME_RE.match(cache_name)),
+                f"build.prepare_fork.caches contains invalid name {cache_name!r}",
+                where,
+            )
     if "memory_aware" in concurrency:
         _check_bool("concurrency.memory_aware", concurrency["memory_aware"], where)
     if "env_vars" in concurrency:
         _validate_env_name_list("concurrency.env_vars", concurrency["env_vars"], where)
     if "nvcc_threads" in concurrency:
+        # An integer pins the per-compile nvcc parallelism; "auto" (or omitting
+        # the key) derives it from the host budget and the architecture count.
+        threads = concurrency["nvcc_threads"]
         _require(
-            isinstance(concurrency["nvcc_threads"], int)
-            and not isinstance(concurrency["nvcc_threads"], bool),
-            "concurrency.nvcc_threads must be an integer",
+            (isinstance(threads, int) and not isinstance(threads, bool))
+            or (isinstance(threads, str) and threads.strip().lower() == "auto"),
+            "concurrency.nvcc_threads must be an integer or 'auto'",
             where,
         )
 

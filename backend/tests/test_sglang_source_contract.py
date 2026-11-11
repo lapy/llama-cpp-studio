@@ -486,7 +486,11 @@ def test_sm70_transform_assets_rewrite_a_real_checkout(tmp_path):
         for step in dict(definition.recipes)[flow]
         if step["uses"] == "vcs.apply_transform"
     }
-    assert transforms == {"sglang_sm70/cuda_ipc", "sglang_sm70/install_v100_studio"}
+    assert transforms == {
+        "sglang_sm70/cuda_ipc",
+        "sglang_sm70/install_v100_studio",
+        "sglang_sm70/dual_gemm_cuda_guard",
+    }
     lifecycle = dict(definition.lifecycle)
     assert lifecycle["default_repo_url"] == "https://github.com/lapy/sglang-sm70.git"
     assert lifecycle["root_name"] == "sglang-sm70"
@@ -518,6 +522,40 @@ def test_sm70_transform_assets_rewrite_a_real_checkout(tmp_path):
     ).read_text(encoding="utf-8")
     assert "to_ipc_handle(pair.get<0>())" in ipc
     assert "const auto offset = pair.get<1>();" in ipc
+
+
+def test_sm70_dual_gemm_guard_survives_a_missing_cute_dsl(tmp_path):
+    """CuTe DSL needs CUDA 13.1; the guard turns that crash into "no dual gemm"."""
+    checkout = tmp_path / "checkout"
+    dual_gemm = checkout / "python" / "sglang" / "srt" / "layers" / "dual_gemm.py"
+    dual_gemm.parent.mkdir(parents=True)
+    upstream = (
+        "    def _select_mode(self):\n"
+        "        if not is_cuda():\n"
+        "            return None\n"
+        "\n"
+        "        from sglang.kernels.ops.gemm.cutedsl_dual_gemm import (\n"
+        "            MAX_DUAL_GEMM_DECODE_TOKENS,\n"
+        "            DualGemmQuantMode,\n"
+        "            can_use_dual_gemm,\n"
+        "        )\n"
+        "        from sglang.srt.layers.quantization.unquant import UnquantizedLinearMethod\n"
+    )
+    dual_gemm.write_text(upstream, encoding="utf-8")
+
+    assert Path(apply_transform("sglang_sm70/dual_gemm_cuda_guard", str(checkout))) == dual_gemm
+    patched = dual_gemm.read_text(encoding="utf-8")
+    assert "except (ImportError, NotImplementedError):" in patched
+    # The fallback must not swallow the rest of the method: the original
+    # follow-on import is still there at method level.
+    assert (
+        "\n        from sglang.srt.layers.quantization.unquant import "
+        "UnquantizedLinearMethod\n" in patched
+    )
+    # Idempotent: a second run leaves the file untouched.
+    before = dual_gemm.read_text(encoding="utf-8")
+    apply_transform("sglang_sm70/dual_gemm_cuda_guard", str(checkout))
+    assert dual_gemm.read_text(encoding="utf-8") == before
 
 
 def test_v100_transform_assets_fail_descriptively_when_layout_changes(tmp_path):
