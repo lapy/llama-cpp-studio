@@ -155,6 +155,19 @@ recipes:
       cwd_from: checkout
       env_from: install_env
       error: SGLang-SM70 installer failed with status {code}
+  # The fork's python/pyproject.toml declares these runtime dependencies but
+  # scripts/install_v100.sh installs requirements.txt with --no-deps, and
+  # requirements.txt omits them, so the server cannot import (blake3 is reached
+  # from schedule_batch, zstandard from the HTTP entrypoint). Install the gap
+  # here; drop this step once the fork's requirements.txt carries them.
+  - id: install_runtime_deps
+    uses: pip.install_package
+    with:
+      packages:
+      - blake3>=1.0.0
+      - zstandard
+      stage: install_source
+      error: SGLang SM70 runtime dependency install failed with status {code}
   - id: seal_checkout
     uses: vcs.seal_checkout
     requires:
@@ -290,6 +303,19 @@ recipes:
       cwd_from: checkout
       env_from: install_env
       error: SGLang-SM70 installer failed with status {code}
+  # The fork's python/pyproject.toml declares these runtime dependencies but
+  # scripts/install_v100.sh installs requirements.txt with --no-deps, and
+  # requirements.txt omits them, so the server cannot import (blake3 is reached
+  # from schedule_batch, zstandard from the HTTP entrypoint). Install the gap
+  # here; drop this step once the fork's requirements.txt carries them.
+  - id: install_runtime_deps
+    uses: pip.install_package
+    with:
+      packages:
+      - blake3>=1.0.0
+      - zstandard
+      stage: install_source
+      error: SGLang SM70 runtime dependency install failed with status {code}
   - id: capture_commit
     uses: vcs.capture_commit
     requires:
