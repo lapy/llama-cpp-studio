@@ -68,6 +68,14 @@ def clear_runtime_observation() -> None:
         _snapshot["quality"] = "unreachable"
 
 
+def forget_runtime_model(name: str) -> None:
+    """Clear one model's remembered state after its failed instance is removed."""
+    if not name:
+        return
+    with _lock:
+        _snapshot["states"].pop(str(name), None)
+
+
 def runtime_observation_report(now: Optional[datetime] = None) -> Dict[str, Any]:
     """Quality, timestamp, and age of the running-model snapshot.
 

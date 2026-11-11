@@ -76,6 +76,7 @@ class Generation:
     exit_code: Optional[int] = None
     failure_reason: Optional[str] = None
     log_truncated_bytes: int = 0
+    _partial_log: dict[str, int] = field(default_factory=dict, repr=False)
     _terminated: bool = False
     _terminate_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
     _watch_task: Optional[asyncio.Task] = field(default=None, repr=False)
@@ -148,6 +149,32 @@ class ProcessRegistry:
     def generation(self, model_id: str) -> Optional[Generation]:
         """Return a live ready or starting generation for observation."""
         return self.active(model_id) or self._starting.get(model_id) or self._failed.get(model_id)
+
+    def remove_failed_instance(self, model_id: str) -> bool:
+        """Forget a failed instance and reset the status it contributed.
+
+        Only terminal failures are removable. A model that is active or still
+        starting is never discarded here; that would hide a live process.
+        """
+        generation = self._failed.get(model_id)
+        if generation is None:
+            return False
+        if generation.process.poll() is None:
+            return False
+        if self._active.get(model_id) is generation or self._starting.get(model_id) is generation:
+            return False
+        self._failed.pop(model_id, None)
+        self._generations.pop(generation.process.pid, None)
+        generation.failure_reason = None
+        generation.exit_code = None
+        generation.ready = False
+        generation.loading_progress = None
+        generation.draining = False
+        generation._terminated = True
+        generation.log_truncated_bytes = 0
+        generation.logs.clear()
+        generation._partial_log.clear()
+        return True
 
     def snapshot(self) -> list[dict[str, Any]]:
         rows = [self.describe(item) for item in self._active.values()]
@@ -619,12 +646,25 @@ class ProcessRegistry:
         raise RegistryError(f"engine readiness timed out after {self.readiness_timeout:g}s")
 
     async def _pump(self, stream: Any, generation: Generation, label: str) -> None:
-        """Drain bounded pipe chunks without occupying an executor worker."""
+        """Drain bounded pipe chunks without occupying an executor worker.
+
+        Both ``\\n`` and ``\\r`` terminate a write. A bare carriage return is a
+        terminal redraw (progress bars, load percentages), so it replaces the
+        previous line in place instead of appending a new one.
+        """
         reader = asyncio.StreamReader(limit=65536)
         protocol = asyncio.StreamReaderProtocol(reader)
         transport = None
         decoder = codecs.getincrementaldecoder("utf-8")("replace")
         pending = ""
+        inline = False
+
+        def deliver(text: str, *, partial: bool, commit: bool = True) -> None:
+            if len(text) > 8192:
+                generation.log_truncated_bytes += len(text) - 8192
+                text = text[:8192]
+            self._log_line(generation, label, text, partial=partial, commit=commit)
+
         try:
             transport, _ = await asyncio.get_running_loop().connect_read_pipe(
                 lambda: protocol, stream
@@ -633,24 +673,65 @@ class ProcessRegistry:
                 chunk = await reader.read(16384)
                 text = decoder.decode(chunk, final=not chunk)
                 pending += text
-                while "\n" in pending:
-                    line, pending = pending.split("\n", 1)
-                    self._log_line(generation, label, line[:8192])
-                    generation.log_truncated_bytes += max(0, len(line) - 8192)
+                while pending:
+                    newline = pending.find("\n")
+                    carriage = pending.find("\r")
+                    if newline == -1 and carriage == -1:
+                        break
+                    if carriage != -1 and (newline == -1 or carriage < newline):
+                        line = pending[:carriage]
+                        if carriage + 1 < len(pending) and pending[carriage + 1] == "\n":
+                            pending = pending[carriage + 2 :]
+                            deliver(line, partial=inline, commit=True)
+                            inline = False
+                        else:
+                            pending = pending[carriage + 1 :]
+                            if line:
+                                deliver(line, partial=True, commit=False)
+                            inline = True
+                    else:
+                        line = pending[:newline]
+                        pending = pending[newline + 1 :]
+                        deliver(line, partial=inline, commit=True)
+                        inline = False
                 if len(pending) > 8192:
                     generation.log_truncated_bytes += len(pending) - 8192
-                    pending = pending[:8192]
+                    pending = pending[-8192:]
                 if not chunk:
                     if pending:
-                        self._log_line(generation, label, pending)
+                        deliver(pending, partial=inline, commit=True)
                     return
         finally:
             if transport:
                 transport.close()
 
-    def _log_line(self, generation: Generation, label: str, line: str):
+    def _log_line(
+        self,
+        generation: Generation,
+        label: str,
+        line: str,
+        *,
+        partial: bool = False,
+        commit: bool = True,
+    ):
         clean = line.rstrip()
-        generation.logs.append(f"{label}: {clean}")
+        if partial and not clean:
+            if commit:
+                generation._partial_log.pop(label, None)
+            return
+        prefixed = f"{label}: {clean}"
+        if partial:
+            sequence = generation._partial_log.get(label)
+            if sequence is not None and generation.logs.last_sequence == sequence:
+                generation.logs.replace_last(prefixed)
+            else:
+                item = generation.logs.append(prefixed)
+                generation._partial_log[label] = item.sequence
+            if commit:
+                generation._partial_log.pop(label, None)
+        else:
+            generation.logs.append(prefixed)
+            generation._partial_log.pop(label, None)
         progress = _loading_progress(clean)
         if progress is not None and progress != generation.loading_progress:
             generation.loading_progress = progress

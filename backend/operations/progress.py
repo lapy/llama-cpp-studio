@@ -6,12 +6,16 @@ import json
 import threading
 import time
 import uuid
+from collections import deque
 from datetime import datetime
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 # Bound per-subscriber memory. Overflow asks the client to resynchronize.
 MAX_SUBSCRIBER_QUEUE = 64
 MAX_RETAINED_TASKS = 200
+# Full install/build output retained for reconnect and page refresh. The UI
+# keeps the same cap so a restored buffer matches what was streamed live.
+MAX_TASK_LOG_LINES = 15000
 HEARTBEAT_SECONDS = 15.0
 TERMINAL_STATUSES = {
     "completed",
@@ -33,6 +37,7 @@ class ProgressManager:
 
     def __init__(self):
         self._tasks: Dict[str, dict] = {}
+        self._task_logs: Dict[str, deque[str]] = {}
         self._subscribers: list[asyncio.Queue] = []
         self._seq = 0
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -63,6 +68,7 @@ class ProgressManager:
             "progress": 0.0,
             "status": "running",
             "message": "",
+            "log_count": 0,
             "metadata": metadata,
             "created_at": time.time(),
             "updated_at": time.time(),
@@ -101,11 +107,39 @@ class ProgressManager:
             task["status"] = status
         if metadata_update:
             task["metadata"].update(metadata_update)
+        task["log_count"] = len(self._task_logs.get(task_id, ()))
         task["updated_at"] = time.time()
         if status in TERMINAL_STATUSES:
             self._finish_operation(task_id, status, task.get("message") or "")
         if broadcast:
             self._broadcast({"event": "task_updated", "data": task})
+
+    def _record_task_logs(self, task_id: Optional[str], lines: Any) -> None:
+        """Retain task output so a reconnect or page refresh can restore it."""
+        if not task_id or lines is None:
+            return
+        if isinstance(lines, str):
+            entries = [lines]
+        elif isinstance(lines, (list, tuple)):
+            entries = list(lines)
+        else:
+            entries = [str(lines)]
+        buffer = self._task_logs.get(task_id)
+        if buffer is None:
+            buffer = deque(maxlen=MAX_TASK_LOG_LINES)
+            self._task_logs[task_id] = buffer
+        for entry in entries:
+            if entry is None:
+                continue
+            text = str(entry)
+            if not text:
+                continue
+            for part in text.splitlines() or [text]:
+                if part:
+                    buffer.append(part)
+
+    def get_task_logs(self, task_id: str) -> List[str]:
+        return list(self._task_logs.get(task_id, ()))
 
     def complete_task(self, task_id: str, message: str = "Done"):
         self.update_task(task_id, progress=100.0, status="completed", message=message)
@@ -122,6 +156,7 @@ class ProgressManager:
         if task and task.get("status") not in TERMINAL_STATUSES:
             return False
         self._tasks.pop(task_id, None)
+        self._task_logs.pop(task_id, None)
         self._forget_operation(task_id)
         self._broadcast({"event": "task_dismissed", "data": {"task_id": task_id}})
         return True
@@ -142,11 +177,14 @@ class ProgressManager:
 
     def snapshot_tasks(self) -> list:
         """Authoritative task list, including recent terminal outcomes."""
-        return [
-            copy.deepcopy(task)
-            for task in self._tasks.values()
-            if task.get("type") not in ACTIVITY_NOISE_KINDS
-        ]
+        snapshot = []
+        for task in self._tasks.values():
+            if task.get("type") in ACTIVITY_NOISE_KINDS:
+                continue
+            item = copy.deepcopy(task)
+            item["log_count"] = len(self._task_logs.get(task["task_id"], ()))
+            snapshot.append(item)
+        return snapshot
 
     def restore_operations(self, operations: List[dict]) -> None:
         """Restore durable terminal outcomes into the authoritative UI snapshot."""
@@ -245,7 +283,9 @@ class ProgressManager:
         )
         while len(self._tasks) > MAX_RETAINED_TASKS and terminal:
             oldest = terminal.pop(0)
-            self._tasks.pop(oldest.get("task_id"), None)
+            task_id = oldest.get("task_id")
+            self._tasks.pop(task_id, None)
+            self._task_logs.pop(task_id, None)
 
     def _prepare_event(self, event: dict) -> dict:
         self._seq += 1
@@ -303,6 +343,11 @@ class ProgressManager:
 
     def emit(self, event_type: str, data: Any):
         """Emit a generic event (for example a log line or notification) to SSE subscribers."""
+        if isinstance(data, dict):
+            if event_type == "task_log":
+                self._record_task_logs(data.get("task_id"), data.get("line"))
+            elif event_type == "build_progress":
+                self._record_task_logs(data.get("task_id"), data.get("log_lines") or [])
         self._broadcast({"event": event_type, "data": data})
 
     @property

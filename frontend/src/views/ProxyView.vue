@@ -988,6 +988,17 @@
               </details>
               <div class="runtime-actions">
                 <Button
+                  v-if="['failed', 'error'].includes(item.state)"
+                  label="Remove"
+                  icon="pi pi-trash"
+                  size="small"
+                  severity="danger"
+                  outlined
+                  aria-label="Remove failed engine instance"
+                  title="Remove failed engine instance and clear its status"
+                  @click="removeFailedEngine(item)"
+                />
+                <Button
                   :label="openLogs === item.model ? 'Hide logs' : 'View logs'"
                   :icon="openLogs === item.model ? 'pi pi-eye-slash' : 'pi pi-list'"
                   size="small"
@@ -1007,51 +1018,19 @@
                   >Manage model <i class="pi pi-arrow-up-right" aria-hidden="true"
                 /></RouterLink>
               </div>
-              <template v-if="openLogs === item.model">
-                <div class="log-toolbar">
-                  <span class="log-search">
-                    <i class="pi pi-search" aria-hidden="true" />
-                    <input
-                      v-model="logSearch"
-                      class="field"
-                      placeholder="Search log lines…"
-                      aria-label="Search logs"
-                      @input="debouncedLoadLogs(item.model)"
-                    />
-                  </span>
-                  <select
-                    v-model="logLevel"
-                    class="field"
-                    aria-label="Log severity"
-                    @change="loadLogs(item.model)"
-                  >
-                    <option value="">All severities</option>
-                    <option value="warn">Warnings &amp; errors</option>
-                    <option value="error">Errors only</option>
-                  </select>
-                  <span class="log-meta">{{ (logs[item.model] || []).length }} shown · live</span>
-                  <Button
-                    label="Download"
-                    icon="pi pi-download"
-                    size="small"
-                    severity="secondary"
-                    text
-                    @click="downloadLogs(item.model)"
-                  />
-                  <Button
-                    label="Clear"
-                    icon="pi pi-trash"
-                    size="small"
-                    severity="danger"
-                    text
-                    @click="confirmClearLogs(item.model)"
-                  />
-                </div>
-                <LogOutput
-                  :lines="logs[item.model] || []"
-                  empty-message="No engine output matches the current filter."
-                />
-              </template>
+              <LogOutput
+                v-if="openLogs === item.model"
+                :lines="logs[item.model] || []"
+                :levels="ENGINE_LOG_LEVELS"
+                :live="!['failed', 'stopped'].includes(item.state)"
+                stream-aware
+                downloadable
+                clearable
+                aria-label="Engine log output"
+                empty-message="No engine output yet."
+                @download="downloadLogs(item.model, $event)"
+                @clear="confirmClearLogs(item.model)"
+              />
             </article>
           </div>
           <EmptyState
@@ -1829,9 +1808,16 @@ watch(
   },
 )
 const logs = reactive({})
-const logSearch = ref(''),
-  logLevel = ref(''),
-  keyNameInput = ref(null)
+const logSeq = reactive({})
+const ENGINE_LOG_LEVELS = [
+  { value: '', label: 'All' },
+  { value: 'warn', label: 'Warn' },
+  { value: 'error', label: 'Error' },
+]
+const MAX_ENGINE_LOG_LINES = 5000
+let logSource = null
+let logOpenToken = 0
+const keyNameInput = ref(null)
 const keyExpires = ref(''),
   keyRateLimit = ref(null),
   keyModels = ref('')
@@ -1858,7 +1844,7 @@ const draft = reactive({
   drain_timeout_seconds: 30,
   default_model: null,
 })
-let timer, logTimer
+let timer
 const baseline = ref('')
 
 const liveRunning = computed(() =>
@@ -1892,7 +1878,9 @@ function inspectOutcome(outcome) {
   loadRequests(true)
 }
 const readyEngines = computed(() => liveRunning.value.filter((item) => item.ready).length)
-const failedEngines = computed(() => running.value.filter((item) => item.state === 'failed').length)
+const failedEngines = computed(
+  () => running.value.filter((item) => ['failed', 'error'].includes(item.state)).length,
+)
 function inspectFailures(model = '') {
   inspectRequests(model, true)
 }
@@ -2035,8 +2023,11 @@ async function performRefresh({ quiet = false, discardDraft = false } = {}, sign
     failures = 0
     loaded.value = true
     if (restoredRequestId.value && !selectedRequest.value) await restoreRequest()
-    if (openLogs.value && running.value.some((row) => row.model === openLogs.value))
-      await loadLogs(openLogs.value)
+    if (openLogs.value && !running.value.some((row) => row.model === openLogs.value)) {
+      openLogs.value = ''
+      logOpenToken += 1
+      closeLogStream()
+    }
   } catch (err) {
     if (signal.aborted || disposed) return
     failures++
@@ -2185,21 +2176,77 @@ async function copyKey() {
   }
 }
 
-async function loadLogs(model) {
-  const { data } = await axios.get(`/api/proxy/models/${encodeURIComponent(model)}/logs`, {
-    params: { search: logSearch.value || undefined, level: logLevel.value || undefined },
+async function loadLogs(model, token = 0) {
+  const { data } = await axios.get(`/api/proxy/models/${encodeURIComponent(model)}/logs`)
+  if (token && token !== logOpenToken) return
+  logs[model] = Array.isArray(data?.lines) ? data.lines : []
+  logSeq[model] = Number(data?.sequence) || 0
+}
+
+function closeLogStream() {
+  if (!logSource) return
+  logSource.close()
+  logSource = null
+}
+
+function applyEngineLog(model, line, seq) {
+  if (typeof line !== 'string') return
+  const buffer = logs[model] || (logs[model] = [])
+  const current = Number(logSeq[model]) || 0
+  if (!Number.isFinite(seq) || seq < current) return
+  if (seq === current && buffer.length) {
+    // A terminal carriage-return redraw reuses the ring sequence so the
+    // loading/progress line updates in place.
+    buffer[buffer.length - 1] = line
+  } else {
+    buffer.push(line)
+    if (buffer.length > MAX_ENGINE_LOG_LINES) {
+      buffer.splice(0, buffer.length - MAX_ENGINE_LOG_LINES)
+    }
+  }
+  logSeq[model] = seq
+}
+
+function openLogStream(model) {
+  closeLogStream()
+  if (typeof EventSource === 'undefined') return
+  const cursor = Number(logSeq[model]) || 0
+  const source = new EventSource(
+    `/api/proxy/models/${encodeURIComponent(model)}/logs/stream?last_event_id=${cursor}`,
+  )
+  source.addEventListener('log', (event) => {
+    if (openLogs.value !== model) return
+    try {
+      const payload = JSON.parse(event.data)
+      applyEngineLog(model, payload.line, Number(payload.seq))
+    } catch (_) {
+      // Ignore malformed frames; EventSource keeps the stream alive.
+    }
   })
-  logs[model] = data.lines || []
+  logSource = source
 }
-function debouncedLoadLogs(model) {
-  clearTimeout(logTimer)
-  logTimer = setTimeout(() => loadLogs(model), 250)
-}
+
 async function toggleLogs(model) {
-  openLogs.value = openLogs.value === model ? '' : model
-  logSearch.value = ''
-  logLevel.value = ''
-  if (openLogs.value) await loadLogs(model)
+  if (openLogs.value === model) {
+    openLogs.value = ''
+    logOpenToken += 1
+    closeLogStream()
+    return
+  }
+  logOpenToken += 1
+  const token = logOpenToken
+  closeLogStream()
+  openLogs.value = model
+  logs[model] = []
+  logSeq[model] = 0
+  try {
+    await loadLogs(model, token)
+  } catch (err) {
+    reportFailure('Loading engine logs failed', err)
+    return
+  }
+  if (token !== logOpenToken || openLogs.value !== model) return
+  openLogStream(model)
 }
 
 function confirmClearLogs(model) {
@@ -2219,8 +2266,41 @@ function confirmClearLogs(model) {
   })
 }
 
-function downloadLogs(model) {
-  const blob = new Blob([(logs[model] || []).join('\n')], { type: 'text/plain' })
+function removeFailedEngine(item) {
+  const model = item?.model
+  if (!model) return
+  requireSingleConfirmation(confirm, {
+    header: 'Remove failed engine instance?',
+    message: `Clear “${model}” and its captured failure status? The model configuration and files are not changed.`,
+    icon: 'pi pi-trash',
+    acceptClass: 'p-button-danger',
+    accept: async () => {
+      try {
+        await axios.delete(`/api/proxy/models/${encodeURIComponent(model)}/instance`)
+        if (openLogs.value === model) {
+          openLogs.value = ''
+          logOpenToken += 1
+          closeLogStream()
+        }
+        delete logs[model]
+        delete logSeq[model]
+        await refresh({ quiet: true })
+        toast.add({
+          severity: 'success',
+          summary: 'Failed engine removed',
+          detail: `${model} status cleared.`,
+          life: 3000,
+        })
+      } catch (err) {
+        reportFailure(`Removing “${model}” failed`, err)
+      }
+    },
+  })
+}
+
+function downloadLogs(model, lines = null) {
+  const body = Array.isArray(lines) ? lines.join('\n') : (logs[model] || []).join('\n')
+  const blob = new Blob([body], { type: 'text/plain' })
   const link = document.createElement('a')
   link.href = URL.createObjectURL(blob)
   link.download = `${model.replace(/[^a-z0-9._-]+/gi, '_')}.log`
@@ -2448,7 +2528,8 @@ onUnmounted(() => {
   window.removeEventListener('online', resumeReads)
   window.removeEventListener('offline', resumeReads)
   document.removeEventListener('visibilitychange', resumeReads)
-  clearTimeout(logTimer)
+  logOpenToken += 1
+  closeLogStream()
 })
 </script>
 
@@ -3201,45 +3282,6 @@ td {
 }
 .state-alert {
   color: var(--status-warning);
-}
-.log-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  flex-wrap: wrap;
-}
-.log-search {
-  position: relative;
-  flex: 1;
-  min-width: 12rem;
-  display: flex;
-  align-items: center;
-}
-.log-search i {
-  position: absolute;
-  left: 0.65rem;
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-  pointer-events: none;
-}
-.log-search .field {
-  padding-left: 2rem;
-}
-.log-meta {
-  color: var(--text-secondary);
-  font-size: 0.8rem;
-  margin-left: auto;
-  white-space: nowrap;
-}
-.logs {
-  max-height: 22rem;
-  overflow: auto;
-  margin: 0;
-  padding: 1rem;
-  background: var(--bg-surface);
-  border-radius: var(--radius-md);
-  white-space: pre-wrap;
-  font-size: var(--text-xs);
 }
 .activity-list {
   list-style: none;

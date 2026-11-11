@@ -13,7 +13,6 @@
         Clear finished
       </button>
     </div>
-    <p v-if="copyStatus" class="copy-status" role="status">{{ copyStatus }}</p>
     <div
       v-for="task in filteredTasks"
       :key="task.task_id"
@@ -51,21 +50,12 @@
             @click.stop="requestStopTask(task)"
           />
           <button
-            v-if="getTaskLogs(task).length > 0"
+            v-if="hasTaskLogs(task)"
             type="button"
             class="logs-toggle"
             @click="toggleLogs(task.task_id)"
           >
             {{ isExpanded(task.task_id) ? 'Hide logs' : 'Show logs' }}
-          </button>
-          <button
-            v-if="getTaskLogs(task).length > 0"
-            type="button"
-            class="logs-toggle"
-            title="Copy full log"
-            @click.stop="copyTaskLogs(task)"
-          >
-            Copy logs
           </button>
           <span class="progress-percent">{{ Math.round(task.progress) }}%</span>
           <button
@@ -95,18 +85,19 @@
         {{ task.message }}
       </small>
       <LogOutput
-        v-if="isExpanded(task.task_id) && getTaskLogs(task).length > 0"
-        :ref="(el) => setLogPreRef(task.task_id, el?.$el)"
+        v-if="isExpanded(task.task_id) && hasTaskLogs(task)"
         :lines="getTaskLogs(task)"
+        :loading="isTaskLogsLoading(task.task_id)"
+        :live="task.status === 'running' || task.status === 'cancelling'"
+        aria-label="Task log output"
+        empty-message="No output yet."
       />
     </div>
   </div>
 </template>
 
 <script setup>
-import { copyText } from '@/utils/clipboard'
-import { computed, nextTick, ref, toRefs, watch } from 'vue'
-import { storeToRefs } from 'pinia'
+import { computed, ref, toRefs } from 'vue'
 import ProgressBar from 'primevue/progressbar'
 import Button from 'primevue/button'
 import LogOutput from './LogOutput.vue'
@@ -114,7 +105,6 @@ import { useTaskFilter } from '@/composables/useTaskFilter'
 import { retryableVersionId, useTaskActions } from '@/composables/useTaskActions'
 import { formatBytes } from '@/utils/formatting'
 
-const copyStatus = ref('')
 const props = defineProps({
   type: {
     type: [String, Array],
@@ -165,13 +155,20 @@ const {
   progressStore,
 } = useTaskActions()
 
-const { taskLogs } = storeToRefs(progressStore)
 const expandedLogs = ref({})
 
 const hasDismissibleTasks = computed(() => {
   if (!props.dismissible) return false
   return filteredTasks.value.some((t) => t.status !== 'running')
 })
+
+function hasTaskLogs(task) {
+  return getTaskLogs(task).length > 0 || Number(task?.log_count) > 0
+}
+
+function isTaskLogsLoading(taskId) {
+  return progressStore.isTaskLogsLoading(taskId)
+}
 
 function isTaskDismissible(task) {
   return props.dismissible && task?.status && task.status !== 'running'
@@ -196,7 +193,7 @@ function downloadSummary(task) {
 }
 
 function dismissTaskRow(taskId) {
-  dismissTask(taskId, expandedLogs, logPreEls)
+  dismissTask(taskId, expandedLogs)
 }
 
 function dismissAllFinished() {
@@ -208,56 +205,13 @@ function isExpanded(taskId) {
   return Boolean(expandedLogs.value[taskId])
 }
 
-/** @type {Record<string, HTMLElement | undefined>} */
-const logPreEls = {}
-
-function scrollPreToBottom(el) {
-  if (!el) return
-  el.scrollTop = el.scrollHeight
-}
-
-function setLogPreRef(taskId, el) {
-  if (el) {
-    logPreEls[taskId] = el
-    nextTick(() => {
-      requestAnimationFrame(() => scrollPreToBottom(el))
-    })
-  } else {
-    delete logPreEls[taskId]
-  }
-}
-
-function scrollVisibleExpandedLogsToBottom() {
-  nextTick(() => {
-    requestAnimationFrame(() => {
-      for (const task of filteredTasks.value) {
-        if (!isExpanded(task.task_id)) continue
-        if (getTaskLogs(task).length === 0) continue
-        scrollPreToBottom(logPreEls[task.task_id])
-      }
-    })
-  })
-}
-
-watch(taskLogs, scrollVisibleExpandedLogsToBottom, { deep: true })
-watch(expandedLogs, scrollVisibleExpandedLogsToBottom, { deep: true })
-
 function toggleLogs(taskId) {
+  const nextOpen = !expandedLogs.value[taskId]
   expandedLogs.value = {
     ...expandedLogs.value,
-    [taskId]: !expandedLogs.value[taskId],
+    [taskId]: nextOpen,
   }
-}
-
-async function copyTaskLogs(task) {
-  const text = getTaskLogs(task).join('\n')
-  if (!text) return
-  try {
-    await copyText(text)
-    copyStatus.value = 'Log copied.'
-  } catch {
-    copyStatus.value = 'Automatic copy failed. Select the log text and copy it manually.'
-  }
+  if (nextOpen) void progressStore.hydrateTaskLogs(taskId)
 }
 </script>
 
@@ -416,21 +370,6 @@ async function copyTaskLogs(task) {
   color: var(--text-secondary, #9ca3af);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
-}
-
-.task-logs {
-  margin: 0;
-  padding: 0.75rem;
-  border-radius: var(--radius-md, 0.5rem);
-  border: 1px solid var(--border-primary, #2a2f45);
-  background: var(--bg-card-hover, rgba(255, 255, 255, 0.03));
-  color: var(--text-secondary, #d1d5db);
-  font-size: var(--text-xs);
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: min(42vh, 28rem);
-  overflow: auto;
 }
 
 .text-success {

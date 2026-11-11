@@ -114,6 +114,45 @@ def test_send_build_progress_now_is_sync():
     assert "EXTRACT accept" in t["metadata"]["log_lines"]
 
 
+def test_task_logs_are_retained_for_refresh_and_counted_in_snapshots():
+    pm = pm_mod.get_progress_manager()
+    tid = pm.create_task("install", "Install SGLang")
+
+    pm.emit("task_log", {"task_id": tid, "line": "line one"})
+    pm.emit("task_log", {"task_id": tid, "line": "line two\nline three"})
+    assert pm.get_task_logs(tid) == ["line one", "line two", "line three"]
+
+    pm.send_build_progress_now(tid, "compile", 60, "Building", log_lines=["cc main.c"])
+    assert pm.get_task_logs(tid) == [
+        "line one",
+        "line two",
+        "line three",
+        "cc main.c",
+    ]
+
+    snapshot = pm.snapshot_tasks()
+    assert snapshot[0]["log_count"] == 4
+    assert snapshot[0]["metadata"]["log_lines"] == ["cc main.c"]
+
+    pm.update_task(tid, status="completed")
+    assert pm.dismiss_task(tid) is True
+    assert pm.get_task_logs(tid) == []
+
+
+@pytest.mark.asyncio
+async def test_operation_task_logs_route_returns_retained_output():
+    from backend.routes.status import operation_task_logs
+
+    pm = pm_mod.get_progress_manager()
+    tid = pm.create_task("install", "Install SGLang")
+    pm.emit("task_log", {"task_id": tid, "line": "Building sglang-kernel"})
+
+    payload = await operation_task_logs(tid)
+    assert payload["task_id"] == tid
+    assert payload["lines"] == ["Building sglang-kernel"]
+    assert payload["log_count"] == 1
+
+
 @pytest.mark.asyncio
 async def test_send_download_progress_updates_task_metadata():
     pm = pm_mod.get_progress_manager()
