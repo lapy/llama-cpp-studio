@@ -76,14 +76,14 @@ recipes:
     - checkout
     with:
       transform: sglang_sm70/install_v100_studio
+    produces:
+    - builder_script
   - id: patch_dual_gemm
     uses: vcs.apply_transform
     requires:
     - checkout
     with:
       transform: sglang_sm70/dual_gemm_cuda_guard
-    produces:
-    - builder_script
   - id: prepare_build
     uses: build.prepare_fork
     requires:
@@ -230,14 +230,14 @@ recipes:
     - checkout
     with:
       transform: sglang_sm70/install_v100_studio
+    produces:
+    - builder_script
   - id: patch_dual_gemm
     uses: vcs.apply_transform
     requires:
     - checkout
     with:
       transform: sglang_sm70/dual_gemm_cuda_guard
-    produces:
-    - builder_script
   - id: prepare_build
     uses: build.prepare_fork
     requires:

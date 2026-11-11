@@ -470,6 +470,46 @@ def test_sxm2_transform_assets_rewrite_a_real_checkout(tmp_path):
     assert "const auto offset = pair.get<1>();" in ipc
 
 
+def test_builder_script_is_bound_to_the_executable_shell_installer():
+    """`run_builder` executes `script_from: builder_script` with bash.
+
+    Regression: the SM70 dual-GEMM guard transform declared
+    `produces: builder_script`, which took the binding away from the installer
+    transform: the install ran `bash .../dual_gemm.py` and died with status 2
+    right after the checkout. Every producer of builder_script must therefore
+    come from a transform whose target is the executable shell installer.
+    """
+    from backend.engines.definitions.transforms import load_transform
+
+    registry = load_default_engine_definitions()
+    producers = 0
+    for engine_id, definition in registry.definitions.items():
+        for stage, _steps in definition.recipes:
+            plan = materialize_plan(definition, stage)
+            for step in plan.steps:
+                if "builder_script" not in tuple(step.produces):
+                    continue
+                transform = str((step.with_ or {}).get("transform") or "")
+                assert transform, (
+                    f"{engine_id}/{stage}/{step.id} produces builder_script without a transform"
+                )
+                asset = load_transform(transform)
+                target = asset.output or asset.file
+                assert target.endswith(".sh"), (
+                    f"{engine_id}/{stage}/{step.id} binds builder_script to {transform} -> "
+                    f"{target}; run_builder runs it with bash, so only the shell installer "
+                    "may produce it"
+                )
+                assert asset.executable, (
+                    f"{engine_id}/{stage}/{step.id}: {target} must be marked executable"
+                )
+                producers += 1
+    assert producers >= 3, (
+        "expected the SGLang forks' source and sync stages to bind builder_script, "
+        f"found {producers}"
+    )
+
+
 def test_sm70_transform_assets_rewrite_a_real_checkout(tmp_path):
     """The SM70 fork's OWN assets apply, and its definition wires them.
 
