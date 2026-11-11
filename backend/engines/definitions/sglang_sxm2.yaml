@@ -122,7 +122,7 @@ recipes:
         env_vars:
         - MAX_JOBS
         - CMAKE_BUILD_PARALLEL_LEVEL
-        nvcc_threads: 1
+        # nvcc_threads left to prepare_fork: derived from the host budget.
   - id: run_builder
     uses: exec.run_logged
     requires:
@@ -242,7 +242,7 @@ recipes:
         env_vars:
         - MAX_JOBS
         - CMAKE_BUILD_PARALLEL_LEVEL
-        nvcc_threads: 1
+        # nvcc_threads left to prepare_fork: derived from the host budget.
   - id: run_builder
     uses: exec.run_logged
     requires:

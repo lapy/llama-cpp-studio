@@ -112,6 +112,103 @@ async def test_prepare_fork_normalizes_an_inherited_ccache_dir(tmp_path, monkeyp
     assert "CMAKE_CXX_COMPILER_LAUNCHER" not in env
 
 
+@pytest.mark.asyncio
+async def test_prepare_fork_scales_parallelism_from_the_host(tmp_path, monkeypatch):
+    """File jobs fill the host; nvcc threads only split a multi-arch compile."""
+    from backend.engines.python import fork_build
+
+    checkout = _checkout(tmp_path)
+    host = _ForkHost(tmp_path / "install", tmp_path / "install" / "venv")
+    monkeypatch.setattr(fork_build, "safe_jobs", lambda: 32)
+
+    concurrency = {
+        "memory_aware": True,
+        "env_vars": ["MAX_JOBS", "CMAKE_BUILD_PARALLEL_LEVEL"],
+    }
+
+    async def build(arch_list, options=None, base=None):
+        env = {"TORCH_CUDA_ARCH_LIST": arch_list} if arch_list else {}
+        return await prepare_fork_build(
+            host, options if options is not None else {"concurrency": concurrency},
+            checkout=str(checkout), base_env={**env, **(base or {})},
+        )
+
+    single = await build("7.0")
+    assert single["NVCC_THREADS"] == "1"
+    assert single["MAX_JOBS"] == "32"
+    assert single["CMAKE_BUILD_PARALLEL_LEVEL"] == "32"
+
+    multi = await build("7.0;7.5;8.0")
+    assert multi["NVCC_THREADS"] == "3"
+    # jobs * threads stays inside the host budget.
+    assert multi["MAX_JOBS"] == "10"
+
+    explicit = await build(
+        "7.0;7.5;8.0",
+        options={"concurrency": {**concurrency, "nvcc_threads": 1}},
+    )
+    assert explicit["NVCC_THREADS"] == "1"
+    assert explicit["MAX_JOBS"] == "32"
+
+    auto = await build(
+        "7.0;7.5",
+        options={"concurrency": {**concurrency, "nvcc_threads": "auto"}},
+    )
+    assert auto["NVCC_THREADS"] == "2"
+
+    # No concurrency block: parallelism is still host-derived, not left to the
+    # fork script's own default.
+    bare = await build("7.0", options={})
+    assert bare["NVCC_THREADS"] == "1"
+    assert "MAX_JOBS" not in bare
+
+
+class _VenvBuildHost:
+    """Minimal host surface ``GenericVenvInstaller._compose_build_env`` reads."""
+
+    _venv_path = "/tmp/studio-venv"
+
+    def __init__(self, lifecycle):
+        self._lifecycle_data = lifecycle
+
+    def _lifecycle(self):
+        return self._lifecycle_data
+
+    def _venv_python(self):
+        return os.path.join(self._venv_path, "bin", "python")
+
+    def _managed_tools_dir(self, name):
+        return os.path.join("/tmp/studio-tools", name)
+
+    def _prepend_path(self, env, *parts):
+        existing = env.get("PATH", "")
+        env["PATH"] = os.pathsep.join([part for part in [*parts, existing] if part])
+
+
+def test_venv_build_env_derives_nvcc_threads(monkeypatch):
+    """Every venv engine that reads NVCC_THREADS gets a host-derived value."""
+    import backend.cuda_installer as cuda_installer
+    from backend.engines.python import fork_build, generic
+
+    class FakeCudaInstaller:
+        def get_cuda_env(self, version=None):
+            return {}
+
+    monkeypatch.setattr(cuda_installer, "get_cuda_installer", lambda: FakeCudaInstaller())
+    monkeypatch.setattr(fork_build, "safe_jobs", lambda: 32)
+    monkeypatch.delenv("NVCC_THREADS", raising=False)
+
+    def compose(build_env_vars):
+        lifecycle = {"build_env": "cuda", "build_env_vars": build_env_vars}
+        return generic.GenericVenvInstaller._compose_build_env(_VenvBuildHost(lifecycle))
+
+    assert compose({"TORCH_CUDA_ARCH_LIST": "7.0"})["NVCC_THREADS"] == "1"
+    assert compose({"TORCH_CUDA_ARCH_LIST": "7.0;7.5;8.0"})["NVCC_THREADS"] == "3"
+    # A definition may still pin it, and the pin wins over the host default.
+    pinned = compose({"TORCH_CUDA_ARCH_LIST": "7.0;7.5", "NVCC_THREADS": "1"})
+    assert pinned["NVCC_THREADS"] == "1"
+
+
 def test_release_asset_groups_are_ordered_and_require_their_wheels():
     release = {
         "tag_name": "v1",

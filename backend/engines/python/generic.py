@@ -320,7 +320,20 @@ class GenericVenvInstaller(PythonVenvInstaller):
                     f"{os.path.join(fallback, 'lib64')}:{env.get('LD_LIBRARY_PATH', '')}"
                 )
         env["VIRTUAL_ENV"] = self._venv_path
-        for name, value in dict(lifecycle.get("build_env_vars") or {}).items():
+        declared = dict(lifecycle.get("build_env_vars") or {})
+        # Host-derived nvcc parallelism for every engine whose build reads
+        # NVCC_THREADS (SGLang's kernel builds, torch extensions, 1Cat): the
+        # service environment must not decide it, and a definition that wants a
+        # fixed value still pins it through build_env_vars.
+        if "NVCC_THREADS" not in declared:
+            from backend.engines.python.fork_build import host_nvcc_threads
+
+            env["NVCC_THREADS"] = str(
+                host_nvcc_threads(
+                    declared.get("TORCH_CUDA_ARCH_LIST") or env.get("TORCH_CUDA_ARCH_LIST")
+                )
+            )
+        for name, value in declared.items():
             env.setdefault(str(name), str(value))
         if lifecycle.get("build_rust"):
             from backend.engines.python.rust_toolchain import compose_rust_env

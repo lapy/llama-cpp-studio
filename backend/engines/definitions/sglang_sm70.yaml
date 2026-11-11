@@ -13,9 +13,9 @@
 # Install contract: the fork's scripts/install_v100.sh stays the builder. Studio
 # replaces ONLY the host-provisioning prologue (apt/conda/CUDA/rustup) with its
 # managed Python/CUDA/Rust, then applies the patches in assets/sglang_sm70/ whose
-# reasons are recorded beside them. MAX_JOBS and CMAKE_BUILD_PARALLEL_LEVEL are
-# deliberately left unset so prepare_fork's memory-aware budget fills them
-# instead of a hardcoded job count.
+# reasons are recorded beside them. Build parallelism is host-derived: MAX_JOBS,
+# CMAKE_BUILD_PARALLEL_LEVEL and NVCC_THREADS are all filled by prepare_fork from
+# the effective CPU budget (cgroup quota and RAM included), never hardcoded.
 schema_version: 2
 id: sglang_sm70
 extends:
@@ -126,7 +126,9 @@ recipes:
         env_vars:
         - MAX_JOBS
         - CMAKE_BUILD_PARALLEL_LEVEL
-        nvcc_threads: 1
+        # No nvcc_threads pin: prepare_fork derives it from the host budget and
+        # the architecture count (single-arch sm_70 keeps the whole budget for
+        # file-level jobs).
   - id: run_builder
     uses: exec.run_logged
     requires:
@@ -246,7 +248,9 @@ recipes:
         env_vars:
         - MAX_JOBS
         - CMAKE_BUILD_PARALLEL_LEVEL
-        nvcc_threads: 1
+        # No nvcc_threads pin: prepare_fork derives it from the host budget and
+        # the architecture count (single-arch sm_70 keeps the whole budget for
+        # file-level jobs).
   - id: run_builder
     uses: exec.run_logged
     requires:

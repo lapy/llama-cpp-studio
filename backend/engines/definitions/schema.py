@@ -1890,10 +1890,13 @@ def _validate_fork_with(step_id: str, value: Any, where: str) -> None:
     if "env_vars" in concurrency:
         _validate_env_name_list("concurrency.env_vars", concurrency["env_vars"], where)
     if "nvcc_threads" in concurrency:
+        # An integer pins the per-compile nvcc parallelism; "auto" (or omitting
+        # the key) derives it from the host budget and the architecture count.
+        threads = concurrency["nvcc_threads"]
         _require(
-            isinstance(concurrency["nvcc_threads"], int)
-            and not isinstance(concurrency["nvcc_threads"], bool),
-            "concurrency.nvcc_threads must be an integer",
+            (isinstance(threads, int) and not isinstance(threads, bool))
+            or (isinstance(threads, str) and threads.strip().lower() == "auto"),
+            "concurrency.nvcc_threads must be an integer or 'auto'",
             where,
         )
 

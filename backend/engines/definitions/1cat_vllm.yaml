@@ -427,7 +427,6 @@ lifecycle:
   build_env_vars:
     TORCH_CUDA_ARCH_LIST: '7.0'
     MAX_JOBS: '12'
-    NVCC_THREADS: '1'
   build_rust: true
   source_dist_dir: dist
   # Legacy task/manager token parsed by the routes and the UI.
