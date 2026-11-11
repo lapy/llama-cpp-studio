@@ -34,6 +34,8 @@ The footer shows compact application/service status and a link to System. Activi
 | `vllm`          | vLLM              | safetensors/Hugging Face snapshot                        | Managed Python environment; vLLM OpenAI API server.                                      |
 | `sglang`        | SGLang            | safetensors/Hugging Face snapshot                        | Managed Python environment; SGLang server and discovered runtime profiles.               |
 | `sglang_v100`   | SGLang V100       | safetensors/Hugging Face snapshot                        | Source installation in a managed Python environment with a V100-specific build workflow. |
+| `sglang_sxm2`   | SGLang SXM2       | safetensors/Hugging Face snapshot                        | Source installation in a managed Python environment with a V100-SXM2 build workflow.     |
+| `sglang_sm70`   | SGLang SM70       | safetensors/Hugging Face snapshot                        | Source installation in a managed Python environment with a Volta/SM70 build workflow.    |
 | `audio_cpp`     | audio.cpp         | Prepared audio packages and discovered GGUF audio models | Source/CMake build; model-scoped `audiocpp_server`.                                      |
 
 The shared engine registry describes artifact formats, package kinds, tasks, input/output modalities, installation type, scanner type, active path fields, and capability hints. Compatibility requires a suitable installed runtime and model; a registry task label does not certify every model/build combination.
@@ -44,7 +46,7 @@ Engines shows installed versions, active installations, source/build state, and 
 
 Source-based engines accept repository and tracking-ref settings. Saved build settings control supported CMake flags and engine-specific options. A version can carry its own build configuration; source synchronization uses that configuration when present. Custom repositories retain their own identity and source-sync workflow. Unsloth installations select a published artifact appropriate to the detected host and verify its checksum.
 
-Python engines use Studio-managed environments. Their settings include release/package selection and source repository/ref choices where supported by the installer. Source installation uses the selected repository and engine-specific build environment. SGLang V100 uses its dedicated source workflow, a managed Python environment, and Studio-managed CUDA 12.8; its installer supplies the selected fork's dependency/build steps while Studio supplies host-tool and CUDA paths.
+Python engines use Studio-managed environments. Their settings include release/package selection and source repository/ref choices where supported by the installer. Source installation uses the selected repository and engine-specific build environment. The SM70 SGLang engines (`sglang_v100`, `sglang_sxm2`, `sglang_sm70`) each use their dedicated source workflow, a managed Python environment, and Studio-managed CUDA 12.8; each installer supplies the selected fork's dependency/build steps while Studio supplies host-tool and CUDA paths.
 
 Engine activation and explicit rescanning populate the parameter catalog. Source build, Python package installation, and prebuilt installation have different hardware and dependency requirements; installer errors and build logs provide the concrete result.
 
@@ -80,7 +82,7 @@ GGUF companion roles include:
 | MTP draft    | Draft artifact for a compatible multi-token-prediction configuration. |
 | DFlash draft | Draft artifact for a compatible speculative-decoding configuration.   |
 | DSpark draft | Draft artifact for DeepSeek DSpark speculative decoding.              |
-| Engram table | Swappable n-gram table shard for DeepSeek Engram models.               |
+| Engram table | Swappable n-gram table shard for DeepSeek Engram models.              |
 
 MTP, DFlash and DSpark are mutually exclusive draft selections. Engram tables are listed for manual shard swapping, not selected as a draft. Runtime validation checks the paths and engine flags needed for the selected model and companions.
 

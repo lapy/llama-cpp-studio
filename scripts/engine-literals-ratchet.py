@@ -57,7 +57,10 @@ AREA_CAPS: Dict[str, int] = {
     # 2026-11-10: 74 -> 68. The panel family's ui_kind/openStrategy/
     # statusRefresh/panelFamily now live in one SGLANG_PANEL_BASE declaration
     # (12 -> 4 sites) when sglang-sxm2 joined; its identity fields add 2.
-    "frontend/src/engines/": 68,
+    # 2026-11-11: 68 -> 69. The third SM70 fork joined as one descriptor reusing
+    # the SM70 panel variant — one identity site; its versionsKey/managerKey
+    # derive from the id.
+    "frontend/src/engines/": 69,
     "frontend/src/stores/": 323,
     "frontend/src/test-fixtures/": 43,
     # R90 raised this 6 -> 7: the audio-package predicate now lives once in

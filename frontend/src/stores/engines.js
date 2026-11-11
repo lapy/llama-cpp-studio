@@ -307,6 +307,7 @@ export const useEnginesStore = defineStore('engines', () => {
   const STATUS_REFRESH_EXCLUSIVE = [
     { token: 'sglang_v100', fetch: () => fetchSglangStatus('sglang_v100') },
     { token: 'sglang_sxm2', fetch: () => fetchSglangStatus('sglang_sxm2') },
+    { token: 'sglang_sm70', fetch: () => fetchSglangStatus('sglang_sm70') },
     { token: 'sglang', fetch: () => fetchSglangStatus('sglang') },
     { token: 'vllm', fetch: () => fetchSglangStatus('vllm') },
   ]

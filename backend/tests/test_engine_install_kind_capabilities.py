@@ -20,7 +20,15 @@ from backend.engines.registry import (
 )
 from backend.routes.llama_versions import _cmake_build_engines
 
-VENV_ENGINES = {"lmdeploy", "1cat_vllm", "sglang", "sglang_v100", "sglang_sxm2", "vllm"}
+VENV_ENGINES = {
+    "lmdeploy",
+    "1cat_vllm",
+    "sglang",
+    "sglang_v100",
+    "sglang_sxm2",
+    "sglang_sm70",
+    "vllm",
+}
 CMAKE_ENGINES = {"llama_cpp", "ik_llama", "audio_cpp"}
 
 

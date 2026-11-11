@@ -18,9 +18,10 @@ Shared factory endpoint suffixes (`python_engine_router`): `build-settings`, `ca
 | `lmdeploy_versions.py` | `lmdeploy` | `/api/lmdeploy` | 7 | `lmdeploy` | venv | `test_api_routes.py`, `test_generic_engine_router.py`, `test_pre_refactor_installation_smoke.py`, `test_task_id_integration.py`, `test_venv_install_settings.py` |
 | `onecat_vllm_versions.py` | `1cat_vllm` | `/api/1cat-vllm` | 7 | `1cat-vllm` | venv | `test_task_id_integration.py`, `test_venv_install_settings.py` |
 | `sglang_versions.py` | `sglang` | `/api/sglang` | 7 | `sglang` | venv | `test_sglang_integration.py` |
+| `sglang_versions.py` | `sglang_sm70` | `/api/sglang-sm70` | 7 | `sglang-sm70` | venv | — |
 | `sglang_versions.py` | `sglang_sxm2` | `/api/sglang-sxm2` | 7 | `sglang-sxm2` | venv | — |
 | `sglang_versions.py` | `sglang_v100` | `/api/sglang-v100` | 7 | `sglang-v100` | venv | `test_sglang_integration.py` |
 | `unsloth_llama_versions.py` | `unsloth_llama` | `/api/unsloth-llama` | 3 | `—` | native | `test_native_engine_lifecycle.py`, `test_unsloth_llama_integration.py` |
 | `vllm_versions.py` | `vllm` | `/api/vllm` | 7 | `vllm` | venv | `test_generic_engine_router.py`, `test_vllm_integration.py` |
 
-_7 legacy mounts across 5 modules._
+_8 legacy mounts across 5 modules._
