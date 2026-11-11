@@ -213,6 +213,77 @@ def test_declared_caches_resolve_inside_the_engine_install(monkeypatch, tmp_path
     assert spec.env.set["TRITON_CACHE_DIR"] == "/opt/triton"
 
 
+def _cache_profiles():
+    """Every shipped (engine, default profile) that declares `env.caches`."""
+    from backend.engines.definitions.loader import load_default_engine_definitions
+
+    rows = []
+    registry = load_default_engine_definitions()
+    for engine_id in registry.ids():
+        definition = registry.get(engine_id)
+        profiles = dict(definition.runtime_profiles)
+        for profile_name, profile in profiles.items():
+            caches = (profile.get("env") or {}).get("caches")
+            if caches:
+                rows.append(
+                    pytest.param(
+                        engine_id,
+                        profile_name,
+                        tuple(caches),
+                        id=f"{engine_id}-{profile_name}",
+                    )
+                )
+    return rows
+
+
+@pytest.mark.parametrize("engine_id,profile_name,caches", _cache_profiles())
+def test_every_declared_cache_resolves_inside_the_install(
+    engine_id, profile_name, caches, monkeypatch, tmp_path
+):
+    """Whatever an engine declares lands under ITS install dir, created."""
+    from backend.engines.caches import cache_slug
+    from backend.engines.definitions.loader import load_default_engine_definitions
+
+    definition = load_default_engine_definitions().get(engine_id)
+    profile = dict(definition.runtime_profiles)[profile_name]
+    bin_dir = tmp_path / "venv" / "bin"
+    bin_dir.mkdir(parents=True)
+    exe = bin_dir / str((profile.get("executable") or {}).get("name") or "python")
+    exe.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    exe.chmod(exe.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP)
+    install = tmp_path / "install"
+    install.mkdir()
+
+    class FakeCudaInstaller:
+        def get_cuda_env(self, version=None):
+            return {"CUDA_HOME": str(tmp_path / "cuda"), "PATH": str(tmp_path / "cuda" / "bin")}
+
+        def status(self):
+            return {"version": "12.9", "cuda_path": str(tmp_path / "cuda")}
+
+    import backend.cuda_installer as cuda_installer
+
+    monkeypatch.setattr(cuda_installer, "get_cuda_installer", lambda: FakeCudaInstaller())
+    _patch_active_row(
+        monkeypatch,
+        {
+            "version": "v1",
+            "venv_path": str(tmp_path / "venv"),
+            "install_dir": str(install),
+            "cuda_version": "12.9",
+        },
+    )
+
+    spec = profile_launch.compile_profile_launch(
+        {"huggingface_id": "org/model"}, {}, "model-stable", engine_id
+    )
+
+    for name in caches:
+        expected = os.path.join(str(install), "caches", cache_slug(name))
+        assert spec.env.set[name] == expected
+        assert os.path.isdir(expected), name
+
+
 def test_positional_binding_and_module_style_prefix(monkeypatch, tmp_path):
     definition = _definition(
         argv_prefix=["-m", "profilecraft.server"],

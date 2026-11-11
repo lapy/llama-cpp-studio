@@ -251,6 +251,16 @@ runtime_profiles:
       flag: --server-port
     env:
       prepend_bin_to_path: true
+      # Managed JIT/kernel caches: Studio points these at
+      # <install_dir>/caches/<var> and flushes that tree on an in-place
+      # rebuild or a source sync.
+      caches:
+      - XDG_CACHE_HOME
+      - TRITON_CACHE_DIR
+      - TORCHINDUCTOR_CACHE_DIR
+      - TORCH_EXTENSIONS_DIR
+      - TIKTOKEN_CACHE_DIR
+      - CUDA_CACHE_PATH
 launch_policy:
   cpu_supported: false
   runtime_context_key: session_len

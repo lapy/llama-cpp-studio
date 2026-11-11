@@ -273,6 +273,17 @@ runtime_profiles:
     env:
       cwd: venv_root
       cuda: true
+      # Managed JIT/kernel caches: Studio points these at
+      # <install_dir>/caches/<var> and flushes that tree on an in-place
+      # rebuild or a source sync.
+      caches:
+      - XDG_CACHE_HOME
+      - TRITON_CACHE_DIR
+      - TORCHINDUCTOR_CACHE_DIR
+      - TORCH_EXTENSIONS_DIR
+      - VLLM_CACHE_ROOT
+      - TIKTOKEN_CACHE_DIR
+      - CUDA_CACHE_PATH
 launch_policy:
   cpu_supported: false
   # Current upstream vLLM wheels ship CUDA-13 torch builds with sm_75+ only.
