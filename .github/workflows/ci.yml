@@ -185,7 +185,7 @@ jobs:
       # owned by another user (the Playwright image defaults to /github/home).
       HOME: /root
     container:
-      image: mcr.microsoft.com/playwright:v1.65.0-noble
+      image: mcr.microsoft.com/playwright:v1.64.1-noble
       options: --ipc=host
     steps:
       - uses: actions/checkout@v7
@@ -341,7 +341,7 @@ jobs:
         env:
           IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
           STUDIO_EVIDENCE_DIR: ${{ github.workspace }}/artifacts/container-validation
-          PLAYWRIGHT_DOCKER_IMAGE: mcr.microsoft.com/playwright:v1.65.0-noble
+          PLAYWRIGHT_DOCKER_IMAGE: mcr.microsoft.com/playwright:v1.64.1-noble
         run: |
           IMAGE="$(printf '%s\n' "$IMAGE_TAGS" | head -n 1)"
           test -n "$IMAGE"
