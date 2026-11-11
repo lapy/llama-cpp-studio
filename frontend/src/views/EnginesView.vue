@@ -1219,6 +1219,9 @@ const activeSglangV100 = computed(
 const activeSglangSxm2 = computed(
   () => (enginesStore.sglangSxm2Versions || []).find((v) => v.is_active) ?? null,
 )
+const activeSglangSm70 = computed(
+  () => (enginesStore.sglangSm70Versions || []).find((v) => v.is_active) ?? null,
+)
 const activeVllm = computed(
   () => (enginesStore.vllmVersions || []).find((v) => v.is_active) ?? null,
 )
@@ -1227,18 +1230,22 @@ const selectedSglangActive = computed(() =>
     ? activeSglangV100.value
     : selectedEngine.value === 'sglang_sxm2'
       ? activeSglangSxm2.value
-      : selectedEngine.value === 'vllm'
-        ? activeVllm.value
-        : activeSglang.value,
+      : selectedEngine.value === 'sglang_sm70'
+        ? activeSglangSm70.value
+        : selectedEngine.value === 'vllm'
+          ? activeVllm.value
+          : activeSglang.value,
 )
 const selectedSglangVersions = computed(() =>
   selectedEngine.value === 'sglang_v100'
     ? enginesStore.sglangV100Versions || []
     : selectedEngine.value === 'sglang_sxm2'
       ? enginesStore.sglangSxm2Versions || []
-      : selectedEngine.value === 'vllm'
-        ? enginesStore.vllmVersions || []
-        : enginesStore.sglangVersions || [],
+      : selectedEngine.value === 'sglang_sm70'
+        ? enginesStore.sglangSm70Versions || []
+        : selectedEngine.value === 'vllm'
+          ? enginesStore.vllmVersions || []
+          : enginesStore.sglangVersions || [],
 )
 const activeAudioCpp = computed(
   () => enginesStore.audioCppVersions.find((v) => v.is_active) ?? null,
@@ -1273,6 +1280,7 @@ const engineActive = {
   sglang: activeSglang,
   sglang_v100: activeSglangV100,
   sglang_sxm2: activeSglangSxm2,
+  sglang_sm70: activeSglangSm70,
   vllm: activeVllm,
   [audioEngineId]: activeAudioCpp,
 }
@@ -1624,6 +1632,7 @@ function findListedVersion(versionId) {
     ...(enginesStore.sglangVersions || []),
     ...(enginesStore.sglangV100Versions || []),
     ...(enginesStore.sglangSxm2Versions || []),
+    ...(enginesStore.sglangSm70Versions || []),
     ...(enginesStore.vllmVersions || []),
     ...(enginesStore.audioCppVersions || []),
   ]
@@ -3777,6 +3786,21 @@ const nativeDialog = computed(() => {
 // divergences (update link/label, install copy, V100 note, hint-rev and
 // state refs) stay as data here. Byte-pinned by EnginesView.tasks.test.js
 // ("lmdeploy dialog…" / "1Cat dialog…").
+
+// The installer-panel family (SGLang, its SM70 forks and the
+// OpenAI-compatible server engine) shares the dialog HEADER shape
+// (title/icon/tag/settings/reload/rescan) but its body is SglangEnginePanel and
+// its actions drive the panel ref. Declared once so a new panel engine is one
+// entry, not five repeated fields. Panel family: no aria/tooltip on the
+// Reload/Rescan buttons — a real divergence preserved via buttonA11y.
+const SGLANG_PANEL_DIALOG = {
+  panel: true,
+  settingsAriaLabel: 'Install settings',
+  buttonA11y: false,
+  active: selectedSglangActive,
+  versions: selectedSglangVersions,
+}
+
 const VENV_DIALOG_CONFIG = {
   lmdeploy: {
     settingsAriaLabel: 'Build settings',
@@ -3826,34 +3850,28 @@ const VENV_DIALOG_CONFIG = {
     onInstallPrimary: () => openOnecatVllmReleaseDialog(),
     onInstallSource: () => openOnecatVllmSourceDialog(),
   },
-  // The SGLang panel trio shares the dialog HEADER shape (title/icon/tag/
-  // settings/reload/rescan) but its body is SglangEnginePanel and its
-  // actions drive the panel ref. Panel trio: no aria/tooltip on the
-  // Reload/Rescan buttons — a real divergence preserved via buttonA11y.
   sglang: {
-    panel: true,
-    settingsAriaLabel: 'Install settings',
-    buttonA11y: false,
-    active: selectedSglangActive,
-    versions: selectedSglangVersions,
+    ...SGLANG_PANEL_DIALOG,
     onOpenSettings: () => sglangPanelRefs.sglang?.openSettings(),
     onRefresh: () => sglangPanelRefs.sglang?.refresh(),
   },
   sglang_v100: {
-    panel: true,
-    settingsAriaLabel: 'Install settings',
-    buttonA11y: false,
-    active: selectedSglangActive,
-    versions: selectedSglangVersions,
+    ...SGLANG_PANEL_DIALOG,
     onOpenSettings: () => sglangPanelRefs.sglang_v100?.openSettings(),
     onRefresh: () => sglangPanelRefs.sglang_v100?.refresh(),
   },
+  sglang_sxm2: {
+    ...SGLANG_PANEL_DIALOG,
+    onOpenSettings: () => sglangPanelRefs.sglang_sxm2?.openSettings(),
+    onRefresh: () => sglangPanelRefs.sglang_sxm2?.refresh(),
+  },
+  sglang_sm70: {
+    ...SGLANG_PANEL_DIALOG,
+    onOpenSettings: () => sglangPanelRefs.sglang_sm70?.openSettings(),
+    onRefresh: () => sglangPanelRefs.sglang_sm70?.refresh(),
+  },
   vllm: {
-    panel: true,
-    settingsAriaLabel: 'Install settings',
-    buttonA11y: false,
-    active: selectedSglangActive,
-    versions: selectedSglangVersions,
+    ...SGLANG_PANEL_DIALOG,
     onOpenSettings: () => sglangPanelRefs.vllm?.openSettings(),
     onRefresh: () => sglangPanelRefs.vllm?.refresh(),
   },
