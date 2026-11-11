@@ -164,6 +164,19 @@ async def prepare_fork_build(
         from backend.engines.build_workspace import ccache_base_dir, ccache_environment
 
         env.update(ccache_environment(ccache_base_dir(checkout), launchers=True, cuda=True))
+    else:
+        # A fork's OWN build system may turn ccache on without Studio asking
+        # for it: the SGLang SM70 fork's sglang-kernel CMakeLists does exactly
+        # that whenever a `ccache` binary is on PATH. Such a build inherits
+        # whatever CCACHE_DIR the service environment carries, and a foreign
+        # value (the standalone image exports one under another user's data
+        # root) makes every cache miss die with "ccache: error: Permission
+        # denied". Normalize only the cache LOCATION: the launchers stay off,
+        # so this does not opt an engine into ccache, it just gives a build
+        # that opts itself in a writable cache.
+        from backend.engines.build_workspace import ccache_base_dir, ccache_environment
+
+        env.update(ccache_environment(ccache_base_dir(checkout), launchers=False))
 
     def expand(template: Any) -> str:
         return (

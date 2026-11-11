@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from backend.engines.definitions.transforms import (
@@ -65,6 +67,49 @@ async def test_prepare_fork_rejects_undeclared_options(tmp_path):
     checkout = _checkout(tmp_path)
     with pytest.raises(ForkBuildError, match="unknown options"):
         await prepare_fork_build(object(), {"magic": True}, checkout=str(checkout), base_env={})
+
+
+class _ForkHost:
+    """Minimal host surface prepare_fork_build reads."""
+
+    def __init__(self, base_dir, venv_path):
+        self._base_dir = str(base_dir)
+        self._venv_path = str(venv_path)
+
+    def _ensure_venv(self):
+        self._venv_path = self._venv_path or "venv"
+
+    def _venv_python(self):
+        return os.path.join(self._venv_path, "bin", "python")
+
+
+@pytest.mark.asyncio
+async def test_prepare_fork_normalizes_an_inherited_ccache_dir(tmp_path, monkeypatch):
+    """A fork build that enables ccache ITSELF must not inherit a foreign cache.
+
+    The SGLang SM70 fork's sglang-kernel CMakeLists turns ccache on whenever the
+    binary is on PATH (no Studio opt-in), and the service environment can carry a
+    CCACHE_DIR owned by another user - the standalone image does exactly that, and
+    every cache miss then fails with "ccache: error: Permission denied".
+    """
+    from backend.engines import build_workspace
+
+    cache = tmp_path / "studio-ccache"
+    monkeypatch.setattr(build_workspace, "ccache_dir", lambda: str(cache))
+    monkeypatch.setattr(build_workspace.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setenv("CCACHE_DIR", "/app/data/ccache")  # foreign, unwritable
+    monkeypatch.setenv("CCACHE_MAXSIZE", "5G")
+
+    checkout = _checkout(tmp_path)
+    host = _ForkHost(tmp_path / "install", tmp_path / "install" / "venv")
+    env = await prepare_fork_build(host, {}, checkout=str(checkout), base_env={})
+
+    # The location is Studio's writable cache, not the inherited one.
+    assert env["CCACHE_DIR"] == str(cache)
+    assert env["CCACHE_MAXSIZE"] == "50G"
+    # Normalization must not opt the engine into ccache launchers by itself.
+    assert "CMAKE_CUDA_COMPILER_LAUNCHER" not in env
+    assert "CMAKE_CXX_COMPILER_LAUNCHER" not in env
 
 
 def test_release_asset_groups_are_ordered_and_require_their_wheels():
