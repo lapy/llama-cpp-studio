@@ -122,7 +122,15 @@ def test_update_model_writes_current_safetensors_compatible_engines(tmp_path):
     )
 
     updated = store.update_model("org--repo", {"display_name": "Repo"})
-    expected = ["lmdeploy", "1cat_vllm", "vllm", "sglang", "sglang_v100", "sglang_sxm2"]
+    expected = [
+        "lmdeploy",
+        "1cat_vllm",
+        "vllm",
+        "sglang",
+        "sglang_v100",
+        "sglang_sxm2",
+        "sglang_sm70",
+    ]
     # Stored order is preserved for existing entries; newly declared engines
     # append in registry order (definition-owned engines load after literals).
     assert updated["compatible_engines"][:2] == ["lmdeploy", "1cat_vllm"]

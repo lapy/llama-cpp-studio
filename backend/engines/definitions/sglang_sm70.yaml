@@ -1,0 +1,473 @@
+# AUTHORITATIVE engine definition (hand-authored; NOT exported).
+#
+# Target: lapy/sglang-sm70 only - the maintainer's Volta fork (upstream SGLang
+# plus the SM70 kernels, TileLang + QSA attention, marlin_v100, NVFP4 decode and
+# the V100 serving recipes). It shares the sglang-sxm2 INSTALL CONTRACT
+# (scripts/install_v100.sh, requirements.txt, smoke_v100.sh) because it grew out
+# of that tree, but it is its own repository and therefore owns its own asset
+# set: dg1kjd/sglang-sxm2 is sglang_sxm2.yaml, haohervchb/sglang-V100 is
+# sglang_v100.yaml. A shared transform set turns an op whose anchor exists in
+# only one fork into a silent no-op, which hides drift; a rename or reorder in
+# this fork must fail loudly instead.
+#
+# Install contract: the fork's scripts/install_v100.sh stays the builder. Studio
+# replaces ONLY the host-provisioning prologue (apt/conda/CUDA/rustup) with its
+# managed Python/CUDA/Rust, then applies the patches in assets/sglang_sm70/ whose
+# reasons are recorded beside them. MAX_JOBS and CMAKE_BUILD_PARALLEL_LEVEL are
+# deliberately left unset so prepare_fork's memory-aware budget fills them
+# instead of a hardcoded job count.
+schema_version: 2
+id: sglang_sm70
+extends:
+- text_generation_tasks
+- python_venv_safetensors
+label: SGLang SM70
+ui_kind: sglang
+repository_source: SGLang-SM70
+runtime_kind: sglang
+scanner_kind: sglang_help
+input_modalities:
+- image
+- text
+- video
+output_modalities:
+- embedding
+- score
+- text
+supports_embeddings: true
+experimental: true
+maturity_surfaces:
+  nvidia_sm70: specialized
+recipes:
+  source:
+  - id: v100_env
+    uses: env.compose
+    requires:
+    - input.engine_root
+    produces:
+    - build_env
+    - runtime_meta
+  - id: ensure_rust
+    uses: toolchain.ensure
+    requires:
+    - build_env
+    produces:
+    - rust_env
+    with:
+      kind: rust
+      output_key: rust_env
+  - id: checkout
+    uses: vcs.workspace_checkout
+    requires:
+    - input.repo_url
+    - input.branch
+    - input.reuse_mode
+    produces:
+    - checkout
+  - id: patch_cuda_ipc
+    uses: vcs.apply_transform
+    requires:
+    - checkout
+    with:
+      transform: sglang_sm70/cuda_ipc
+  - id: patch_installer
+    uses: vcs.apply_transform
+    requires:
+    - checkout
+    with:
+      transform: sglang_sm70/install_v100_studio
+    produces:
+    - builder_script
+  - id: prepare_build
+    uses: build.prepare_fork
+    requires:
+    - checkout
+    - build_env
+    - rust_env
+    produces:
+    - install_env
+    with:
+      require_cuda_nvcc: true
+      cuda_error: SGLang SM70 requires Studio-managed CUDA 12.8. Install CUDA 12.8 from
+        Engines > NVIDIA CUDA before building the fork.
+      variables:
+        HOME: '{root}/home'
+        SGLANG_STUDIO_PYTHON: '{venv_python}'
+        SGLANG_V100_PYTHON: '{venv_python}'
+        SGLANG_STUDIO_CUDA_HOME: '{cuda_home}'
+        TORCH_CUDA_ARCH_LIST: '7.0'
+        SGLANG_V100_DEPS_DIR: '{dependencies}'
+        MARLIN_V100_REPO: '{dependencies}/marlin-v100'
+        MARLIN_V100_SKIP_BF16_COMPAT: '1'
+        CARGO_HOME: '{root}/cargo-home'
+        CARGO_TARGET_DIR: '{root}/cargo-target'
+        RUSTUP_TOOLCHAIN: stable
+      create_dirs:
+      - '{root}/home'
+      - '{root}/cargo-home'
+      - '{root}/cargo-target'
+      rustup_home_fallback: '{root}/rustup-home'
+      toolchain:
+        major_min: 10
+        major_max: 14
+        env_vars:
+        - CUDAHOSTCXX
+        - SGLANG_STUDIO_CUDAHOSTCXX
+        - CXX
+        error: SGLang SM70 requires GCC/G++ 10–14 (CUDA's headers reject GCC 15). Install
+          g++-12 or g++-14 in the Studio image.
+      required_tools:
+      - git
+      - cmake
+      - ninja
+      - curl
+      concurrency:
+        memory_aware: true
+        env_vars:
+        - MAX_JOBS
+        - CMAKE_BUILD_PARALLEL_LEVEL
+        nvcc_threads: 1
+  - id: run_builder
+    uses: exec.run_logged
+    requires:
+    - checkout
+    - builder_script
+    - install_env
+    with:
+      interpreter: bash
+      script_from: builder_script
+      stage: install_source
+      cwd_from: checkout
+      env_from: install_env
+      error: SGLang-SM70 installer failed with status {code}
+  - id: seal_checkout
+    uses: vcs.seal_checkout
+    requires:
+    - checkout
+    with:
+      destination: source
+      workspace_from: workspace
+  - id: capture_commit
+    uses: vcs.capture_commit
+    requires:
+    - checkout
+    produces:
+    - source_commit
+    with:
+      path_from: checkout
+  - id: finalize
+    uses: publish.finalize
+    requires:
+    - checkout
+    - source_commit
+    - runtime_meta
+  sync:
+  - id: v100_env
+    uses: env.compose
+    requires:
+    - input.engine_root
+    produces:
+    - build_env
+    - runtime_meta
+  - id: ensure_rust
+    uses: toolchain.ensure
+    requires:
+    - build_env
+    produces:
+    - rust_env
+    with:
+      kind: rust
+      output_key: rust_env
+  - id: sync_checkout
+    uses: vcs.sync
+    requires:
+    - input.branch
+    produces:
+    - checkout
+  - id: patch_cuda_ipc
+    uses: vcs.apply_transform
+    requires:
+    - checkout
+    with:
+      transform: sglang_sm70/cuda_ipc
+  - id: patch_installer
+    uses: vcs.apply_transform
+    requires:
+    - checkout
+    with:
+      transform: sglang_sm70/install_v100_studio
+    produces:
+    - builder_script
+  - id: prepare_build
+    uses: build.prepare_fork
+    requires:
+    - checkout
+    - build_env
+    - rust_env
+    produces:
+    - install_env
+    with:
+      require_cuda_nvcc: true
+      cuda_error: SGLang SM70 requires Studio-managed CUDA 12.8. Install CUDA 12.8 from
+        Engines > NVIDIA CUDA before building the fork.
+      variables:
+        HOME: '{root}/home'
+        SGLANG_STUDIO_PYTHON: '{venv_python}'
+        SGLANG_V100_PYTHON: '{venv_python}'
+        SGLANG_STUDIO_CUDA_HOME: '{cuda_home}'
+        TORCH_CUDA_ARCH_LIST: '7.0'
+        SGLANG_V100_DEPS_DIR: '{dependencies}'
+        MARLIN_V100_REPO: '{dependencies}/marlin-v100'
+        MARLIN_V100_SKIP_BF16_COMPAT: '1'
+        CARGO_HOME: '{root}/cargo-home'
+        CARGO_TARGET_DIR: '{root}/cargo-target'
+        RUSTUP_TOOLCHAIN: stable
+      create_dirs:
+      - '{root}/home'
+      - '{root}/cargo-home'
+      - '{root}/cargo-target'
+      rustup_home_fallback: '{root}/rustup-home'
+      toolchain:
+        major_min: 10
+        major_max: 14
+        env_vars:
+        - CUDAHOSTCXX
+        - SGLANG_STUDIO_CUDAHOSTCXX
+        - CXX
+        error: SGLang SM70 requires GCC/G++ 10–14 (CUDA's headers reject GCC 15). Install
+          g++-12 or g++-14 in the Studio image.
+      required_tools:
+      - git
+      - cmake
+      - ninja
+      - curl
+      concurrency:
+        memory_aware: true
+        env_vars:
+        - MAX_JOBS
+        - CMAKE_BUILD_PARALLEL_LEVEL
+        nvcc_threads: 1
+  - id: run_builder
+    uses: exec.run_logged
+    requires:
+    - checkout
+    - builder_script
+    - install_env
+    with:
+      interpreter: bash
+      script_from: builder_script
+      stage: install_source
+      cwd_from: checkout
+      env_from: install_env
+      error: SGLang-SM70 installer failed with status {code}
+  - id: capture_commit
+    uses: vcs.capture_commit
+    requires:
+    - checkout
+    produces:
+    - source_commit
+    with:
+      path_from: checkout
+  - id: finalize
+    uses: publish.finalize
+    requires:
+    - checkout
+    - source_commit
+    - runtime_meta
+  remove:
+  - id: remove_install_dir
+    uses: fs.remove_tree
+    requires:
+    - input.install_dir
+    - input.installs_root
+    - input.retire_references
+    with:
+      path_from: input.install_dir
+      require_parent_from: input.installs_root
+      retire_references_from: input.retire_references
+  - id: forget
+    uses: publish.forget
+    requires:
+    - input.version_name
+  remove_version:
+  - id: remove_install_dir
+    uses: fs.remove_tree
+    requires:
+    - input.delete_target
+    - input.retire_references
+    with:
+      path_from: input.delete_target
+      retire_references_from: input.retire_references
+  - id: forget_row
+    uses: publish.forget
+    requires:
+    - input.registered
+    - input.version_name
+lifecycle:
+  binary_name: python
+  distribution_names:
+  - sglang
+  root_name: sglang-sm70
+  log_name: sglang_sm70_install.log
+  default_repo_url: https://github.com/lapy/sglang-sm70.git
+  default_branch: main
+  version_setting_key: pip_version
+  update_source:
+    kind: github_commit
+    repo: lapy/sglang-sm70
+    branch: main
+  prefer_source_install: true
+  status_fallback:
+    installed_at: null
+    removed_at: null
+    log_path: null
+  # The fork has no pip release: install_release builds from source.
+  release_from_source: true
+  python_exact: '3.12'
+  build_env: cuda
+  build_rust: true
+  runtime_metadata:
+    cuda_version: '12.8'
+  status:
+    binary: venv_python
+    include_engine: true
+    include_removed_at: false
+    row_fields:
+    - source_commit
+    - cuda_version
+    - cuda_path
+    - python_version
+    constants:
+      v100: true
+  source_started_message: '{label} source installation started'
+  log:
+    heartbeat_seconds: 45
+    progress_milestones:
+    - contains: 'using studio python'
+      progress: 10
+      message: Preparing Studio environment
+    - contains: 'downloading '
+      progress: 16
+      message: Downloading V100 dependencies
+    - contains: 'installing collected packages'
+      progress: 19
+      message: Installing V100 dependencies
+    - contains: 'building editable for sglang'
+      progress: 22
+      message: Installing SGLang dependencies
+    - contains: 'cloning flashinfer'
+      progress: 34
+      message: Fetching FlashInfer SM70
+    - contains: 'installing the proven flashinfer'
+      progress: 42
+      message: Building FlashInfer SM70
+    - contains: 'fetching the attributed'
+      progress: 50
+      message: Fetching V100 kernel sources
+    - contains: 'building the attributed turbomind'
+      progress: 58
+      message: Building TurboMind SM70
+    - contains: 'building lean sm70-only sglang-kernel'
+      progress: 70
+      message: Building SGLang SM70 kernels
+    - contains: 'restoring the cuda 12 nccl'
+      progress: 78
+      message: Installing CUDA 12 NCCL bindings
+    - contains: 'building v100 marlin'
+      progress: 85
+      message: Building V100 Marlin kernels
+    - contains: 'running sm70 smoke checks'
+      progress: 93
+      message: Running V100 smoke checks
+    - contains: 'complete. studio environment'
+      progress: 98
+      message: Finalizing SGLang SM70
+discovery:
+  parser: sglang_help
+  primary_runtime: llm
+  cwd: venv_root
+  # The fork always probes against the Studio-managed CUDA 12.8 toolkit.
+  cuda_env: '12.8'
+  env:
+    defaults:
+      FLASHINFER_DISABLE_VERSION_CHECK: '1'
+      TORCH_CUDA_ARCH_LIST: '7.0'
+    required:
+    - name: CUDA_HOME
+      error: Studio-managed CUDA 12.8 is unavailable
+  probe_variants:
+  - executable:
+      kind: venv_python
+      name: python
+    argv_prefix:
+    - -m
+    - sglang.launch_server
+    - --help
+  runtime_probes:
+    diffusion:
+      parser: sglang_diffusion_help
+      argv_prefix:
+      - -c
+      - from sglang.cli.main import main; main()
+      - serve
+      - --model-type
+      - diffusion
+      - --help
+      unavailable_marker: Diffusion model support is not available
+runtime_profiles:
+  default:
+    default: true
+    description: SGLang SM70 launch_server (python -m)
+    executable:
+      kind: venv_python
+      name: python
+    argv_prefix:
+    - -m
+    - sglang.launch_server
+    model_binding:
+      mode: flag
+      flag: --model-path
+      source: huggingface_id
+    port_binding:
+      flag: --port
+    env:
+      cwd: venv_root
+      cuda: '12.8'
+      defaults:
+        FLASHINFER_DISABLE_VERSION_CHECK: '1'
+        TORCH_CUDA_ARCH_LIST: '7.0'
+        CUDA_DEVICE_ORDER: PCI_BUS_ID
+      required:
+      - name: CUDA_HOME
+        error: SGLang SM70 requires Studio-managed CUDA 12.8
+    runtime_switch:
+      config_key: sglang_runtime
+      default: llm
+      variants:
+        diffusion:
+          argv_prefix:
+          - -c
+          - from sglang.cli.main import main; main()
+          - serve
+          - --model-type
+          - diffusion
+          scanned_catalog: diffusion
+launch_policy:
+  cpu_supported: false
+  gpu_archs:
+  - sm70
+  runtime_context_key: context_length
+  gpu_only_invariants:
+  - CUDA_HOME
+  - TORCH_CUDA_ARCH_LIST
+  - FLASHINFER_DISABLE_VERSION_CHECK
+catalog:
+  providers:
+  - huggingface
+upstream:
+  repository_url: https://github.com/lapy/sglang-sm70.git
+settings_defaults:
+  source_repo: https://github.com/lapy/sglang-sm70.git
+  source_branch: main
+data_dirs:
+- sglang-sm70

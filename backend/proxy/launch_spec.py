@@ -27,7 +27,7 @@ _SECRET_NAME_RE = re.compile(
 _STUDIO_PREFIX = "LLAMA_STUDIO_"
 # SGLang SM70 forks whose runtime accepts numeric CUDA ids only and expects the
 # current allocator-conf spelling.
-_SM70_SGLANG_ENGINES = frozenset({"sglang_v100", "sglang_sxm2"})
+_SM70_SGLANG_ENGINES = frozenset({"sglang_v100", "sglang_sxm2", "sglang_sm70"})
 _COMPOSITIONAL_KEYS = frozenset({"PATH", "LD_LIBRARY_PATH"})
 _BASELINE_KEYS = (
     "HOME",

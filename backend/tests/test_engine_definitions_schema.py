@@ -224,7 +224,7 @@ def test_template_deterministic_merge(tmp_path):
 def test_shipped_definitions_load_and_match_directory():
     registry = load_engine_definitions(DEFINITIONS_DIR)
     # every shipped engine has exactly one definition file
-    assert len(registry.ids()) == 10
+    assert len(registry.ids()) == 11
 
 
 # ---------------------------------------------------------------------------

@@ -40,6 +40,8 @@ Model configuration stores a separate section per engine. Forms use discovered f
 | vLLM              | `vllm`          | safetensors snapshots                                    | Managed Python environment.                              |
 | SGLang            | `sglang`        | safetensors snapshots                                    | Managed Python environment.                              |
 | SGLang V100       | `sglang_v100`   | safetensors snapshots                                    | Dedicated source/build workflow and managed Python/CUDA. |
+| SGLang SXM2       | `sglang_sxm2`   | safetensors snapshots                                    | Dedicated source/build workflow and managed Python/CUDA. |
+| SGLang SM70       | `sglang_sm70`   | safetensors snapshots                                    | Dedicated source/build workflow and managed Python/CUDA. |
 | audio.cpp         | `audio_cpp`     | Prepared audio packages and discovered audio GGUF models | Source/CMake build.                                      |
 
 Available tasks and hardware support depend on the installed engine and selected model. Studio reads the engine registry, executable help, and structured metadata to expose applicable controls.
