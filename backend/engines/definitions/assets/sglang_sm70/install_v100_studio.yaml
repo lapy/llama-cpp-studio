@@ -58,3 +58,13 @@ operations:
   search: LICENSE csrc/core csrc/sm70_turbomind csrc/moe
   replace: /LICENSE csrc/core csrc/sm70_turbomind csrc/moe 'csrc/*.h' 'csrc/*.cuh'
   skip_if_contains: csrc/*.cuh
+# lapy/sglang-sm70 main 79dc001f folds the FlashAttention-V100 log call over two
+# lines that bash reads as two commands, so the installer dies with
+#   SGLANG_SM70_VISION_ATTENTION=1): command not found  (exit 127)
+# right after the Marlin build. Rejoin the string; optional so this op retires
+# itself when the fork fixes the wrap upstream.
+- kind: replace
+  search: "log \"Installing FlashAttention-V100 vision kernels (installed by default, used only when \"\n    \"SGLANG_SM70_VISION_ATTENTION=1)\""
+  replace: 'log "Installing FlashAttention-V100 vision kernels (installed by default, used only when SGLANG_SM70_VISION_ATTENTION=1)"'
+  optional: true
+  skip_if_contains: 'used only when SGLANG_SM70_VISION_ATTENTION=1)"'

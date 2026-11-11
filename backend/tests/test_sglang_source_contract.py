@@ -538,6 +538,16 @@ def test_sm70_transform_assets_rewrite_a_real_checkout(tmp_path):
     assert definition.data_dirs == ("sglang-sm70",)
 
     checkout = _sm70_fork_checkout(tmp_path, "sglang_sm70")
+    # main 79dc001f wraps this log call over two lines; keep the broken form in
+    # the fixture so the asset's repair op is exercised.
+    install_sh = checkout / "scripts" / "install_v100.sh"
+    install_sh.write_text(
+        install_sh.read_text(encoding="utf-8")
+        + 'log "Installing FlashAttention-V100 vision kernels (installed by default, used only when "\n'
+        + '    "SGLANG_SM70_VISION_ATTENTION=1)"\n'
+        + 'REPO_ROOT="$REPO_ROOT" bash "$REPO_ROOT/scripts/setup_fa_v100_vision.sh"\n',
+        encoding="utf-8",
+    )
     for name in ("cuda_ipc", "install_v100_studio"):
         apply_transform("sglang_sm70/" + name, str(checkout))
 
@@ -556,6 +566,14 @@ def test_sm70_transform_assets_rewrite_a_real_checkout(tmp_path):
     assert 'sparse-checkout set --no-cone "$@"' in rewritten
     assert "'csrc/*.h' 'csrc/*.cuh'" in rewritten
     assert "/LICENSE csrc/core" in rewritten
+    # The vision-kernel log call must stay one argument: an orphaned
+    # "SGLANG_SM70_VISION_ATTENTION=1)" line is executed as a command (exit 127).
+    assert 'used only when SGLANG_SM70_VISION_ATTENTION=1)"' in rewritten
+    assert not [
+        line
+        for line in rewritten.splitlines()
+        if line.strip().startswith('"SGLANG_SM70_VISION_ATTENTION=1)"')
+    ]
     assert os.access(script_path, os.X_OK)
     ipc = (
         checkout / "python" / "sglang" / "kernels" / "jit" / "csrc" / "distributed" / "ipc.cuh"
