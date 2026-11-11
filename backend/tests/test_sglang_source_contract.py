@@ -360,15 +360,15 @@ def _real_v100_checkout(tmp_path) -> Path:
     return checkout
 
 
-def _real_sxm2_checkout(tmp_path) -> Path:
-    """Smallest sglang-sxm2 checkout the versioned sglang_sxm2 assets apply to."""
+def _sm70_fork_checkout(tmp_path, asset_prefix: str = "sglang_sxm2") -> Path:
+    """Smallest SM70-fork checkout the versioned assets under `asset_prefix` apply to."""
     from backend.engines.definitions.transforms import load_transform
 
     checkout = tmp_path / "checkout"
     scripts = checkout / "scripts"
     scripts.mkdir(parents=True)
 
-    install_asset = load_transform("sglang_sxm2/install_v100_studio")
+    install_asset = load_transform(asset_prefix + "/install_v100_studio")
     region = next(op for op in install_asset.operations if op["kind"] == "replace_region")
     marlin_stage = next(
         op for op in install_asset.operations if "V100 Marlin" in op.get("marker", "")
@@ -400,7 +400,7 @@ def _real_sxm2_checkout(tmp_path) -> Path:
         encoding="utf-8",
     )
 
-    ipc_asset = load_transform("sglang_sxm2/cuda_ipc")
+    ipc_asset = load_transform(asset_prefix + "/cuda_ipc")
     ipc = checkout / "python" / "sglang" / "kernels" / "jit" / "csrc" / "distributed" / "ipc.cuh"
     ipc.parent.mkdir(parents=True)
     ipc.write_text(
@@ -441,7 +441,7 @@ def test_v100_transform_assets_rewrite_a_real_checkout(tmp_path):
 
 def test_sxm2_transform_assets_rewrite_a_real_checkout(tmp_path):
     """sglang-sxm2 keeps the fork's requirements.txt and Marlin installer."""
-    checkout = _real_sxm2_checkout(tmp_path)
+    checkout = _sm70_fork_checkout(tmp_path, "sglang_sxm2")
     for name in ("cuda_ipc", "install_v100_studio"):
         apply_transform("sglang_sxm2/" + name, str(checkout))
 
@@ -468,6 +468,94 @@ def test_sxm2_transform_assets_rewrite_a_real_checkout(tmp_path):
     ).read_text(encoding="utf-8")
     assert "to_ipc_handle(pair.get<0>())" in ipc
     assert "const auto offset = pair.get<1>();" in ipc
+
+
+def test_sm70_transform_assets_rewrite_a_real_checkout(tmp_path):
+    """The SM70 fork's OWN assets apply, and its definition wires them.
+
+    lapy/sglang-sm70 shares the sglang-sxm2 install contract but is a separate
+    repository: it must not depend on sglang_sxm2's asset directory, because a
+    shared set silently no-ops (or mis-applies) when one fork's script drifts.
+    """
+    from backend.engines.definitions.loader import load_default_engine_definitions
+
+    definition = load_default_engine_definitions().definitions["sglang_sm70"]
+    transforms = {
+        step.get("with", {}).get("transform")
+        for flow in ("source", "sync")
+        for step in dict(definition.recipes)[flow]
+        if step["uses"] == "vcs.apply_transform"
+    }
+    assert transforms == {
+        "sglang_sm70/cuda_ipc",
+        "sglang_sm70/install_v100_studio",
+        "sglang_sm70/dual_gemm_cuda_guard",
+    }
+    lifecycle = dict(definition.lifecycle)
+    assert lifecycle["default_repo_url"] == "https://github.com/lapy/sglang-sm70.git"
+    assert lifecycle["root_name"] == "sglang-sm70"
+    assert lifecycle["update_source"]["repo"] == "lapy/sglang-sm70"
+    assert definition.data_dirs == ("sglang-sm70",)
+
+    checkout = _sm70_fork_checkout(tmp_path, "sglang_sm70")
+    for name in ("cuda_ipc", "install_v100_studio"):
+        apply_transform("sglang_sm70/" + name, str(checkout))
+
+    script_path = checkout / "scripts" / "install_v100_studio.sh"
+    rewritten = script_path.read_text(encoding="utf-8")
+    assert "Studio owns host packages" in rewritten
+    assert "SGLANG_STUDIO_PYTHON" in rewritten
+    assert "NVCC_PREPEND_FLAGS" in rewritten
+    assert "unset CMAKE_ARGS" in rewritten
+    assert "Studio environment: $VIRTUAL_ENV" in rewritten
+    # The maintainer's builder stays the builder: the --no-deps requirements
+    # install is untouched and only the host-provisioning prologue is replaced.
+    assert 'python -m pip install --no-deps -r "$REPO_ROOT/requirements.txt"' in rewritten
+    assert "apt-get" not in rewritten
+    assert "rustup.rs" not in rewritten
+    assert 'sparse-checkout set --no-cone "$@"' in rewritten
+    assert "'csrc/*.h' 'csrc/*.cuh'" in rewritten
+    assert "/LICENSE csrc/core" in rewritten
+    assert os.access(script_path, os.X_OK)
+    ipc = (
+        checkout / "python" / "sglang" / "kernels" / "jit" / "csrc" / "distributed" / "ipc.cuh"
+    ).read_text(encoding="utf-8")
+    assert "to_ipc_handle(pair.get<0>())" in ipc
+    assert "const auto offset = pair.get<1>();" in ipc
+
+
+def test_sm70_dual_gemm_guard_survives_a_missing_cute_dsl(tmp_path):
+    """CuTe DSL needs CUDA 13.1; the guard turns that crash into "no dual gemm"."""
+    checkout = tmp_path / "checkout"
+    dual_gemm = checkout / "python" / "sglang" / "srt" / "layers" / "dual_gemm.py"
+    dual_gemm.parent.mkdir(parents=True)
+    upstream = (
+        "    def _select_mode(self):\n"
+        "        if not is_cuda():\n"
+        "            return None\n"
+        "\n"
+        "        from sglang.kernels.ops.gemm.cutedsl_dual_gemm import (\n"
+        "            MAX_DUAL_GEMM_DECODE_TOKENS,\n"
+        "            DualGemmQuantMode,\n"
+        "            can_use_dual_gemm,\n"
+        "        )\n"
+        "        from sglang.srt.layers.quantization.unquant import UnquantizedLinearMethod\n"
+    )
+    dual_gemm.write_text(upstream, encoding="utf-8")
+
+    assert Path(apply_transform("sglang_sm70/dual_gemm_cuda_guard", str(checkout))) == dual_gemm
+    patched = dual_gemm.read_text(encoding="utf-8")
+    assert "except (ImportError, NotImplementedError):" in patched
+    # The fallback must not swallow the rest of the method: the original
+    # follow-on import is still there at method level.
+    assert (
+        "\n        from sglang.srt.layers.quantization.unquant import "
+        "UnquantizedLinearMethod\n" in patched
+    )
+    # Idempotent: a second run leaves the file untouched.
+    before = dual_gemm.read_text(encoding="utf-8")
+    apply_transform("sglang_sm70/dual_gemm_cuda_guard", str(checkout))
+    assert dual_gemm.read_text(encoding="utf-8") == before
 
 
 def test_v100_transform_assets_fail_descriptively_when_layout_changes(tmp_path):

@@ -320,7 +320,20 @@ class GenericVenvInstaller(PythonVenvInstaller):
                     f"{os.path.join(fallback, 'lib64')}:{env.get('LD_LIBRARY_PATH', '')}"
                 )
         env["VIRTUAL_ENV"] = self._venv_path
-        for name, value in dict(lifecycle.get("build_env_vars") or {}).items():
+        declared = dict(lifecycle.get("build_env_vars") or {})
+        # Host-derived nvcc parallelism for every engine whose build reads
+        # NVCC_THREADS (SGLang's kernel builds, torch extensions, 1Cat): the
+        # service environment must not decide it, and a definition that wants a
+        # fixed value still pins it through build_env_vars.
+        if "NVCC_THREADS" not in declared:
+            from backend.engines.python.fork_build import host_nvcc_threads
+
+            env["NVCC_THREADS"] = str(
+                host_nvcc_threads(
+                    declared.get("TORCH_CUDA_ARCH_LIST") or env.get("TORCH_CUDA_ARCH_LIST")
+                )
+            )
+        for name, value in declared.items():
             env.setdefault(str(name), str(value))
         if lifecycle.get("build_rust"):
             from backend.engines.python.rust_toolchain import compose_rust_env
@@ -642,6 +655,12 @@ class GenericVenvInstaller(PythonVenvInstaller):
                 raise RuntimeError(f"Another {self.label} operation is already running")
             await self._start_operation("install")
             dir_name = self._bind_install_dir(reuse_dir, "pip")
+            if reuse_dir or existing_version or bool(force_reinstall):
+                # Reinstalling into an existing environment invalidates the
+                # kernels its caches hold.
+                from backend.engines.caches import flush_caches
+
+                flush_caches(self._base_dir)
             pending_version = existing_version or dir_name
             self._register_pending_version(
                 pending_version,
@@ -794,6 +813,12 @@ class GenericVenvInstaller(PythonVenvInstaller):
                 raise RuntimeError(f"Another {self.label} operation is already running")
             await self._start_operation("install_source")
             dir_name = self._bind_install_dir(reuse_dir, "source")
+            if reuse_dir or existing_version:
+                # In-place rebuild: managed JIT caches were produced by the
+                # previous source/toolchain, so they must not survive it.
+                from backend.engines.caches import flush_caches
+
+                flush_caches(self._base_dir)
             pending_version = existing_version or dir_name
             from backend.repo_identity import source_build_type_labels_for_engine
 
@@ -938,9 +963,14 @@ class GenericVenvInstaller(PythonVenvInstaller):
             destination = os.path.join(
                 self._base_dir, str(step.with_.get("destination") or "source")
             )
+            # Sealing copies the checkout and rewrites the virtualenv; on a
+            # multi-GB venv it takes minutes and used to look frozen at the
+            # builder's last line. Say what it is doing.
+            await self._update_progress_task(98, "Sealing the installed source")
             sealed = await asyncio.to_thread(
                 workspace.seal_installed_source, destination, self._venv_path
             )
+            await self._update_progress_task(98, "Sealed; publishing the version")
             return {"checkout": sealed, "checkout_sealed": sealed}
 
         async def publish_source(step, requirements, context):
@@ -1115,6 +1145,10 @@ class GenericVenvInstaller(PythonVenvInstaller):
 
             self._venv_path = os.path.abspath(venv_path)
             self._base_dir = os.path.dirname(self._venv_path)
+            # A source update rebuilds the kernels the caches hold.
+            from backend.engines.caches import flush_caches
+
+            flush_caches(self._base_dir)
             self._ensure_directories()
             clone_dir = os.path.join(self._base_dir, "source")
 

@@ -234,6 +234,7 @@ def _list_llama_versions_payload():
         ("sglang", "SGLang", "pip"),
         ("sglang_v100", "SGLang-V100", "source"),
         ("sglang_sxm2", "SGLang-SXM2", "source"),
+        ("sglang_sm70", "SGLang-SM70", "source"),
         ("vllm", "vLLM", "pip"),
     ]:
         active_venv = store.get_active_engine_version(engine)
@@ -278,6 +279,7 @@ def _list_llama_versions_payload():
         "sglang",
         "sglang_v100",
         "sglang_sxm2",
+        "sglang_sm70",
         "vllm",
         "audio_cpp",
     }

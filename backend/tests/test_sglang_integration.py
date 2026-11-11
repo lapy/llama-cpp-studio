@@ -106,8 +106,15 @@ def test_sglang_engines_are_registered_for_hf_snapshots():
     assert ENGINE_REGISTRY["sglang"].runtime_kind == "sglang"
     assert ENGINE_REGISTRY["sglang_v100"].runtime_kind == "sglang"
     assert ENGINE_REGISTRY["sglang_v100"].experimental is True
+    # Both SM70 source forks are experimental sglang runtimes too.
+    assert ENGINE_REGISTRY["sglang_sxm2"].runtime_kind == "sglang"
+    assert ENGINE_REGISTRY["sglang_sxm2"].experimental is True
+    assert ENGINE_REGISTRY["sglang_sm70"].runtime_kind == "sglang"
+    assert ENGINE_REGISTRY["sglang_sm70"].experimental is True
     assert "sglang" in compatible_engines_for_record({"format": "safetensors"})
     assert "sglang_v100" in compatible_engines_for_record({"format": "safetensors"})
+    assert "sglang_sxm2" in compatible_engines_for_record({"format": "safetensors"})
+    assert "sglang_sm70" in compatible_engines_for_record({"format": "safetensors"})
 
 
 def test_sglang_install_defaults_distinguish_upstream_and_v100():
@@ -117,6 +124,15 @@ def test_sglang_install_defaults_distinguish_upstream_and_v100():
     assert upstream["pip_version"] == ""
     assert "haohervchb/sglang-V100" in v100["source_repo"]
     assert "pip_version" not in v100
+    # The SM70 forks default to their own repositories; neither tracks a PyPI
+    # version.
+    assert default_install_settings("sglang_sxm2")["source_repo"] == (
+        "https://github.com/dg1kjd/sglang-sxm2.git"
+    )
+    assert default_install_settings("sglang_sm70")["source_repo"] == (
+        "https://github.com/lapy/sglang-sm70.git"
+    )
+    assert "pip_version" not in default_install_settings("sglang_sm70")
 
 
 def test_sglang_help_parser_reserves_studio_owned_model_and_port():
