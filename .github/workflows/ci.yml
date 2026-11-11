@@ -264,6 +264,16 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
+        with:
+          # The default docker-container builder cannot resolve the Ubuntu
+          # archive hosts: apt logs "Could not resolve 'archive.ubuntu.com'" /
+          # "security.ubuntu.com" while registry.npmjs.org resolves, so every
+          # uncached apt layer fails or runs with no package lists and the image
+          # keeps the base image's stale packages. A host-network builder
+          # resolves the archive. Probed on this runner: getent inside the
+          # default builder reports BUILD_ARCHIVE_FAIL, the same probe with
+          # this driver option reports BUILD_ARCHIVE_OK.
+          driver-opts: network=host
 
       - name: Extract metadata (tags, labels)
         id: meta

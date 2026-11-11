@@ -246,12 +246,13 @@ RUN ln -sf /usr/bin/python3 /usr/bin/python
 # keeps the base image's old apt/linux-libc-dev only for the Trivy scan to fail
 # with every fixable CVE it would have upgraded. Retries absorb the transient
 # case; the empty-list guard turns the remaining case into a failed build that
-# names the layer.
+# names the layer. dist-upgrade (not upgrade) so security updates that pull a
+# new dependency set are applied instead of being kept back.
 ARG SECURITY_REFRESH=0
 RUN echo "apt refresh epoch: ${SECURITY_REFRESH}" \
     && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update \
     && test -n "$(ls -A /var/lib/apt/lists 2>/dev/null)" \
-    && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 upgrade -y \
+    && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 dist-upgrade -y \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
