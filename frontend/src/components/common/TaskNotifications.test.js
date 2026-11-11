@@ -21,6 +21,7 @@ vi.mock('primevue/usetoast', () => ({
 describe('TaskNotifications', () => {
   beforeEach(() => {
     localStorage.removeItem('llama-studio.activity.dismissed')
+    sessionStorage.clear()
     setActivePinia(createPinia())
     axios.post.mockReset()
     axios.post.mockResolvedValue({ data: { ok: true } })
@@ -59,7 +60,13 @@ describe('TaskNotifications', () => {
   }
 
   it('closes an automatically opened panel when a snapshot removes all tasks', async () => {
-    const store = seedTask({ task_id: 'build', type: 'build', status: 'running', progress: 10, description: 'Building' })
+    const store = seedTask({
+      task_id: 'build',
+      type: 'build',
+      status: 'running',
+      progress: 10,
+      description: 'Building',
+    })
     const wrapper = mountTray()
     await flushPromises()
     expect(wrapper.find('.activity-panel').exists()).toBe(true)
@@ -92,7 +99,9 @@ describe('TaskNotifications', () => {
     expect(wrapper.text()).toContain('Downloading model.gguf')
     expect(wrapper.text()).toContain('42%')
     expect(wrapper.find('.task-toast__message').text().trim()).toBe('')
-    expect(wrapper.find('.task-toast__download-meta').text()).toBe('420 MB / 1.0 GB · 580 MB left · file 2/4')
+    expect(wrapper.find('.task-toast__download-meta').text()).toBe(
+      '420 MB / 1.0 GB · 580 MB left · file 2/4',
+    )
   })
 
   it('shows each task once inside the activity panel', async () => {
@@ -188,13 +197,15 @@ describe('TaskNotifications', () => {
     expect(axios.post).toHaveBeenCalledWith('/api/tasks/dismiss', { task_id: 'done' })
 
     store.handleEvent('task_snapshot', {
-      tasks: [{
-        task_id: 'done',
-        type: 'download',
-        status: 'completed',
-        progress: 100,
-        description: 'Download complete',
-      }],
+      tasks: [
+        {
+          task_id: 'done',
+          type: 'download',
+          status: 'completed',
+          progress: 100,
+          description: 'Download complete',
+        },
+      ],
     })
     await flushPromises()
     expect(wrapper.find('.task-toast').exists()).toBe(false)
@@ -294,12 +305,12 @@ describe('TaskNotifications', () => {
     await wrapper.get('.task-toast__body').trigger('click')
     await flushPromises()
 
-    const log = wrapper.get('.task-toast__logs')
+    const log = wrapper.get('.log-body')
     expect(log.text()).toContain('cmake ..')
     expect(log.text()).toContain('make -j')
-    expect(wrapper.get('.task-toast__log-follow').text()).toBe('Following')
+    expect(wrapper.get('button[aria-label="Follow log output"]').text()).toContain('Following')
 
-    await wrapper.get('.task-toast__log-copy').trigger('click')
+    await wrapper.get('button[aria-label="Copy"]').trigger('click')
     await flushPromises()
     expect(writeText).toHaveBeenCalledWith('cmake ..\nmake -j')
 
@@ -308,14 +319,20 @@ describe('TaskNotifications', () => {
     Object.defineProperty(pre, 'clientHeight', { configurable: true, value: 100 })
     pre.scrollTop = 300
     await log.trigger('scroll')
-    expect(wrapper.get('.task-toast__log-follow').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('button[aria-label="Follow log output"]').attributes('aria-pressed')).toBe(
+      'true',
+    )
 
     pre.scrollTop = 0
     await log.trigger('scroll')
-    expect(wrapper.get('.task-toast__log-follow').attributes('aria-pressed')).toBe('false')
+    expect(
+      wrapper.get('button[aria-label="Resume following log output"]').attributes('aria-pressed'),
+    ).toBe('false')
 
-    await wrapper.get('.task-toast__log-follow').trigger('click')
-    expect(wrapper.get('.task-toast__log-follow').attributes('aria-pressed')).toBe('true')
+    await wrapper.get('button[aria-label="Resume following log output"]').trigger('click')
+    expect(wrapper.get('button[aria-label="Follow log output"]').attributes('aria-pressed')).toBe(
+      'true',
+    )
   })
 
   it('keeps following when new log lines grow the view without the user scrolling up', async () => {
@@ -334,24 +351,59 @@ describe('TaskNotifications', () => {
     await wrapper.get('.task-toast__body').trigger('click')
     await flushPromises()
 
-    const pre = wrapper.get('.task-toast__logs').element
+    const pre = wrapper.get('.log-body').element
     Object.defineProperty(pre, 'clientHeight', { configurable: true, value: 100 })
     Object.defineProperty(pre, 'scrollHeight', { configurable: true, writable: true, value: 400 })
     pre.scrollTop = 300
-    await wrapper.get('.task-toast__logs').trigger('scroll')
-    expect(wrapper.get('.task-toast__log-follow').attributes('aria-pressed')).toBe('true')
+    await wrapper.get('.log-body').trigger('scroll')
+    expect(wrapper.get('button[aria-label="Follow log output"]').attributes('aria-pressed')).toBe(
+      'true',
+    )
 
     pre.scrollHeight = 900
-    await wrapper.get('.task-toast__logs').trigger('scroll')
-    expect(wrapper.get('.task-toast__log-follow').attributes('aria-pressed')).toBe('true')
+    await wrapper.get('.log-body').trigger('scroll')
+    expect(wrapper.get('button[aria-label="Follow log output"]').attributes('aria-pressed')).toBe(
+      'true',
+    )
     expect(pre.scrollTop).toBe(900)
+  })
+
+  it('restores a persisted expanded install log after a page refresh', async () => {
+    sessionStorage.setItem('llama-studio.activity.open', '1')
+    sessionStorage.setItem('llama-studio.activity.expandedLogs', JSON.stringify(['install_1']))
+    const store = seedTask({
+      task_id: 'install_1',
+      type: 'install',
+      status: 'running',
+      progress: 20,
+      description: 'Installing SGLang',
+      log_count: 2,
+    })
+    // The reconnect snapshot only carries a short tail; the full log lives on
+    // the server and must replace it once the card is visible.
+    store.taskLogs = { install_1: ['tail line'] }
+    axios.get.mockImplementation((url) => {
+      if (String(url).includes('/api/operations/tasks/')) {
+        return Promise.resolve({ data: { lines: ['full first line', 'tail line'] } })
+      }
+      return Promise.resolve({ data: { outcome: 'reconciled', replayed: 0 } })
+    })
+
+    const wrapper = mountTray()
+    await flushPromises()
+
+    expect(wrapper.find('.activity-panel').exists()).toBe(true)
+    expect(wrapper.find('.log-body').text()).toContain('full first line')
+    expect(wrapper.find('.log-body').text()).toContain('tail line')
+    wrapper.unmount()
   })
 
   it('keeps edits and offers Refresh when reconciliation stays unknown', async () => {
     axios.get.mockResolvedValue({
       data: {
         outcome: 'unknown',
-        detail: 'Reconciliation could not be stored. Your edits are still here. Refresh before trying again.',
+        detail:
+          'Reconciliation could not be stored. Your edits are still here. Refresh before trying again.',
       },
     })
     const wrapper = mountTray()
@@ -364,7 +416,8 @@ describe('TaskNotifications', () => {
           code: 'RECONCILE_UNKNOWN',
           committed: 'unknown',
           outcome: 'unknown',
-          detail: 'Reconciliation could not be stored. Your edits are still here. Refresh before trying again.',
+          detail:
+            'Reconciliation could not be stored. Your edits are still here. Refresh before trying again.',
         },
       },
     })

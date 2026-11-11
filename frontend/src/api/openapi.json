@@ -6479,6 +6479,57 @@
         ]
       }
     },
+    "/api/operations/tasks/{task_id}/logs": {
+      "get": {
+        "description": "Restore the retained output for one task (install, build, scan, \u2026).",
+        "operationId": "operation_task_logs_api_operations_tasks__task_id__logs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Operation Task Logs",
+        "tags": [
+          "status"
+        ]
+      }
+    },
     "/api/proxy": {
       "get": {
         "operationId": "get_proxy_admin_api_proxy_get",
@@ -6534,6 +6585,47 @@
           }
         },
         "summary": "Proxy Lifecycle",
+        "tags": [
+          "proxy"
+        ]
+      }
+    },
+    "/api/proxy/models/{model_id}/instance": {
+      "delete": {
+        "description": "Remove a failed model instance and clear the status it contributed.",
+        "operationId": "remove_proxy_model_instance_api_proxy_models__model_id__instance_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_id",
+            "required": true,
+            "schema": {
+              "title": "Model Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Proxy Model Instance",
         "tags": [
           "proxy"
         ]
@@ -6647,6 +6739,47 @@
           }
         },
         "summary": "Get Proxy Model Logs",
+        "tags": [
+          "proxy"
+        ]
+      }
+    },
+    "/api/proxy/models/{model_id}/logs/stream": {
+      "get": {
+        "description": "Stream live engine output over SSE, replaying from the ring cursor.\n\nThe browser sends ``Last-Event-ID`` automatically after a reconnect; the\nexplicit ``last_event_id`` query is used for the first connection so a\nfreshly opened panel does not receive the lines it already fetched.",
+        "operationId": "stream_proxy_model_logs_api_proxy_models__model_id__logs_stream_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_id",
+            "required": true,
+            "schema": {
+              "title": "Model Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stream Proxy Model Logs",
         "tags": [
           "proxy"
         ]
@@ -8436,6 +8569,26 @@
           }
         },
         "summary": "Get System Status",
+        "tags": [
+          "status"
+        ]
+      }
+    },
+    "/api/system-stats": {
+      "get": {
+        "description": "Lightweight periodic system readings for an open System page.",
+        "operationId": "get_system_stats_api_system_stats_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get System Stats",
         "tags": [
           "status"
         ]

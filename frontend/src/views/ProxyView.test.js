@@ -239,7 +239,7 @@ describe('ProxyView', () => {
     const wrapper = mountView()
     await flushPromises()
     expect(wrapper.findAll('[role="tab"]').map((tab) => tab.text())).not.toContain('Models')
-    for (const label of ['Preload', 'Warmup', 'Reload', 'Unload']) {
+    for (const label of ['Preload', 'Warmup', 'Reload', 'Unload', 'Remove']) {
       expect(wrapper.findAll('button').some((button) => button.text() === label)).toBe(false)
     }
     expect(wrapper.find('.runtime .model-link').text()).toContain('Manage model')
@@ -248,7 +248,8 @@ describe('ProxyView', () => {
       params: { id: 'stored-demo' },
     })
     await clickButton(wrapper, 'View logs')
-    expect(wrapper.find('.task-logs').text()).toContain('stderr: boom')
+    expect(wrapper.find('.log-body').text()).toContain('boom')
+    expect(wrapper.find('.log-body').text()).not.toContain('stderr:')
     wrapper.unmount()
   })
 
@@ -390,6 +391,38 @@ describe('ProxyView', () => {
     wrapper.unmount()
   })
 
+  it('removes a failed engine instance and clears its card status', async () => {
+    const failed = statusPayload()
+    failed.running[0] = {
+      ...failed.running[0],
+      state: 'failed',
+      ready: false,
+      failure_reason: 'Engine exited unexpectedly (code 137)',
+    }
+    let removed = false
+    vi.mocked(axios.get).mockImplementation((url) => {
+      if (String(url).includes('keys')) return Promise.resolve({ data: { keys: [] } })
+      return Promise.resolve({ data: removed ? statusPayload() : failed })
+    })
+    vi.mocked(axios.delete).mockImplementation(async () => {
+      removed = true
+      return { status: 204 }
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await clickButton(wrapper, 'Remove')
+    await flushPromises()
+
+    expect(axios.delete).toHaveBeenCalledWith('/api/proxy/models/demo/instance')
+    expect(toastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({ summary: 'Failed engine removed' }),
+    )
+    expect(wrapper.text()).not.toContain('Engine exited unexpectedly')
+    expect(wrapper.findAll('button').some((button) => button.text() === 'Remove')).toBe(false)
+    wrapper.unmount()
+  })
+
   it('does not silently turn a zero budget into unlimited access', async () => {
     const wrapper = mountView()
     await flushPromises()
@@ -483,23 +516,45 @@ describe('ProxyView', () => {
     wrapper.unmount()
   })
 
-  it('filters engine logs through search and severity controls', async () => {
+  it('filters engine logs in place through the compact toolbar', async () => {
+    vi.mocked(axios.get).mockImplementation((url) => {
+      if (String(url).includes('/logs')) {
+        return Promise.resolve({
+          data: {
+            model: 'demo',
+            sequence: 3,
+            lines: ['stdout: listening', 'stderr: boom', 'stdout: WARNING slow'],
+          },
+        })
+      }
+      if (String(url).includes('keys')) return Promise.resolve({ data: { keys: [] } })
+      return Promise.resolve({ data: statusPayload() })
+    })
     const wrapper = mountView()
     await flushPromises()
     await clickButton(wrapper, 'View logs')
 
-    expect(axios.get).toHaveBeenCalledWith('/api/proxy/models/demo/logs', { params: {} })
-    await wrapper.find('.log-search input').setValue('error')
-    await vi.waitFor(() => {
-      expect(axios.get).toHaveBeenCalledWith('/api/proxy/models/demo/logs', {
-        params: { search: 'error', level: undefined },
-      })
-    })
-    await wrapper.find('.log-toolbar select').setValue('error')
+    expect(axios.get).toHaveBeenCalledWith('/api/proxy/models/demo/logs')
+    const logReads = () =>
+      axios.get.mock.calls.filter(([url]) => url === '/api/proxy/models/demo/logs').length
+    expect(logReads()).toBe(1)
+
+    await wrapper.find('.log-search input').setValue('boom')
     await flushPromises()
-    expect(axios.get).toHaveBeenCalledWith('/api/proxy/models/demo/logs', {
-      params: { search: 'error', level: 'error' },
-    })
+    expect(wrapper.findAll('.log-line')).toHaveLength(1)
+    expect(wrapper.find('.log-body').text()).toContain('boom')
+
+    await wrapper.find('.log-search input').setValue('')
+    await wrapper.find('.log-level').trigger('click') // All
+    await wrapper.findAll('.log-level')[2].trigger('click') // Error
+    await flushPromises()
+    expect(wrapper.findAll('.log-line')).toHaveLength(1)
+    expect(wrapper.find('.log-body').text()).toContain('boom')
+
+    await wrapper.findAll('.log-level')[1].trigger('click') // Warn
+    await flushPromises()
+    expect(wrapper.findAll('.log-line')).toHaveLength(2)
+    expect(logReads()).toBe(1)
     wrapper.unmount()
   })
 

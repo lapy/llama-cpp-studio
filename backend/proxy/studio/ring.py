@@ -41,6 +41,25 @@ class EventRing(Generic[T]):
         item = RingItem(self._next, value)
         self._next += 1
         self._items.append(item)
+        self._fan_out(item)
+        return item
+
+    def replace_last(self, value: T) -> RingItem[T]:
+        """Replace the newest entry in place (terminal ``\\r`` progress).
+
+        Live subscribers receive the replacement with the same sequence
+        number, so a client can distinguish it from an append and redraw the
+        line instead of duplicating it.
+        """
+        if not self._items:
+            return self.append(value)
+        previous = self._items[-1]
+        item = RingItem(previous.sequence, value)
+        self._items[-1] = item
+        self._fan_out(item)
+        return item
+
+    def _fan_out(self, item: RingItem[T]) -> None:
         for queue in tuple(self._subscribers):
             if queue.full():
                 # Slow consumer: drop its oldest pending event to make room
@@ -55,7 +74,10 @@ class EventRing(Generic[T]):
                 queue.put_nowait(_CLOSED)  # type: ignore[arg-type]
                 continue
             queue.put_nowait(item)
-        return item
+
+    @property
+    def last_sequence(self) -> int:
+        return self._items[-1].sequence if self._items else 0
 
     def since(self, sequence: int = 0) -> list[RingItem[T]]:
         return [item for item in self._items if item.sequence > sequence]
@@ -66,7 +88,9 @@ class EventRing(Generic[T]):
     def clear(self) -> None:
         self._items.clear()
 
-    async def subscribe(self, sequence: int = 0) -> AsyncIterator[RingItem[T]]:
+    async def subscribe(
+        self, sequence: int = 0, heartbeat_seconds: float = 0.0
+    ) -> AsyncIterator[RingItem[T] | None]:
         queue: asyncio.Queue[RingItem[T] | object] = asyncio.Queue(maxsize=self._overflow_limit)
         self._subscribers.add(queue)
         try:
@@ -78,7 +102,14 @@ class EventRing(Generic[T]):
                     return
                 yield item
             while True:
-                received = await queue.get()
+                if heartbeat_seconds > 0:
+                    try:
+                        received = await asyncio.wait_for(queue.get(), timeout=heartbeat_seconds)
+                    except asyncio.TimeoutError:
+                        yield None
+                        continue
+                else:
+                    received = await queue.get()
                 if received is _CLOSED:
                     return
                 yield received  # type: ignore[misc]

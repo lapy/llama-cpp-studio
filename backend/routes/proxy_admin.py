@@ -1,12 +1,13 @@
 """Studio control-plane endpoints for proxy configuration and observation."""
 
+import json
 import os
 import asyncio
 from typing import Any
 from urllib.parse import unquote
 
-from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import PlainTextResponse
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from backend.access_policy import proxy_listen_host
@@ -211,7 +212,47 @@ async def get_proxy_model_logs(
             "\n".join(lines) + ("\n" if lines else ""),
             headers={"content-disposition": f'attachment; filename="{safe}.log"'},
         )
-    return {"model": model_id, "lines": lines}
+    return {"model": model_id, "lines": lines, "sequence": generation.logs.last_sequence}
+
+
+@router.get("/models/{model_id:path}/logs/stream")
+async def stream_proxy_model_logs(model_id: str, request: Request):
+    """Stream live engine output over SSE, replaying from the ring cursor.
+
+    The browser sends ``Last-Event-ID`` automatically after a reconnect; the
+    explicit ``last_event_id`` query is used for the first connection so a
+    freshly opened panel does not receive the lines it already fetched.
+    """
+    model_id = unquote(model_id)
+    generation = get_studio_proxy_manager().registry.generation(model_id)
+    if generation is None:
+        raise HTTPException(status_code=404, detail="Model is not running")
+    cursor = (
+        request.headers.get("last-event-id") or request.query_params.get("last_event_id") or "0"
+    )
+    try:
+        sequence = max(0, int(cursor))
+    except (TypeError, ValueError):
+        sequence = 0
+
+    async def events():
+        yield "retry: 1000\n: connected\n\n"
+        # Re-send the cursor line as well: an inline terminal redraw keeps its
+        # sequence number, so a reconnect must be able to replace the last
+        # value it saw instead of missing the updated progress line.
+        replay_from = max(0, sequence - 1)
+        async for item in generation.logs.subscribe(replay_from, heartbeat_seconds=15.0):
+            if item is None:
+                yield ": heartbeat\n\n"
+                continue
+            payload = json.dumps({"line": item.value, "seq": item.sequence})
+            yield f"id: {item.sequence}\nevent: log\ndata: {payload}\n\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.delete("/models/{model_id:path}/logs", status_code=204)
@@ -222,6 +263,24 @@ async def clear_proxy_model_logs(model_id: str):
         raise HTTPException(status_code=404, detail="Model is not running")
     generation.logs.clear()
     return None
+
+
+@router.delete("/models/{model_id:path}/instance")
+async def remove_proxy_model_instance(model_id: str):
+    """Remove a failed model instance and clear the status it contributed."""
+    from backend.proxy.runtime_observation import forget_runtime_model
+
+    model_id = unquote(model_id)
+    registry = get_studio_proxy_manager().registry
+    if registry.generation(model_id) is None:
+        raise HTTPException(status_code=404, detail="Model instance is not retained")
+    if not registry.remove_failed_instance(model_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Only a failed engine instance can be removed",
+        )
+    forget_runtime_model(model_id)
+    return {"model": model_id, "removed": True}
 
 
 @router.post("/models/{model_id:path}/unload")

@@ -3,6 +3,7 @@
  */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import axios from 'axios'
 
 export const eventSourceFactory = {
   open(url) {
@@ -21,7 +22,7 @@ const SSE_EVENT_TYPES = [
   'download_complete',
   'build_progress',
   'notification',
-  'broadcast'
+  'broadcast',
 ]
 
 const DISMISSED_TASKS_KEY = 'llama-studio.activity.dismissed'
@@ -47,6 +48,8 @@ function writeDismissedTaskIds(ids) {
 export const useProgressStore = defineStore('progress', () => {
   const tasks = ref({})
   const taskLogs = ref({})
+  const hydratingTaskLogs = ref({})
+  const hydratedTaskLogs = ref({})
   const eventSource = ref(null)
   const connected = ref(false)
   let reconnectTimer = null
@@ -82,7 +85,7 @@ export const useProgressStore = defineStore('progress', () => {
   const MAX_BUILD_LOG_LINES = 15000
 
   const activeTasks = computed(() => {
-    return Object.values(tasks.value).filter(t => t.status === 'running')
+    return Object.values(tasks.value).filter((t) => t.status === 'running')
   })
 
   const connectionStatus = computed(() => (connected.value ? 'connected' : 'disconnected'))
@@ -91,7 +94,7 @@ export const useProgressStore = defineStore('progress', () => {
   function notifySubscribers(eventType, data) {
     const callbacks = subscribers.value.get(eventType)
     if (callbacks) {
-      callbacks.forEach(cb => {
+      callbacks.forEach((cb) => {
         try {
           const result = cb(data)
           if (result && typeof result.then === 'function') result.catch(() => {})
@@ -99,23 +102,25 @@ export const useProgressStore = defineStore('progress', () => {
       })
     }
     const any = subscribers.value.get('*')
-    if (any) any.forEach(cb => { try { cb(eventType, data) } catch (_) {} })
+    if (any)
+      any.forEach((cb) => {
+        try {
+          cb(eventType, data)
+        } catch (_) {}
+      })
   }
 
   function appendTaskLogs(taskId, lines, options = {}) {
     if (lines == null || taskId == null) return
     const isBuild = typeof taskId === 'string' && taskId.startsWith('build_')
     const isScan =
-      (typeof taskId === 'string' && taskId.startsWith('scan_'))
-      || tasks.value[taskId]?.type === 'param_scan'
+      (typeof taskId === 'string' && taskId.startsWith('scan_')) ||
+      tasks.value[taskId]?.type === 'param_scan'
     const isInstall =
-      (typeof taskId === 'string' && taskId.startsWith('install_'))
-      || tasks.value[taskId]?.type === 'install'
-    const cap = isBuild || isScan
-      ? MAX_BUILD_LOG_LINES
-      : isInstall
-        ? MAX_INSTALL_LOG_LINES
-        : MAX_LOG_LINES
+      (typeof taskId === 'string' && taskId.startsWith('install_')) ||
+      tasks.value[taskId]?.type === 'install'
+    const cap =
+      isBuild || isScan ? MAX_BUILD_LOG_LINES : isInstall ? MAX_INSTALL_LOG_LINES : MAX_LOG_LINES
     const entries = Array.isArray(lines) ? lines : [lines]
     const existing = taskLogs.value[taskId] || []
     const next = [...existing]
@@ -146,13 +151,13 @@ export const useProgressStore = defineStore('progress', () => {
 
     const metadataLines = Array.isArray(task.metadata?.log_lines) ? task.metadata.log_lines : []
     const isBuildLike =
-      task.type === 'build'
-      || task.type === 'param_scan'
-      || (typeof task.task_id === 'string' && task.task_id.startsWith('build_'))
-      || (typeof task.task_id === 'string' && task.task_id.startsWith('scan_'))
+      task.type === 'build' ||
+      task.type === 'param_scan' ||
+      (typeof task.task_id === 'string' && task.task_id.startsWith('build_')) ||
+      (typeof task.task_id === 'string' && task.task_id.startsWith('scan_'))
     const isDownloadLike =
-      task.type === 'download'
-      || (typeof task.task_id === 'string' && task.task_id.startsWith('download_'))
+      task.type === 'download' ||
+      (typeof task.task_id === 'string' && task.task_id.startsWith('download_'))
 
     // Build tasks stream live lines via `build_progress`. `metadata.log_lines` is a
     // reconnect snapshot (and send_build_progress also mirrors the current batch into
@@ -187,13 +192,19 @@ export const useProgressStore = defineStore('progress', () => {
     let data = rawData
     try {
       if (typeof rawData === 'string') data = JSON.parse(rawData)
-    } catch (_) { return }
+    } catch (_) {
+      return
+    }
     const payload = data?.data != null ? data.data : data
 
     if (eventType === 'task_log') {
       appendTaskLogs(payload?.task_id, payload?.line)
     }
-    if (eventType === 'build_progress' && payload?.task_id && !dismissedTaskIds.has(payload.task_id)) {
+    if (
+      eventType === 'build_progress' &&
+      payload?.task_id &&
+      !dismissedTaskIds.has(payload.task_id)
+    ) {
       // Dedupe against the existing buffer so mirrored metadata.log_lines from
       // task_updated (seed / reconnect) are not appended a second time.
       appendTaskLogs(payload?.task_id, payload?.log_lines)
@@ -201,8 +212,8 @@ export const useProgressStore = defineStore('progress', () => {
         const existing = tasks.value[payload.task_id] || {}
         const nextProgress = payload.progress ?? existing.progress ?? 0
         const scanLike =
-          existing.type === 'param_scan'
-          || (typeof payload.task_id === 'string' && payload.task_id.startsWith('scan_'))
+          existing.type === 'param_scan' ||
+          (typeof payload.task_id === 'string' && payload.task_id.startsWith('scan_'))
         tasks.value = {
           ...tasks.value,
           [payload.task_id]: {
@@ -210,7 +221,8 @@ export const useProgressStore = defineStore('progress', () => {
             task_id: payload.task_id,
             type: existing.type || (scanLike ? 'param_scan' : 'build'),
             status: existing.status || 'running',
-            description: existing.description || payload.stage || (scanLike ? 'Parameter scan' : 'Build'),
+            description:
+              existing.description || payload.stage || (scanLike ? 'Parameter scan' : 'Build'),
             progress: nextProgress,
             message: payload.message || existing.message || '',
             metadata: {
@@ -222,7 +234,11 @@ export const useProgressStore = defineStore('progress', () => {
         }
       }
     }
-    if (eventType === 'download_progress' && payload?.task_id && !dismissedTaskIds.has(payload.task_id)) {
+    if (
+      eventType === 'download_progress' &&
+      payload?.task_id &&
+      !dismissedTaskIds.has(payload.task_id)
+    ) {
       const existing = tasks.value[payload.task_id] || {}
       tasks.value = {
         ...tasks.value,
@@ -258,6 +274,7 @@ export const useProgressStore = defineStore('progress', () => {
         tasks.value = restTasks
         const { [taskId]: _l, ...restLogs } = taskLogs.value
         taskLogs.value = restLogs
+        forgetTaskLogs(taskId)
       }
     }
     if (eventType === 'task_snapshot' || eventType === 'resync') {
@@ -306,7 +323,7 @@ export const useProgressStore = defineStore('progress', () => {
       reconnectTimer = setTimeout(() => connect(), 3000)
     }
     es.onmessage = (e) => handleEvent('message', e.data)
-    SSE_EVENT_TYPES.forEach(type => {
+    SSE_EVENT_TYPES.forEach((type) => {
       es.addEventListener(type, (e) => handleEvent(type, e.data))
     })
     eventSource.value = es
@@ -333,6 +350,50 @@ export const useProgressStore = defineStore('progress', () => {
     return taskLogs.value[taskId] || []
   }
 
+  function isTaskLogsLoading(taskId) {
+    return Boolean(hydratingTaskLogs.value[taskId])
+  }
+
+  /**
+   * Restore the complete server-retained log for a task after a page refresh.
+   * Live SSE events keep arriving while this runs; the server buffer is
+   * authoritative for everything already produced.
+   */
+  async function hydrateTaskLogs(taskId) {
+    const id = String(taskId || '')
+    if (!id) return []
+    if (hydratedTaskLogs.value[id]) return taskLogs.value[id] || []
+    if (hydratingTaskLogs.value[id]) return taskLogs.value[id] || []
+    hydratingTaskLogs.value = { ...hydratingTaskLogs.value, [id]: true }
+    try {
+      const { data } = await axios.get(`/api/operations/tasks/${encodeURIComponent(id)}/logs`)
+      const serverLines = Array.isArray(data?.lines) ? data.lines : []
+      const localLines = taskLogs.value[id] || []
+      const next = serverLines.length ? serverLines : localLines
+      if (next.length || !localLines.length) {
+        taskLogs.value = { ...taskLogs.value, [id]: next }
+      }
+      return next
+    } catch (_) {
+      // A task that is no longer retained still keeps whatever streamed live.
+      return taskLogs.value[id] || []
+    } finally {
+      const nextLoading = { ...hydratingTaskLogs.value }
+      delete nextLoading[id]
+      hydratingTaskLogs.value = nextLoading
+      hydratedTaskLogs.value = { ...hydratedTaskLogs.value, [id]: true }
+    }
+  }
+
+  function forgetTaskLogs(taskId) {
+    const nextHydrated = { ...hydratedTaskLogs.value }
+    delete nextHydrated[taskId]
+    hydratedTaskLogs.value = nextHydrated
+    const nextLoading = { ...hydratingTaskLogs.value }
+    delete nextLoading[taskId]
+    hydratingTaskLogs.value = nextLoading
+  }
+
   /** Remove a task and its logs from the UI (e.g. user dismissed after completion). */
   function removeTask(taskId) {
     if (!taskId) return
@@ -341,6 +402,7 @@ export const useProgressStore = defineStore('progress', () => {
     tasks.value = restTasks
     const { [taskId]: _l, ...restLogs } = taskLogs.value
     taskLogs.value = restLogs
+    forgetTaskLogs(taskId)
   }
 
   function undismissTask(taskId) {
@@ -385,7 +447,11 @@ export const useProgressStore = defineStore('progress', () => {
       const check = (task) => {
         if (!task) return
         if (task.status === 'completed') finish(resolve, task)
-        else if (task.status === 'failed' || task.status === 'cancelled' || task.status === 'interrupted') {
+        else if (
+          task.status === 'failed' ||
+          task.status === 'cancelled' ||
+          task.status === 'interrupted'
+        ) {
           finish(reject, new Error(task.message || 'Operation failed'))
         }
       }
@@ -410,6 +476,8 @@ export const useProgressStore = defineStore('progress', () => {
     disconnect,
     getTask,
     getTaskLogs,
+    hydrateTaskLogs,
+    isTaskLogsLoading,
     removeTask,
     undismissTask,
     subscribe,

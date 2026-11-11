@@ -129,6 +129,121 @@ def test_log_filter_search_and_levels():
     assert _filter_log_lines(lines, search="no-match", level="") == []
 
 
+def test_event_ring_replace_last_keeps_its_sequence():
+    from backend.proxy.studio.ring import EventRing
+
+    ring = EventRing(4)
+    ring.append("first")
+    second = ring.append("loading 10%")
+    replacement = ring.replace_last("loading 40%")
+    assert replacement.sequence == second.sequence
+    assert ring.values() == ["first", "loading 40%"]
+    assert ring.last_sequence == second.sequence
+
+
+def test_engine_carriage_return_updates_the_loading_line_in_place():
+    registry = ProcessRegistry(lambda _: None)  # type: ignore[arg-type]
+    generation = _generation("demo")
+
+    registry._log_line(generation, "stdout", "loading shards 10%", partial=True, commit=False)
+    registry._log_line(generation, "stdout", "loading shards 40%", partial=True, commit=False)
+    assert generation.logs.values() == ["stdout: loading shards 40%"]
+    assert generation.loading_progress == 40.0
+
+    # A newline commits the final redraw of the same terminal line.
+    registry._log_line(generation, "stdout", "loading shards 100%", partial=True)
+    assert generation.logs.values() == ["stdout: loading shards 100%"]
+    assert generation.loading_progress == 100.0
+
+    registry._log_line(generation, "stderr", "out of memory", partial=False)
+    assert len(generation.logs.values()) == 2
+    assert generation.logs.values()[-1] == "stderr: out of memory"
+
+    # A CRLF split across pipe chunks commits the redraw with an empty
+    # newline segment; the next carriage-return update starts a new line.
+    registry._log_line(generation, "stdout", "second 10%", partial=True, commit=False)
+    registry._log_line(generation, "stdout", "", partial=True, commit=True)
+    registry._log_line(generation, "stdout", "third 10%", partial=True, commit=False)
+    assert generation.logs.values()[-1] == "stdout: third 10%"
+    assert len(generation.logs.values()) == 4
+
+
+@pytest.mark.asyncio
+async def test_engine_log_stream_replays_then_streams_inline_redraws(monkeypatch):
+    from backend.routes.proxy_admin import stream_proxy_model_logs
+
+    generation = _generation("demo")
+    generation.logs.append("stdout: starting")
+    manager = SimpleNamespace(registry=SimpleNamespace(generation=lambda _model: generation))
+    monkeypatch.setattr("backend.routes.proxy_admin.get_studio_proxy_manager", lambda: manager)
+    request = SimpleNamespace(headers={}, query_params={})
+
+    response = await stream_proxy_model_logs("demo", request)
+    chunks = response.body_iterator
+    assert "retry: 1000" in await anext(chunks)
+    replay = await anext(chunks)
+    assert "event: log" in replay
+    assert '"line": "stdout: starting"' in replay
+    assert "id: 1" in replay
+
+    generation.logs.replace_last("stdout: loading 80%")
+    redraw = await anext(chunks)
+    assert '"line": "stdout: loading 80%"' in redraw
+    assert "id: 1" in redraw
+    await chunks.aclose()
+
+
+def _failed_generation(model: str) -> Generation:
+    generation = _generation(model)
+    generation.process = SimpleNamespace(pid=123, poll=lambda: 1)
+    generation.failure_reason = "engine exited with status 1"
+    generation.exit_code = 1
+    generation.logs.append("stderr: boom")
+    return generation
+
+
+def test_remove_failed_instance_clears_status_and_logs():
+    registry = ProcessRegistry(lambda _: None)  # type: ignore[arg-type]
+    generation = _failed_generation("demo")
+    registry._failed["demo"] = generation
+    registry._generations[generation.process.pid] = generation
+
+    assert registry.remove_failed_instance("demo") is True
+    assert registry._failed == {}
+    assert registry._generations == {}
+    assert registry.generation("demo") is None
+    assert registry.snapshot() == []
+    assert generation.failure_reason is None
+    assert generation.exit_code is None
+    assert generation.logs.values() == []
+    assert registry.remove_failed_instance("demo") is False
+
+
+@pytest.mark.asyncio
+async def test_remove_failed_instance_route_resets_loading_state(monkeypatch):
+    from fastapi import HTTPException
+
+    from backend.routes.proxy_admin import remove_proxy_model_instance
+
+    registry = ProcessRegistry(lambda _: None)  # type: ignore[arg-type]
+    registry._failed["demo"] = _failed_generation("demo")
+    forgotten = []
+    monkeypatch.setattr(
+        "backend.routes.proxy_admin.get_studio_proxy_manager",
+        lambda: SimpleNamespace(registry=registry),
+    )
+    monkeypatch.setattr(
+        "backend.proxy.runtime_observation.forget_runtime_model",
+        forgotten.append,
+    )
+
+    assert await remove_proxy_model_instance("demo") == {"model": "demo", "removed": True}
+    assert forgotten == ["demo"]
+    with pytest.raises(HTTPException) as missing:
+        await remove_proxy_model_instance("demo")
+    assert missing.value.status_code == 404
+
+
 def test_request_history_is_bounded_and_stats_reset_preserves_engines(monkeypatch):
     registry = ProcessRegistry(lambda _: None)
     generation = _generation("demo")

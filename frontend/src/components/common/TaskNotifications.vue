@@ -12,11 +12,9 @@
       >
         <i class="pi pi-bolt" aria-hidden="true" />
         <span class="activity-toggle__label">Activity</span>
-        <span
-          v-if="badgeCount"
-          class="activity-count"
-          :data-kind="badgeKind"
-        >{{ badgeCount }}</span>
+        <span v-if="badgeCount" class="activity-count" :data-kind="badgeKind">{{
+          badgeCount
+        }}</span>
       </button>
       <p class="sr-only" role="status">{{ activityAnnouncement }}</p>
       <p v-if="recoveryUncertain" class="activity-recovery" role="status">
@@ -33,15 +31,17 @@
       >
         <header class="activity-panel__bar">
           <span>{{ summaryLabel }}</span>
-          <button
-            v-if="finishedCount"
-            type="button"
-            class="activity-clear"
-            @click="clearFinished"
-          >
+          <button v-if="finishedCount" type="button" class="activity-clear" @click="clearFinished">
             Clear finished
           </button>
-          <button type="button" class="activity-clear" aria-label="Close activity" @click="closePanel">Close</button>
+          <button
+            type="button"
+            class="activity-clear"
+            aria-label="Close activity"
+            @click="closePanel"
+          >
+            Close
+          </button>
         </header>
         <p v-if="!sortedTasks.length" class="activity-empty">No recent activity.</p>
         <div v-else class="activity-panel__list">
@@ -60,13 +60,31 @@
                 @click="toggleLogs(task)"
               >
                 <div class="task-toast__header">
-                  <i class="pi pi-spin pi-spinner" v-if="task.status === 'running' || task.status === 'cancelling'" aria-hidden="true" />
+                  <i
+                    class="pi pi-spin pi-spinner"
+                    v-if="task.status === 'running' || task.status === 'cancelling'"
+                    aria-hidden="true"
+                  />
                   <i class="pi pi-clock" v-else-if="task.status === 'queued'" aria-hidden="true" />
-                  <i class="pi pi-check-circle" v-else-if="task.status === 'completed'" aria-hidden="true" />
-                  <i class="pi pi-ban" v-else-if="task.status === 'cancelled' || task.status === 'canceled'" aria-hidden="true" />
-                  <i class="pi pi-times-circle" v-else-if="task.status === 'failed'" aria-hidden="true" />
+                  <i
+                    class="pi pi-check-circle"
+                    v-else-if="task.status === 'completed'"
+                    aria-hidden="true"
+                  />
+                  <i
+                    class="pi pi-ban"
+                    v-else-if="task.status === 'cancelled' || task.status === 'canceled'"
+                    aria-hidden="true"
+                  />
+                  <i
+                    class="pi pi-times-circle"
+                    v-else-if="task.status === 'failed'"
+                    aria-hidden="true"
+                  />
                   <span class="task-toast__title">{{ task.description }}</span>
-                  <span class="task-toast__percent" aria-hidden="true">{{ statusLabel(task) }}</span>
+                  <span class="task-toast__percent" aria-hidden="true">{{
+                    statusLabel(task)
+                  }}</span>
                 </div>
                 <p v-if="showsProgress(task) || detailLine(task)" class="task-toast__message">
                   {{ detailLine(task) || '\u00a0' }}
@@ -77,7 +95,11 @@
                   :show-value="false"
                   :class="task.status === 'failed' ? 'p-progressbar-danger' : ''"
                 />
-                <small v-if="showsProgress(task) || downloadSummary(task)" class="task-toast__download-meta" aria-hidden="true">
+                <small
+                  v-if="showsProgress(task) || downloadSummary(task)"
+                  class="task-toast__download-meta"
+                  aria-hidden="true"
+                >
                   {{ downloadSummary(task) || '\u00a0' }}
                 </small>
               </button>
@@ -100,7 +122,10 @@
                   :disabled="stopTaskId === task.task_id"
                   @click.stop="requestStopTask(task)"
                 >
-                  <i :class="stopTaskId === task.task_id ? 'pi pi-spin pi-spinner' : 'pi pi-stop'" aria-hidden="true" />
+                  <i
+                    :class="stopTaskId === task.task_id ? 'pi pi-spin pi-spinner' : 'pi pi-stop'"
+                    aria-hidden="true"
+                  />
                 </button>
                 <button
                   v-if="canDismissTask(task)"
@@ -114,29 +139,13 @@
               </div>
             </div>
             <div v-if="logsExpanded(task)" class="task-toast__log-view">
-              <div class="task-toast__log-bar">
-                <button
-                  type="button"
-                  class="task-toast__log-follow"
-                  :aria-pressed="isFollowing(task.task_id) ? 'true' : 'false'"
-                  @click.stop="resumeFollow(task.task_id)"
-                >
-                  {{ isFollowing(task.task_id) ? 'Following' : 'Follow' }}
-                </button>
-                <button
-                  type="button"
-                  class="task-toast__log-copy"
-                  @click.stop="copyTaskLogs(task)"
-                >
-                  {{ copyLabel(task.task_id) }}
-                </button>
-              </div>
-              <pre
-                :ref="logRef(task.task_id)"
-                :data-log-id="task.task_id"
-                class="task-toast__logs"
-                @scroll="onLogScroll(task.task_id, $event)"
-              >{{ getTaskLogs(task).join('\n') }}</pre>
+              <LogOutput
+                :lines="getTaskLogs(task)"
+                :loading="isTaskLogsLoading(task.task_id)"
+                :live="task.status === 'running' || task.status === 'cancelling'"
+                aria-label="Task log output"
+                empty-message="No output yet."
+              />
             </div>
           </article>
         </div>
@@ -146,11 +155,10 @@
 </template>
 
 <script setup>
-import { copyText } from '@/utils/clipboard'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { storeToRefs } from 'pinia'
 import axios from 'axios'
 import ProgressBar from 'primevue/progressbar'
+import LogOutput from './LogOutput.vue'
 import { useTaskFilter } from '@/composables/useTaskFilter'
 import { retryableVersionId, useTaskActions } from '@/composables/useTaskActions'
 import { formatBytes } from '@/utils/formatting'
@@ -180,7 +188,40 @@ function belongsInActivity(task) {
 
 const activityTasks = computed(() => visibleTasks.value.filter(belongsInActivity))
 
-const panelOpen = ref(false)
+const PANEL_OPEN_KEY = 'llama-studio.activity.open'
+const EXPANDED_LOGS_KEY = 'llama-studio.activity.expandedLogs'
+
+function readSessionValue(key) {
+  if (typeof sessionStorage === 'undefined') return ''
+  try {
+    return sessionStorage.getItem(key) || ''
+  } catch (_) {
+    return ''
+  }
+}
+
+function writeSessionValue(key, value) {
+  if (typeof sessionStorage === 'undefined') return
+  try {
+    sessionStorage.setItem(key, value)
+  } catch (_) {}
+}
+
+function readExpandedLogs() {
+  const raw = readSessionValue(EXPANDED_LOGS_KEY)
+  if (!raw) return {}
+  try {
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return {}
+    return Object.fromEntries(
+      parsed.filter((id) => typeof id === 'string' && id).map((id) => [id, true]),
+    )
+  } catch (_) {
+    return {}
+  }
+}
+
+const panelOpen = ref(readSessionValue(PANEL_OPEN_KEY) === '1')
 const activityToggle = ref(null)
 async function closePanel() {
   panelOpen.value = false
@@ -189,12 +230,29 @@ async function closePanel() {
 }
 const activityAnnouncement = ref('')
 const recoveryUncertain = ref(false)
-const recoveryDetail = ref('The recovery outcome could not be established. Your edits are still here. Refresh before trying again.')
+const recoveryDetail = ref(
+  'The recovery outcome could not be established. Your edits are still here. Refresh before trying again.',
+)
 const panelAlert = ref(false)
-const expandedLogs = ref({})
+const expandedLogs = ref(readExpandedLogs())
 const seenTaskIds = new Set()
 const seenStatus = new Map()
 let alertTimer = 0
+
+watch(panelOpen, (open) => writeSessionValue(PANEL_OPEN_KEY, open ? '1' : '0'))
+watch(
+  expandedLogs,
+  (expanded) =>
+    writeSessionValue(
+      EXPANDED_LOGS_KEY,
+      JSON.stringify(
+        Object.keys(expanded)
+          .filter((id) => expanded[id])
+          .slice(-200),
+      ),
+    ),
+  { deep: true },
+)
 
 function announceActivity() {
   panelOpen.value = true
@@ -209,54 +267,69 @@ onUnmounted(() => {
   window.clearTimeout(alertTimer)
 })
 
-const sortedTasks = computed(() => [...activityTasks.value].sort((a, b) => {
-  const rank = (STATUS_RANK[a.status] ?? 6) - (STATUS_RANK[b.status] ?? 6)
-  if (rank !== 0) return rank
-  const stamp = (task) => {
-    const raw = task.updated_at || task.completed_at || task.created_at || task.started_at
-    return typeof raw === 'number' ? raw * (raw < 1e12 ? 1000 : 1) : Date.parse(raw || '') || 0
-  }
-  return stamp(b) - stamp(a) || String(a.task_id).localeCompare(String(b.task_id))
-}))
+const sortedTasks = computed(() =>
+  [...activityTasks.value].sort((a, b) => {
+    const rank = (STATUS_RANK[a.status] ?? 6) - (STATUS_RANK[b.status] ?? 6)
+    if (rank !== 0) return rank
+    const stamp = (task) => {
+      const raw = task.updated_at || task.completed_at || task.created_at || task.started_at
+      return typeof raw === 'number' ? raw * (raw < 1e12 ? 1000 : 1) : Date.parse(raw || '') || 0
+    }
+    return stamp(b) - stamp(a) || String(a.task_id).localeCompare(String(b.task_id))
+  }),
+)
 
-const activeCount = computed(() => sortedTasks.value.filter((task) => ACTIVE_STATUSES.has(task.status)).length)
-const failedCount = computed(() => sortedTasks.value.filter((task) => task.status === 'failed').length)
-const finishedCount = computed(() => sortedTasks.value.filter((task) => !ACTIVE_STATUSES.has(task.status)).length)
+const activeCount = computed(
+  () => sortedTasks.value.filter((task) => ACTIVE_STATUSES.has(task.status)).length,
+)
+const failedCount = computed(
+  () => sortedTasks.value.filter((task) => task.status === 'failed').length,
+)
+const finishedCount = computed(
+  () => sortedTasks.value.filter((task) => !ACTIVE_STATUSES.has(task.status)).length,
+)
 const badgeCount = computed(() => activeCount.value || failedCount.value)
 const badgeKind = computed(() => (activeCount.value ? 'active' : 'failed'))
 const summaryLabel = computed(() => {
-  const labels = ['running', 'queued', 'cancelling'].map((status) => {
-    const count = sortedTasks.value.filter((task) => task.status === status).length
-    return count ? `${count} ${status}` : ''
-  }).filter(Boolean)
+  const labels = ['running', 'queued', 'cancelling']
+    .map((status) => {
+      const count = sortedTasks.value.filter((task) => task.status === status).length
+      return count ? `${count} ${status}` : ''
+    })
+    .filter(Boolean)
   return labels.join(' · ') || (sortedTasks.value.length ? 'Recent activity' : 'Activity')
 })
 
-watch(activityTasks, (tasks) => {
-  // A reconnect snapshot can remove every task after an automatic announcement.
-  // Do not leave an empty floating panel covering workspace controls.
-  if (!tasks.length) {
-    panelOpen.value = false
-    panelAlert.value = false
-    return
-  }
-  let open = false
-  for (const task of tasks) {
-    const id = task.task_id
-    const status = task.status
-    const previous = seenStatus.get(id)
-    const hot = ACTIVE_STATUSES.has(status) || status === 'failed'
-    const arrived = !seenTaskIds.has(id)
-    const failedNow = status === 'failed' && previous != null && previous !== 'failed'
-    const finishedNow = status === 'completed' && previous != null && previous !== 'completed'
-    if (failedNow) activityAnnouncement.value = `${task.description || 'Activity'} failed`
-    else if (finishedNow) activityAnnouncement.value = `${task.description || 'Activity'} finished`
-    if ((arrived && hot) || failedNow) open = true
-    seenTaskIds.add(id)
-    seenStatus.set(id, status)
-  }
-  if (open) announceActivity()
-}, { immediate: true })
+watch(
+  activityTasks,
+  (tasks) => {
+    // A reconnect snapshot can remove every task after an automatic announcement.
+    // Do not leave an empty floating panel covering workspace controls.
+    if (!tasks.length) {
+      panelOpen.value = false
+      panelAlert.value = false
+      return
+    }
+    let open = false
+    for (const task of tasks) {
+      const id = task.task_id
+      const status = task.status
+      const previous = seenStatus.get(id)
+      const hot = ACTIVE_STATUSES.has(status) || status === 'failed'
+      const arrived = !seenTaskIds.has(id)
+      const failedNow = status === 'failed' && previous != null && previous !== 'failed'
+      const finishedNow = status === 'completed' && previous != null && previous !== 'completed'
+      if (failedNow) activityAnnouncement.value = `${task.description || 'Activity'} failed`
+      else if (finishedNow)
+        activityAnnouncement.value = `${task.description || 'Activity'} finished`
+      if ((arrived && hot) || failedNow) open = true
+      seenTaskIds.add(id)
+      seenStatus.set(id, status)
+    }
+    if (open) announceActivity()
+  },
+  { immediate: true },
+)
 
 function statusLabel(task) {
   const status = String(task?.status || '')
@@ -285,8 +358,8 @@ async function refreshRecovery() {
     recoveryUncertain.value = false
   } catch (error) {
     showUncertainRecovery(
-      error?.response?.data?.detail
-      || 'The recovery outcome could not be established. Your edits are still here. Refresh before trying again.',
+      error?.response?.data?.detail ||
+        'The recovery outcome could not be established. Your edits are still here. Refresh before trying again.',
     )
   }
 }
@@ -319,13 +392,16 @@ function canDismissTask(task) {
   return !ACTIVE_STATUSES.has(task?.status)
 }
 
-const { dismissTask, canStopTask, requestStopTask, stopTaskId, retryTask, retryTaskId, getTaskLogs, progressStore } = useTaskActions()
-const { taskLogs } = storeToRefs(progressStore)
-const logPreEls = {}
-const followLog = ref({})
-const copiedLog = ref({})
-const lastScrollTop = new Map()
-const pinLock = new Set()
+const {
+  dismissTask,
+  canStopTask,
+  requestStopTask,
+  stopTaskId,
+  retryTask,
+  retryTaskId,
+  getTaskLogs,
+  progressStore,
+} = useTaskActions()
 
 function downloadSummary(task) {
   const downloaded = Number(task?.metadata?.bytes_downloaded)
@@ -345,148 +421,41 @@ function downloadSummary(task) {
   return parts.join(' · ')
 }
 
+function hasTaskLogs(task) {
+  return getTaskLogs(task).length > 0 || Number(task?.log_count) > 0
+}
+
 function logsExpanded(task) {
-  return Boolean(expandedLogs.value[task.task_id]) && getTaskLogs(task).length > 0
+  return (
+    Boolean(expandedLogs.value[task.task_id]) &&
+    (hasTaskLogs(task) || progressStore.isTaskLogsLoading(task.task_id))
+  )
+}
+
+function isTaskLogsLoading(taskId) {
+  return progressStore.isTaskLogsLoading(taskId)
 }
 
 function logLabel(task) {
-  const logs = getTaskLogs(task)
-  if (!logs.length) return task.description || 'Activity'
-  return logsExpanded(task) ? `Hide logs for ${task.description}` : `Show logs for ${task.description}`
+  if (!hasTaskLogs(task)) return task.description || 'Activity'
+  return logsExpanded(task)
+    ? `Hide logs for ${task.description}`
+    : `Show logs for ${task.description}`
 }
 
 function toggleLogs(task) {
-  if (!getTaskLogs(task).length) return
+  if (!hasTaskLogs(task)) return
   const id = task.task_id
   const nextOpen = !expandedLogs.value[id]
   expandedLogs.value = {
     ...expandedLogs.value,
     [id]: nextOpen,
   }
-  if (nextOpen) followLog.value = { ...followLog.value, [id]: true }
-}
-
-function isFollowing(taskId) {
-  return followLog.value[taskId] !== false
-}
-
-function scrollPreToBottom(el) {
-  if (!el) return
-  const taskId = el.dataset?.logId
-  if (taskId) pinLock.add(String(taskId))
-  el.scrollTop = el.scrollHeight
-  if (taskId) lastScrollTop.set(String(taskId), el.scrollTop)
-  queueMicrotask(() => {
-    if (taskId) pinLock.delete(String(taskId))
-  })
-}
-
-const logRefSetters = new Map()
-
-function logRef(taskId) {
-  let setter = logRefSetters.get(taskId)
-  if (!setter) {
-    setter = (el) => setLogPreRef(taskId, el)
-    logRefSetters.set(taskId, setter)
-  }
-  return setter
-}
-
-function setLogPreRef(taskId, el) {
-  if (el) {
-    logPreEls[taskId] = el
-    if (isFollowing(taskId)) {
-      nextTick(() => requestAnimationFrame(() => scrollPreToBottom(el)))
-    }
-  } else {
-    delete logPreEls[taskId]
-  }
-}
-
-function onLogScroll(taskId, event) {
-  const el = event?.target
-  if (!el) return
-  const id = String(taskId)
-  if (pinLock.has(id)) {
-    lastScrollTop.set(id, el.scrollTop)
-    return
-  }
-  const distance = el.scrollHeight - el.scrollTop - el.clientHeight
-  const nearBottom = distance < 48
-  const previous = lastScrollTop.get(id)
-  // New log lines grow scrollHeight without moving scrollTop. That is not
-  // the user leaving the bottom; only an upward scroll releases follow.
-  const movedUp = previous != null && el.scrollTop < previous - 8
-  lastScrollTop.set(id, el.scrollTop)
-
-  if (isFollowing(id)) {
-    if (nearBottom || !movedUp) {
-      if (!nearBottom) scrollPreToBottom(el)
-      return
-    }
-    followLog.value = { ...followLog.value, [id]: false }
-    return
-  }
-  if (nearBottom) {
-    followLog.value = { ...followLog.value, [id]: true }
-  }
-}
-
-function logElement(taskId) {
-  const cached = logPreEls[taskId]
-  if (cached?.isConnected) return cached
-  if (typeof document === 'undefined') return null
-  const el = document.querySelector(`[data-log-id="${CSS.escape(String(taskId))}"]`)
-  if (el) logPreEls[taskId] = el
-  return el
-}
-
-function resumeFollow(taskId) {
-  followLog.value = { ...followLog.value, [taskId]: true }
-  scrollPreToBottom(logElement(taskId))
-}
-
-function scrollFollowingLogs() {
-  nextTick(() => {
-    requestAnimationFrame(() => {
-      for (const task of sortedTasks.value) {
-        if (!logsExpanded(task) || !isFollowing(task.task_id)) continue
-        scrollPreToBottom(logElement(task.task_id))
-      }
-    })
-  })
-}
-
-watch(taskLogs, scrollFollowingLogs, { deep: true })
-
-function copyLabel(taskId) {
-  return copiedLog.value[taskId] === 'failed' ? 'Copy failed' : copiedLog.value[taskId] ? 'Copied' : 'Copy'
-}
-
-async function copyTaskLogs(task) {
-  const text = getTaskLogs(task).join('\n')
-  if (!text) return
-  try {
-    await copyText(text)
-  } catch {
-    copiedLog.value = { ...copiedLog.value, [task.task_id]: 'failed' }
-    activityAnnouncement.value = 'Automatic copy failed. Select the log text and copy it manually.'
-    return
-  }
-  copiedLog.value = { ...copiedLog.value, [task.task_id]: true }
-  window.setTimeout(() => {
-    if (!copiedLog.value[task.task_id]) return
-    const next = { ...copiedLog.value }
-    delete next[task.task_id]
-    copiedLog.value = next
-  }, 1500)
+  if (nextOpen) void progressStore.hydrateTaskLogs(id)
 }
 
 function dismissTaskRow(taskId) {
-  dismissTask(taskId, expandedLogs, logPreEls)
-  const nextFollow = { ...followLog.value }
-  delete nextFollow[taskId]
-  followLog.value = nextFollow
+  dismissTask(taskId, expandedLogs)
 }
 
 function clearFinished() {
@@ -494,6 +463,20 @@ function clearFinished() {
     .filter((task) => !ACTIVE_STATUSES.has(task.status))
     .forEach((task) => dismissTaskRow(task.task_id))
 }
+
+// Persisted expansion and Activity-open state are restored after the SSE
+// snapshot arrives; hydrate the retained server log for each visible card.
+watch(
+  () => sortedTasks.value.map((task) => `${task.task_id}:${task.status}:${task.log_count ?? 0}`),
+  () => {
+    for (const task of sortedTasks.value) {
+      if (expandedLogs.value[task.task_id] && hasTaskLogs(task)) {
+        void progressStore.hydrateTaskLogs(task.task_id)
+      }
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <style scoped>
@@ -703,11 +686,7 @@ function clearFinished() {
 }
 
 .task-toast--failed {
-  border-color: color-mix(
-    in srgb,
-    var(--color-error, #ef4444) 55%,
-    transparent
-  );
+  border-color: color-mix(in srgb, var(--color-error, #ef4444) 55%, transparent);
 }
 
 .task-toast--failed::before {
@@ -810,59 +789,9 @@ function clearFinished() {
 }
 
 .task-toast__log-view {
-  display: flex;
-  flex-direction: column;
+  padding: 0.35rem;
   border-top: 1px solid var(--border-primary);
   background: var(--bg-primary);
-}
-
-.task-toast__log-bar {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.35rem;
-  padding: 0.35rem 0.55rem 0;
-}
-
-.task-toast__log-follow,
-.task-toast__log-copy {
-  border: 1px solid var(--border-primary);
-  background: transparent;
-  color: var(--text-secondary);
-  border-radius: 999px;
-  min-height: 1.6rem;
-  padding: 0.1rem 0.6rem;
-  font: inherit;
-  font-size: var(--text-xs);
-  font-weight: 650;
-  cursor: pointer;
-}
-
-.task-toast__log-follow[aria-pressed='true'] {
-  color: var(--text-primary);
-  border-color: var(--nav-active-bg, #0e7490);
-}
-
-.task-toast__log-follow:hover,
-.task-toast__log-copy:hover {
-  color: var(--text-primary);
-  background: var(--bg-card-hover, rgba(255, 255, 255, 0.06));
-}
-
-.task-toast__logs {
-  margin: 0.35rem 0.45rem 0.45rem;
-  max-height: min(42vh, 22rem);
-  min-height: 8rem;
-  overflow: auto;
-  padding: 0.65rem 0.75rem;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md, 0.5rem);
-  background: color-mix(in srgb, var(--bg-primary, #11131c) 88%, black);
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-word;
-  user-select: text;
 }
 
 .task-toast__retry,

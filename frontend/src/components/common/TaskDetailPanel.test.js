@@ -156,7 +156,9 @@ describe('TaskDetailPanel', () => {
     const wrapper = mountPanel({ taskId: 'download' })
     await flushPromises()
 
-    expect(wrapper.find('.download-progress-meta').text()).toBe('250 MB / 1.0 GB · 750 MB left · file 1/4')
+    expect(wrapper.find('.download-progress-meta').text()).toBe(
+      '250 MB / 1.0 GB · 750 MB left · file 1/4',
+    )
   })
 
   it('shows logs when toggled', async () => {
@@ -200,14 +202,14 @@ describe('TaskDetailPanel', () => {
     const wrapper = mountPanel({ taskId: 'scan_1' })
     await flushPromises()
 
-    const copyBtn = wrapper.findAll('button').find((b) => b.text() === 'Copy logs')
-    expect(copyBtn).toBeTruthy()
+    await wrapper.find('.logs-toggle').trigger('click')
+    await flushPromises()
+    const copyBtn = wrapper.find('button[aria-label="Copy"]')
+    expect(copyBtn.exists()).toBe(true)
     await copyBtn.trigger('click')
     await flushPromises()
 
-    expect(writeText).toHaveBeenCalledWith(
-      '===== HELP OUTPUT =====\nEXTRACT accept key=ctx_size',
-    )
+    expect(writeText).toHaveBeenCalledWith('===== HELP OUTPUT =====\nEXTRACT accept key=ctx_size')
   })
 
   it('dismisses a finished task from the panel', async () => {

@@ -83,6 +83,74 @@ async def ready():
     )
 
 
+@router.get("/operations/tasks/{task_id}/logs")
+async def operation_task_logs(task_id: str, limit: int = 0):
+    """Restore the retained output for one task (install, build, scan, …)."""
+    from fastapi import HTTPException
+
+    from backend.operations.progress import get_progress_manager
+
+    manager = get_progress_manager()
+    lines = manager.get_task_logs(task_id)
+    if manager.get_task(task_id) is None and not lines:
+        raise HTTPException(status_code=404, detail="Task is not retained")
+    if limit > 0:
+        lines = lines[-min(limit, 100_000) :]
+    return {
+        "task_id": task_id,
+        "lines": lines,
+        "log_count": len(manager.get_task_logs(task_id)),
+    }
+
+
+def _system_payload() -> dict:
+    """Cheap CPU/memory/disk snapshot shared by status and the 1 Hz endpoint."""
+    try:
+        cpu_percent = psutil.cpu_percent(interval=None)
+    except Exception:
+        cpu_percent = 0.0
+
+    try:
+        memory = psutil.virtual_memory()
+        memory_payload = {
+            "total": memory.total,
+            "used": memory.used,
+            "available": memory.available,
+            "percent": memory.percent,
+        }
+    except Exception:
+        memory_payload = {
+            "total": 0,
+            "used": 0,
+            "available": 0,
+            "percent": 0.0,
+        }
+
+    disk = None
+    for path in (studio_data_dir(), "/"):
+        try:
+            disk = psutil.disk_usage(path)
+            break
+        except Exception:
+            continue
+    return {
+        "cpu_percent": cpu_percent,
+        "memory": memory_payload,
+        "disk": {
+            "total": disk.total if disk else 0,
+            "used": disk.used if disk else 0,
+            "free": disk.free if disk else 0,
+            "percent": ((disk.used / disk.total) * 100) if disk and disk.total else 0.0,
+        },
+    }
+
+
+@router.get("/system-stats")
+async def get_system_stats():
+    """Lightweight periodic system readings for an open System page."""
+    return {"system": _system_payload()}
+
+
 @router.get("/status")
 async def get_system_status():
     """Get system status and running instances (from the inference proxy)."""
@@ -134,50 +202,11 @@ async def get_system_status():
             }
         )
 
-    try:
-        cpu_percent = psutil.cpu_percent(interval=None)
-    except Exception:
-        cpu_percent = 0.0
-
-    try:
-        memory = psutil.virtual_memory()
-        memory_payload = {
-            "total": memory.total,
-            "used": memory.used,
-            "available": memory.available,
-            "percent": memory.percent,
-        }
-    except Exception:
-        memory_payload = {
-            "total": 0,
-            "used": 0,
-            "available": 0,
-            "percent": 0.0,
-        }
-
     health_observed_at = datetime.now(timezone.utc).isoformat()
     runtime_observation = runtime_observation_report()
-    data_dir = studio_data_dir()
-    disk = None
-    for path in (data_dir, "/"):
-        try:
-            disk = psutil.disk_usage(path)
-            break
-        except Exception:
-            continue
-    disk_payload = {
-        "total": disk.total if disk else 0,
-        "used": disk.used if disk else 0,
-        "free": disk.free if disk else 0,
-        "percent": ((disk.used / disk.total) * 100) if disk and disk.total else 0.0,
-    }
 
     return {
-        "system": {
-            "cpu_percent": cpu_percent,
-            "memory": memory_payload,
-            "disk": disk_payload,
-        },
+        "system": _system_payload(),
         "running_instances": active_instances,
         "proxy_status": {
             "enabled": True,

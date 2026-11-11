@@ -599,6 +599,14 @@ export const useEnginesStore = defineStore('engines', () => {
     }
   }
 
+  async function fetchSystemStats() {
+    const { data } = await axios.get('/api/system-stats')
+    if (data?.system) {
+      systemStatus.value = { ...systemStatus.value, system: data.system }
+    }
+    return data?.system
+  }
+
   async function fetchRuntimePlan() {
     try {
       const { data } = await axios.get('/api/runtime/pending')
@@ -762,6 +770,7 @@ export const useEnginesStore = defineStore('engines', () => {
     updateAudioCpp,
 
     fetchGpuList,
+    fetchSystemStats,
     fetchSystemStatus,
     fetchRuntimePlan,
     fetchRuntimePlanState,

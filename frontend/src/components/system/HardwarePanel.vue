@@ -205,7 +205,7 @@
   </Dialog>
 </template>
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import Select from 'primevue/select'
@@ -231,7 +231,37 @@ async function refresh() {
     : ''
   refreshing.value = false
 }
-onMounted(refresh)
+
+let statsTimer = null
+let statsInFlight = false
+let statsTick = 0
+let panelMounted = true
+async function pollSystemStats() {
+  if (!panelMounted || statsInFlight || refreshing.value || document.hidden) return
+  statsInFlight = true
+  try {
+    await enginesStore.fetchSystemStats()
+    statsTick += 1
+    if (statsTick % 5 === 0) await enginesStore.fetchGpuInfo()
+  } catch (_) {
+    // Keep the last good readings; a transient read failure is not announced
+    // once per second.
+  } finally {
+    statsInFlight = false
+  }
+}
+
+onMounted(async () => {
+  await refresh()
+  if (!panelMounted) return
+  statsTimer = window.setInterval(pollSystemStats, 1000)
+})
+
+onBeforeUnmount(() => {
+  panelMounted = false
+  if (statsTimer) window.clearInterval(statsTimer)
+  statsTimer = null
+})
 const sys = computed(() => {
   const s = enginesStore.systemStatus
   return s?.system || s || {}
