@@ -209,6 +209,41 @@ def test_venv_build_env_derives_nvcc_threads(monkeypatch):
     assert pinned["NVCC_THREADS"] == "1"
 
 
+def test_managed_caches_live_inside_the_install_and_flush(tmp_path):
+    """Declared cache variables resolve under <install>/caches and flush clean."""
+    from backend.engines.caches import (
+        cache_environment,
+        ensure_cache_dirs,
+        flush_caches,
+    )
+
+    install = tmp_path / "install"
+    env = cache_environment(str(install), ["TRITON_CACHE_DIR", "SGLANG_CACHE_DIR"])
+    assert env["TRITON_CACHE_DIR"] == os.path.join(str(install), "caches", "triton-cache-dir")
+    ensure_cache_dirs(str(install), ["TRITON_CACHE_DIR"])
+    cached = tmp_path / "install" / "caches" / "triton-cache-dir"
+    assert cached.is_dir()
+    (cached / "kernel.cubin").write_text("compiled", encoding="utf-8")
+
+    flush_caches(str(install))
+
+    assert not (install / "caches").exists()
+
+
+@pytest.mark.asyncio
+async def test_prepare_fork_points_declared_caches_into_the_install(tmp_path):
+    host = _ForkHost(tmp_path / "install", tmp_path / "install" / "venv")
+    checkout = _checkout(tmp_path)
+
+    env = await prepare_fork_build(
+        host, {"caches": ["TRITON_CACHE_DIR"]}, checkout=str(checkout), base_env={}
+    )
+
+    expected = os.path.join(host._base_dir, "caches", "triton-cache-dir")
+    assert env["TRITON_CACHE_DIR"] == expected
+    assert os.path.isdir(expected)
+
+
 def test_release_asset_groups_are_ordered_and_require_their_wheels():
     release = {
         "tag_name": "v1",

@@ -655,6 +655,12 @@ class GenericVenvInstaller(PythonVenvInstaller):
                 raise RuntimeError(f"Another {self.label} operation is already running")
             await self._start_operation("install")
             dir_name = self._bind_install_dir(reuse_dir, "pip")
+            if reuse_dir or existing_version or bool(force_reinstall):
+                # Reinstalling into an existing environment invalidates the
+                # kernels its caches hold.
+                from backend.engines.caches import flush_caches
+
+                flush_caches(self._base_dir)
             pending_version = existing_version or dir_name
             self._register_pending_version(
                 pending_version,
@@ -807,6 +813,12 @@ class GenericVenvInstaller(PythonVenvInstaller):
                 raise RuntimeError(f"Another {self.label} operation is already running")
             await self._start_operation("install_source")
             dir_name = self._bind_install_dir(reuse_dir, "source")
+            if reuse_dir or existing_version:
+                # In-place rebuild: managed JIT caches were produced by the
+                # previous source/toolchain, so they must not survive it.
+                from backend.engines.caches import flush_caches
+
+                flush_caches(self._base_dir)
             pending_version = existing_version or dir_name
             from backend.repo_identity import source_build_type_labels_for_engine
 
@@ -1133,6 +1145,10 @@ class GenericVenvInstaller(PythonVenvInstaller):
 
             self._venv_path = os.path.abspath(venv_path)
             self._base_dir = os.path.dirname(self._venv_path)
+            # A source update rebuilds the kernels the caches hold.
+            from backend.engines.caches import flush_caches
+
+            flush_caches(self._base_dir)
             self._ensure_directories()
             clone_dir = os.path.join(self._base_dir, "source")
 

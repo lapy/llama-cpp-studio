@@ -175,6 +175,44 @@ def test_console_script_profile_compiles_a_real_launch_spec(monkeypatch, tmp_pat
     assert document["argv"][5] == {"runtime": "port"}
 
 
+def test_declared_caches_resolve_inside_the_engine_install(monkeypatch, tmp_path):
+    """`env.caches` points each JIT cache at <install_dir>/caches/<slug>."""
+    definition = _definition(
+        env={
+            "cwd": "venv_root",
+            "caches": ["TRITON_CACHE_DIR", "SGLANG_CACHE_DIR"],
+        }
+    )
+    _install_fake(monkeypatch, definition)
+    venv_path, exe = _fake_venv(tmp_path)
+    install_dir = tmp_path / "install"
+    install_dir.mkdir()
+    _patch_active_row(
+        monkeypatch,
+        {"version": "9.9.9", "venv_path": venv_path, "install_dir": str(install_dir)},
+    )
+
+    spec = profile_launch.compile_profile_launch(
+        {"huggingface_id": "org/model"}, {}, "model-stable", PROFILECRAFT_ID
+    )
+
+    triton = os.path.join(str(install_dir), "caches", "triton-cache-dir")
+    sglang = os.path.join(str(install_dir), "caches", "sglang-cache-dir")
+    assert spec.env.set["TRITON_CACHE_DIR"] == triton
+    assert spec.env.set["SGLANG_CACHE_DIR"] == sglang
+    # The compiler creates them, so a first start writes into a real directory.
+    assert os.path.isdir(triton) and os.path.isdir(sglang)
+    # An explicit default still wins over the managed path.
+    pinned = _definition(
+        env={"caches": ["TRITON_CACHE_DIR"], "defaults": {"TRITON_CACHE_DIR": "/opt/triton"}}
+    )
+    _install_fake(monkeypatch, pinned)
+    spec = profile_launch.compile_profile_launch(
+        {"huggingface_id": "org/model"}, {}, "model-stable", PROFILECRAFT_ID
+    )
+    assert spec.env.set["TRITON_CACHE_DIR"] == "/opt/triton"
+
+
 def test_positional_binding_and_module_style_prefix(monkeypatch, tmp_path):
     definition = _definition(
         argv_prefix=["-m", "profilecraft.server"],

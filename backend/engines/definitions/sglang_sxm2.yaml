@@ -117,6 +117,19 @@ recipes:
       - cmake
       - ninja
       - curl
+      caches:
+      - XDG_CACHE_HOME
+      - TRITON_HOME
+      - TRITON_CACHE_DIR
+      - TORCHINDUCTOR_CACHE_DIR
+      - TORCH_EXTENSIONS_DIR
+      - TVM_FFI_CACHE_DIR
+      - TILELANG_CACHE_DIR
+      - SGLANG_CACHE_DIR
+      - SGLANG_DIFFUSION_CACHE_ROOT
+      - DG_JIT_CACHE_DIR
+      - TIKTOKEN_CACHE_DIR
+      - CUDA_CACHE_PATH
       concurrency:
         memory_aware: true
         env_vars:
@@ -237,6 +250,19 @@ recipes:
       - cmake
       - ninja
       - curl
+      caches:
+      - XDG_CACHE_HOME
+      - TRITON_HOME
+      - TRITON_CACHE_DIR
+      - TORCHINDUCTOR_CACHE_DIR
+      - TORCH_EXTENSIONS_DIR
+      - TVM_FFI_CACHE_DIR
+      - TILELANG_CACHE_DIR
+      - SGLANG_CACHE_DIR
+      - SGLANG_DIFFUSION_CACHE_ROOT
+      - DG_JIT_CACHE_DIR
+      - TIKTOKEN_CACHE_DIR
+      - CUDA_CACHE_PATH
       concurrency:
         memory_aware: true
         env_vars:
@@ -429,6 +455,22 @@ runtime_profiles:
     env:
       cwd: venv_root
       cuda: '12.8'
+      # Managed JIT/kernel caches: Studio points these at <install_dir>/caches/<var>
+      # and flushes that tree on an in-place rebuild or source sync, so a start
+      # reuses what the installer's precompile/smoke step already produced.
+      caches:
+      - XDG_CACHE_HOME
+      - TRITON_HOME
+      - TRITON_CACHE_DIR
+      - TORCHINDUCTOR_CACHE_DIR
+      - TORCH_EXTENSIONS_DIR
+      - TVM_FFI_CACHE_DIR
+      - TILELANG_CACHE_DIR
+      - SGLANG_CACHE_DIR
+      - SGLANG_DIFFUSION_CACHE_ROOT
+      - DG_JIT_CACHE_DIR
+      - TIKTOKEN_CACHE_DIR
+      - CUDA_CACHE_PATH
       defaults:
         FLASHINFER_DISABLE_VERSION_CHECK: '1'
         TORCH_CUDA_ARCH_LIST: '7.0'

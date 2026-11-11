@@ -178,6 +178,7 @@ async def prepare_fork_build(
         "required_tools",
         "toolchain",
         "concurrency",
+        "caches",
         "require_cuda_nvcc",
         "cuda_error",
     }
@@ -305,6 +306,15 @@ async def prepare_fork_build(
     # it. The fork scripts read it for `nvcc --threads` and the kernel build's
     # internal compile-thread count.
     env["NVCC_THREADS"] = str(threads)
+
+    cached_vars = _string_list(options.get("caches") or [], "caches")
+    if cached_vars:
+        # Same managed cache root the launch profile resolves, so the builder's
+        # precompile/smoke step fills what the server will read on start.
+        from backend.engines.caches import cache_environment, ensure_cache_dirs
+
+        ensure_cache_dirs(root, cached_vars)
+        env.update(cache_environment(root, cached_vars))
 
     missing = [
         tool
