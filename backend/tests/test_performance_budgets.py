@@ -34,7 +34,9 @@ CATALOG_WRITE_OVERLAP_BUDGET_MS = 2_000.0
 CATALOG_JSON_BUDGET_BYTES = 1_600_000
 HISTORY_CLEANUP_BUDGET_SECONDS = 3.0
 HISTORY_UPSERT_BUDGET_MS = 80.0
-COLD_MODELS_GZIP_BUDGET_BYTES = 250_000
+# 2026-11-11: 250_000 -> 270_000 for the frontend dependency refresh; the cold
+# /models graph measured 260_419 bytes gzip (see frontend/e2e/cold-models-budget.mjs).
+COLD_MODELS_GZIP_BUDGET_BYTES = 270_000
 _DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 
