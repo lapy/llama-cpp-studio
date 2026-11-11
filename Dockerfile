@@ -40,7 +40,8 @@ FROM ${BASE_IMAGE} AS python-builder
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install build dependencies required for python wheels and runtime compilation (llama.cpp)
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update \
+    && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
     python3 \
     python3-venv \
     python3-pip \
@@ -97,7 +98,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     CCACHE_MAXSIZE=5G
 
 # Install runtime dependencies (retain build toolchain for llama.cpp builds and GPU detection)
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update \
+    && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
     python3 \
     python3-venv \
     python3-pip \
@@ -237,10 +239,19 @@ RUN ln -sf /usr/bin/python3 /usr/bin/python
 # so every build re-runs apt-get update and upgrades installed packages
 # (e.g. linux-libc-dev, libssl3) to the newest published versions without
 # re-downloading the toolchain layers.
+#
+# The refresh must FAIL when the archive cannot be reached. A build container
+# with a transient DNS failure otherwise completes the update with no package
+# lists, "upgrade" reports "0 upgraded ... 0 not upgraded", and the frozen image
+# keeps the base image's old apt/linux-libc-dev only for the Trivy scan to fail
+# with every fixable CVE it would have upgraded. Retries absorb the transient
+# case; the empty-list guard turns the remaining case into a failed build that
+# names the layer.
 ARG SECURITY_REFRESH=0
 RUN echo "apt refresh epoch: ${SECURITY_REFRESH}" \
-    && apt-get update \
-    && apt-get upgrade -y \
+    && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update \
+    && test -n "$(ls -A /var/lib/apt/lists 2>/dev/null)" \
+    && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 upgrade -y \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
