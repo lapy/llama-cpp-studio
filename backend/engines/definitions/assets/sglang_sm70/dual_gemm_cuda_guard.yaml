@@ -1,0 +1,11 @@
+schema_version: 1
+name: sglang_sm70/dual_gemm_cuda_guard
+description: Skip the CuTe-DSL dual-GEMM path when the toolkit is older than CUDA 13.1. The V100 stack
+  builds with 12.8/12.9 and cute.experimental raises NotImplementedError at import, which aborts every
+  Llama/Qwen2-family model start (their MLP constructs DualGemm unconditionally).
+file: python/sglang/srt/layers/dual_gemm.py
+operations:
+- kind: replace
+  skip_if_contains: cutlass.cute.experimental requires CUDA 13.1
+  search: "        from sglang.kernels.ops.gemm.cutedsl_dual_gemm import (\n            MAX_DUAL_GEMM_DECODE_TOKENS,\n            DualGemmQuantMode,\n            can_use_dual_gemm,\n        )"
+  replace: "        try:\n            from sglang.kernels.ops.gemm.cutedsl_dual_gemm import (\n                MAX_DUAL_GEMM_DECODE_TOKENS,\n                DualGemmQuantMode,\n                can_use_dual_gemm,\n            )\n        except (ImportError, NotImplementedError):\n            # Studio: cutlass.cute.experimental requires CUDA 13.1; this fork\n            # builds with 12.8/12.9 for Volta. Scheduling stays correct without\n            # the fused kernel, the model just decodes un-fused.\n            return None"
