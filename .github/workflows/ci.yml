@@ -304,7 +304,7 @@ jobs:
             VCS_REF=${{ github.sha }}
             VERSION=${{ github.ref_name }}
             VITE_PRIMEUI_LICENSE=${{ secrets.VITE_PRIMEUI_LICENSE }}
-            SECURITY_REFRESH=${{ github.run_id }}
+            SECURITY_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Resolve the locally built image
         id: local-image
