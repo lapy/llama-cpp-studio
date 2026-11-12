@@ -139,6 +139,31 @@ def test_task_logs_are_retained_for_refresh_and_counted_in_snapshots():
     assert pm.get_task_logs(tid) == []
 
 
+def test_task_logs_preserve_blank_lines_and_indentation():
+    pm = pm_mod.get_progress_manager()
+    tid = pm.create_task("install", "Install SGLang")
+
+    pm.emit("task_log", {"task_id": tid, "line": "  /\\_/\\  "})
+    pm.emit("task_log", {"task_id": tid, "line": ""})
+    pm.emit("task_log", {"task_id": tid, "line": " ( o.o ) "})
+    pm.send_build_progress_now(
+        tid,
+        "compile",
+        50,
+        "Building",
+        log_lines=["  banner", "", "  banner"],
+    )
+
+    assert pm.get_task_logs(tid) == [
+        "  /\\_/\\  ",
+        "",
+        " ( o.o ) ",
+        "  banner",
+        "",
+        "  banner",
+    ]
+
+
 @pytest.mark.asyncio
 async def test_operation_task_logs_route_returns_retained_output():
     from backend.routes.status import operation_task_logs

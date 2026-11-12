@@ -132,7 +132,7 @@ async def run_streamed_log(
                 last_output = time.monotonic()
                 line = chunk.decode("utf-8", errors="replace")
                 handle.write(line)
-                clean_line = line.rstrip("\n")
+                clean_line = line.rstrip("\r\n")
                 recent_lines.append(clean_line)
                 if _is_failure_context_line(clean_line):
                     failure_context.extend(recent_lines)

@@ -7,6 +7,7 @@ describe('LogOutput', () => {
 
   beforeEach(() => {
     writeText.mockClear()
+    localStorage.removeItem('llama-studio.log.wrap')
     vi.stubGlobal('navigator', { clipboard: { writeText } })
   })
 
@@ -45,6 +46,55 @@ describe('LogOutput', () => {
     expect(text).not.toContain('stderr:')
     const stderr = wrapper.get('[data-stream="stderr"]')
     expect(stderr.classes()).toContain('log-line--stderr')
+    wrapper.unmount()
+  })
+
+  it('does not count ordinary stderr output as an error severity', async () => {
+    const wrapper = mountLog({
+      lines: ['stderr: model loaded', 'stdout: ERROR failed to bind'],
+      streamAware: true,
+      levels: [
+        { value: '', label: 'All' },
+        { value: 'warn', label: 'Warn' },
+        { value: 'error', label: 'Error' },
+      ],
+    })
+    await flushPromises()
+
+    await wrapper.findAll('.log-level')[2].trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('.log-line')).toHaveLength(1)
+    expect(wrapper.find('.log-body').text()).toContain('ERROR failed to bind')
+    expect(wrapper.find('.log-body').text()).not.toContain('model loaded')
+    wrapper.unmount()
+  })
+
+  it('switches between no-wrap and wrap and remembers the choice', async () => {
+    const wrapper = mountLog({ lines: ['x'.repeat(400)] })
+    await flushPromises()
+    expect(wrapper.find('.log-viewer').classes()).not.toContain('log-viewer--wrap')
+    expect(wrapper.find('.log-line').classes()).not.toContain('log-line--wrap')
+
+    await wrapper.find('button[aria-label="Wrap long log lines"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.log-viewer').classes()).toContain('log-viewer--wrap')
+    expect(wrapper.find('.log-line').classes()).toContain('log-line--wrap')
+    expect(localStorage.getItem('llama-studio.log.wrap')).toBe('1')
+
+    await wrapper.find('button[aria-label="Disable line wrapping"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.log-line').classes()).not.toContain('log-line--wrap')
+    expect(localStorage.getItem('llama-studio.log.wrap')).toBe('0')
+    wrapper.unmount()
+  })
+
+  it('preserves indentation and blank rows', async () => {
+    const wrapper = mountLog({ lines: ['  /\\_/\\  ', '', ' ( o.o ) '] })
+    await flushPromises()
+    const rows = wrapper.findAll('.log-line')
+    expect(rows).toHaveLength(3)
+    expect(rows[0].element.textContent).toBe('  /\\_/\\  ')
+    expect(rows[2].element.textContent).toBe(' ( o.o ) ')
     wrapper.unmount()
   })
 

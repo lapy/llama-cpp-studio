@@ -132,11 +132,13 @@ class ProgressManager:
             if entry is None:
                 continue
             text = str(entry)
-            if not text:
+            if text == "":
+                # A deliberately empty task_log line is a blank display row
+                # (ASCII banners, spacing between sections).
+                buffer.append("")
                 continue
-            for part in text.splitlines() or [text]:
-                if part:
-                    buffer.append(part)
+            for part in text.splitlines():
+                buffer.append(part)
 
     def get_task_logs(self, task_id: str) -> List[str]:
         return list(self._task_logs.get(task_id, ()))

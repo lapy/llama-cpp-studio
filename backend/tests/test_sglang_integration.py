@@ -662,6 +662,24 @@ async def test_verbose_ptxas_lines_are_not_broadcast(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_streamed_log_preserves_indentation_and_blank_lines(tmp_path, monkeypatch):
+    manager = _v100_installer(tmp_path)
+    broadcasted = []
+
+    async def fake_broadcast(line: str) -> None:
+        broadcasted.append(line)
+
+    monkeypatch.setattr(manager, "_broadcast_log_line", fake_broadcast)
+    script = "print('  /\\\\_/\\\\  ')\nprint()\nprint(' ( o.o ) ')\n"
+    returncode = await manager._run_logged([sys.executable, "-c", script], "install_source")
+
+    assert returncode == 0
+    assert "  /\\_/\\  " in broadcasted
+    assert "" in broadcasted
+    assert " ( o.o ) " in broadcasted
+
+
+@pytest.mark.asyncio
 async def test_silent_compiler_gets_heartbeat(tmp_path, monkeypatch):
     manager = _v100_installer(tmp_path)
     manager._log_heartbeat_seconds = 0.2

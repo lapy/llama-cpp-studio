@@ -94,13 +94,37 @@ describe('progress store', () => {
     expect(store.getTaskLogs(taskId)[0]).toBe('FAILED: marlin kernel')
   })
 
-  it('handleEvent dedupes mirrored build_progress log lines', () => {
+  it('dedupes a mirrored build_progress batch without dropping real repeats', () => {
     const store = useProgressStore()
     store.handleEvent('build_progress', {
       task_id: 'build_source-main_1',
-      log_lines: ['cc -o main', 'cc -o main'],
+      log_lines: ['cc -o main'],
+    })
+    store.handleEvent('build_progress', {
+      task_id: 'build_source-main_1',
+      log_lines: ['cc -o main'],
     })
     expect(store.getTaskLogs('build_source-main_1')).toEqual(['cc -o main'])
+  })
+
+  it('preserves blank lines and leading whitespace in task_log output', () => {
+    const store = useProgressStore()
+    const taskId = 'install_sglang_v100_install_source_1'
+    store.handleEvent('task_log', { task_id: taskId, line: '  /\\_/\\  ' })
+    store.handleEvent('task_log', { task_id: taskId, line: '' })
+    store.handleEvent('task_log', { task_id: taskId, line: ' ( o.o ) ' })
+    store.handleEvent('task_log', { task_id: taskId, line: '  /\\_/\\  ' })
+
+    expect(store.getTaskLogs(taskId)).toEqual(['  /\\_/\\  ', '', ' ( o.o ) ', '  /\\_/\\  '])
+  })
+
+  it('preserves blank lines and indentation in build_progress batches', () => {
+    const store = useProgressStore()
+    store.handleEvent('build_progress', {
+      task_id: 'build_source-main_1',
+      log_lines: ['  banner', '', '  banner'],
+    })
+    expect(store.getTaskLogs('build_source-main_1')).toEqual(['  banner', '', '  banner'])
   })
 
   it('handleEvent does not double-append build logs from task_updated and build_progress', () => {
@@ -153,7 +177,10 @@ describe('progress store', () => {
       progress: 4,
       description: 'Scan llama.cpp CLI parameters',
     })
-    const lines = Array.from({ length: 250 }, (_, index) => `H${String(index + 1).padStart(4, '0')}|--flag-${index}`)
+    const lines = Array.from(
+      { length: 250 },
+      (_, index) => `H${String(index + 1).padStart(4, '0')}|--flag-${index}`,
+    )
     store.handleEvent('build_progress', {
       task_id: taskId,
       stage: 'help',
@@ -223,10 +250,7 @@ describe('progress store', () => {
       message: 'Extracting',
       metadata: { log_lines: ['Downloading package', 'Extracting'] },
     })
-    expect(store.getTaskLogs('audio_install_1')).toEqual([
-      'Downloading package',
-      'Extracting',
-    ])
+    expect(store.getTaskLogs('audio_install_1')).toEqual(['Downloading package', 'Extracting'])
   })
 
   it('handleEvent applies download_progress to the matching task', () => {
@@ -336,9 +360,7 @@ describe('progress store', () => {
       progress: 40,
     })
     store.handleEvent('task_snapshot', {
-      tasks: [
-        { task_id: 'build_1', type: 'build', status: 'completed', progress: 100 },
-      ],
+      tasks: [{ task_id: 'build_1', type: 'build', status: 'completed', progress: 100 }],
     })
     expect(store.getTask('build_1')?.status).toBe('completed')
     expect(store.getTask('stale')).toBeNull()

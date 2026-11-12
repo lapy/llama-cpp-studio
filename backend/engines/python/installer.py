@@ -366,9 +366,15 @@ class PythonVenvInstaller(CancellableOperationManager, ABC):
                 return
             existing = get_progress_manager().get_task(self._progress_task_id) or {}
             log_count = int((existing.get("metadata") or {}).get("log_count", 0))
+            is_blank = not str(line or "").strip()
             if record:
-                log_count += 1
+                if not is_blank:
+                    log_count += 1
                 await self._append_task_log(line)
+            # Blank/whitespace lines are real output for banners and spacing,
+            # but they must not overwrite the progress message or creep.
+            if is_blank:
+                return
             tracker = self._install_progress_tracker()
             current_progress = float(existing.get("progress") or 0)
             if self._source_install_operation():
@@ -489,12 +495,13 @@ class PythonVenvInstaller(CancellableOperationManager, ABC):
                                 break
                             cut = min(breaks)
                             raw = pending[:cut]
-                            pending = pending[cut + 1 :]
-                            text = raw.decode("utf-8", errors="replace").strip()
-                            if not text:
-                                continue
+                            if pending[cut : cut + 2] == b"\r\n":
+                                pending = pending[cut + 2 :]
+                            else:
+                                pending = pending[cut + 1 :]
+                            text = raw.decode("utf-8", errors="replace").rstrip()
                             await self._emit_install_line(text, log_file)
-                    tail = pending.decode("utf-8", errors="replace").strip()
+                    tail = pending.decode("utf-8", errors="replace").rstrip()
                     if tail:
                         await self._emit_install_line(tail, log_file, force=True)
             finally:

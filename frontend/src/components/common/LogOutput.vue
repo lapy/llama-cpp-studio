@@ -1,5 +1,9 @@
 <template>
-  <div class="log-viewer task-logs" :style="height ? { height } : undefined">
+  <div
+    class="log-viewer task-logs"
+    :class="{ 'log-viewer--wrap': wrap }"
+    :style="height ? { height } : undefined"
+  >
     <div v-if="showToolbar" class="log-toolbar" role="toolbar" aria-label="Log tools">
       <label class="log-search">
         <i class="pi pi-search" aria-hidden="true" />
@@ -41,6 +45,18 @@
       <span v-if="live" class="log-live" title="Streaming live">
         <span class="log-live__dot" aria-hidden="true" />Live
       </span>
+
+      <button
+        type="button"
+        class="log-action"
+        :aria-pressed="wrap ? 'true' : 'false'"
+        :aria-label="wrap ? 'Disable line wrapping' : 'Wrap long log lines'"
+        :title="wrap ? 'Disable line wrapping' : 'Wrap long log lines'"
+        @click="toggleWrap"
+      >
+        <i class="pi pi-align-left" aria-hidden="true" />
+        <span class="log-action__label">Wrap</span>
+      </button>
 
       <button
         type="button"
@@ -104,6 +120,7 @@
           :line="entry.text"
           :stream="entry.stream"
           :query="query"
+          :wrap="wrap"
         />
       </template>
     </div>
@@ -138,8 +155,26 @@ const query = ref('')
 const level = ref('')
 const following = ref(true)
 const copied = ref('')
+const WRAP_KEY = 'llama-studio.log.wrap'
+const wrap = ref(readWrapPreference())
 let copyTimer = 0
 let lastScrollTop = 0
+
+function readWrapPreference() {
+  if (typeof localStorage === 'undefined') return false
+  try {
+    return localStorage.getItem(WRAP_KEY) === '1'
+  } catch (_) {
+    return false
+  }
+}
+
+function writeWrapPreference(value) {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(WRAP_KEY, value ? '1' : '0')
+  } catch (_) {}
+}
 
 const STREAM_PREFIX = /^(stdout|stderr):\s?/
 const normalizeCache = new Map()
@@ -191,7 +226,7 @@ const filtered = computed(() => {
     const plain = plainText(entry.text).toLowerCase()
     if (needle && !plain.includes(needle)) return false
     if (!severity) return true
-    const error = entry.stream === 'stderr' || /error|fatal|traceback|exception|failed/.test(plain)
+    const error = /error|fatal|traceback|exception|failed/.test(plain)
     if (severity === 'error') return error
     if (severity === 'warn') return error || /warn|deprecat/.test(plain)
     return true
@@ -232,16 +267,28 @@ function scrollToBottom() {
 
 function scheduleFollow() {
   nextTick(() => {
-    scrollToBottom()
-    // Content-visibility rows settle after their first paint; re-pin once so
-    // wrapped lines still end exactly at the newest output.
-    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(scrollToBottom)
+    // Wrapped rows settle over more than one frame; re-pin while layout
+    // stabilises so the newest output is genuinely visible at the bottom.
+    let attempts = 0
+    const settle = () => {
+      scrollToBottom()
+      attempts += 1
+      if (attempts < 3 && typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(settle)
+      }
+    }
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(settle)
+    else scrollToBottom()
   })
+}
+
+function toggleWrap() {
+  wrap.value = !wrap.value
 }
 
 function resumeFollow() {
   following.value = true
-  scrollToBottom()
+  scheduleFollow()
 }
 
 function onScroll() {
@@ -296,6 +343,10 @@ watch(
   },
 )
 watch(filtered, () => {
+  if (following.value) scheduleFollow()
+})
+watch(wrap, (value) => {
+  writeWrapPreference(value)
   if (following.value) scheduleFollow()
 })
 watch([query, level], () => {

@@ -134,7 +134,7 @@ class CancellableOperationManager:
         )
 
     async def _append_task_log(self, line: str) -> None:
-        if not line or not self._progress_task_id:
+        if line is None or not self._progress_task_id:
             return
         get_progress_manager().emit(
             "task_log",

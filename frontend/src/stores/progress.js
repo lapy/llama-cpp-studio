@@ -110,6 +110,38 @@ export const useProgressStore = defineStore('progress', () => {
       })
   }
 
+  function splitTaskLogEntry(entry) {
+    // Match Python's str.splitlines(): preserve leading/trailing whitespace
+    // and internal blank lines, but do not invent a trailing blank line after
+    // a terminating newline. A literal empty entry is one blank log line.
+    if (entry === '') return ['']
+    const parts = entry.split(/\r\n|\n|\r/)
+    if (parts.length > 1 && parts[parts.length - 1] === '') parts.pop()
+    return parts
+  }
+
+  function appendWithOverlap(existing, incoming, dedupe) {
+    if (!incoming.length) return existing
+    let start = 0
+    if (dedupe) {
+      const limit = Math.min(existing.length, incoming.length)
+      for (let size = limit; size > 0; size -= 1) {
+        let matches = true
+        for (let index = 0; index < size; index += 1) {
+          if (existing[existing.length - size + index] !== incoming[index]) {
+            matches = false
+            break
+          }
+        }
+        if (matches) {
+          start = size
+          break
+        }
+      }
+    }
+    return existing.concat(incoming.slice(start))
+  }
+
   function appendTaskLogs(taskId, lines, options = {}) {
     if (lines == null || taskId == null) return
     const isBuild = typeof taskId === 'string' && taskId.startsWith('build_')
@@ -123,21 +155,14 @@ export const useProgressStore = defineStore('progress', () => {
       isBuild || isScan ? MAX_BUILD_LOG_LINES : isInstall ? MAX_INSTALL_LOG_LINES : MAX_LOG_LINES
     const entries = Array.isArray(lines) ? lines : [lines]
     const existing = taskLogs.value[taskId] || []
-    const next = [...existing]
-    const shouldDedupe = options.dedupe !== false
-    const seen = shouldDedupe ? new Set(existing) : null
+    const incoming = []
 
     entries.forEach((entry) => {
       if (typeof entry !== 'string') return
-      entry.split(/\r?\n/).forEach((rawLine) => {
-        const line = rawLine.trim()
-        if (!line) return
-        if (shouldDedupe && seen.has(line)) return
-        if (shouldDedupe) seen.add(line)
-        next.push(line)
-      })
+      incoming.push(...splitTaskLogEntry(entry))
     })
 
+    const next = appendWithOverlap(existing, incoming, options.dedupe !== false)
     if (next.length === existing.length) return
 
     taskLogs.value = {
@@ -198,7 +223,9 @@ export const useProgressStore = defineStore('progress', () => {
     const payload = data?.data != null ? data.data : data
 
     if (eventType === 'task_log') {
-      appendTaskLogs(payload?.task_id, payload?.line)
+      // task_log is an incremental stream: repeated/blank lines are real
+      // output and must never be deduplicated.
+      appendTaskLogs(payload?.task_id, payload?.line, { dedupe: false })
     }
     if (
       eventType === 'build_progress' &&
