@@ -375,15 +375,39 @@ class StudioProxyManager:
         return None
 
     def _catalog(self) -> list[dict]:
-        return [
-            {
-                "id": compiled.proxy.model_id,
-                "studio_model_id": model["id"],
-                "engine": compiled.proxy.engine_id,
-                "aliases": list(compiled.proxy.aliases),
-            }
-            for model, compiled in self._compiled_models()
-        ]
+        rows = []
+        for model, compiled in self._compiled_models():
+            proxy = compiled.proxy
+            capabilities = proxy.capabilities if isinstance(proxy.capabilities, dict) else {}
+            huggingface_id = str(model.get("huggingface_id") or "")
+            publisher = (
+                huggingface_id.split("/", 1)[0]
+                if "/" in huggingface_id
+                else "studio"
+            )
+            rows.append(
+                {
+                    "id": proxy.model_id,
+                    "studio_model_id": model["id"],
+                    "engine": proxy.engine_id,
+                    "aliases": list(proxy.aliases),
+                    # Discovery compatibility routes (/api/tags, /api/show,
+                    # /api/v1/models, /props) render catalog metadata without
+                    # starting an engine.
+                    "display_name": str(model.get("display_name") or model["id"]),
+                    "publisher": publisher or "studio",
+                    "quantization": str(model.get("quantization") or ""),
+                    "format": str(
+                        model.get("format") or model.get("model_format") or ""
+                    ),
+                    "model_type": str(model.get("model_type") or ""),
+                    "file_size": model.get("file_size") or 0,
+                    "downloaded_at": model.get("downloaded_at"),
+                    "context_length": capabilities.get("context"),
+                    "capabilities": capabilities or None,
+                }
+            )
+        return rows
 
     def _receipt(self, spec, revision: str, pid: int) -> None:
         """Persist the launch receipt for a natively-started process.

@@ -614,4 +614,40 @@ describe('Proxy monitoring', () => {
     expect(axios.post).toHaveBeenCalledWith('/api/proxy/stats/reset')
     wrapper.unmount()
   })
+
+  it('labels a buffered response where TTFT is not observable', async () => {
+    const payload = statusPayload()
+    payload.requests = [
+      {
+        id: 'buffered',
+        completed_at: 123,
+        model: 'demo',
+        method: 'POST',
+        path: '/v1/chat/completions',
+        state: 'completed',
+        status: 200,
+        requested_stream: false,
+        response_transport: 'buffered',
+        nonstream_response: true,
+        incremental_output: false,
+        ttft_ms: null,
+        latency_ms: 2249.7,
+        input_tokens: 7687,
+        input_tokens_cached: 4736,
+        output_tokens: 152,
+      },
+    ]
+    vi.mocked(axios.get).mockImplementation((url) =>
+      Promise.resolve({ data: String(url).includes('keys') ? { keys: [] } : payload }),
+    )
+    const wrapper = mountView()
+    await flushPromises()
+    const tab = wrapper.findAll('[role="tab"]').find((tab) => tab.text() === 'Requests')
+    await tab.trigger('click')
+    const rowText = wrapper.find('tbody').text()
+    expect(rowText).toContain('non-stream / 2249.7 ms')
+    await clickButton(wrapper, 'Details')
+    expect(wrapper.find('.request-inspector').text()).toContain('Response transport')
+    wrapper.unmount()
+  })
 })

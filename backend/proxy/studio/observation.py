@@ -395,6 +395,8 @@ def finalize_observation(
     output_event_count: int = 0,
     bundled_output_events: bool = False,
     sequence_scope: str = "single",
+    requested_stream: bool | None = None,
+    response_transport: str = "",
 ) -> dict[str, Any]:
     """Derive the normalized observation record persisted with a request.
 
@@ -402,6 +404,24 @@ def finalize_observation(
     evidence and monotonic-derived durations, and receive JSON-safe fields.
     """
     quality = list(dict.fromkeys(str(reason) for reason in reasons if reason))
+    transport = str(response_transport or "unknown")
+    incremental_output = transport == "sse"
+    nonstream_response = bool(
+        dispatched
+        and transport == "buffered"
+        and protocol
+        in (
+            PROTOCOL_OPENAI_CHAT,
+            PROTOCOL_OPENAI_COMPLETIONS,
+            PROTOCOL_OPENAI_RESPONSES,
+        )
+    )
+    if nonstream_response:
+        # A buffered body has no first-output event distinct from completion,
+        # so Proxy TTFT is not observable. The reason makes the blank honest.
+        quality.append("nonstream_response")
+    if requested_stream is True and dispatched and transport == "buffered":
+        quality.append("stream_requested_but_buffered")
 
     input_authoritative = bool(usage_authoritative and dispatched)
     output_final = bool(
@@ -546,6 +566,10 @@ def finalize_observation(
         "output_event_count": output_event_count,
         "bundled_output_events": bool(bundled_output_events),
         "sequence_scope": sequence_scope,
+        "requested_stream": requested_stream,
+        "response_transport": transport,
+        "incremental_output": incremental_output,
+        "nonstream_response": nonstream_response,
     }
 
 

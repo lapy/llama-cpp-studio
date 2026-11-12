@@ -30,7 +30,19 @@ output events, output interval, terminal event, total duration, bytes, normalize
 usage fields, reservations, and a failure reason. No prompts,
 completion bodies, authorization values, or query-string credentials are stored.
 Unknown usage is shown as unknown, not zero. Proxy TTFT is unavailable when an
-engine does not send recognizable generated-output events.
+engine does not send recognizable generated-output events. Records distinguish
+the client's explicit `stream` intent from the actual response transport
+(`sse`, `buffered`, `html`, `opaque`). A buffered chat/completions response has
+no first-output event before its complete body, so TTFT is recorded as unknown
+and labelled `non-stream`; the request remains in `forwarding` (not
+`streaming`) for its whole generation. A request that asked for streaming but
+received a buffered body is flagged `stream_requested_but_buffered`.
+
+For `/version`, `/props` and `/v1/props`, Studio first asks an already-running
+model's engine; a 404/405 or non-JSON answer falls back to a synthesized
+llama.cpp/vLLM-compatible payload. `/api/tags`, `/api/show`, `/api/v1/models`
+and `/v1/models/{model}` are rendered from the accessible catalog. These
+discovery routes never load a model and do not appear in request history.
 
 Observation uses a versioned, protocol-aware record
 (`backend/proxy/studio/observation.py`). Schema version 1 records the engine,
