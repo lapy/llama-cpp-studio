@@ -19,7 +19,14 @@ The management route and schema tables below describe the checked-in [OpenAPI do
 | ------------------------ | ------------------------------------------------------------------- |
 | `GET /health`            | Listener health endpoint.                                           |
 | `GET /v1/models`         | OpenAI-style model catalog with accessible exposed aliases.         |
+| `GET /v1/models/{model}` | OpenAI-style single-model lookup by proxy id, catalog id or alias.  |
 | `GET /models`            | Catalog endpoint.                                                   |
+| `GET /version`           | vLLM-compatible version discovery; a running engine's answer wins.  |
+| `GET /props`             | llama.cpp-compatible server properties; engine answer or fallback.  |
+| `GET /v1/props`          | Versioned llama.cpp-compatible server properties.                   |
+| `GET /api/tags`          | Ollama-compatible model list.                                       |
+| `POST /api/show`         | Ollama-compatible model details (`name` or `model`).                |
+| `GET /api/v1/models`     | LM Studio-compatible model list and loaded-instance metadata.       |
 | `GET /running`           | Object containing the visible running-model list.                   |
 | `/v1/chat/completions`   | Forward the compatible chat request to the resolved engine.         |
 | `/v1/completions`        | Forward a compatible text-completion request.                       |
@@ -32,6 +39,8 @@ The management route and schema tables below describe the checked-in [OpenAPI do
 | `/v/…`                   | Forward a versionless path after route-prefix rewriting.            |
 
 Forwarded engine paths retain their engine-specific method, body, and response contracts. An entry here describes routing capability, not universal endpoint support across all engines. Streaming forwards upstream chunks with cancellation and backpressure. JSON/SSE usage observation is separate from the forwarded response bytes.
+
+The server-wide discovery routes (`/version`, `/props`, `/v1/props`, `/api/tags`, `/api/show`, `/api/v1/models`, `/v1/models/{model}`) do not identify a model in their path. Studio renders them from the accessible catalog so discovery probes never cold-start an engine. For `/version`, `/props` and `/v1/props`, an already-running engine's answer is preferred; a 404/405 or non-JSON reply falls back to the synthesized compatibility shape. `/api/tags`, `/api/show`, `/api/v1/models` and `/v1/models/{model}` are always Studio-owned catalog views. Listing routes require the `models:read` scope and remain subject to a key's model restrictions.
 
 The Studio management API supplies proxy administration: lifecycle, per-model unload/preload/reload, logs, request history, and key policy. Inference keys do not grant these management actions. Model listing and running-model visibility respect the requesting key's restrictions.
 

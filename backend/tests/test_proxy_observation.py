@@ -563,7 +563,7 @@ async def test_streaming_trace_uses_finalized_observation(tmp_path):
     ) as client:
         result = await client.post(
             "/v1/chat/completions",
-            json={"model": "demo", "messages": [{"role": "user", "content": "hi"}]},
+            json={"model": "demo", "stream": True, "messages": [{"role": "user", "content": "hi"}]},
         )
     await app.close()
     assert result.status_code == 200
@@ -577,10 +577,104 @@ async def test_streaming_trace_uses_finalized_observation(tmp_path):
     assert observation["ttft_ms"] is not None
     assert observation["output_interval_ms"] is not None
     assert observation["proxy_decode_tokens_per_second"] is not None
+    assert observation["requested_stream"] is True
+    assert observation["response_transport"] == "sse"
+    assert observation["incremental_output"] is True
+    assert observation["nonstream_response"] is False
     row = accounting.query()["requests"][0]
     assert row["input_tokens_cached"] == 7
     assert row["usage_status"] == "authoritative"
     assert row["observation_reasons"] == []
+
+
+@pytest.mark.asyncio
+async def test_buffered_chat_response_records_no_incremental_ttft(tmp_path):
+    accounting = Accounting(str(tmp_path / "accounting.sqlite3"))
+    app = StudioDataPlane(
+        _Registry(),
+        lambda name: ResolvedModel("demo"),
+        accounting=accounting,
+        identity_resolver=lambda headers: key(daily_token_budget=10000, max_output_tokens=32),
+    )
+    await app.client.aclose()
+    body = (
+        b'{"choices":[{"message":{"content":"hello"},"finish_reason":"stop"}],'
+        b'"usage":{"prompt_tokens":10,"completion_tokens":2}}'
+    )
+    app.client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                stream=_Chunks([body]),
+            )
+        )
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://proxy"
+    ) as client:
+        result = await client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "demo",
+                "stream": False,
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        )
+    await app.close()
+    assert result.status_code == 200
+    row = accounting.query()["requests"][0]
+    assert row["requested_stream"] is False
+    assert row["response_transport"] == "buffered"
+    assert row["incremental_output"] is False
+    assert row["nonstream_response"] is True
+    assert row["ttft_ms"] is None
+    assert "nonstream_response" in row["observation_reasons"]
+    assert row["output_tokens"] == 2
+    assert row["usage_status"] == "authoritative"
+
+
+@pytest.mark.asyncio
+async def test_stream_requested_but_buffered_is_flagged(tmp_path):
+    accounting = Accounting(str(tmp_path / "accounting.sqlite3"))
+    app = StudioDataPlane(
+        _Registry(),
+        lambda name: ResolvedModel("demo"),
+        accounting=accounting,
+        identity_resolver=lambda headers: key(daily_token_budget=10000, max_output_tokens=32),
+    )
+    await app.client.aclose()
+    app.client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                stream=_Chunks(
+                    [
+                        b'{"choices":[{"message":{"content":"x"}}],'
+                        b'"usage":{"prompt_tokens":3,"completion_tokens":1}}'
+                    ]
+                ),
+            )
+        )
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://proxy"
+    ) as client:
+        result = await client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "demo",
+                "stream": True,
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        )
+    await app.close()
+    assert result.status_code == 200
+    row = accounting.query()["requests"][0]
+    assert row["requested_stream"] is True
+    assert row["response_transport"] == "buffered"
+    assert "stream_requested_but_buffered" in row["observation_reasons"]
 
 
 @pytest.mark.asyncio

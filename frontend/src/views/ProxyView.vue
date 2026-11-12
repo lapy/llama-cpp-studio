@@ -1214,7 +1214,9 @@
                     >
                   </td>
                   <td>{{ metric(request.queue_ms) }} / {{ metric(request.loading_ms) }}</td>
-                  <td>{{ metric(request.ttft_ms) }} / {{ metric(request.latency_ms) }}</td>
+                  <td :title="ttftDetail(request)">
+                    {{ ttftLabel(request) }} / {{ metric(request.latency_ms) }}
+                  </td>
                   <td :title="tokenDetail(request)">
                     {{ request.input_tokens ?? '—'
                     }}<template v-if="request.input_tokens_cached != null"
@@ -1478,6 +1480,10 @@ const requestDetailFields = [
   ['engine_revision', 'Launch revision'],
   ['engine_build', 'Installed engine build identity'],
   ['protocol', 'Protocol adapter'],
+  ['requested_stream', 'Client requested streaming'],
+  ['response_transport', 'Response transport'],
+  ['nonstream_response', 'Non-streaming response'],
+  ['incremental_output', 'Incremental output events'],
   ['observation_schema_version', 'Observation schema'],
   ['pid', 'Process ID'],
   ['method', 'Method'],
@@ -1553,6 +1559,10 @@ const requestDetailSections = [
       'method',
       'path',
       'error',
+      'requested_stream',
+      'response_transport',
+      'nonstream_response',
+      'incremental_output',
       'observation_schema_version',
     ],
   },
@@ -1679,6 +1689,7 @@ function requestSeverity(request) {
       cancelled: 'warn',
       failed: 'danger',
       streaming: 'info',
+      forwarding: 'info',
     }[request.state] || 'secondary'
   )
 }
@@ -2386,6 +2397,23 @@ function formatAgo(iso) {
 }
 function metric(value) {
   return value == null ? '—' : `${Number(value).toFixed(1)} ms`
+}
+function ttftLabel(request) {
+  if (request.ttft_ms != null) return metric(request.ttft_ms)
+  // A buffered (non-streaming) response has no first-output event before the
+  // complete body: TTFT would equal total duration, so label the transport
+  // instead of presenting a fabricated token-latency number.
+  if (request.response_transport === 'buffered') return 'non-stream'
+  return '—'
+}
+function ttftDetail(request) {
+  if (request.ttft_ms != null) return metricNote('ttft_ms')
+  if (request.response_transport === 'buffered') {
+    return request.requested_stream === true
+      ? 'The client requested streaming but the engine returned a buffered JSON body; TTFT is not observable.'
+      : 'The client requested a buffered (non-streaming) response; the first output event is the complete body, so TTFT is not observable.'
+  }
+  return 'TTFT is unavailable because the engine did not emit recognizable generated-output events.'
 }
 function rate(value) {
   return value == null ? '—' : Number(value).toFixed(1)

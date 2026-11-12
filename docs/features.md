@@ -261,7 +261,7 @@ Add `Authorization: Bearer YOUR_INFERENCE_KEY` when inference access requires a 
 
 Overview shows gateway health, running engines, recent traffic, HTTP outcomes, latency/usage metrics, and network binding. Requests provides live/retained metadata with pagination and filters for model, key, state, HTTP status/outcome, and metadata search. Events shows lifecycle activity. Engine details expose process identity, running revision, port, in-flight work, counters, logs, and management links.
 
-Request details can include queue wait, model load time, first response byte, first recognizable content token, stream/generation duration, total duration, bytes, reported tokens, reservations, and failure reason. Missing measurements appear as unavailable. A successful response-header status can coexist with a later stream failure; the detail view preserves both delivered status and final outcome.
+Request details can include queue wait, model load time, first response byte, first recognizable content token, stream/generation duration, total duration, bytes, reported tokens, reservations, and failure reason. Missing measurements appear as unavailable. A buffered (non-streaming) response has no first-token measurement before its complete body, so the request list labels it `non-stream` instead of presenting total duration as TTFT; the detail view shows the client's `stream` intent and the actual response transport. A successful response-header status can coexist with a later stream failure; the detail view preserves both delivered status and final outcome.
 
 ### Serving settings
 

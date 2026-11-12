@@ -19,6 +19,16 @@ from urllib.parse import parse_qs, quote, unquote
 import httpx
 
 from backend.proxy.studio.accounting import Accounting, AdmissionError
+from backend.proxy.studio.compat import (
+    find_model,
+    llama_props,
+    lmstudio_models,
+    ollama_show,
+    ollama_tags,
+    openai_model,
+    openai_model_list,
+    version_payload,
+)
 from backend.proxy.studio.usage import UsageObserver, UsageContentDecoder
 from backend.proxy.studio.observation import (
     PROTOCOL_NATIVE_AUDIO,
@@ -42,6 +52,14 @@ ModelAuthorizer = Callable[[dict[str, str], str], bool]
 # Versionless and aliased route prefixes rewritten before upstream dispatch
 # (Studio proxy's stripVersionPrefix/stripAudioAPIPrefix, issue #728).
 STRIPPED_ROUTE_PREFIXES = ("/v/", "/audioapi/")
+
+# Server-wide discovery routes common clients probe before they choose an
+# engine protocol. They are answered by Studio (or a running engine that owns
+# the route) instead of being resolved as an inference model.
+_COMPAT_DISCOVERY_PATHS = frozenset(
+    {"/version", "/props", "/v1/props", "/api/tags", "/api/v1/models"}
+)
+_COMPAT_MODEL_PREFIX = "/v1/models/"
 
 # Cookie holding the inference key for browser navigation of engine UIs,
 # which cannot attach Authorization headers to page navigation or asset GETs.
@@ -197,6 +215,12 @@ class StudioDataPlane:
             "/api/events/logs",
         }
         control |= path in ("/models", "/v1/models") and scope.get("method") == "GET"
+        control |= path in _COMPAT_DISCOVERY_PATHS and scope.get("method") in ("GET", "HEAD")
+        control |= path == "/api/show" and scope.get("method") == "POST"
+        control |= path.startswith(_COMPAT_MODEL_PREFIX) and scope.get("method") in (
+            "GET",
+            "HEAD",
+        )
         control |= path.startswith("/api/models/unload/") or (
             path.startswith("/api/models/") and path.endswith("/logs")
         )
@@ -239,6 +263,8 @@ class StudioDataPlane:
             "sequence_scope": "single",
             "output_event_count": 0,
             "status": 0,
+            "requested_stream": None,
+            "response_transport": "",
         }
         scope = {**scope, "studio.trace": trace, "studio.started": started}
         self._observed_count += 1
@@ -399,6 +425,8 @@ class StudioDataPlane:
                 output_event_count=int(trace.get("output_event_count") or 0),
                 bundled_output_events=bool(trace.get("bundled_output_events")),
                 sequence_scope=str(trace.get("sequence_scope") or "single"),
+                requested_stream=trace.get("requested_stream"),
+                response_transport=str(trace.get("response_transport") or ""),
             )
             trace.update(observation)
             trace.pop("phase_started_at", None)
@@ -568,7 +596,20 @@ class StudioDataPlane:
             and identity
             and not identity.get("internal")
             and not identity.get("anonymous")
-            and path in ("/v1/models", "/models", "/api/models", "/running", "/api/engines")
+            and (
+                path
+                in (
+                    "/v1/models",
+                    "/models",
+                    "/api/models",
+                    "/running",
+                    "/api/engines",
+                    "/api/tags",
+                    "/api/v1/models",
+                    "/api/show",
+                )
+                or path.startswith(_COMPAT_MODEL_PREFIX)
+            )
             and "models:read" not in identity.get("scopes", [])
         ):
             await _json_response(
@@ -603,6 +644,7 @@ class StudioDataPlane:
             trace.update(state="cancelled", status=499, error="client_disconnected")
             return
         trace["input_bytes"] = len(body)
+        trace["requested_stream"] = _requested_stream(body)
         route_model, upstream_path = _model_route(path)
         upstream_passthrough = bool(route_model) or upstream_path != path
         requested = route_model or _requested_model(scope, body)
@@ -1138,22 +1180,12 @@ class StudioDataPlane:
                 origin=origin,
             )
             return True
+        if await self._compat_route(send, receive, scope, method, path, origin):
+            return True
         if path in ("/v1/models", "/models") and method == "GET":
-            payload = self._catalog_payload()
+            payload = self._catalog_payload(scope.get("studio.identity") or {})
             if payload is None:
                 return False
-            identity = scope.get("studio.identity") or {}
-            if identity.get("models"):
-                allowed = set(identity["models"])
-                permitted = {
-                    row["id"]
-                    for row in (self.catalog() if self.catalog else [])
-                    if row["id"] in allowed
-                }
-                for row in self.catalog() if self.catalog else []:
-                    if row["id"] in allowed:
-                        permitted.update(row.get("aliases") or [])
-                payload["data"] = [row for row in payload["data"] if row["id"] in permitted]
             await _json_response(send, 200, payload, origin=origin)
             return True
 
@@ -1283,26 +1315,187 @@ class StudioDataPlane:
             return True
         return False
 
-    def _catalog_payload(self) -> Optional[dict]:
-        if self.catalog is None:
+    async def _compat_route(
+        self,
+        send: Callable,
+        receive: Callable,
+        scope: dict[str, Any],
+        method: str,
+        path: str,
+        origin: str,
+    ) -> bool:
+        """Answer server-wide discovery routes common clients probe.
+
+        These routes do not identify a model in their path. Studio renders them
+        from the catalog so a discovery probe never cold-starts an engine. The
+        two routes an engine may own (``/props`` and ``/version``) are first
+        forwarded to an already-running model; when that engine answers 404/405
+        or returns a non-JSON body the proxy synthesizes the compatibility
+        shape instead.
+        """
+        if path == "/api/show":
+            if method != "POST":
+                return False
+            try:
+                payload = _json_body(await _read_body(receive, 1_048_576))
+            except BodyTooLarge as exc:
+                await _json_response(send, 413, {"error": str(exc)}, origin=origin)
+                return True
+            rows = self._permitted_catalog(scope.get("studio.identity") or {})
+            name = str(payload.get("name") or payload.get("model") or "").strip()
+            row = find_model(rows, name)
+            if row is None:
+                await _json_response(
+                    send, 404, {"error": f"model '{name}' not found"}, origin=origin
+                )
+            else:
+                await _json_response(send, 200, ollama_show(row), origin=origin)
+            return True
+
+        if path.startswith(_COMPAT_MODEL_PREFIX):
+            if method not in ("GET", "HEAD"):
+                return False
+            requested = unquote(path[len(_COMPAT_MODEL_PREFIX) :]).strip("/")
+            rows = self._permitted_catalog(scope.get("studio.identity") or {})
+            row = find_model(rows, requested)
+            if row is None:
+                await _json_response(
+                    send,
+                    404,
+                    {
+                        "error": {
+                            "message": f"model '{requested}' not found",
+                            "type": "invalid_request_error",
+                            "param": None,
+                            "code": "model_not_found",
+                        }
+                    },
+                    origin=origin,
+                )
+            else:
+                await _json_response(
+                    send, 200, openai_model(row, response_id=requested), origin=origin
+                )
+            return True
+
+        if path not in _COMPAT_DISCOVERY_PATHS or method not in ("GET", "HEAD"):
+            return False
+
+        identity = scope.get("studio.identity") or {}
+        rows = self._permitted_catalog(identity)
+        if path == "/api/tags":
+            await _json_response(send, 200, ollama_tags(rows), origin=origin)
+            return True
+        if path == "/api/v1/models":
+            running = {
+                str(item.get("model") or "")
+                for item in self.registry.snapshot()
+                if item.get("state") == "ready"
+            }
+            await _json_response(send, 200, lmstudio_models(rows, running), origin=origin)
+            return True
+
+        row, _rows = await self._compat_model(scope)
+        if path == "/version":
+            payload = await self._compat_engine_json(method, path, row)
+            await _json_response(send, 200, payload or version_payload(), origin=origin)
+            return True
+        if path in ("/props", "/v1/props"):
+            payload = await self._compat_engine_json(method, path, row)
+            await _json_response(send, 200, payload or llama_props(row), origin=origin)
+            return True
+        return False
+
+    async def _compat_model(
+        self, scope: dict[str, Any]
+    ) -> tuple[Optional[dict], list[dict]]:
+        """Select the model a model-less discovery route describes.
+
+        Explicit ``?model=`` wins, then the routing default, then the single
+        registered/running model. Ambiguous multi-model servers return ``None``
+        and render a server-wide payload.
+        """
+        rows = self._permitted_catalog(scope.get("studio.identity") or {})
+        requested = _requested_model(scope, b"")
+        if requested:
+            return find_model(rows, requested), rows
+        if len(rows) == 1:
+            return rows[0], rows
+        resolved = None
+        try:
+            if self.resolve_in_executor:
+                resolved = await asyncio.to_thread(self.resolve_model, "")
+            else:
+                resolved = self.resolve_model("")
+        except Exception:
+            resolved = None
+        if resolved is not None:
+            row = find_model(rows, resolved.model_id)
+            if row is not None:
+                return row, rows
+        running = {
+            str(item.get("model") or "")
+            for item in self.registry.snapshot()
+            if item.get("state") not in ("failed", "stopped")
+        }
+        if len(running) == 1:
+            row = find_model(rows, next(iter(running)))
+            if row is not None:
+                return row, rows
+        return None, rows
+
+    async def _compat_engine_json(
+        self, method: str, path: str, row: Optional[dict]
+    ) -> Optional[dict]:
+        """Return a running engine's JSON answer for a model-less discovery route.
+
+        Only an already-ready generation is consulted. A discovery probe must
+        not load a model, and a failed/absent engine falls back to Studio's
+        synthesized compatibility payload.
+        """
+        if not row:
             return None
-        rows = self.catalog()
-        created = 0
-        data = []
+        model_id = str(row.get("id") or "")
+        active = getattr(self.registry, "active", None)
+        generation = active(model_id) if active and model_id else None
+        if generation is None:
+            return None
+        try:
+            response = await self.client.request(
+                method,
+                generation.upstream + path,
+                headers={"accept": "application/json", "x-studio-model": model_id},
+                timeout=5.0,
+            )
+        except httpx.HTTPError:
+            return None
+        if response.status_code != 200:
+            return None
+        if "json" not in response.headers.get("content-type", "").lower():
+            return None
+        try:
+            payload = response.json()
+        except ValueError:
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def _permitted_catalog(self, identity: Optional[dict] = None) -> list[dict]:
+        rows = list(self.catalog() if self.catalog else [])
+        allowed = set((identity or {}).get("models") or [])
+        if not allowed:
+            return rows
+        permitted = set()
         for row in rows:
             model_id = str(row.get("id") or "")
-            if not model_id:
-                continue
-            entry = {
-                "id": model_id,
-                "object": "model",
-                "created": created,
-                "owned_by": str(row.get("engine") or "studio"),
-            }
-            data.append(entry)
-            for alias in row.get("aliases") or []:
-                data.append({**entry, "id": str(alias)})
-        return {"object": "list", "data": data}
+            if model_id in allowed:
+                permitted.add(model_id)
+                permitted.update(str(alias) for alias in (row.get("aliases") or []))
+        return [row for row in rows if str(row.get("id") or "") in permitted]
+
+    def _catalog_payload(self, identity: Optional[dict] = None) -> Optional[dict]:
+        if self.catalog is None:
+            return None
+        return openai_model_list(self._permitted_catalog(identity))
 
     async def _proxy(
         self,
@@ -1383,13 +1576,23 @@ class StudioDataPlane:
         response_started = False
         try:
             output_bytes = 0
-            observer = UsageObserver(
-                "text/event-stream" in upstream.headers.get("content-type", "").lower()
-            )
-            trace = scope.get("studio.trace", {})
-            trace["state"] = "streaming"
             content_type = upstream.headers.get("content-type", "").lower()
-            observe_usage = "json" in content_type or "text/event-stream" in content_type
+            is_sse = "text/event-stream" in content_type
+            observer = UsageObserver(is_sse)
+            trace = scope.get("studio.trace", {})
+            if is_sse:
+                trace["response_transport"] = "sse"
+            elif "json" in content_type:
+                trace["response_transport"] = "buffered"
+            elif "text/html" in content_type:
+                trace["response_transport"] = "html"
+            else:
+                trace["response_transport"] = "opaque"
+            # A buffered response has no observable first-output event until its
+            # complete body arrives, so it stays in "forwarding" (not
+            # "streaming") for the whole generation.
+            trace["state"] = "streaming" if is_sse else "forwarding"
+            observe_usage = "json" in content_type or is_sse
             usage_decoder = UsageContentDecoder(
                 upstream.headers.get("content-encoding", "").lower()
             )
@@ -1667,6 +1870,15 @@ def _requested_model(scope: dict[str, Any], body: bytes) -> str:
             return values[0].strip()
     payload = _json_body(body)
     return str(payload.get("model") or "").strip()
+
+
+def _requested_stream(body: bytes) -> bool | None:
+    """Return the client's explicit ``stream`` intent, or None when absent."""
+    if not body:
+        return None
+    payload = _json_body(body)
+    value = payload.get("stream")
+    return value if isinstance(value, bool) else None
 
 
 def _prepare_body(body: bytes, resolved: ResolvedModel, requested: str) -> bytes:
