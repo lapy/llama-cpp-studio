@@ -1,7 +1,10 @@
 <template>
   <div
     class="log-line"
-    :class="stream === 'stderr' ? 'log-line--stderr' : 'log-line--stdout'"
+    :class="[
+      stream === 'stderr' ? 'log-line--stderr' : 'log-line--stdout',
+      { 'log-line--wrap': wrap },
+    ]"
     :data-stream="stream || undefined"
   >
     <span v-if="!segments.length" aria-hidden="true">&nbsp;</span>
@@ -23,6 +26,7 @@ const props = defineProps({
   line: { type: String, default: '' },
   stream: { type: String, default: '' },
   query: { type: String, default: '' },
+  wrap: { type: Boolean, default: false },
 })
 
 const segments = computed(() => renderAnsi(props.line, props.query))
@@ -30,6 +34,8 @@ const segments = computed(() => renderAnsi(props.line, props.query))
 
 <style scoped>
 .log-line {
+  width: max-content;
+  min-width: 100%;
   min-height: 1.45em;
   padding: 0 0.2rem;
   color: var(--ansi-fg);
@@ -37,17 +43,22 @@ const segments = computed(() => renderAnsi(props.line, props.query))
   font-size: 0.75rem;
   font-variant-ligatures: none;
   line-height: 1.45;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+.log-line--wrap {
+  width: auto;
+  min-width: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 1.45em;
 }
 
 .log-line--stderr {
   padding-left: 0.45rem;
-  border-left: 2px solid var(--ansi-fg-red);
-  background: color-mix(in srgb, var(--ansi-fg-red) 9%, transparent);
-  color: var(--ansi-fg-red);
+  border-left: 2px solid color-mix(in srgb, var(--ansi-fg) 16%, transparent);
+  background: transparent;
+  color: var(--ansi-fg);
 }
 
 .ansi-bold {

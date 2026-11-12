@@ -523,7 +523,7 @@ describe('ProxyView', () => {
           data: {
             model: 'demo',
             sequence: 3,
-            lines: ['stdout: listening', 'stderr: boom', 'stdout: WARNING slow'],
+            lines: ['stdout: listening', 'stderr: boom error', 'stdout: WARNING slow'],
           },
         })
       }

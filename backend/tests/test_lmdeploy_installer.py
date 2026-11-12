@@ -1,8 +1,33 @@
 from pathlib import Path
+import sys
 
 import pytest
 
 from backend.tests.venv_fixtures import LMDeployManager
+
+
+@pytest.mark.asyncio
+async def test_run_logged_preserves_indentation_and_blank_lines(tmp_path: Path, monkeypatch):
+    installer = LMDeployManager(
+        log_path=str(tmp_path / "lmdeploy.log"),
+        state_path=str(tmp_path / "lmdeploy_state.json"),
+        base_dir=str(tmp_path / "lmdeploy"),
+    )
+    broadcasted = []
+
+    async def fake_broadcast(line: str, *, record: bool = True) -> None:
+        if record:
+            broadcasted.append(line)
+
+    monkeypatch.setattr(installer, "_broadcast_log_line", fake_broadcast)
+    script = "print('  /\\\\_/\\\\  ')\nprint()\nprint(' ( o.o ) ')\n"
+
+    returncode = await installer._run_logged([sys.executable, "-c", script], "install")
+
+    assert returncode == 0
+    assert any(line.startswith("  /\\_/\\") for line in broadcasted)
+    assert "" in broadcasted
+    assert " ( o.o )" in broadcasted
 
 
 @pytest.mark.asyncio
