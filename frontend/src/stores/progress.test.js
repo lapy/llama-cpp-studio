@@ -31,6 +31,60 @@ describe('progress store', () => {
     off()
   })
 
+  it('keeps task progress monotonic across updates and snapshots', () => {
+    const store = useProgressStore()
+    store.handleEvent('task_created', {
+      task_id: 'install_progress_1',
+      type: 'install',
+      status: 'running',
+      progress: 40,
+      description: 'Install',
+    })
+    store.handleEvent('task_updated', {
+      task_id: 'install_progress_1',
+      type: 'install',
+      status: 'running',
+      progress: 10,
+      message: 'Early stage',
+    })
+    expect(store.getTask('install_progress_1')?.progress).toBe(40)
+
+    store.handleEvent('build_progress', {
+      task_id: 'install_progress_1',
+      stage: 'sync',
+      progress: 2,
+      log_lines: [],
+    })
+    expect(store.getTask('install_progress_1')?.progress).toBe(40)
+
+    store.handleEvent('download_progress', {
+      task_id: 'install_progress_1',
+      progress: 1,
+    })
+    expect(store.getTask('install_progress_1')?.progress).toBe(40)
+
+    store.handleEvent('task_snapshot', {
+      tasks: [
+        {
+          task_id: 'install_progress_1',
+          type: 'install',
+          status: 'running',
+          progress: 20,
+          description: 'Install',
+        },
+      ],
+    })
+    expect(store.getTask('install_progress_1')?.progress).toBe(40)
+
+    store.handleEvent('task_updated', {
+      task_id: 'install_progress_1',
+      type: 'install',
+      status: 'running',
+      progress: 75,
+    })
+    expect(store.getTask('install_progress_1')?.progress).toBe(75)
+  })
+
   it('handleEvent stores task_created by real task_id', () => {
     const store = useProgressStore()
     const task = {
