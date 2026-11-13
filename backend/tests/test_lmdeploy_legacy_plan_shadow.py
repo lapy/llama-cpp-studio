@@ -59,6 +59,9 @@ async def _run_release(tmp_path: Path, **kwargs) -> tuple[list, LMDeployManager]
     task_holder: dict = {}
     installer._create_task = lambda coro: task_holder.__setitem__("coro", coro)
     installer._run_pip = fake_run_pip
+    # venv.create would run a real `python -m venv` (~5s per test); the plan's
+    # venv.ensure step is already represented by the faked pip call.
+    installer._ensure_venv = lambda: None
     installer._detect_installed_version = lambda: "0.10.1"
     installer._update_installed_state = lambda *a, **k: None
     installer._ready_pending_version = lambda *a, **k: None
@@ -149,6 +152,7 @@ async def test_pip_failure_preserves_the_legacy_error_string(tmp_path: Path):
     task_holder: dict = {}
     installer._create_task = lambda coro: task_holder.__setitem__("coro", coro)
     installer._run_pip = failing_run_pip
+    installer._ensure_venv = lambda: None
     installer._fail_pending_version = lambda *a, **k: None
     installer._refresh_state_from_environment = lambda: None
 
@@ -193,6 +197,7 @@ def _make_source_installer(tmp_path: Path, monkeypatch, calls: list, clone_calls
     task_holder: dict = {}
     installer._create_task = lambda coro: task_holder.__setitem__("coro", coro)
     installer._run_pip = fake_run_pip
+    installer._ensure_venv = lambda: None
     installer._detect_installed_version = lambda: "0.7.0.dev0"
     installer._update_installed_state = lambda *a, **k: None
     installer._ready_pending_version = lambda *a, **k: None

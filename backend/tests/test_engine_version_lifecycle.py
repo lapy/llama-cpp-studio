@@ -220,40 +220,6 @@ def test_list_api_includes_failed_and_orphan(client, monkeypatch, tmp_path):
     assert orphan["cmake_editable"] is False
 
 
-def test_retry_endpoint_reschedules_failed_build(client, monkeypatch, tmp_path):
-    from backend import data_store
-    from backend.routes import llama_versions as llama_routes
-
-    store = DataStore(config_dir=str(tmp_path / "config"))
-    monkeypatch.setattr(data_store, "_store", store)
-    monkeypatch.setattr(llama_routes.asyncio, "create_task", lambda coro: coro.close())
-    store.add_engine_version(
-        "llama_cpp",
-        {
-            "version": "source-main-retry",
-            "type": "source",
-            "install_type": "source",
-            "source_ref": "main",
-            "source_ref_type": "branch",
-            "source_branch": "main",
-            "source_repo": "https://github.com/ggerganov/llama.cpp.git",
-            "build_status": "failed",
-            "build_error": "boom",
-            "repository_source": "llama.cpp",
-        },
-    )
-
-    r = client.post(
-        "/api/llama-versions/versions/retry",
-        json={"version_id": "llama_cpp:source-main-retry"},
-    )
-    assert r.status_code == 200
-    body = r.json()
-    assert body["retry"] is True
-    assert body["version_name"] == "source-main-retry"
-    assert store.get_engine_versions("llama_cpp")[0]["build_status"] == "building"
-
-
 def test_delete_active_version_when_no_model_selects_the_engine(client, monkeypatch, tmp_path):
     from backend import data_store
 

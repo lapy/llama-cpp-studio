@@ -42,22 +42,28 @@ operations:
   replace: 'log "Complete. Studio environment: $VIRTUAL_ENV"'
   optional: true
   skip_if_contains: 'Studio environment: $VIRTUAL_ENV'
-# The fork's sparse list omits the TurboMind headers that sit at the ROOT of
-# csrc/ (cub_helpers.h, custom_all_reduce.cuh, sm70_tile_runtime_signal.cuh).
-# In cone mode the parent directory's files come along, but a checkout that was
-# ever initialised non-cone (an older installer or a reused dependency dir)
-# silently drops them and nvcc dies hours later on
+# The TurboMind gemm sources include headers that sit at the ROOT of csrc/
+# (cub_helpers.h, custom_all_reduce.cuh, sm70_tile_runtime_signal.cuh). A
+# narrow fork-side subset (csrc/core, csrc/sm70_turbomind, csrc/moe) omits
+# them whenever the dependency checkout ends up in pattern (non-cone) mode,
+# and nvcc only fails an hour later on
 #   epilogue.h: fatal error: ../../../../../../sm70_tile_runtime_signal.cuh
-# Pin the mode and the headers explicitly, and fail loudly if the fork changes
-# the list instead of no-oping into that failure.
-- kind: replace
-  search: git -C "$destination" sparse-checkout set "$@"
-  replace: git -C "$destination" sparse-checkout set --no-cone "$@"
-  skip_if_contains: sparse-checkout set --no-cone
-- kind: replace
-  search: LICENSE csrc/core csrc/sm70_turbomind csrc/moe
-  replace: /LICENSE csrc/core csrc/sm70_turbomind csrc/moe 'csrc/*.h' 'csrc/*.cuh'
-  skip_if_contains: csrc/*.cuh
+# Guarantee the post-condition instead of rewriting the fork's path list: the
+# list is fork-owned data that drifts (the sibling dg1kjd/sglang-sxm2 widened
+# its list to `LICENSE csrc` in #5), while `sparse-checkout add csrc` is
+# recursive in both cone and pattern mode and a no-op once the whole tree is
+# already present.
+- kind: insert_after
+  marker: git -C "$destination" sparse-checkout set "$@"
+  text: |-
+    # Studio: always materialize the whole csrc tree. TurboMind's gemm sources
+    # include headers at its ROOT, which a narrower fork-side subset drops in
+    # pattern (non-cone) mode. Adding the directory is recursive in both modes
+    # and is a no-op when the fork already checks out all of csrc.
+    if git -C "$destination" cat-file -e HEAD:csrc 2>/dev/null; then
+      git -C "$destination" sparse-checkout add csrc
+    fi
+  skip_if_contains: sparse-checkout add csrc
 # lapy/sglang-sm70 main 79dc001f folds the FlashAttention-V100 log call over two
 # lines that bash reads as two commands, so the installer dies with
 #   SGLANG_SM70_VISION_ATTENTION=1): command not found  (exit 127)
