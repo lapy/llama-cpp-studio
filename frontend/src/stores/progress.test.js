@@ -305,6 +305,52 @@ describe('progress store', () => {
     expect(store.getTaskLogs('download_2')).toEqual([])
   })
 
+  it('keeps Studio progress messages out of installer task logs', () => {
+    const store = useProgressStore()
+    store.handleEvent('task_created', {
+      task_id: 'install_1',
+      type: 'install',
+      status: 'running',
+      progress: 0,
+      description: 'Install engine',
+    })
+    store.handleEvent('task_updated', {
+      task_id: 'install_1',
+      type: 'install',
+      status: 'running',
+      progress: 10,
+      message: 'Pip tools ready',
+    })
+    store.handleEvent('task_log', {
+      task_id: 'install_1',
+      line: 'Obtaining file:///src',
+    })
+    store.handleEvent('task_updated', {
+      task_id: 'install_1',
+      type: 'install',
+      status: 'running',
+      progress: 20,
+      message: 'Pip tools ready',
+    })
+    store.handleEvent('task_updated', {
+      task_id: 'install_1',
+      type: 'install',
+      status: 'running',
+      progress: 30,
+      message: 'Upgrading pip',
+    })
+    store.handleEvent('task_log', {
+      task_id: 'install_1',
+      line: 'Successfully installed',
+    })
+
+    expect(store.getTaskLogs('install_1')).toEqual([
+      'Obtaining file:///src',
+      'Successfully installed',
+    ])
+    expect(store.getTask('install_1')?.message).toBe('Upgrading pip')
+  })
+
   it('handleEvent notifies subscribers for task_updated', () => {
     const store = useProgressStore()
     const seen = []

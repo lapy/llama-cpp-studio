@@ -205,12 +205,10 @@ export const useProgressStore = defineStore('progress', () => {
     // metadata.log_lines (no task_log / build_progress) still update live.
     if (metadataLines.length > 0) {
       appendTaskLogs(task.task_id, metadataLines)
-      return
     }
-
-    if (task.message) {
-      appendTaskLogs(task.task_id, task.message)
-    }
+    // `task.message` is Studio's progress/status label, not installer output.
+    // It stays on the task card; injecting it here duplicates it repeatedly
+    // (e.g. "Pip tools ready") into the log buffer.
   }
 
   function handleEvent(eventType, rawData) {
