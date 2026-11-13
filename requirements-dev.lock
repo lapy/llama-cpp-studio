@@ -36,7 +36,7 @@ mdurl==0.1.2
 msgpack==1.2.3
 multidict==7.1.0
 nvidia-ml-py==13.615.71
-opentelemetry-api==1.45.1
+opentelemetry-api==1.45.2
 packageurl-python==0.17.6
 packaging==26.3
 pip-api==0.0.35

@@ -25,7 +25,7 @@ huggingface-hub==2.2.0
 idna==3.20
 multidict==7.1.0
 nvidia-ml-py==13.615.71
-opentelemetry-api==1.45.1
+opentelemetry-api==1.45.2
 packaging==26.3
 propcache==0.5.4
 psutil==7.2.2
