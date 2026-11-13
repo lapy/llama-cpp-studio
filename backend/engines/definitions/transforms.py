@@ -38,6 +38,14 @@ Asset shape (strict; unknown fields are rejected)::
 Applicability failures raise :class:`TransformError` naming the asset, the
 operation and the upstream text, so a changed fork layout is a descriptive
 failure instead of a silent bad build.
+
+Anchor on structure, not on fork-owned data. ``search``/``marker``/``start``
+should name code the fork is unlikely to rewrite (a function-body line, a log
+call), never data the fork maintains (dependency path lists, version pins,
+package lists). When the rewrite only reinforces a post-condition, prefer
+inserting an idempotent guard that computes the end state over editing the
+fork's value: then the fork fixing the bug itself, or reshaping its data,
+cannot make the asset inapplicable.
 """
 
 from __future__ import annotations
@@ -241,7 +249,10 @@ def _apply_operation(asset: TransformAsset, text: str, operation: Mapping[str, A
         if search not in text:
             if operation.get("optional"):
                 return text
-            fail(f"expected upstream text is missing: {search[:80]!r}")
+            fail(
+                f"expected upstream text is missing: {search[:80]!r} "
+                f"(upstream {asset.file} changed; update assets/{asset.name}.yaml)"
+            )
         if text.count(search) != 1:
             fail(f"ambiguous upstream text: {search[:80]!r}")
         return text.replace(search, operation["replace"], 1)
@@ -250,16 +261,19 @@ def _apply_operation(asset: TransformAsset, text: str, operation: Mapping[str, A
         start_marker = operation["start"]
         end_marker = operation["end"]
         if text.count(start_marker) != 1 or text.count(end_marker) != 1:
-            fail("region markers are missing or ambiguous")
+            fail(f"region markers are missing or ambiguous in upstream {asset.file}")
         start = text.index(start_marker)
         end = text.index(end_marker)
         if end <= start:
-            fail("region markers are out of order")
+            fail(f"region markers are out of order in upstream {asset.file}")
         return text[:start] + operation["replace"] + text[end:]
 
     marker_text = operation["marker"]
     if text.count(marker_text) != 1:
-        fail("insertion marker is missing or ambiguous")
+        fail(
+            f"insertion marker is missing or ambiguous in upstream {asset.file}: "
+            f"{marker_text[:80]!r}"
+        )
     index = text.index(marker_text) + len(marker_text)
     return text[:index] + "\n" + operation["text"] + text[index:]
 

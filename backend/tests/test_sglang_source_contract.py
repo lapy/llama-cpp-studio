@@ -360,8 +360,17 @@ def _real_v100_checkout(tmp_path) -> Path:
     return checkout
 
 
-def _sm70_fork_checkout(tmp_path, asset_prefix: str = "sglang_sxm2") -> Path:
-    """Smallest SM70-fork checkout the versioned assets under `asset_prefix` apply to."""
+def _sm70_fork_checkout(
+    tmp_path,
+    asset_prefix: str = "sglang_sxm2",
+    sparse_paths: str = "LICENSE csrc/core csrc/sm70_turbomind csrc/moe",
+) -> Path:
+    """Smallest SM70-fork checkout the versioned assets under `asset_prefix` apply to.
+
+    ``sparse_paths`` is the fork-owned TurboMind subset on the command line. It
+    is a parameter because the forks change it (dg1kjd/sglang-sxm2#5 widened it
+    to ``LICENSE csrc``); the asset must not depend on its contents.
+    """
     from backend.engines.definitions.transforms import load_transform
 
     checkout = tmp_path / "checkout"
@@ -376,11 +385,10 @@ def _sm70_fork_checkout(tmp_path, asset_prefix: str = "sglang_sxm2") -> Path:
     complete = next(
         op for op in install_asset.operations if "Complete. Run" in op.get("search", "")
     )
-    sparse_checkout = next(
-        op for op in install_asset.operations if "sparse-checkout set" in op.get("search", "")
-    )
-    sparse_paths = next(
-        op for op in install_asset.operations if "LICENSE csrc" in op.get("search", "")
+    sparse_guard = next(
+        op
+        for op in install_asset.operations
+        if op["kind"] == "insert_after" and "sparse-checkout" in op["marker"]
     )
     (scripts / "install_v100.sh").write_text(
         "#!/usr/bin/env bash\n"
@@ -391,9 +399,9 @@ def _sm70_fork_checkout(tmp_path, asset_prefix: str = "sglang_sxm2") -> Path:
         + 'python -m pip install --no-deps -r "$REPO_ROOT/requirements.txt"\n'
         + marlin_stage["marker"]
         + "\n"
-        + sparse_paths["search"]
+        + sparse_paths
         + "\n"
-        + sparse_checkout["search"]
+        + sparse_guard["marker"]
         + "\n"
         + complete["search"]
         + "\n",
@@ -456,12 +464,16 @@ def test_sxm2_transform_assets_rewrite_a_real_checkout(tmp_path):
     # requirements install and the patch-stack-aware Marlin script stay as
     # shipped.
     assert 'python -m pip install --no-deps -r "$REPO_ROOT/requirements.txt"' in rewritten
-    # TurboMind headers live at the ROOT of csrc/, which the fork's sparse list
-    # omits in non-cone mode; the transform must pin both the mode and the
-    # headers (a missing one only fails the nvcc build an hour later).
-    assert 'sparse-checkout set --no-cone "$@"' in rewritten
-    assert "'csrc/*.h' 'csrc/*.cuh'" in rewritten
-    assert "/LICENSE csrc/core" in rewritten
+    # TurboMind headers live at the ROOT of csrc/, which a narrow fork subset
+    # omits in pattern (non-cone) mode. The asset must guarantee the whole tree
+    # as a post-condition instead of copying the fork's path list, because that
+    # list is fork-owned data that drifts (a missing header only fails the nvcc
+    # build an hour later).
+    assert "LICENSE csrc/core csrc/sm70_turbomind csrc/moe" in rewritten
+    assert 'sparse-checkout set "$@"' in rewritten
+    assert 'if git -C "$destination" cat-file -e HEAD:csrc 2>/dev/null; then' in rewritten
+    assert 'git -C "$destination" sparse-checkout add csrc' in rewritten
+    assert "--no-cone" not in rewritten
     assert os.access(script_path, os.X_OK)
     ipc = (
         checkout / "python" / "sglang" / "kernels" / "jit" / "csrc" / "distributed" / "ipc.cuh"
@@ -507,6 +519,36 @@ def test_builder_script_is_bound_to_the_executable_shell_installer():
     assert producers >= 3, (
         "expected the SGLang forks' source and sync stages to bind builder_script, "
         f"found {producers}"
+    )
+
+
+@pytest.mark.parametrize(
+    "sparse_paths",
+    [
+        "LICENSE csrc/core csrc/sm70_turbomind csrc/moe",  # before dg1kjd/sglang-sxm2#5
+        "LICENSE csrc",  # the fork widened the subset (issue #5)
+        "LICENSE 'csrc/**' 'csrc/**/*.cuh'",  # a future reshaping
+    ],
+)
+def test_sxm2_sparse_guard_survives_a_changed_fork_path_list(tmp_path, sparse_paths):
+    """The TurboMind header guard must not be anchored on the fork's path list.
+
+    dg1kjd/sglang-sxm2#5 replaced the narrow subset with ``LICENSE csrc``. The
+    old asset matched the subset literally, so the install was refused with
+    "expected upstream text is missing" even though the new upstream text was
+    already correct. Expressing the guard as a post-condition keeps every list
+    shape installable.
+    """
+    checkout = _sm70_fork_checkout(tmp_path, "sglang_sxm2", sparse_paths=sparse_paths)
+    for name in ("cuda_ipc", "install_v100_studio"):
+        apply_transform("sglang_sxm2/" + name, str(checkout))
+
+    rewritten = (checkout / "scripts" / "install_v100_studio.sh").read_text(encoding="utf-8")
+    # The fork's own list is left verbatim...
+    assert sparse_paths in rewritten
+    # ...and the guard runs after it, adding the whole tree as a post-condition.
+    assert rewritten.index('sparse-checkout set "$@"') < rewritten.index(
+        'git -C "$destination" sparse-checkout add csrc'
     )
 
 
@@ -563,9 +605,10 @@ def test_sm70_transform_assets_rewrite_a_real_checkout(tmp_path):
     assert 'python -m pip install --no-deps -r "$REPO_ROOT/requirements.txt"' in rewritten
     assert "apt-get" not in rewritten
     assert "rustup.rs" not in rewritten
-    assert 'sparse-checkout set --no-cone "$@"' in rewritten
-    assert "'csrc/*.h' 'csrc/*.cuh'" in rewritten
-    assert "/LICENSE csrc/core" in rewritten
+    assert "LICENSE csrc/core csrc/sm70_turbomind csrc/moe" in rewritten
+    assert 'sparse-checkout set "$@"' in rewritten
+    assert 'git -C "$destination" sparse-checkout add csrc' in rewritten
+    assert "--no-cone" not in rewritten
     # The vision-kernel log call must stay one argument: an orphaned
     # "SGLANG_SM70_VISION_ATTENTION=1)" line is executed as a command (exit 127).
     assert 'used only when SGLANG_SM70_VISION_ATTENTION=1)"' in rewritten

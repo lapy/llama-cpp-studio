@@ -1,8 +1,7 @@
 """Integration tests: every task-start surface returns a real ProgressManager task_id.
 
 Surfaces covered:
-  Builds:     POST /api/llama-versions/build-source (llama.cpp, ik_llama.cpp)
-              POST /api/llama-versions/versions/sync (llama.cpp, lmdeploy, 1cat-vllm)
+  Syncs:      POST /api/llama-versions/versions/sync (llama.cpp, lmdeploy, 1cat-vllm)
   Installs:   POST /api/lmdeploy/install, /install-source, /remove
               POST /api/1cat-vllm/install, /install-source, /remove
               POST /api/llama-versions/cuda-install, /cuda-uninstall
@@ -240,27 +239,7 @@ def _release_task(task_id: str) -> None:
     get_supervisor().finish_operation(task_id, "succeeded", "")
 
 
-# --- Build tasks --------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "repository_source",
-    ["llama.cpp", "ik_llama.cpp"],
-)
-def test_build_source_returns_registered_task_id(client, monkeypatch, tmp_path, repository_source):
-    _install_temp_store(monkeypatch, tmp_path)
-
-    from backend.routes import llama_versions as llama_routes
-
-    monkeypatch.setattr(llama_routes.asyncio, "create_task", lambda coro: coro.close())
-    monkeypatch.setattr(llama_routes.time, "time", lambda: 1_700_000_000)
-
-    r = client.post(
-        "/api/llama-versions/build-source",
-        json={"commit_sha": "main", "repository_source": repository_source},
-    )
-    assert r.status_code == 200
-    _assert_started_task(r.json(), task_type="build")
+# --- Sync tasks ---------------------------------------------------------------
 
 
 def test_sync_llama_branch_returns_registered_task_id(client, monkeypatch, tmp_path):

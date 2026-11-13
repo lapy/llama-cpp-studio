@@ -41,6 +41,8 @@ def _make_installer(tmp_path: Path, calls: list, *, detected="0.6.3"):
 
     installer._create_task = capture
     installer._run_pip = fake_run_pip
+    # venv.create would run a real `python -m venv` (~5s per test).
+    installer._ensure_venv = lambda: None
     installer._update_progress_task = fake_progress
     installer._detect_installed_version = lambda *a, **k: detected
     installer._ready_pending_version = lambda pending, meta: (
