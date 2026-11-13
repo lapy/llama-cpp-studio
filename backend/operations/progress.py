@@ -100,7 +100,11 @@ class ProgressManager:
             # Keep API/SSE payloads human-readable even when callers derive
             # progress from byte ratios or other repeating decimals.
             clamped = min(100.0, max(0.0, float(progress)))
-            task["progress"] = round(clamped, 1)
+            # A task's progress is cumulative. Some workflows re-use a narrower
+            # stage window (cmake sync/fetch after patch), which must not make
+            # the visible bar jump backwards.
+            previous = float(task.get("progress") or 0.0)
+            task["progress"] = round(max(previous, clamped), 1)
         if message is not None:
             task["message"] = message
         if status is not None:

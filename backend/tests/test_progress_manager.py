@@ -27,11 +27,24 @@ def test_create_and_complete_task():
 
 def test_update_task_clamps_progress():
     pm = pm_mod.get_progress_manager()
+    high = pm.create_task("x", "y")
+    pm.update_task(high, progress=150)
+    assert pm.get_task(high)["progress"] == 100.0
+    low = pm.create_task("x", "z")
+    pm.update_task(low, progress=-10)
+    assert pm.get_task(low)["progress"] == 0.0
+
+
+def test_update_task_never_moves_progress_backwards():
+    pm = pm_mod.get_progress_manager()
     tid = pm.create_task("x", "y")
-    pm.update_task(tid, progress=150)
-    assert pm.get_task(tid)["progress"] == 100.0
-    pm.update_task(tid, progress=-10)
-    assert pm.get_task(tid)["progress"] == 0.0
+    pm.update_task(tid, progress=62)
+    # A narrower stage window (cmake sync/fetch after patch) must not rewind
+    # the visible progress bar.
+    pm.update_task(tid, progress=2)
+    assert pm.get_task(tid)["progress"] == 62.0
+    pm.update_task(tid, progress=75)
+    assert pm.get_task(tid)["progress"] == 75.0
 
 
 def test_update_task_rounds_progress_for_api_payloads():

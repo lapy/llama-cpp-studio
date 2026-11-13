@@ -110,6 +110,19 @@ export const useProgressStore = defineStore('progress', () => {
       })
   }
 
+  function monotonicProgress(existing, incoming) {
+    const current = Number(existing?.progress)
+    const next = Number(incoming)
+    if (!Number.isFinite(next)) return Number.isFinite(current) ? current : 0
+    if (!Number.isFinite(current)) return Math.max(0, next)
+    return Math.max(current, next)
+  }
+
+  function mergeTaskProgress(existing, task) {
+    if (!task || typeof task !== 'object') return task
+    return { ...task, progress: monotonicProgress(existing, task.progress) }
+  }
+
   function splitTaskLogEntry(entry) {
     // Match Python's str.splitlines(): preserve leading/trailing whitespace
     // and internal blank lines, but do not invent a trailing blank line after
@@ -235,7 +248,7 @@ export const useProgressStore = defineStore('progress', () => {
       appendTaskLogs(payload?.task_id, payload?.log_lines)
       if (payload?.task_id) {
         const existing = tasks.value[payload.task_id] || {}
-        const nextProgress = payload.progress ?? existing.progress ?? 0
+        const nextProgress = monotonicProgress(existing, payload.progress ?? existing.progress ?? 0)
         const scanLike =
           existing.type === 'param_scan' ||
           (typeof payload.task_id === 'string' && payload.task_id.startsWith('scan_'))
@@ -273,7 +286,7 @@ export const useProgressStore = defineStore('progress', () => {
           type: existing.type || 'download',
           status: existing.status || 'running',
           description: existing.description || payload.filename || 'Download',
-          progress: payload.progress ?? existing.progress ?? 0,
+          progress: monotonicProgress(existing, payload.progress ?? existing.progress ?? 0),
           message: payload.message || existing.message || '',
           metadata: {
             ...(existing.metadata || {}),
@@ -307,14 +320,16 @@ export const useProgressStore = defineStore('progress', () => {
       const next = {}
       incoming.forEach((task) => {
         if (!keepIncomingTask(task)) return
-        next[task.task_id] = task
-        syncTaskLogsFromTask(task)
+        const merged = mergeTaskProgress(tasks.value[task.task_id], task)
+        next[task.task_id] = merged
+        syncTaskLogsFromTask(merged)
       })
       tasks.value = next
     }
     if (eventType === 'task_created' || eventType === 'task_updated') {
       const task = data?.data ?? data
       if (keepIncomingTask(task)) {
+        task.progress = monotonicProgress(tasks.value[task.task_id], task.progress)
         tasks.value = { ...tasks.value, [task.task_id]: task }
         syncTaskLogsFromTask(task)
       }
