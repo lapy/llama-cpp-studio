@@ -1060,7 +1060,7 @@
         />
         <details class="config-secondary-actions" @keydown.esc.stop.prevent="closeSecondaryActions">
           <summary>More actions</summary>
-          <div class="config-secondary-actions__menu">
+          <div class="config-secondary-actions__menu" @click="closeSecondaryActionsMenu">
             <Button
               v-if="canImportCommand"
               label="Import command"
@@ -2328,6 +2328,10 @@ const unavailableSavedEngine = computed(() => {
 function closeSecondaryActions(event) {
   event.currentTarget.open = false
   event.currentTarget.querySelector('summary')?.focus()
+}
+function closeSecondaryActionsMenu(event) {
+  const menu = event.currentTarget
+  menu.closest('details')?.removeAttribute('open')
 }
 function useParameterDefault(param) {
   delete config.value[param.key]
