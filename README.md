@@ -1,34 +1,90 @@
 # Studio
 
-Studio is a browser-based workspace for acquiring models, managing inference engines, configuring model runtimes, and serving local inference through a native proxy. It combines a Vue 3 frontend, a FastAPI management service, persistent local configuration, and supervised engine processes.
+**A local inference workspace for GGUF and safetensors models.**
 
-## Documentation
+[![CI](https://github.com/lapy/llama-cpp-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/lapy/llama-cpp-studio/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.12-3776AB)
+![Node](https://img.shields.io/badge/node-24-339933)
+![License](https://img.shields.io/badge/license-MIT-blue)
 
-| Guide                                                        | Contents                                                                                                                                                |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Delivery map](docs/delivery-map.md)                         | Review/ship entry point for the config-driven engine definitions release: gains, architecture, compatibility, changes, verification limits, remaining work. |
-| [Change inventory](docs/change-inventory.md)                 | Dependent commit series, file boundaries, deletions and their replacements, test placement.                                                              |
-| [Feature guide](docs/features.md)                            | Complete workspace guide: engines, acquisition, configuration, aliases, runtime state, audio, access policies, System, backup, history, and benchmarks. |
-| [API reference](docs/api-reference.md)                       | Management endpoint catalog, request/response schemas, inference interfaces, examples, authorization, and error semantics.                              |
-| [Proxy operations](docs/proxy-operations.md)                 | Routing, request observation, keys, budgets, queues, timeouts, process supervision, and accounting storage.                                             |
-| [Runtime architecture](docs/launch-manifests-plan.md)        | Desired/published/running revisions, command compilation, per-model and batch application, rollback, and reconciliation.                                |
-| [Runtime behavior cases](docs/launch-manifests-use-cases.md) | Concrete save/apply, routing, cancellation, and recovery behavior.                                                                                      |
-| [Audio contract and discovery](docs/audio-cpp-discovery.md)  | Engine/model metadata, task routing, typed options, voices, and audio transport.                                                                        |
-| [Engineering reference](docs/current-engineering-status.md)  | Persistence, authorization boundaries, operations, source modules, and reproducible quality checks.                                                     |
-| [Documentation index](docs/README.md)                        | Navigation across the current reference documentation.                                                                                                  |
+Studio brings model discovery, engine installation, per-model configuration, process
+supervision, and an OpenAI-compatible inference proxy into one browser workspace. It is
+self-hosted by design: configuration, model files, launch artifacts, logs, and request
+accounting stay on your machine.
+
+![Studio model library](docs/screenshots/models.png)
+
+> Screenshots use fixture data to illustrate the current interface.
+
+## Why Studio
+
+- **One control plane for heterogeneous engines.** Manage llama.cpp-family builds, vLLM,
+  SGLang, LMDeploy, and audio.cpp without learning a different workflow for each runtime.
+- **Configuration you can review.** Edit discovered engine parameters, preview the exact
+  command, review every value before saving, and publish immutable launch revisions.
+- **A real inference gateway.** Serve models through the native proxy with routing aliases,
+  request presets, streaming, cancellation, access keys, budgets, and usage accounting.
+- **Operational visibility.** Inspect engine logs, request traces, runtime state, hardware
+  readings, configuration history, and backups from the same UI.
+- **Audio as a first-class workload.** Discover audio packages and run speech,
+  transcription, and generic audio tasks with typed request contracts and voice presets.
+
+## Screenshots
+
+| Review before saving                                                          | Reuse configuration                                                    |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| ![Review model changes](docs/screenshots/config-change-review.png)            | ![Configuration templates](docs/screenshots/config-templates.png)      |
+| **Structured request aliases**                                                | **Gateway operations**                                                 |
+| ![Structured request parameter aliases](docs/screenshots/request-aliases.png) | ![Proxy gateway overview and engine fleet](docs/screenshots/proxy.png) |
+
+## Quick start
+
+### Docker (CPU)
+
+```bash
+docker compose -f docker-compose.cpu.yml up --build
+```
+
+### Docker (NVIDIA)
+
+The host needs a suitable NVIDIA driver and NVIDIA Container Toolkit.
+
+```bash
+docker compose -f docker-compose.cuda.yml up --build -d
+```
+
+Both Compose files persist `./data`, publish the UI/API and inference ports on host
+loopback, and serve the built frontend at <http://localhost:8080>. See
+[setup](#setup) for manual builds, local development, and the Linux dev container.
+
+### Local development
+
+Requirements are Node.js 24+, Python 3.12, and the native build dependencies for the
+engines you intend to use.
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.lock
+npm ci
+npm run dev:all
+```
+
+The npm backend scripts invoke `python`, so activate the environment first. Use
+`npm run dev:frontend` and `npm run dev:backend` to run the two processes separately.
 
 ## Workspaces
 
-- **Models** provides card/table views, filtering, sorting, runtime actions, Connect, file inspection, configuration, warm-up, and deletion.
-- **Search** discovers Hugging Face models and normalized audio packages, selects artifacts/quantizations/companions, and starts downloads or package installs.
-- **Audio** runs speech, transcription, and discovered generic tasks with the selected model's request schema, voices, reference assets, and outputs.
-- **Engines** manages runtime installations, source builds, installed versions, activation, build settings, updates, and parameter scans.
-- **Proxy** exposes traffic, engine health, logs, keys and client policies, live routing aliases, serving limits, and gateway lifecycle.
-- **System** contains Hardware, Diagnostics, Backup & restore, and Change history. Hardware owns CPU/memory/disk/GPU readings and CUDA installation/version controls.
+| Workspace   | What it owns                                                                                                                |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **Models**  | Model library, cards/table views, runtime actions, Connect, warm-up, file inspection, configuration, and deletion.          |
+| **Search**  | Hugging Face discovery, artifact/quantization selection, companion files, downloads, and audio package installation.        |
+| **Audio**   | Speech, transcription, and discovered generic audio tasks with typed options, voices, reference audio, and outputs.         |
+| **Engines** | Runtime installs, source builds, versions, activation, build settings, updates, and CLI parameter scans.                    |
+| **Proxy**   | Traffic, engine health, logs, request traces, access keys, budgets, routing aliases, serving limits, and gateway lifecycle. |
+| **System**  | Hardware readings, CUDA/toolkit controls, diagnostics, backup and restore, and configuration change history.                |
 
-Model configuration stores a separate section per engine. Forms use discovered flags, defaults, enums, types, and model-specific metadata. Command import understands scalar, multi-value, repeated, JSON, and delimited parameters. Native command previews include ordered arguments, environment details, launch revisions, and generated sidecars.
-
-### Supported engines
+## Supported engines
 
 | Engine            | ID              | Artifacts                                                | Installation                                             |
 | ----------------- | --------------- | -------------------------------------------------------- | -------------------------------------------------------- |
@@ -44,27 +100,47 @@ Model configuration stores a separate section per engine. Forms use discovered f
 | SGLang SM70       | `sglang_sm70`   | safetensors snapshots                                    | Dedicated source/build workflow and managed Python/CUDA. |
 | audio.cpp         | `audio_cpp`     | Prepared audio packages and discovered audio GGUF models | Source/CMake build.                                      |
 
-Available tasks and hardware support depend on the installed engine and selected model. Studio reads the engine registry, executable help, and structured metadata to expose applicable controls.
+Available tasks and hardware support depend on the installed engine and selected model.
+Studio derives controls from the engine registry, scanned executable help, and structured
+model metadata rather than assuming one runtime's options apply to another.
 
-### Native serving and aliases
+## Configuration and serving model
 
-The native proxy owns routing, engine process generations, readiness, streaming, cancellation, access policy, request accounting, and lifecycle. Ordinary API aliases identify a real model. Named request presets such as `assistant:no-thinking` apply JSON request overrides while sharing that model's process. Live routing aliases can select a single target or distribute requests round-robin across an ordered target list.
+Studio keeps three states distinct:
 
-Saving engine configuration records desired settings. Publishing selects an immutable launch revision. **Restart this model** applies a launch to that running model; **Use on next start** publishes the launch for its next actual start. Other models keep running. API aliases/request presets update through native routing for subsequent requests. Proxy serving-limit changes use **Restart & apply**, which drains the proxy's engine processes.
+| State                     | Meaning                                                             |
+| ------------------------- | ------------------------------------------------------------------- |
+| Desired configuration     | Saved model settings in the configuration store.                    |
+| Published launch revision | Immutable launch specification selected for a future process start. |
+| Running revision          | Revision verified for the actual running engine generation.         |
 
-Read [model identity and aliases](docs/features.md#model-identity-and-aliases) and [saving, publishing, and running](docs/features.md#saving-publishing-and-running) for exact configuration and state semantics.
+**Save changes** persists desired settings. **Review changes** shows a grouped,
+before-and-after view of exactly what will be saved. Applying a runtime plan publishes a
+launch revision: **Restart this model** restarts that model now, while **Use on next
+start** leaves an existing process running. Other models stay loaded.
 
-## Ports and architecture
+Model configuration stores a separate section per engine. Forms use discovered flags,
+defaults, enums, types, and model-specific metadata. Command import understands scalar,
+multi-value, repeated, JSON, and delimited parameters. Command previews include ordered
+arguments, environment details, launch revisions, and generated sidecars.
 
-| Interface                 | Container/production default         | Local development default            |
-| ------------------------- | ------------------------------------ | ------------------------------------ |
-| Browser UI                | `http://localhost:8080`              | `http://localhost:5173`              |
-| Management API            | `http://localhost:8080/api`          | `http://localhost:8081/api`          |
-| Native inference          | `http://localhost:2000`              | `http://localhost:2000`              |
-| Interactive API reference | `http://localhost:8080/docs`         | `http://localhost:8081/docs`         |
-| Running OpenAPI schema    | `http://localhost:8080/openapi.json` | `http://localhost:8081/openapi.json` |
+### Templates and aliases
 
-Vite forwards `/api` and `/v1` to the management backend. Inference clients normally use the native inference origin. The management origin also supplies audio/task transport routes. The public inference URL shown in Connect is a client-facing setting, separate from listener binding.
+Configuration templates capture engine settings, request presets, and optionally routing
+aliases. Apply a template as settings, settings plus save, or **routing only** when only
+the API alias, alias swaps, and request aliases should change.
+
+Request aliases expose the same model under an additional `model:preset` name. The
+structured editor covers request and chat-template overrides with text, number, on/off,
+and JSON value types — for example `chat_template_kwargs.enable_thinking`. Live routing
+aliases can target a single model or distribute requests round-robin across an ordered
+target list.
+
+Read [model identity and aliases](docs/features.md#model-identity-and-aliases) and
+[saving, publishing, and running](docs/features.md#saving-publishing-and-running) for the
+exact semantics.
+
+## Architecture
 
 ```mermaid
 flowchart LR
@@ -77,37 +153,37 @@ flowchart LR
     Engine --> Models[Model files and launch artifacts]
 ```
 
-The backend starts the inference listener when a registered runtime is active. Models load through explicit start/preload or inference demand. Engine readiness can include substantial weight-loading and device-initialization time.
+The management service owns catalog and configuration APIs, task orchestration, and the
+UI. The native proxy owns routing, engine process generations, readiness, streaming,
+cancellation, access policy, usage observation, and lifecycle. Models load through an
+explicit start/preload or on inference demand.
+
+### Ports
+
+| Interface                 | Container/production default         | Local development default            |
+| ------------------------- | ------------------------------------ | ------------------------------------ |
+| Browser UI                | `http://localhost:8080`              | `http://localhost:5173`              |
+| Management API            | `http://localhost:8080/api`          | `http://localhost:8081/api`          |
+| Native inference          | `http://localhost:2000`              | `http://localhost:2000`              |
+| Interactive API reference | `http://localhost:8080/docs`         | `http://localhost:8081/docs`         |
+| Running OpenAPI schema    | `http://localhost:8080/openapi.json` | `http://localhost:8081/openapi.json` |
+
+Vite forwards `/api` and `/v1` to the management backend. Inference clients normally use
+the native inference origin. The management origin also supplies audio and task transport
+routes. The public inference URL shown in Connect is a client-facing setting, separate
+from listener binding.
 
 ## Setup
 
 ### Frontend build configuration
 
-The production frontend build requires `VITE_PRIMEUI_LICENSE`. Vite consumes this value during the build. Set it in `frontend/.env.local`, provide it as a Docker build argument, or put it in the repository-root `.env` for Compose build-argument interpolation:
+The production frontend build requires `VITE_PRIMEUI_LICENSE`. Set it in
+`frontend/.env.local`, provide it as a Docker build argument, or put it in the
+repository-root `.env` for Compose build-argument interpolation:
 
 ```dotenv
 VITE_PRIMEUI_LICENSE=YOUR_LICENSE_VALUE
 ```
-
-### Docker CPU setup
-
-From the repository root:
-
-```bash
-docker compose -f docker-compose.cpu.yml up --build
-```
-
-The CPU Compose configuration mounts `./data` at `/app/data`, publishes the UI/API and inference ports on host loopback, mounts the backend source, and enables backend reload. The browser receives the frontend bundle built into the image.
-
-### Docker NVIDIA setup
-
-The host needs an NVIDIA driver and NVIDIA Container Toolkit suitable for the selected workloads:
-
-```bash
-docker compose -f docker-compose.cuda.yml up --build -d
-```
-
-This configuration publishes the same loopback ports, mounts the persistent data directory, reserves NVIDIA GPUs, and disables backend reload. CUDA toolkit installation/version management is available in **System → Hardware**.
 
 ### Manual container build
 
@@ -124,23 +200,10 @@ docker run -d \
   llama-cpp-studio
 ```
 
-Add `--gpus all` for NVIDIA device access. The persistent data mount needs write permission for the container's configured user.
+Add `--gpus all` for NVIDIA device access. The persistent data mount needs write
+permission for the container's configured user.
 
-### Local development
-
-Requirements are Node.js 24+, Python 3.12, and the native build dependencies needed for the engines you use. Typical Linux source-build tooling includes Git, CMake, a C/C++ toolchain, pkg-config, and applicable BLAS/device libraries.
-
-```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements-dev.lock
-npm ci
-npm run dev:all
-```
-
-The npm backend scripts invoke `python`, so activate the environment before running them. Separate terminals can use `npm run dev:frontend` and `npm run dev:backend`.
-
-For a production-style local run:
+### Production-style local run
 
 ```bash
 source .venv/bin/activate
@@ -148,25 +211,36 @@ npm run build
 python backend/main.py
 ```
 
-The FastAPI service serves `frontend/dist`. The default persistent data root is `./data` on the host and `/app/data` in the container. `STUDIO_DATA_DIR` selects an explicit data root.
+The FastAPI service serves `frontend/dist`. The default persistent data root is `./data`
+on the host and `/app/data` in the container. `STUDIO_DATA_DIR` selects an explicit data
+root.
 
-#### Linux dev container
+### Linux dev container
 
-For development on the repository itself inside Linux, run the repo-mounted long-lived dev container built from the runtime stage of the `Dockerfile`:
+Run the repository inside the long-lived dev container built from the runtime stage of
+the `Dockerfile`:
 
 ```bash
 docker compose -f docker-compose.dev.yml up -d --build
 docker compose -f docker-compose.dev.yml exec studio-dev bash
 ```
 
-The repository is mounted at `/app`. Each container start installs `requirements-dev.lock` into the image venv; `npm ci` runs once into a named volume so a host `node_modules` is never used inside. In the container the commands above work as written: `npm run dev:all`, `npm run test`, `python -m pytest backend/tests -q`, lint, and `npm run openapi:check`. Ports `5173`, `8080`, `8081`, and `2000` are published to host loopback, and `.devcontainer/` attaches VS Code Dev Containers to the same service.
+The repository is mounted at `/app`. Each container start installs
+`requirements-dev.lock` into the image venv; `npm ci` runs once into a named volume so a
+host `node_modules` is never used inside. Ports `5173`, `8080`, `8081`, and `2000` are
+published to host loopback, and `.devcontainer/` attaches VS Code Dev Containers to the
+same service.
 
-Two caveats when testing in the dev container: run the backend suite as the image's unprivileged user (`exec --user appuser studio-dev`), because a root shell bypasses the permission bits that the rustup-home relocation tests exercise; and build the frontend once (`npm run build`) before `test_performance_budgets.py`, which inspects the production bundle.
+Two caveats when testing in the dev container: run the backend suite as the image's
+unprivileged user (`exec --user appuser studio-dev`), because a root shell bypasses the
+permission bits that the rustup-home relocation tests exercise; and build the frontend
+once (`npm run build`) before `test_performance_budgets.py`, which inspects the
+production bundle.
 
-#### Remote development stack for agents
+### Remote development stack
 
-For work against the actual GPU host without touching the live instance, use the
-separate checkout/state/ports stack described in
+For work against a GPU host without touching the live instance, use the separate
+checkout/state/ports stack described in
 [Remote development stack for agents](docs/agent-dev-stack.md):
 
 ```bash
@@ -175,27 +249,18 @@ ssh studioagent@dev-host 'agent-dev stack build && agent-dev stack up'
 ssh studioagent@dev-host 'agent-dev inspect-instance --json'
 ```
 
-It mounts a separate checkout into a dev container with Uvicorn reload and Vite
-HMR, exposes a JSON CLI and an MCP stdio transport over SSH, and provides guarded
-patch, test, log, reload, diagnostics, and rollback operations with an operation
-ID and revision on every result. It is independent of the local
-`docker-compose.dev.yml` container and is not included in production images. For a completely host-free option, use the
-[self-contained development image](docs/agent-dev-standalone.md): one container,
-named volumes, SSH/MCP, and no Docker socket.
+It mounts a separate checkout into a dev container with Uvicorn reload and Vite HMR,
+exposes a JSON CLI and an MCP stdio transport over SSH, and provides guarded patch, test,
+log, reload, diagnostics, and rollback operations. It is independent of the local
+`docker-compose.dev.yml` container and is not included in production images.
 
-```bash
-scripts/agent-dev/build-standalone.sh
-docker compose -f scripts/agent-dev/standalone.compose.yaml up -d
-docker cp agent.pub studio-dev:/state/authorized_keys
-ssh -p 2222 agent@dev-host
-```
-
-The host-assisted controller path is optional; the standalone image is the
-Docker-socket-free option.
+For a host-free option, use the
+[self-contained development image](docs/agent-dev-standalone.md): one container, named
+volumes, SSH/MCP, and no Docker socket.
 
 ## First model workflow
 
-1. Open **Engines**, install/build a runtime suitable for the model, and activate its version.
+1. Open **Engines**, install/build a runtime suitable for the model, and activate a version.
 2. Open **System → Hardware** when toolkit installation or hardware inspection is needed.
 3. Configure a Hugging Face token when the selected model requires provider access.
 4. Open **Search**, select a model/artifact/package, and acquire it.
@@ -205,7 +270,9 @@ Docker-socket-free option.
 8. Open **Connect** for the API URL, model ID, access key, request example, and test action.
 9. Inspect **Proxy** for client policy, request outcomes, engine logs, and usage.
 
-For audio models, the configuration exposes family/task, assets, request defaults, and launch controls. **Open Audio** selects the model in the Audio workspace. The model's contract supplies supported task panels and request options.
+For audio models, the configuration exposes family/task, assets, request defaults, and
+launch controls. **Open Audio** selects the model in the Audio workspace. The model's
+contract supplies supported task panels and request options.
 
 ## Inference examples
 
@@ -219,7 +286,8 @@ curl http://localhost:2000/v1/chat/completions \
   -d '{"model":"MODEL_ID_FROM_CATALOG","messages":[{"role":"user","content":"Say hello."}]}'
 ```
 
-For an authenticated client, add `-H "Authorization: Bearer $STUDIO_INFERENCE_KEY"`. Inference keys are distinct from the management token.
+For an authenticated client, add `-H "Authorization: Bearer $STUDIO_INFERENCE_KEY"`.
+Inference keys are distinct from the management token.
 
 The management origin exposes supported audio transports:
 
@@ -236,7 +304,10 @@ curl http://localhost:8080/v1/audio/transcriptions \
   -F file=@sample.ogg
 ```
 
-The selected engine/model determines voices, accepted formats, and supported routes. Applicable upload/output conversions follow the audio contract. See [audio endpoints](docs/features.md#audio-endpoints) and the [API reference](docs/api-reference.md).
+The selected engine/model determines voices, accepted formats, and supported routes.
+Applicable upload/output conversions follow the audio contract. See
+[audio endpoints](docs/features.md#audio-endpoints) and the
+[API reference](docs/api-reference.md).
 
 ## Persistent data
 
@@ -259,7 +330,11 @@ The selected engine/model determines voices, accepted formats, and supported rou
 | `cuda/`                                                                                                     | Managed CUDA toolkit installations and active path.                                         |
 | `logs/`, `temp/`                                                                                            | Background/install logs and temporary work.                                                 |
 
-Portable configuration export contains selected preferences, model settings, and templates. It does not contain the entire operational data volume. Keep the data directory private and use an appropriate SQLite backup procedure for a running accounting ledger. [Backup and history details](docs/features.md#portable-backup-and-restore) describe exact inclusion, preview, and recovery behavior.
+Portable configuration export contains selected preferences, model settings, and
+templates. It does not contain the entire operational data volume. Keep the data
+directory private and use an appropriate SQLite backup procedure for a running accounting
+ledger. [Backup and history details](docs/features.md#portable-backup-and-restore)
+describe exact inclusion, preview, and recovery behavior.
 
 ## Environment configuration
 
@@ -286,9 +361,11 @@ Portable configuration export contains selected preferences, model settings, and
 | `STUDIO_BUILD_THREADS`             | Override CMake/build parallelism; default is every CPU the process may use.                       |
 | `STUDIO_BLOCKING_WORKERS`          | Size the shared pool that runs blocking probes/scans off the API event loop.                      |
 
-`proxy_port` and the client-facing public inference URL are application settings. The port takes effect at listener restart; the public URL supplies client examples and connection details. TLS termination belongs at the deployment's reverse proxy.
+`proxy_port` and the client-facing public inference URL are application settings. The port
+takes effect at listener restart; the public URL supplies client examples and connection
+details. TLS termination belongs at the deployment's reverse proxy.
 
-## Validation and development tools
+## Quality gates
 
 ```bash
 source .venv/bin/activate
@@ -303,9 +380,30 @@ npm run build
 npm run test:browser
 ```
 
-The repository contains real CPU fixture tests for native HTTP/SSE transport and process supervision, plus browser journeys for navigation, layout, accessibility assertions, configuration, and client workflows. Individual GPU/model combinations require the matching hardware/runtime and inference checks.
+The repository contains real CPU fixture tests for native HTTP/SSE transport and process
+supervision, plus browser journeys for navigation, layout, accessibility, configuration,
+and client workflows. Individual GPU/model combinations require the matching
+hardware/runtime and inference checks.
 
-`VERSION` supplies application version metadata. The checked-in OpenAPI schema reflects the management API. CI runs the configured code/schema/version checks, dependency audits, and container/image workflows. See [engineering reference](docs/current-engineering-status.md) for commands, source ownership, recovery boundaries, and environment-dependent checks.
+`VERSION` supplies application version metadata. The checked-in OpenAPI schema reflects
+the management API. CI runs code/schema/version checks, dependency audits, and
+container/image workflows. See the
+[engineering reference](docs/current-engineering-status.md) for commands, source
+ownership, recovery boundaries, and environment-dependent checks.
+
+## Documentation
+
+| Guide                                                            | Contents                                                                                                         |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| [Feature guide](docs/features.md)                                | Workspaces, acquisition, configuration, templates, aliases, runtime state, audio, proxy, System, and benchmarks. |
+| [API reference](docs/api-reference.md)                           | Management endpoints, schemas, inference interfaces, authorization, and error semantics.                         |
+| [Proxy operations](docs/proxy-operations.md)                     | Routing, request observation, keys, budgets, queues, timeouts, supervision, and accounting.                      |
+| [Engine observability flags](docs/engine-observability-flags.md) | Which logging and metrics flags Studio applies or reserves for each engine, and why.                             |
+| [Runtime architecture](docs/launch-manifests-plan.md)            | Desired/published/running revisions, command compilation, batch application, and reconciliation.                 |
+| [Runtime behavior cases](docs/launch-manifests-use-cases.md)     | Concrete save/apply, routing, cancellation, and recovery behavior.                                               |
+| [Audio contract and discovery](docs/audio-cpp-discovery.md)      | Engine/model metadata, task routing, typed options, voices, and audio transport.                                 |
+| [Engineering reference](docs/current-engineering-status.md)      | Persistence, authorization boundaries, operations, source modules, and quality checks.                           |
+| [Documentation index](docs/README.md)                            | Navigation across all reference documentation.                                                                   |
 
 ## Troubleshooting
 
@@ -314,10 +412,14 @@ The repository contains real CPU fixture tests for native HTTP/SSE transport and
 | Engine does not install/build                        | Inspect the task/build log, selected source/ref/package, compiler/dependencies, available storage, and applicable device/toolkit prerequisites.                                 |
 | Model cannot start                                   | Check active compatible engine, complete artifacts/companions, reviewed saved configuration, valid runtime plan, and proxy health. Inspect model logs and the operation result. |
 | Saved launch settings are not in use                 | Read the model's runtime plan and published/running revisions; invoke the appropriate per-model action.                                                                         |
-| Request alias does not change behavior               | Verify the exposed name, preset JSON path, target engine's parameter support, and use of a JSON inference route.                                                                |
+| Request alias does not change behavior               | Verify the exposed name, preset path, target engine's parameter support, and use of a JSON inference route.                                                                     |
 | HTTP 429                                             | Inspect the policy/queue reason, reservations, limits, and Retry-After value in Proxy request details.                                                                          |
 | Audio task is unavailable                            | Inspect the selected task/family contract and model profile; rescan the engine/model metadata when required.                                                                    |
 | Hardware readings are unknown                        | Refresh System → Hardware and inspect diagnostic/probe errors. Missing readings do not measure zero usage.                                                                      |
 | Save/restore response is uncertain                   | Retain the draft, refresh/reconcile authoritative state, and follow the returned outcome instead of replaying a mutation automatically.                                         |
 | Data directory is not writable                       | Check mount ownership and access for Studio's runtime user.                                                                                                                     |
 | Frontend build reports a license configuration error | Supply `VITE_PRIMEUI_LICENSE` to the frontend build environment.                                                                                                                |
+
+## License
+
+MIT. See [LICENSE](LICENSE) and [third-party notices](THIRD_PARTY_NOTICES.md).

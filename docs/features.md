@@ -118,6 +118,14 @@ Switching the selected engine retains the other engine sections. The UI displays
 
 An explicit save records configuration review. A downloaded model with generated/default settings can require review before its configuration is treated as user-reviewed.
 
+### Reviewing changes before save
+
+**Review changes** compares the working form with the last saved configuration and groups the differences under routing/aliases, runtime/environment, and engine settings. Each row shows the saved value and the value that will replace it, plus an added/changed/removed marker. The dialog also reports alias validation failures and can save or discard the draft without leaving the page.
+
+Saving writes desired configuration only; it does not mutate a running engine process. The separate runtime plan explains whether a published revision or restart is still required.
+
+![Review changes dialog](screenshots/config-change-review.png)
+
 ### Parameters, defaults, and custom arguments
 
 Configuration forms use discovered types and controls. Search adds parameters to the editable set; saved overrides and common controls remain visible. Inline help states an engine default when known, while the information tooltip describes the field. Reset actions return an override to its saved or inherited value according to the control.
@@ -150,15 +158,18 @@ A process uses the environment and device allocation in its published launch rev
 
 Templates contain a name, description, selected engine, and engine-section snapshots. A template can capture all engine sections or only the active engine. Routing-name inclusion is an explicit option for `model_alias` and additional ordinary aliases.
 
-Applying a template supports these scopes:
+The **Templates** library is searchable and keeps the save form beside the saved-template list. Each template exposes its target engines, routing/request-alias badges, and its own actions. Applying a template supports these scopes:
 
-| API scope    | Behavior                                                                            |
-| ------------ | ----------------------------------------------------------------------------------- |
-| `active`     | Merge the template's active section into the target's active engine section.        |
-| `all`        | Merge each engine section present in the template into its matching target section. |
-| `set_engine` | Merge the template's active section and select that engine on the target.           |
+| API scope    | Behavior                                                                                                  |
+| ------------ | --------------------------------------------------------------------------------------------------------- |
+| `active`     | Merge the template's active section into the target's active engine section.                              |
+| `all`        | Merge each engine section present in the template into its matching target section.                       |
+| `set_engine` | Merge the template's active section and select that engine on the target.                                 |
+| `routing`    | Copy only `model_alias`, `swap_aliases`, and `set_params_by_id` into the target's active engine section.  |
 
-Request-preset configuration is part of the captured engine section. The template screen supports saving, selecting, renaming, describing, applying, and deleting templates. A template application can update the working form or persist configuration according to the requested action; runtime application remains a separate decision.
+Request-preset configuration is part of the captured engine section and is also included in the routing-only scope. **Apply settings** updates the working form; **Apply & save** persists immediately; **Routing only** changes aliases without touching engine parameters. Runtime application remains a separate decision.
+
+![Configuration templates library](screenshots/config-templates.png)
 
 ## Model identity and aliases
 
@@ -177,7 +188,9 @@ Studio normalizes primary and ordinary API names to safe lower-case names. Reque
 
 ### Request-parameter presets
 
-In **Model configuration → Launch → Request parameter aliases**, add a suffix and a JSON object. With primary API alias `assistant`, suffix `no-thinking` exposes `assistant:no-thinking`:
+In **Model configuration → Launch → Request parameter aliases**, add a suffix and one or more overrides. Each override chooses **Request** or **Chat template** scope, a value type (text, number, on/off, or JSON), and its value. The chat-template scope prepends `chat_template_kwargs.` automatically, so adding `enable_thinking` produces `chat_template_kwargs.enable_thinking`. The **Add chat template** preset creates that common thinking override in one step.
+
+With primary API alias `assistant`, suffix `no-thinking` exposes `assistant:no-thinking`. The corresponding stored value is:
 
 ```json
 {
@@ -195,7 +208,9 @@ A request to `assistant:no-thinking` resolves to the same real process as `assis
 
 Dotted keys address nested request fields; `chat_template_kwargs.enable_thinking` targets one member of `chat_template_kwargs`. A backslash escapes a literal dot in a key. A key ending in `?` applies only when that field is absent. A JSON object supplied as a field value replaces that field's value; dotted keys provide control over individual nested members. `false`, zero, empty strings, arrays, and nested JSON values retain their JSON types. Studio manages the `model` field.
 
-The editor validates JSON object shape, suffix syntax, and duplicate suffixes before save. Presets apply to subsequent JSON inference requests when saved and share the real model's running process. Parameter names and values must be supported by the target engine/model. Native engine-specific audio passthrough explicitly rejects parameter presets because it forwards the request through a concrete-model transport.
+The editor validates suffix syntax, duplicate suffixes, duplicate parameter names, the reserved `model` field, numeric input, and JSON values before save. Presets apply to subsequent JSON inference requests when saved and share the real model's running process. Parameter names and values must be supported by the target engine/model. Native engine-specific audio passthrough explicitly rejects parameter presets because it forwards the request through a concrete-model transport.
+
+![Structured request parameter aliases](screenshots/request-aliases.png)
 
 ### Live multi-target routing
 

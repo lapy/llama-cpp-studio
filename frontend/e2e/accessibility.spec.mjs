@@ -190,7 +190,7 @@ test('connect and apply dialogs return focus and announce a bad URL once', async
   await expect(apply).toBeVisible()
   await apply.focus()
   await page.keyboard.press('Enter')
-  const impact = page.getByRole('dialog', { name: 'Apply saved settings' })
+  const impact = page.getByRole('dialog', { name: 'Review runtime changes' })
   await expect(impact).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(impact).toBeHidden()

@@ -393,6 +393,21 @@ The catalog includes every documented OpenAPI operation. The response column lis
 | DELETE | `/api/model-config-templates/{template_id}` | Delete Template | `template_id` path required | —                                     | 200: object          |
 | PUT    | `/api/model-config-templates/{template_id}` | Update Template | `template_id` path required | TemplateUpdateBody (application/json) | 200: object          |
 
+List responses include `has_routing` and `has_request_aliases` in addition to the stored
+snapshot metadata, so clients can enable a routing-only action without downloading every
+template body. Template application accepts these `apply_engines` values:
+
+| Value        | Merge behavior                                                                                                    |
+| ------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `active`     | Merge the template's active section into the target's active engine.                                               |
+| `all`        | Merge every engine section present in the template.                                                               |
+| `set_engine` | Merge the template's active section and select that engine on the target.                                          |
+| `routing`    | Copy only `model_alias`, `swap_aliases`, and `set_params_by_id` into the target's active engine. Requires routing data. |
+
+`routing` leaves engine parameters and the selected engine unchanged. The response reports
+`persisted`, `template_id`, `template_name`, and the resulting `config`. A `persist` write
+still performs the normal model validation and routing-name collision checks.
+
 ### models
 
 | Method | Path                                                         | Operation                      | Parameters                                                                                                                  | Request body                                                                                       | Success  |
@@ -610,12 +625,12 @@ Fields use OpenAPI types/constraints plus service-supported values for runtime m
 
 ### ApplyConfigTemplateBody
 
-| Field             | Type            | Required | Default  | Constraints |
-| ----------------- | --------------- | -------- | -------- | ----------- |
-| `apply_engines`   | string          | no       | "active" | —           |
-| `include_routing` | boolean or null | no       | —        | —           |
-| `persist`         | boolean         | no       | false    | —           |
-| `template_id`     | string          | yes      | —        | —           |
+| Field             | Type            | Required | Default  | Constraints                                      |
+| ----------------- | --------------- | -------- | -------- | ------------------------------------------------ |
+| `apply_engines`   | string          | no       | "active" | `active`, `all`, `set_engine`, or `routing`      |
+| `include_routing` | boolean or null | no       | —        | —                                                |
+| `persist`         | boolean         | no       | false    | —                                                |
+| `template_id`     | string          | yes      | —        | —                                                |
 
 ### BackupApplyResponse
 

@@ -11,6 +11,9 @@ from backend.models.config import DEFAULT_ENGINE, VALID_ENGINE_IDS, normalize_mo
 
 # Per-model routing; omitted from templates unless explicitly included.
 ROUTING_ONLY_KEYS = frozenset({"model_alias", "swap_aliases"})
+# Routing-only application also carries the request-alias table, which lives in
+# the engine section but is routing metadata rather than an engine flag.
+ROUTING_APPLY_KEYS = frozenset({*ROUTING_ONLY_KEYS, "set_params_by_id"})
 
 
 def _utc_now_iso() -> str:
@@ -70,6 +73,7 @@ def apply_template_to_config(
       current active engine (does not change target ``engine``).
     - ``all``: merge every engine section present in the template.
     - ``set_engine``: merge active section and set target ``engine`` to template's.
+    - ``routing``: copy only routing/alias keys into the target's active engine.
     """
     existing = normalize_model_config(existing_raw)
     template = normalize_model_config(template_config)
@@ -104,6 +108,15 @@ def apply_template_to_config(
         if isinstance(section, dict):
             _merge_section(template_engine, section)
         result_engine = template_engine
+    elif apply_engines == "routing":
+        source = template_engines.get(template_engine)
+        if isinstance(source, dict):
+            base = dict(merged_engines.get(target_engine) or {})
+            for key in ROUTING_APPLY_KEYS:
+                if key in source:
+                    base[key] = copy.deepcopy(source[key])
+            merged_engines[target_engine] = base
+        result_engine = target_engine
     else:
         section = template_engines.get(template_engine)
         if isinstance(section, dict):
