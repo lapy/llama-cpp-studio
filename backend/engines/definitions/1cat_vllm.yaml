@@ -474,12 +474,25 @@ runtime_profiles:
       # rebuild or a source sync.
       caches:
       - XDG_CACHE_HOME
+      - TRITON_HOME
       - TRITON_CACHE_DIR
       - TORCHINDUCTOR_CACHE_DIR
       - TORCH_EXTENSIONS_DIR
-      - VLLM_CACHE_ROOT
+      - TVM_FFI_CACHE_DIR
+      - TILELANG_CACHE_DIR
+      - CUTE_DSL_CACHE_DIR
+      - FLASHINFER_WORKSPACE_BASE
+      - OUTLINES_CACHE_DIR
+      - DG_JIT_CACHE_DIR
       - TIKTOKEN_CACHE_DIR
+      - DATA_GYM_CACHE_DIR
+      - KERNELS_CACHE
       - CUDA_CACHE_PATH
+      - VLLM_CACHE_ROOT
+      - VLLM_ASSETS_CACHE
+      - VLLM_XLA_CACHE_PATH
+      - VLLM_FLASHINFER_AUTOTUNE_CACHE_DIR
+      - FLYDSL_RUNTIME_CACHE_DIR
 launch_policy:
   cpu_supported: false
   gpu_archs:

@@ -320,6 +320,31 @@ class GenericVenvInstaller(PythonVenvInstaller):
                     f"{os.path.join(fallback, 'lib64')}:{env.get('LD_LIBRARY_PATH', '')}"
                 )
         env["VIRTUAL_ENV"] = self._venv_path
+        # A source build compiles the same kernels the server will JIT. Point
+        # the profile's managed caches at the install dir now, so the build's
+        # artifacts are already there when the first start reads them.
+        from backend.engines.caches import resolve_profile_caches
+        from backend.engines.definitions.schema import DefinitionError
+
+        definition = getattr(self, "_definition", None)
+        profile_env = {}
+        if definition is not None:
+            try:
+                profile_env = dict(definition.profile("").get("env") or {})
+            except DefinitionError:
+                profile_env = {}
+        managed_caches = resolve_profile_caches(
+            profile_env, {"install_dir": getattr(self, "_base_dir", "")}
+        )
+        env.update(managed_caches)
+        if "XDG_CACHE_HOME" in managed_caches and "HF_HOME" not in env:
+            # A build that downloads model assets must not fill the version's
+            # cache tree; keep them in Studio's shared model cache.
+            from backend.paths import studio_data_dir
+
+            model_cache_root = os.path.join(studio_data_dir(), "hf-cache")
+            env.setdefault("HF_HOME", model_cache_root)
+            env.setdefault("TORCH_HOME", os.path.join(model_cache_root, "torch"))
         declared = dict(lifecycle.get("build_env_vars") or {})
         # Host-derived nvcc parallelism for every engine whose build reads
         # NVCC_THREADS (SGLang's kernel builds, torch extensions, 1Cat): the

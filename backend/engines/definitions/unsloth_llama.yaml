@@ -151,6 +151,12 @@ runtime_profiles:
     launch_family: gguf_llama_server
     port_binding:
       flag: --port
+    env:
+      # The prebuilt distribution still JIT-compiles any PTX it carries in the
+      # CUDA driver; keep that compute cache beside the install.
+      caches:
+      - XDG_CACHE_HOME
+      - CUDA_CACHE_PATH
     launch_args:
       model: --model
       hf_repo: --hf-repo

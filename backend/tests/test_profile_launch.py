@@ -214,7 +214,11 @@ def test_declared_caches_resolve_inside_the_engine_install(monkeypatch, tmp_path
 
 
 def _cache_profiles():
-    """Every shipped (engine, default profile) that declares `env.caches`."""
+    """Every shipped (engine, default profile) that declares `env.caches`.
+
+    Family profiles (``launch_family``) compose their own executable/model
+    source, so they are exercised by their family compiler test instead.
+    """
     from backend.engines.definitions.loader import load_default_engine_definitions
 
     rows = []
@@ -223,6 +227,8 @@ def _cache_profiles():
         definition = registry.get(engine_id)
         profiles = dict(definition.runtime_profiles)
         for profile_name, profile in profiles.items():
+            if profile.get("launch_family"):
+                continue
             caches = (profile.get("env") or {}).get("caches")
             if caches:
                 rows.append(

@@ -54,6 +54,21 @@ Engine activation and explicit rescanning populate the parameter catalog. Source
 
 Published or retained launch generations can reference an engine installation or model path. Removal checks those references and reports a conflict when the path is still required. Applicable removal requests expose `retire_launch_references` for an explicit retirement decision; a running reference has its own restriction and requires the relevant process to stop. Retirement affects the available launch/recovery generations, so installation deletion is distinct from simply choosing another active version.
 
+### Managed compile and JIT caches
+
+Compilation caches belong to one engine installation, not to the service account's home directory. Studio therefore points every declared cache variable at `<install dir>/caches/<variable-slug>`: Triton, TorchInductor, torch extensions, TileLang, TVM-FFI, FlashInfer, CuTe DSL, DeepGEMM, CUDA driver JIT, tiktoken/model-tokenizer data, and the engines' own roots (SGLang, vLLM). The installer's build and smoke steps use the same paths as the server, so a start reuses the kernels the installation already produced instead of recompiling them.
+
+| Engine family | Managed cache variables |
+| --- | --- |
+| vLLM, 1Cat-vLLM | The Python JIT baseline plus `VLLM_CACHE_ROOT`, `VLLM_ASSETS_CACHE`, `VLLM_XLA_CACHE_PATH`, `VLLM_FLASHINFER_AUTOTUNE_CACHE_DIR`, `FLYDSL_RUNTIME_CACHE_DIR`. |
+| SGLang (upstream and the V100, SXM2, SM70 forks) | The Python JIT baseline plus `SGLANG_CACHE_DIR`, `SGLANG_DIFFUSION_CACHE_ROOT`, `SGLANG_DIFFUSION_HOST_SPILL_DIR`, `SGLANG_CUTE_AOT_CACHE_DIR`, `SGLANG_DG_CACHE_DIR`, `SGLANG_JIT_CACHE_DIR`, `SGLANG_QWEN4_PLE_FILE_DIR`, the SM70/V100 torch-extension build directories, `HUMMING_CACHE_DIR`, `HUMMING_TMP_DIR`. |
+| LMDeploy | The Python JIT baseline; LMDeploy has no cache root of its own and relies on the shared stack variables. |
+| llama.cpp, ik_llama.cpp, Unsloth llama.cpp, audio.cpp | `XDG_CACHE_HOME` and `CUDA_CACHE_PATH` (driver PTX/cubin cache; audio.cpp also uses the XDG base for its eSpeak extraction cache). Build objects use Studio's `ccache` instead. |
+
+The Python JIT baseline is `XDG_CACHE_HOME`, `TRITON_HOME`, `TRITON_CACHE_DIR`, `TORCHINDUCTOR_CACHE_DIR`, `TORCH_EXTENSIONS_DIR`, `TVM_FFI_CACHE_DIR`, `TILELANG_CACHE_DIR`, `CUTE_DSL_CACHE_DIR`, `FLASHINFER_WORKSPACE_BASE`, `OUTLINES_CACHE_DIR`, `DG_JIT_CACHE_DIR`, `TIKTOKEN_CACHE_DIR`, `DATA_GYM_CACHE_DIR`, `KERNELS_CACHE`, and `CUDA_CACHE_PATH`.
+
+The tree is per installation version. An in-place retry/reinstall or a source synchronization removes `caches/` before rebuilding, so a stale kernel from a different source or toolchain cannot be reused; a newly installed version starts empty. Removing the version removes its caches. Model-weight and download caches stay in Studio's shared model storage: when a managed `XDG_CACHE_HOME` is set, Studio pins `HF_HOME`/`TORCH_HOME` to the shared cache so a rebuild flush cannot delete model files. TurboMind's file-based GEMM tuning record (`TM_GEMM_IMPORT`/`TM_GEMM_EXPORT`) is intentionally not managed: it is a single file with import/export state, not a cache directory.
+
 ### Parameter discovery
 
 Studio scans executable help and structured engine metadata. Catalog entries describe flags, types, arity, defaults, ranges, enums, sections, and support in the selected build. Model-specific audio profiles and SGLang runtime profiles supply additional configuration fields.

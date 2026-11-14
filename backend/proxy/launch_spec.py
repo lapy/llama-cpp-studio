@@ -599,6 +599,19 @@ def _compile_env(
         if key in {"CUDA_HOME", "CUDA_PATH"}:
             _validate_cuda_toolkit(value, field=key)
         merged[key] = value
+    # A managed XDG_CACHE_HOME is the catch-all for JIT caches, but HF_HOME and
+    # TORCH_HOME derive their default from it. Left alone, model WEIGHTS would
+    # land inside the version's cache tree and be deleted by a rebuild flush.
+    # Keep downloads in Studio's shared model cache unless the service/user
+    # already chose a location.
+    if "XDG_CACHE_HOME" in engine_defaults:
+        from backend.paths import studio_data_dir
+
+        model_cache_root = os.path.join(studio_data_dir(), "hf-cache")
+        for name, subdir in (("HF_HOME", ""), ("TORCH_HOME", "torch")):
+            if name in merged or name in user_unset:
+                continue
+            merged[name] = os.path.join(model_cache_root, subdir) if subdir else model_cache_root
     for key in user_unset:
         if key in _COMPOSITIONAL_KEYS:
             if required_ld and key == "LD_LIBRARY_PATH":
