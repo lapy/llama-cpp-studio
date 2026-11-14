@@ -178,6 +178,22 @@ def _runtime_env(active: dict, config: dict) -> List[str]:
         library_dirs=audio_cpp_library_dirs(server_binary, source_path),
         include_cuda=include_cuda,
     )
+    # audio.cpp's launcher is the frozen audio family compiler, not a runtime
+    # profile, so it applies the same managed native cache policy here. The
+    # driver's compute cache (PTX/cubin finalization) and audio.cpp's own
+    # eSpeak extraction cache both default under $HOME.
+    from backend.engines.caches import (
+        NATIVE_JIT_CACHES,
+        cache_environment,
+        ensure_cache_dirs,
+        install_dir_for,
+    )
+
+    install_dir = install_dir_for(active)
+    if install_dir:
+        ensure_cache_dirs(install_dir, NATIVE_JIT_CACHES)
+        for name, path in cache_environment(install_dir, NATIVE_JIT_CACHES).items():
+            env.setdefault(name, path)
     return [f"{key}={env[key]}" for key in sorted(env)]
 
 

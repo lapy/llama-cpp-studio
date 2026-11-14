@@ -823,6 +823,10 @@ FAMILY_PROFILE_KEYS: FrozenSet[str] = frozenset(
         "argv_prefix",
         "port_binding",
         "launch_args",
+        # The family composes executable/cwd/argv, but a managed cache tree is
+        # still Studio data anchored to the install row. A family profile may
+        # declare ONLY `env.caches`; cwd/cuda/required belong to the mechanism.
+        "env",
     }
 )
 LAUNCH_ARG_KEYS: FrozenSet[str] = frozenset(
@@ -1700,6 +1704,17 @@ def _validate_profile(name: str, value: Any, where: str) -> Dict[str, Any]:
             "caches",
         }
         _require(not unknown, f"env has unknown keys {sorted(unknown)}", item_where)
+        if "launch_family" in value:
+            # The family mechanism composes cwd/CUDA/required/path itself;
+            # only the Studio-owned managed cache declarations belong here.
+            disallowed_env = set(env) - {"caches"}
+            _require(
+                not disallowed_env,
+                f"profile {name!r} declaring launch_family cannot also "
+                f"declare env {sorted(disallowed_env)}: the family mechanism "
+                "composes those",
+                item_where,
+            )
         if "caches" in env:
             # Managed JIT/kernel caches resolved to <install_dir>/caches/<var>.
             # The variable NAMES are data; Studio owns the path and the flush.

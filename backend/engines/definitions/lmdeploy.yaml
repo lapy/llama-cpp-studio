@@ -256,10 +256,19 @@ runtime_profiles:
       # rebuild or a source sync.
       caches:
       - XDG_CACHE_HOME
+      - TRITON_HOME
       - TRITON_CACHE_DIR
       - TORCHINDUCTOR_CACHE_DIR
       - TORCH_EXTENSIONS_DIR
+      - TVM_FFI_CACHE_DIR
+      - TILELANG_CACHE_DIR
+      - CUTE_DSL_CACHE_DIR
+      - FLASHINFER_WORKSPACE_BASE
+      - OUTLINES_CACHE_DIR
+      - DG_JIT_CACHE_DIR
       - TIKTOKEN_CACHE_DIR
+      - DATA_GYM_CACHE_DIR
+      - KERNELS_CACHE
       - CUDA_CACHE_PATH
 launch_policy:
   cpu_supported: false

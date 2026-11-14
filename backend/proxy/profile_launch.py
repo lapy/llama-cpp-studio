@@ -328,23 +328,14 @@ def compile_profile_launch(
         str(key): str(value) for key, value in (env_spec.get("defaults") or {}).items()
     }
     bin_dir = os.path.dirname(executable)
-    cached_vars = [str(name) for name in (env_spec.get("caches") or ())]
-    if cached_vars:
-        # Managed caches live inside the ACTIVE install so a rebuild starts
-        # empty and two versions never share compiled kernels. The installer
-        # points the same variables at the same paths, which is what lets a
-        # server start reuse what the smoke/precompile step already produced.
-        from backend.engines.caches import cache_environment, ensure_cache_dirs
+    # Managed caches live inside the ACTIVE install so a rebuild starts empty
+    # and two versions never share compiled kernels. The installer points the
+    # same variables at the same paths, which is what lets a server start reuse
+    # what the smoke/precompile step already produced.
+    from backend.engines.caches import resolve_profile_caches
 
-        install_dir = str(active.get("install_dir") or "")
-        if not install_dir:
-            install_dir = str(active.get("venv_path") or "")
-            if install_dir:
-                install_dir = os.path.dirname(install_dir)
-        if install_dir:
-            ensure_cache_dirs(install_dir, cached_vars)
-            for name, path in cache_environment(install_dir, cached_vars).items():
-                engine_defaults.setdefault(name, path)
+    for name, path in resolve_profile_caches(env_spec, active).items():
+        engine_defaults.setdefault(name, path)
     required_path: List[str] = []
     kind = str((spec.get("executable") or {}).get("kind") or "")
     if bin_dir and (kind in _VENV_EXECUTABLE_KINDS or env_spec.get("prepend_bin_to_path")):

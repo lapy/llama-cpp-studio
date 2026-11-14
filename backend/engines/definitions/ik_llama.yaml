@@ -88,6 +88,13 @@ runtime_profiles:
     launch_family: gguf_llama_server
     port_binding:
       flag: --port
+    env:
+      # Native builds cache objects with Studio's ccache; the CUDA driver
+      # still JIT-compiles any PTX the binary carries and otherwise writes
+      # into $HOME/.nv. Keep that compute cache beside the install.
+      caches:
+      - XDG_CACHE_HOME
+      - CUDA_CACHE_PATH
     launch_args:
       model: --model
       hf_repo: --hf-repo

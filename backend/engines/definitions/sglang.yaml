@@ -310,6 +310,39 @@ runtime_profiles:
     env:
       cwd: venv_root
       cuda: true
+      # Managed JIT/kernel caches: Studio resolves each variable to
+      # <install_dir>/caches/<var> and flushes that tree on an in-place
+      # rebuild or a source sync, so a start reuses the kernels the previous
+      # build/start produced instead of recompiling them under $HOME or /tmp.
+      caches:
+      - XDG_CACHE_HOME
+      - TRITON_HOME
+      - TRITON_CACHE_DIR
+      - TORCHINDUCTOR_CACHE_DIR
+      - TORCH_EXTENSIONS_DIR
+      - TVM_FFI_CACHE_DIR
+      - TILELANG_CACHE_DIR
+      - CUTE_DSL_CACHE_DIR
+      - FLASHINFER_WORKSPACE_BASE
+      - OUTLINES_CACHE_DIR
+      - DG_JIT_CACHE_DIR
+      - TIKTOKEN_CACHE_DIR
+      - DATA_GYM_CACHE_DIR
+      - KERNELS_CACHE
+      - CUDA_CACHE_PATH
+      - SGLANG_CACHE_DIR
+      - SGLANG_DIFFUSION_CACHE_ROOT
+      - SGLANG_DIFFUSION_HOST_SPILL_DIR
+      - SGLANG_CUTE_AOT_CACHE_DIR
+      - SGLANG_DG_CACHE_DIR
+      - SGLANG_JIT_CACHE_DIR
+      - SGLANG_QWEN4_PLE_FILE_DIR
+      - SGLANG_SM70_GLM_NVFP4_BUILD_DIR
+      - SGLANG_SM70_QPN8_BUILD_DIR
+      - SGLANG_V100_DECODE_CUDA_BUILD_DIR
+      - SGLANG_V100_NVFP4_MOE_BUILD_DIR
+      - HUMMING_CACHE_DIR
+      - HUMMING_TMP_DIR
     runtime_switch:
       config_key: sglang_runtime
       default: llm

@@ -326,7 +326,7 @@ Applicable upload/output conversions follow the audio contract. See
 | `config/proxy-accounting.sqlite3` and associated WAL files                                                  | Client usage, reservations, request metadata, and statistics state.                         |
 | `runtime/models/`                                                                                           | Immutable launch generations, published pointers, runtime receipts, journals, and sidecars. |
 | `models/`, `hf-cache/`                                                                                      | Model artifacts and provider cache.                                                         |
-| `llama-cpp/`, `unsloth-llama/`, `lmdeploy/`, `1cat-vllm/`, `vllm/`, `sglang/`, `sglang-v100/`, `audio-cpp/` | Engine sources, builds, environments, or distributions.                                     |
+| `llama-cpp/`, `unsloth-llama/`, `lmdeploy/`, `1cat-vllm/`, `vllm/`, `sglang/`, `sglang-v100/`, `audio-cpp/` | Engine sources, builds, environments, distributions, and their per-version `caches/` compile/JIT trees. |
 | `cuda/`                                                                                                     | Managed CUDA toolkit installations and active path.                                         |
 | `logs/`, `temp/`                                                                                            | Background/install logs and temporary work.                                                 |
 

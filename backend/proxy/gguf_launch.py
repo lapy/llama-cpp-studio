@@ -140,12 +140,18 @@ def compile_gguf_family_launch(
 
     library = _resolve_cuda_library_path(cwd)
     required_ld = [part for part in str(library).split(":") if part]
+    # The family composes argv/executable/cwd, but a managed cache belongs to
+    # the family PROFILE: the install row supplies the anchor directory, so a
+    # native server's JIT/compile caches can live beside the binary instead of
+    # in $HOME. A profile may only declare `env.caches` (see schema).
+    from backend.engines.caches import resolve_profile_caches
+
     env = _compile_env(
         config,
         engine=engine,
         required_ld=required_ld,
         required_path=[],
-        engine_defaults={},
+        engine_defaults=resolve_profile_caches(spec.get("env") or {}, active),
         active=active,
     )
     identities["executable"] = _file_identity(executable)
