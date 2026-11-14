@@ -90,10 +90,17 @@ test('request parameter aliases save, reload, validate and remove without losing
   await page.goto('/models/demo-model/config')
   await page.getByRole('tab', { name: 'Launch', exact: true }).click()
   await page.getByRole('button', { name: 'Add alias', exact: true }).click()
-  const params = page.getByLabel('Request overrides (JSON object)', { exact: true })
-  await params.fill('{broken')
+  await page.getByRole('button', { name: 'Add chat template', exact: true }).click()
+  await page.getByRole('combobox', { name: 'Boolean value', exact: true }).click()
+  await page.getByRole('option', { name: 'Off', exact: true }).click()
+  await page.getByRole('button', { name: 'Add override', exact: true }).click()
+  await page.getByLabel('Override name for alias 1', { exact: true }).nth(1).fill('thinking_effort')
+  await page.getByRole('combobox', { name: 'Override value type', exact: true }).nth(1).click()
+  await page.getByRole('option', { name: 'JSON', exact: true }).click()
+  const overrideValue = page.getByLabel('JSON value', { exact: true })
+  await overrideValue.fill('{broken')
   await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled()
-  await params.fill('{"chat_template_kwargs.enable_thinking": false, "thinking_effort": "low"}')
+  await overrideValue.fill('"low"')
   await expect(page.getByText('assistant-name:thinking', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Save changes', exact: true }).click()
   await expect
@@ -106,7 +113,12 @@ test('request parameter aliases save, reload, validate and remove without losing
     ])
   await page.reload()
   await page.getByRole('tab', { name: 'Launch', exact: true }).click()
-  await expect(params).toHaveValue(/"thinking_effort": "low"/)
+  await expect(page.getByLabel('Override name for alias 1', { exact: true }).nth(1)).toHaveValue(
+    'thinking_effort',
+  )
+  await expect(page.getByRole('combobox', { name: 'Boolean value', exact: true })).toContainText(
+    'Off',
+  )
   await page.getByRole('button', { name: 'Remove alias 1', exact: true }).click()
   await page.getByRole('button', { name: 'Save changes', exact: true }).click()
   await expect.poll(() => saved.engines.llama_cpp.set_params_by_id).toEqual([])

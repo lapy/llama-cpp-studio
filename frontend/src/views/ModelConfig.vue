@@ -827,8 +827,8 @@
               <div v-if="(companionFiles.engram_files || []).length" class="companion-field">
                 <label>Engram tables</label>
                 <small class="config-muted-hint">
-                  These are swappable n-gram table shards; use the repo's set_split.py and
-                  rename the table to the target quant's table shard.
+                  These are swappable n-gram table shards; use the repo's set_split.py and rename
+                  the table to the target quant's table shard.
                 </small>
                 <ul class="engram-file-list">
                   <li v-for="table in companionFiles.engram_files" :key="table.filename">
@@ -860,9 +860,7 @@
                   class="pi pi-info-circle param-info"
                   tabindex="0"
                   aria-label="About API alias"
-                  v-tooltip.top="
-                    aliasTooltip
-                  "
+                  v-tooltip.top="aliasTooltip"
                 />
               </label>
               <InputText
@@ -1028,6 +1026,14 @@
       <!-- Actions -->
       <div class="config-actions">
         <Button
+          :label="reviewChangesLabel"
+          icon="pi pi-list-check"
+          severity="secondary"
+          outlined
+          :disabled="!hasUnsavedChanges"
+          @click="changeReviewVisible = true"
+        />
+        <Button
           label="Save changes"
           icon="pi pi-save"
           severity="success"
@@ -1045,6 +1051,13 @@
           v-tooltip.top="applyRuntimeHint"
           @click="requestApply"
         />
+        <Button
+          label="Templates"
+          icon="pi pi-bookmark"
+          severity="secondary"
+          outlined
+          @click="openTemplatesDialog"
+        />
         <details class="config-secondary-actions" @keydown.esc.stop.prevent="closeSecondaryActions">
           <summary>More actions</summary>
           <div class="config-secondary-actions__menu">
@@ -1057,13 +1070,6 @@
               @click="openParseCommandDialog()"
             />
             <Button
-              label="Templates"
-              icon="pi pi-bookmark"
-              severity="secondary"
-              outlined
-              @click="openTemplatesDialog"
-            />
-            <Button
               label="Reset to Saved"
               icon="pi pi-refresh"
               severity="secondary"
@@ -1073,6 +1079,16 @@
           </div>
         </details>
       </div>
+
+      <ConfigChangeReview
+        :visible="changeReviewVisible"
+        :groups="configChangeGroups"
+        :saving="saving"
+        :invalid="!requestAliasesValid"
+        @update:visible="changeReviewVisible = $event"
+        @save="saveFromReview"
+        @discard="discardFromReview"
+      />
 
       <Dialog
         v-model:visible="cmdPreviewDialogVisible"
@@ -1204,99 +1220,28 @@
         v-model:visible="templatesDialogVisible"
         header="Configuration templates"
         modal
-        class="dialog-width-md config-templates-dialog"
+        class="dialog-width-lg config-templates-dialog"
         @show="fetchConfigTemplates"
       >
-        <p class="config-templates-lead">
-          Save a snapshot of engine settings to reuse on other models, or restore a previous layout.
-          Routing aliases are omitted by default so each model keeps its own Studio proxy id.
-        </p>
-
-        <div class="config-templates-section">
-          <div class="section-label">Save snapshot</div>
-          <div class="config-templates-field">
-            <label for="tpl-name">Name</label>
-            <InputText
-              id="tpl-name"
-              v-model="templateSaveForm.name"
-              placeholder="e.g. Qwen reasoning defaults"
-              class="w-full"
-            />
-          </div>
-          <div class="config-templates-field">
-            <label for="tpl-desc">Description (optional)</label>
-            <Textarea
-              id="tpl-desc"
-              v-model="templateSaveForm.description"
-              rows="2"
-              class="w-full"
-              autoResize
-            />
-          </div>
-          <div class="config-templates-field">
-            <label for="tpl-source">Snapshot from</label>
-            <Select
-              id="tpl-source"
-              v-model="templateSaveForm.snapshot_source"
-              :options="templateSnapshotSourceOptions"
-              option-label="label"
-              option-value="value"
-              class="w-full"
-            />
-          </div>
-          <div class="config-templates-field">
-            <label for="tpl-scope">Engines to include</label>
-            <Select
-              id="tpl-scope"
-              v-model="templateSaveForm.engines_scope"
-              :options="templateEnginesScopeOptions"
-              option-label="label"
-              option-value="value"
-              class="w-full"
-            />
-          </div>
-          <div class="config-templates-check">
-            <ToggleSwitch v-model="templateSaveForm.include_routing" input-id="tpl-routing" />
-            <label for="tpl-routing">Include routing aliases in template</label>
-          </div>
-          <PersistenceAlert
-            :notice="templateSaveNotice"
-            @retry="saveConfigTemplate"
-            @refresh="refreshTemplateSave"
-          />
-          <Button
-            label="Save template"
-            icon="pi pi-save"
-            :loading="templateSaveLoading"
-            :disabled="!templateSaveForm.name.trim() || templateSaveHeld"
-            @click="saveConfigTemplate"
-          />
-        </div>
-
-        <div class="config-templates-section config-templates-section--apply">
-          <div class="section-label">Apply template</div>
-          <div v-if="configTemplatesLoading" class="cmd-preview-loading">
-            <i class="pi pi-spin pi-spinner" aria-hidden="true" />
-            <span>Loading templates…</span>
-          </div>
-          <Message v-else-if="!configTemplates.length" severity="secondary" :closable="false">
-            No templates saved yet.
-          </Message>
-          <template v-else>
-            <div class="config-templates-field">
-              <label for="tpl-pick">Template</label>
-              <Select
-                id="tpl-pick"
-                v-model="templateApplyForm.template_id"
-                :options="configTemplates"
-                option-label="name"
-                option-value="id"
-                placeholder="Select a template"
-                class="w-full"
-              />
+        <div class="config-templates-layout">
+          <section class="config-templates-library">
+            <div class="config-templates-library-head">
+              <div>
+                <h3>Saved templates</h3>
+                <p>Apply settings, or only the routing and alias configuration, to this model.</p>
+              </div>
+              <label class="config-templates-search">
+                <i class="pi pi-search" aria-hidden="true" />
+                <InputText
+                  v-model="templateSearch"
+                  placeholder="Search templates"
+                  aria-label="Search templates"
+                />
+              </label>
             </div>
-            <div class="config-templates-field">
-              <label for="tpl-apply-mode">Apply mode</label>
+
+            <div class="config-templates-apply-mode">
+              <label for="tpl-apply-mode">Apply settings as</label>
               <Select
                 id="tpl-apply-mode"
                 v-model="templateApplyForm.apply_engines"
@@ -1306,115 +1251,207 @@
                 class="w-full"
               />
             </div>
-            <div class="config-templates-check">
-              <ToggleSwitch
-                v-model="templateApplyForm.include_routing"
-                input-id="tpl-apply-routing"
-              />
-              <label for="tpl-apply-routing">Apply routing aliases from template</label>
-            </div>
+
             <PersistenceAlert
               :notice="templateMutationNotice"
               @retry="retryTemplateMutation"
               @refresh="refreshTemplateMutation"
             />
-            <div class="config-templates-apply-actions">
-              <Button
-                label="Apply to form"
-                icon="pi pi-arrow-down"
-                :loading="templateApplyLoading"
-                :disabled="!templateApplyForm.template_id || templateMutationHeld"
-                @click="applyConfigTemplate(false)"
-              />
-              <Button
-                label="Apply & save"
-                icon="pi pi-check"
-                severity="success"
-                :loading="templateApplyLoading"
-                :disabled="!templateApplyForm.template_id || templateMutationHeld"
-                @click="applyConfigTemplate(true)"
+            <div v-if="templateApplyLoading" class="cmd-preview-loading">
+              <i class="pi pi-spin pi-spinner" aria-hidden="true" />
+              <span>Applying template…</span>
+            </div>
+
+            <div v-if="configTemplatesLoading" class="cmd-preview-loading">
+              <i class="pi pi-spin pi-spinner" aria-hidden="true" />
+              <span>Loading templates…</span>
+            </div>
+            <Message v-else-if="!configTemplates.length" severity="secondary" :closable="false">
+              No templates saved yet. Save the current form on the right to create one.
+            </Message>
+            <Message
+              v-else-if="!filteredConfigTemplates.length"
+              severity="secondary"
+              :closable="false"
+            >
+              No template matches “{{ templateSearch }}”.
+            </Message>
+            <ul v-else class="config-templates-cards">
+              <li v-for="tpl in filteredConfigTemplates" :key="tpl.id" class="config-template-card">
+                <div v-if="templateEditId === tpl.id" class="config-template-card__edit">
+                  <label class="sr-only" :for="`tpl-edit-name-${tpl.id}`">Template name</label>
+                  <InputText
+                    :id="`tpl-edit-name-${tpl.id}`"
+                    v-model="templateEditForm.name"
+                    class="w-full"
+                  />
+                  <label class="sr-only" :for="`tpl-edit-desc-${tpl.id}`"
+                    >Template description</label
+                  >
+                  <InputText
+                    :id="`tpl-edit-desc-${tpl.id}`"
+                    v-model="templateEditForm.description"
+                    placeholder="Description"
+                    class="w-full"
+                  />
+                  <div class="config-template-card__actions">
+                    <Button
+                      label="Save"
+                      size="small"
+                      icon="pi pi-check"
+                      :loading="templateEditSaving"
+                      :disabled="!templateEditForm.name.trim() || templateMutationHeld"
+                      @click="saveTemplateEdit"
+                    />
+                    <Button
+                      label="Cancel"
+                      size="small"
+                      severity="secondary"
+                      outlined
+                      @click="cancelTemplateEdit"
+                    />
+                  </div>
+                </div>
+                <template v-else>
+                  <div class="config-template-card__body">
+                    <div class="config-template-card__heading">
+                      <strong>{{ tpl.name }}</strong>
+                      <small v-if="tpl.updated_at">{{
+                        new Date(tpl.updated_at).toLocaleDateString()
+                      }}</small>
+                    </div>
+                    <p v-if="tpl.description" class="config-template-card__desc">
+                      {{ tpl.description }}
+                    </p>
+                    <div class="config-template-card__tags">
+                      <Tag
+                        v-for="engineId in tpl.engine_ids || []"
+                        :key="engineId"
+                        :value="engineId"
+                        severity="secondary"
+                      />
+                      <Tag
+                        v-if="tpl.include_routing || tpl.has_routing"
+                        value="routing"
+                        severity="info"
+                      />
+                      <Tag v-if="tpl.has_request_aliases" value="request aliases" severity="info" />
+                    </div>
+                  </div>
+                  <div class="config-template-card__actions">
+                    <Button
+                      label="Apply settings"
+                      size="small"
+                      severity="secondary"
+                      outlined
+                      :disabled="templateMutationHeld || templateApplyLoading"
+                      @click="applyConfigTemplate(false, { templateId: tpl.id })"
+                    />
+                    <Button
+                      label="Apply & save"
+                      size="small"
+                      severity="success"
+                      outlined
+                      :disabled="templateMutationHeld || templateApplyLoading"
+                      @click="applyConfigTemplate(true, { templateId: tpl.id })"
+                    />
+                    <Button
+                      v-if="tpl.include_routing || tpl.has_routing || tpl.has_request_aliases"
+                      label="Routing only"
+                      size="small"
+                      severity="secondary"
+                      :disabled="templateMutationHeld || templateApplyLoading"
+                      @click="applyConfigTemplate(false, { templateId: tpl.id, mode: 'routing' })"
+                    />
+                    <Button
+                      icon="pi pi-pencil"
+                      text
+                      rounded
+                      type="button"
+                      aria-label="Rename template"
+                      :disabled="templateMutationHeld"
+                      @click="startTemplateEdit(tpl)"
+                    />
+                    <Button
+                      icon="pi pi-trash"
+                      severity="danger"
+                      text
+                      rounded
+                      type="button"
+                      aria-label="Delete template"
+                      :loading="templateDeleteId === tpl.id"
+                      :disabled="templateMutationHeld"
+                      @click="deleteConfigTemplate(tpl.id)"
+                    />
+                  </div>
+                </template>
+              </li>
+            </ul>
+          </section>
+
+          <aside class="config-templates-save">
+            <h3>Save current form</h3>
+            <p class="config-templates-save__hint">
+              Capture engine parameters, request aliases, and optionally routing aliases for reuse.
+            </p>
+            <div class="config-templates-field">
+              <label for="tpl-name">Name</label>
+              <InputText
+                id="tpl-name"
+                v-model="templateSaveForm.name"
+                placeholder="e.g. Qwen reasoning defaults"
+                class="w-full"
               />
             </div>
-          </template>
-        </div>
-
-        <div v-if="configTemplates.length" class="config-templates-section">
-          <div class="section-label">Saved templates</div>
-          <ul class="config-templates-list">
-            <li
-              v-for="tpl in configTemplates"
-              :key="tpl.id"
-              class="config-templates-list-item"
-              :class="{ 'config-templates-list-item--edit': templateEditId === tpl.id }"
-            >
-              <div v-if="templateEditId === tpl.id" class="config-templates-edit">
-                <label class="sr-only" :for="`tpl-edit-name-${tpl.id}`">Template name</label>
-                <InputText
-                  :id="`tpl-edit-name-${tpl.id}`"
-                  v-model="templateEditForm.name"
-                  class="w-full"
-                />
-                <label class="sr-only" :for="`tpl-edit-desc-${tpl.id}`">Template description</label>
-                <InputText
-                  :id="`tpl-edit-desc-${tpl.id}`"
-                  v-model="templateEditForm.description"
-                  placeholder="Description"
-                  class="w-full"
-                />
-                <div class="config-templates-apply-actions">
-                  <Button
-                    label="Save"
-                    size="small"
-                    icon="pi pi-check"
-                    :loading="templateEditSaving"
-                    :disabled="!templateEditForm.name.trim() || templateMutationHeld"
-                    @click="saveTemplateEdit"
-                  />
-                  <Button
-                    label="Cancel"
-                    size="small"
-                    severity="secondary"
-                    outlined
-                    @click="cancelTemplateEdit"
-                  />
-                </div>
-              </div>
-              <template v-else>
-                <div class="config-templates-list-main">
-                  <strong>{{ tpl.name }}</strong>
-                  <span v-if="tpl.description" class="config-templates-list-desc">{{
-                    tpl.description
-                  }}</span>
-                  <small class="config-templates-list-meta">
-                    {{ (tpl.engine_ids || []).join(', ') || tpl.engine || '—' }}
-                    <span v-if="tpl.include_routing"> · includes routing</span>
-                  </small>
-                </div>
-                <div class="config-templates-actions">
-                  <Button
-                    icon="pi pi-pencil"
-                    text
-                    rounded
-                    type="button"
-                    aria-label="Rename template"
-                    :disabled="templateMutationHeld"
-                    @click="startTemplateEdit(tpl)"
-                  />
-                  <Button
-                    icon="pi pi-trash"
-                    severity="danger"
-                    text
-                    rounded
-                    type="button"
-                    aria-label="Delete template"
-                    :loading="templateDeleteId === tpl.id"
-                    :disabled="templateMutationHeld"
-                    @click="deleteConfigTemplate(tpl.id)"
-                  />
-                </div>
-              </template>
-            </li>
-          </ul>
+            <div class="config-templates-field">
+              <label for="tpl-desc">Description (optional)</label>
+              <Textarea
+                id="tpl-desc"
+                v-model="templateSaveForm.description"
+                rows="2"
+                class="w-full"
+                autoResize
+              />
+            </div>
+            <div class="config-templates-field">
+              <label for="tpl-source">Snapshot from</label>
+              <Select
+                id="tpl-source"
+                v-model="templateSaveForm.snapshot_source"
+                :options="templateSnapshotSourceOptions"
+                option-label="label"
+                option-value="value"
+                class="w-full"
+              />
+            </div>
+            <div class="config-templates-field">
+              <label for="tpl-scope">Engines to include</label>
+              <Select
+                id="tpl-scope"
+                v-model="templateSaveForm.engines_scope"
+                :options="templateEnginesScopeOptions"
+                option-label="label"
+                option-value="value"
+                class="w-full"
+              />
+            </div>
+            <div class="config-templates-check">
+              <ToggleSwitch v-model="templateSaveForm.include_routing" input-id="tpl-routing" />
+              <label for="tpl-routing">Include routing aliases</label>
+            </div>
+            <PersistenceAlert
+              :notice="templateSaveNotice"
+              @retry="saveConfigTemplate"
+              @refresh="refreshTemplateSave"
+            />
+            <Button
+              label="Save template"
+              icon="pi pi-save"
+              :loading="templateSaveLoading"
+              :disabled="!templateSaveForm.name.trim() || templateSaveHeld"
+              @click="saveConfigTemplate"
+            />
+          </aside>
         </div>
 
         <template #footer>
@@ -1437,15 +1474,28 @@
 
       <Dialog
         v-model:visible="applyImpactVisible"
-        header="Apply saved settings"
+        header="Review runtime changes"
         modal
-        class="dialog-width-sm"
+        class="dialog-width-md"
       >
-        <p>{{ applyImpactMessage }}</p>
+        <p class="apply-impact__lead">{{ applyImpactMessage }}</p>
         <ul v-if="applyDifferences.length" class="apply-diff">
-          <li v-for="row in applyDifferences" :key="row.field">
-            <span class="apply-diff__field">{{ row.field }}</span>
-            saved {{ row.saved }}, published {{ row.published }}, running {{ row.running }}
+          <li v-for="row in applyDifferences" :key="row.field" class="apply-diff__row">
+            <span class="apply-diff__field">{{ applyDiffLabel(row.field) }}</span>
+            <div class="apply-diff__values">
+              <span>
+                <small>Running</small>
+                <span class="apply-diff__value">{{ row.running || 'not running' }}</span>
+              </span>
+              <i class="pi pi-arrow-right apply-diff__arrow" aria-hidden="true" />
+              <span>
+                <small>After apply</small>
+                <strong class="apply-diff__value">{{ row.saved }}</strong>
+              </span>
+            </div>
+            <small v-if="row.published !== row.saved" class="apply-diff__note">
+              Published before apply: {{ row.published }}
+            </small>
           </li>
         </ul>
         <p v-if="applyImpactModels" class="config-muted-hint">{{ applyImpactModels }}</p>
@@ -1518,7 +1568,9 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import AudioModelConfig from '@/components/audio/AudioModelConfig.vue'
 import RequestAliasesEditor from '@/components/RequestAliasesEditor.vue'
+import ConfigChangeReview from '@/components/ConfigChangeReview.vue'
 import ParseCommandDialog from '@/components/ParseCommandDialog.vue'
+import { buildConfigChanges, countConfigChanges } from '@/utils/configChanges'
 import {
   useAudioModelConfig,
   AUDIO_NESTED_SCOPE_KEYS,
@@ -1557,6 +1609,7 @@ const loadError = ref('')
 const draftOffer = ref(null)
 const draftsEnabled = ref(false)
 const applyImpactVisible = ref(false)
+const changeReviewVisible = ref(false)
 const applyWithheld = ref(null)
 const BASIC_PARAM_KEYS = ['ctx_size', 'n_gpu_layers', 'parallel', 'threads']
 const saving = ref(false)
@@ -1597,6 +1650,14 @@ function retryTemplateMutation() {
     void saveTemplateEdit()
     return
   }
+  const last = lastTemplateApply.value
+  if (last) {
+    void applyConfigTemplate(last.persist, {
+      templateId: last.templateId,
+      mode: last.mode,
+    })
+    return
+  }
   void applyConfigTemplate(templateApplyPersist.value)
 }
 
@@ -1609,7 +1670,13 @@ async function refreshTemplateMutation() {
 const refreshingModel = ref(false)
 const companionsLoading = ref(false)
 const companionBusyField = ref(null)
-const companionFiles = ref({ mmproj_files: [], mtp_files: [], dflash_files: [], dspark_files: [], engram_files: [] })
+const companionFiles = ref({
+  mmproj_files: [],
+  mtp_files: [],
+  dflash_files: [],
+  dspark_files: [],
+  engram_files: [],
+})
 const selectedMmproj = ref('')
 const selectedMtp = ref('')
 const selectedDflash = ref('')
@@ -1682,6 +1749,8 @@ const parseCommandDialogVisible = ref(false)
 const parseCommandSeed = ref('')
 const configTemplates = ref([])
 const configTemplatesLoading = ref(false)
+const templateSearch = ref('')
+const lastTemplateApply = ref(null)
 const templateSaveLoading = ref(false)
 const templateApplyLoading = ref(false)
 const templateDeleteId = ref(null)
@@ -1713,6 +1782,17 @@ const templateApplyModeOptions = [
   { label: 'Merge all engine sections', value: 'all' },
   { label: 'Switch engine + merge template engine', value: 'set_engine' },
 ]
+const filteredConfigTemplates = computed(() => {
+  const query = templateSearch.value.trim().toLowerCase()
+  if (!query) return configTemplates.value
+  return configTemplates.value.filter((template) =>
+    [template.name, template.description, template.engine, ...(template.engine_ids || [])]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+      .includes(query),
+  )
+})
 const triStateOptions = [
   { label: 'Default', value: null },
   { label: 'Enabled', value: true },
@@ -1781,9 +1861,7 @@ function isAudioPanel(engineId) {
   return ENGINE_DESCRIPTORS[engineId]?.configPanel === 'audio'
 }
 const isAudioEngine = computed(() => isAudioPanel(config.value.engine))
-const engineConfigCopy = computed(
-  () => ENGINE_DESCRIPTORS[config.value.engine]?.configCopy || {},
-)
+const engineConfigCopy = computed(() => ENGINE_DESCRIPTORS[config.value.engine]?.configCopy || {})
 const stableIdLabel = computed(() => engineConfigCopy.value.stableIdLabel || 'Stable ID')
 const stableIdAria = computed(
   () => engineConfigCopy.value.stableIdAria || 'Stable Studio proxy model ID',
@@ -1800,9 +1878,7 @@ function runtimeKeyFor(engineId) {
 const engineRuntimeKey = computed(() => runtimeKeyFor(config.value.engine))
 const isSglangEngine = computed(() => Boolean(engineRuntimeKey.value))
 const sglangRuntimeOptions = SGLANG_RUNTIME_OPTIONS
-const sglangRuntime = computed(() =>
-  normalizeSglangRuntime(config.value[engineRuntimeKey.value]),
-)
+const sglangRuntime = computed(() => normalizeSglangRuntime(config.value[engineRuntimeKey.value]))
 function normalizeSglangRuntime(runtime) {
   return runtime === 'diffusion' ? 'diffusion' : 'llm'
 }
@@ -2041,10 +2117,47 @@ const hasUnsavedChanges = computed(() => {
   }
 })
 
+const configChangeGroups = computed(() => {
+  if (!hasUnsavedChanges.value || loading.value) return []
+  try {
+    const paramLabels = {}
+    for (const [key, param] of catalogParamByKey.value.entries()) {
+      paramLabels[key] = param.label || formatLabel(key)
+    }
+    const engineLabel =
+      engineOptions.value.find((option) => option.value === config.value.engine)?.label ||
+      config.value.engine
+    // Snapshot without mutating the live form (buildPersistedPayload syncs UI
+    // rows into config and must stay outside a render computation).
+    const snapshot = (source, fromStoredSection = false) => {
+      const engines =
+        source.engines && typeof source.engines === 'object'
+          ? JSON.parse(JSON.stringify(source.engines))
+          : {}
+      engines[source.engine] = fromStoredSection
+        ? JSON.parse(JSON.stringify(source.engines?.[source.engine] || {}))
+        : buildEngineStashFromForm(source)
+      return { engine: source.engine, engines }
+    }
+    return buildConfigChanges(snapshot(config.value), snapshot(savedConfig.value, true), {
+      paramLabels,
+      engineLabel,
+    })
+  } catch {
+    return []
+  }
+})
+
+const configChangeCount = computed(() => countConfigChanges(configChangeGroups.value))
+const reviewChangesLabel = computed(() =>
+  configChangeCount.value ? `Review changes (${configChangeCount.value})` : 'Review changes',
+)
+
 const { leavePromptVisible, finishLeave } = useDraftGuard(
   () => hasUnsavedChanges.value && !loading.value,
 )
 watchDialogFocus(applyImpactVisible)
+watchDialogFocus(changeReviewVisible)
 watchDialogFocus(leavePromptVisible)
 watchDialogFocus(templatesDialogVisible)
 
@@ -2182,6 +2295,10 @@ const applyDifferences = computed(() => {
   const rows = modelLaunchPlan.value?.differences
   return Array.isArray(rows) ? rows : []
 })
+
+function applyDiffLabel(field) {
+  return catalogParamByKey.value.get(field)?.label || formatLabel(field)
+}
 
 const applyImpactModels = computed(() => {
   const name = model.value?.display_name || model.value?.base_model_name || 'This model'
@@ -2842,7 +2959,8 @@ function paramRegistryFlag(engineId, key) {
 
 async function fetchParamRegistry(engine, { draftFamily, draftTask, rescan = false } = {}) {
   try {
-    const family = draftFamily ?? (paramRegistryFlag(engine, 'family') ? config.value?.family : undefined)
+    const family =
+      draftFamily ?? (paramRegistryFlag(engine, 'family') ? config.value?.family : undefined)
     const task = draftTask ?? (paramRegistryFlag(engine, 'task') ? config.value?.task : undefined)
     const { data } = await axios.get('/api/models/param-registry', {
       params: {
@@ -2945,8 +3063,8 @@ function buildEngineStashFromForm(sourceConfig = config.value) {
     // belonging to the other runtime and keys missing from an older CLI scan.
     for (const param of catalogParamList.value) delete stash[param.key]
     stash[runtimeKeyFor(sourceConfig.engine)] = normalizeSglangRuntime(
-    sourceConfig[runtimeKeyFor(sourceConfig.engine)],
-  )
+      sourceConfig[runtimeKeyFor(sourceConfig.engine)],
+    )
   }
   if (Array.isArray(sourceConfig.set_params_by_id)) {
     stash.set_params_by_id = JSON.parse(JSON.stringify(sourceConfig.set_params_by_id))
@@ -3301,7 +3419,13 @@ function syncCompanionSelectionsFromModel() {
 
 async function loadCompanions() {
   if (!showCompanionsCard.value || !model.value?.id) {
-    companionFiles.value = { mmproj_files: [], mtp_files: [], dflash_files: [], dspark_files: [], engram_files: [] }
+    companionFiles.value = {
+      mmproj_files: [],
+      mtp_files: [],
+      dflash_files: [],
+      dspark_files: [],
+      engram_files: [],
+    }
     return
   }
   companionsLoading.value = true
@@ -3316,7 +3440,13 @@ async function loadCompanions() {
     }
     syncCompanionSelectionsFromModel()
   } catch (e) {
-    companionFiles.value = { mmproj_files: [], mtp_files: [], dflash_files: [], dspark_files: [], engram_files: [] }
+    companionFiles.value = {
+      mmproj_files: [],
+      mtp_files: [],
+      dflash_files: [],
+      dspark_files: [],
+      engram_files: [],
+    }
     toast.add({
       severity: 'warn',
       summary: 'Companions',
@@ -3644,14 +3774,19 @@ async function saveConfigTemplate() {
   }
 }
 
-async function applyConfigTemplate(persist) {
-  if (!templateApplyForm.value.template_id) return
+async function applyConfigTemplate(persist, options = {}) {
+  const templateId = options.templateId || templateApplyForm.value.template_id
+  if (!templateId) return
+  const mode = options.mode === 'routing' ? 'routing' : 'settings'
+  templateApplyForm.value.template_id = templateId
+  templateApplyPersist.value = persist
+  lastTemplateApply.value = { templateId, persist, mode }
   templateApplyLoading.value = true
   try {
     const { data } = await axios.post(modelApiUrl('/config/apply-template'), {
-      template_id: templateApplyForm.value.template_id,
-      apply_engines: templateApplyForm.value.apply_engines,
-      include_routing: templateApplyForm.value.include_routing,
+      template_id: templateId,
+      apply_engines: mode === 'routing' ? 'routing' : templateApplyForm.value.apply_engines,
+      include_routing: mode === 'routing' ? true : templateApplyForm.value.include_routing,
       persist,
     })
     const merged = buildWorkingConfigFromApi(data.config)
@@ -3668,12 +3803,21 @@ async function applyConfigTemplate(persist) {
       refreshSavedCmdPreviewIfVisible()
     }
     templatesDialogVisible.value = false
+    const routingOnly = mode === 'routing'
     toast.add({
       severity: 'success',
-      summary: persist ? 'Template applied & saved' : 'Template applied',
-      detail: data.template_name
-        ? `Loaded settings from "${data.template_name}".`
-        : 'Template settings loaded into the form.',
+      summary: persist
+        ? routingOnly
+          ? 'Routing applied & saved'
+          : 'Template applied & saved'
+        : routingOnly
+          ? 'Routing applied'
+          : 'Template applied',
+      detail: routingOnly
+        ? 'Alias routing and request aliases were loaded from the template.'
+        : data.template_name
+          ? `Loaded settings from "${data.template_name}".`
+          : 'Template settings loaded into the form.',
       life: 3000,
     })
   } catch (e) {
@@ -3851,6 +3995,16 @@ function reportPersistenceFailure(error, action) {
     life: 6000,
   })
   return true
+}
+
+async function saveFromReview() {
+  const ok = await saveConfig()
+  if (ok) changeReviewVisible.value = false
+}
+
+function discardFromReview() {
+  resetConfig()
+  changeReviewVisible.value = false
 }
 
 async function saveConfig() {
@@ -5065,15 +5219,59 @@ onBeforeUnmount(() => {
   user-select: none;
 }
 
+.apply-impact__lead {
+  margin: 0 0 0.85rem;
+  line-height: 1.5;
+}
+
 .apply-diff {
+  display: grid;
+  gap: 0.45rem;
   margin: 0.75rem 0 0;
-  padding-left: 1.1rem;
+  padding: 0;
+  list-style: none;
   font-size: 0.875rem;
+}
+
+.apply-diff__row {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border-primary, #2a2f45);
+  border-radius: var(--radius-md, 0.5rem);
   overflow-wrap: anywhere;
 }
 
 .apply-diff__field {
   font-weight: 600;
+}
+
+.apply-diff__values {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.apply-diff__values > span {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.apply-diff__values small,
+.apply-diff__note {
+  color: var(--text-secondary, #9ca3af);
+  font-size: 0.68rem;
+}
+
+.apply-diff__value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78rem;
+}
+
+.apply-diff__arrow {
+  color: var(--text-secondary, #9ca3af);
+  font-size: 0.7rem;
 }
 
 .config-search-hint-card,
@@ -5166,25 +5364,147 @@ onBeforeUnmount(() => {
   vertical-align: middle;
 }
 
-.config-templates-lead {
-  margin: 0 0 1rem;
-  font-size: 0.875rem;
+.config-templates-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(16rem, 0.9fr);
+  gap: 1.1rem;
+  align-items: start;
+}
+
+.config-templates-library,
+.config-templates-save {
+  min-width: 0;
+  padding: 0.9rem;
+  border: 1px solid var(--border-primary, #2a2f45);
+  border-radius: var(--radius-md, 0.5rem);
+  background: var(--bg-surface);
+}
+
+.config-templates-library-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.config-templates-library-head h3,
+.config-templates-save h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.config-templates-library-head p,
+.config-templates-save__hint {
+  margin: 0.25rem 0 0;
   color: var(--text-secondary, #9ca3af);
+  font-size: var(--text-xs);
   line-height: 1.45;
 }
 
-.config-templates-section {
-  margin-bottom: 1.25rem;
-  padding-bottom: 1.25rem;
-  border-bottom: 1px solid var(--border-primary, #2a2f45);
+.config-templates-search {
+  display: flex;
+  flex: 0 1 15rem;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--border-primary, #2a2f45);
+  border-radius: 999px;
 }
 
-.config-templates-section--apply {
-  border-bottom: none;
+.config-templates-search i {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
+.config-templates-search input {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.config-templates-apply-mode {
+  display: grid;
+  grid-template-columns: auto minmax(10rem, 1fr);
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  font-size: var(--text-xs);
+}
+
+.config-templates-apply-mode label {
+  color: var(--text-secondary);
+}
+
+.config-templates-cards {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.config-template-card {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.7rem;
+  border: 1px solid var(--border-primary, #2a2f45);
+  border-radius: var(--radius-md, 0.5rem);
+  background: var(--bg-card);
+}
+
+.config-template-card__body {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.config-template-card__heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.config-template-card__heading small {
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+.config-template-card__desc {
+  margin: 0;
+  color: var(--text-secondary, #9ca3af);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+
+.config-template-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.config-template-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.config-template-card__edit {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.config-templates-save {
+  display: grid;
+  gap: 0.7rem;
 }
 
 .config-templates-field {
-  margin-bottom: 0.75rem;
+  margin-bottom: 0;
 }
 
 .config-templates-field label {
@@ -5198,65 +5518,24 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-bottom: 0.75rem;
   font-size: 0.875rem;
 }
 
-.config-templates-apply-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+@media (max-width: 880px) {
+  .config-templates-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
-.config-templates-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
+@media (max-width: 768px) {
+  .config-templates-library-head {
+    flex-direction: column;
+  }
 
-.config-templates-list-item {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid var(--border-primary, #2a2f45);
-}
-
-.config-templates-list-item:last-child {
-  border-bottom: none;
-}
-
-.config-templates-list-item--edit {
-  display: block;
-}
-
-.config-templates-edit {
-  display: grid;
-  gap: 0.4rem;
-}
-
-.config-templates-actions {
-  display: flex;
-  flex: 0 0 auto;
-}
-
-.config-templates-list-main {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  min-width: 0;
-}
-
-.config-templates-list-desc {
-  font-size: 0.85rem;
-  color: var(--text-secondary, #9ca3af);
-}
-
-.config-templates-list-meta {
-  font-size: var(--text-xs);
-  color: var(--text-secondary, #9ca3af);
-  opacity: 0.85;
+  .config-templates-search {
+    width: 100%;
+    flex-basis: auto;
+  }
 }
 
 @media (max-width: 768px) {

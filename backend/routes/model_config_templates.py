@@ -35,6 +35,11 @@ class TemplateUpdateBody(BaseModel):
 def _template_summary(item: dict) -> dict:
     cfg = item.get("config") or {}
     engines = cfg.get("engines") or {}
+    sections = [section for section in engines.values() if isinstance(section, dict)]
+    has_routing = any(
+        section.get("model_alias") or section.get("swap_aliases") for section in sections
+    )
+    has_request_aliases = any(bool(section.get("set_params_by_id")) for section in sections)
     return {
         "id": item.get("id"),
         "name": item.get("name"),
@@ -46,6 +51,8 @@ def _template_summary(item: dict) -> dict:
         "engines_scope": item.get("engines_scope", "all"),
         "engine": cfg.get("engine"),
         "engine_ids": sorted(engines.keys()),
+        "has_routing": bool(has_routing),
+        "has_request_aliases": bool(has_request_aliases),
     }
 
 

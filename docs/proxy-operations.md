@@ -95,11 +95,17 @@ active build's scanned parameter catalog proves support, Studio adds
 `--enable-prompt-tokens-details`, `--enable-force-include-usage` and
 `--kv-cache-metrics` for 1Cat-vLLM/vLLM, and `--enable-cache-report`,
 `--enable-metrics` and `--stream-response-default-include-usage` for
-SGLang/SGLang-V100. These flags are reserved: a model's `custom_args` cannot
-duplicate or override them. The catalog gate means older builds without a flag
-are started without it rather than failing on an unknown argument. Engine
+SGLang/SGLang-V100. audio.cpp gets `--log` for its framework progress stream.
+These flags are reserved: a model's `custom_args` cannot duplicate or override
+them. Studio also reserves log destination/suppression flags such as
+llama.cpp's `--log-file`/`--log-disable`, vLLM's `--log-config-file` and
+`--disable-log-stats`, SGLang's `--log-requests-target`, LMDeploy's
+`--log-level`, and audio.cpp's `--log-file`, so a saved setting cannot hide the
+stream from the viewer. The catalog gate means older builds without a flag are
+started without it rather than failing on an unknown argument. Engine
 Prometheus endpoints stay engine-owned; Studio does not map their values onto
-proxy rates.
+proxy rates. The full audit is in
+[`engine-observability-flags.md`](engine-observability-flags.md).
 
 Input token fields are independent: logical total, cached subset, derived
 uncached input, engine processed prompt work, preflight count and admission

@@ -171,8 +171,9 @@ def compile_profile_launch(
     registered" error with its exact historical bytes.
     """
     from backend.engines.metrics_flags import (
+        managed_log_args,
         managed_metric_args,
-        managed_metric_flag_set,
+        owned_observability_flag_set,
         strip_managed_config,
     )
     from backend.proxy.commands import (
@@ -285,6 +286,7 @@ def compile_profile_launch(
     # build's scanned catalog proves support. Custom arguments are preserved so
     # an explicit user override is still rejected.
     managed_flags = managed_metric_args(engine, param_index)
+    managed_log_flags = managed_log_args(engine, param_index)
     structured_config = strip_managed_config(structured_config, engine, param_index)
     structured = _emit_structured_tokens(
         structured_config,
@@ -292,12 +294,13 @@ def compile_profile_launch(
         param_index=param_index,
     )
     prefix_tokens.extend(managed_flags)
+    prefix_tokens.extend(managed_log_flags)
     # Custom arguments may not repeat what the PROFILE (i.e. the YAML the
     # engine ships) owns: bindings, prefix flags. Studio additionally reserves
     # the port/host CLI surface universally — it chooses the port, so no
     # engine may re-declare it through custom args.
     owned = set(profile_owned_flags(definition)) | set(_OWNED_PORT_FLAGS)
-    owned |= set(managed_metric_flag_set(engine))
+    owned |= owned_observability_flag_set(engine)
     owned |= {token.split("=", 1)[0] for token in prefix_tokens if token.startswith("-")}
     _reject_owned_flags(structured, owned=owned)
 

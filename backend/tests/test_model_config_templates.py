@@ -77,11 +77,55 @@ def test_apply_template_set_engine():
     template = normalize_model_config(
         {"engine": "llama_cpp", "engines": {"llama_cpp": {"temperature": 0.5}}}
     )
-    merged = apply_template_to_config(
-        existing, template, apply_engines="set_engine"
-    )
+    merged = apply_template_to_config(existing, template, apply_engines="set_engine")
     assert merged["engine"] == "llama_cpp"
     assert merged["engines"]["llama_cpp"]["temperature"] == 0.5
+
+
+def test_apply_template_routing_only_keeps_engine_settings():
+    existing = normalize_model_config(
+        {
+            "engine": "ik_llama",
+            "engines": {
+                "ik_llama": {
+                    "temperature": 0.1,
+                    "model_alias": "keep-me",
+                    "set_params_by_id": [{"sub_id": "old", "params": {"thinking": True}}],
+                }
+            },
+        }
+    )
+    template = normalize_model_config(
+        {
+            "engine": "llama_cpp",
+            "engines": {
+                "llama_cpp": {
+                    "temperature": 0.9,
+                    "n_gpu_layers": 99,
+                    "model_alias": "from-template",
+                    "swap_aliases": ["template-alias"],
+                    "set_params_by_id": [
+                        {"sub_id": "thinking", "params": {"thinking_effort": "low"}}
+                    ],
+                }
+            },
+        }
+    )
+    merged = apply_template_to_config(
+        existing,
+        template,
+        include_routing=False,
+        apply_engines="routing",
+    )
+    section = merged["engines"]["ik_llama"]
+    assert merged["engine"] == "ik_llama"
+    assert section["temperature"] == 0.1
+    assert "n_gpu_layers" not in section
+    assert section["model_alias"] == "from-template"
+    assert section["swap_aliases"] == ["template-alias"]
+    assert section["set_params_by_id"] == [
+        {"sub_id": "thinking", "params": {"thinking_effort": "low"}}
+    ]
 
 
 def test_new_template_record_requires_name():

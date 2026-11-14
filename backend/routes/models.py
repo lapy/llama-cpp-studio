@@ -27,6 +27,7 @@ from backend.models.config import (
 )
 from backend.models.schema import compatible_engines_for_record
 from backend.model_config_templates import (
+    ROUTING_APPLY_KEYS,
     apply_template_to_config,
     new_template_record,
 )
@@ -2074,11 +2075,21 @@ def _apply_model_config_template_payload(model_id: str, body: ApplyConfigTemplat
         else bool(template.get("include_routing"))
     )
     apply_engines = body.apply_engines
-    if apply_engines not in ("active", "all", "set_engine"):
+    if apply_engines not in ("active", "all", "set_engine", "routing"):
         raise HTTPException(
             status_code=400,
-            detail="apply_engines must be active, all, or set_engine",
+            detail="apply_engines must be active, all, set_engine, or routing",
         )
+    if apply_engines == "routing":
+        template_config = template.get("config") or {}
+        template_engine = template_config.get("engine")
+        sections = template_config.get("engines") or {}
+        source = sections.get(template_engine) if isinstance(sections, dict) else None
+        if not isinstance(source, dict) or not any(key in source for key in ROUTING_APPLY_KEYS):
+            raise HTTPException(
+                status_code=400,
+                detail="Template does not contain routing or alias settings",
+            )
     merged = apply_template_to_config(
         model.get("config"),
         template.get("config") or {},
