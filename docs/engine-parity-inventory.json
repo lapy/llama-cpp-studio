@@ -1945,6 +1945,13 @@
           "lines": [
             7
           ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/components/models/ModelConfigLaunchSettings.test.js",
+          "lines": [
+            67
+          ]
         }
       ]
     },
