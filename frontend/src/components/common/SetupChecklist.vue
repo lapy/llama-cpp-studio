@@ -89,12 +89,16 @@ const hasVerifiedRunning = computed(() =>
   quants.value.some((quant) => modelRuntimeState(quant).actionable),
 )
 
+function isStartingState(state) {
+  return state.key === 'starting' || state.key === 'loading'
+}
+
 const hasActiveModel = computed(() =>
-  quants.value.some((quant) => quant?.is_active && modelRuntimeState(quant).key !== 'loading'),
+  quants.value.some((quant) => quant?.is_active && !isStartingState(modelRuntimeState(quant))),
 )
 
 const hasLoadingModel = computed(() =>
-  quants.value.some((quant) => modelRuntimeState(quant).key === 'loading'),
+  quants.value.some((quant) => isStartingState(modelRuntimeState(quant))),
 )
 
 const verifiedRunningModel = computed(
