@@ -173,6 +173,7 @@
         @complete="onBulkComplete"
         @clear="clearSelection"
       />
+      <LibraryTransitionStatus :entries="transitionEntries" />
       <div v-if="hasLibraryFilters" class="search-chips" aria-label="Active library filters">
         <button v-if="libraryQuery" type="button" class="search-chip" @click="libraryQuery = ''">
           Name: {{ libraryQuery }} ×
@@ -248,9 +249,14 @@
             <div v-if="line.meta" class="library-list__meta">{{ line.meta }}</div>
           </div>
           <div class="library-list__state" role="cell">
-            <span v-if="line.status" class="library-list__status" :data-status="line.statusKey">{{
-              line.status
-            }}</span>
+            <span
+              v-if="line.status"
+              class="library-list__status"
+              :data-status="line.statusKey"
+              :title="line.statusDetail"
+              role="status"
+              >{{ line.status }}</span
+            >
             <span v-else class="library-list__status library-list__status--quiet">{{
               line.kind === 'group' ? 'Variants' : 'Stopped'
             }}</span>
@@ -260,61 +266,21 @@
             ><small v-if="line.kind === 'group'">Total on disk</small>
           </div>
           <div class="library-list__actions" role="cell">
-            <template v-if="line.quant">
-              <ModelStartStopButton
-                :name="line.title"
-                show-label
-                :is-active="line.quant.is_active"
-                :is-proxy-loading="quantStatus(line.quant) === 'loading'"
-                :is-starting="isQuantStarting(line.quant)"
-                :is-stopping="isQuantStopping(line.quant)"
-                @start="startModel(line.quant.id)"
-                @stop="stopModel(line.quant.id)"
-              />
-
-              <Button
-                v-if="modelRuntimeState(line.quant).actionable && !isAudioQuant(line.quant)"
-                icon="pi pi-link"
-                text
-                size="small"
-                severity="secondary"
-                v-tooltip.top="'Connect'"
-                label="Connect"
-                :aria-label="`Connect ${line.title}`"
-                @click="openConnect(line.quant)"
-              />
-              <Button
-                v-if="isAudioQuant(line.quant)"
-                icon="pi pi-volume-up"
-                text
-                size="small"
-                severity="secondary"
-                v-tooltip.top="'Audio'"
-                :aria-label="`Open audio for ${line.title}`"
-                @click="openAudio(line.quant.id)"
-              />
-              <Button
-                icon="pi pi-cog"
-                text
-                size="small"
-                severity="secondary"
-                v-tooltip.top="'Configure'"
-                :aria-label="`Configure ${line.title}`"
-                @click="configureModel(line.quant.id)"
-              />
-              <details class="row-menu">
-                <summary class="library-list__more" :aria-label="`More actions for ${line.title}`">
-                  <i class="pi pi-ellipsis-v" aria-hidden="true" />
-                </summary>
-                <div class="library-list__menu-items">
-                  <ModelWarmupButton
-                    :model="line.quant"
-                    :disabled="isQuantStarting(line.quant) || isQuantStopping(line.quant)"
-                  />
-                  <button type="button" @click="confirmDeleteModel(line.quant.id)">Delete</button>
-                </div>
-              </details>
-            </template>
+            <ModelCardActions
+              v-if="line.quant"
+              :model="line.quant"
+              :name="line.title"
+              compact
+              :is-starting="isQuantStarting(line.quant)"
+              :is-stopping="isQuantStopping(line.quant)"
+              @start="startModel(line.quant.id)"
+              @stop="stopModel(line.quant.id)"
+              @configure="configureModel(line.quant.id)"
+              @audio="openAudio(line.quant.id)"
+              @connect="openConnect(line.quant)"
+              @refresh="refreshModelStatus"
+              @delete="confirmDeleteModel(line.quant.id)"
+            />
             <details v-else class="row-menu">
               <summary class="library-list__more" :aria-label="`More actions for ${line.title}`">
                 <i class="pi pi-ellipsis-v" aria-hidden="true" />
@@ -364,9 +330,11 @@
                     {{ formatLibraryBytes(groupTotalFileSize(group)) }}
                   </span>
                   <Tag
-                    :value="groupRuntimeState(group).label"
-                    :severity="groupRuntimeState(group).severity"
+                    :value="groupDisplayState(group).label"
+                    :severity="groupDisplayState(group).severity"
+                    :title="groupDisplayState(group).detail"
                     class="running-badge"
+                    role="status"
                   />
                 </span>
                 <span class="group-tags">
@@ -432,9 +400,11 @@
                   {{ formatLibraryBytes(primaryQuant(group).file_size) }}
                 </span>
                 <Tag
-                  :value="groupRuntimeState(group).label"
-                  :severity="groupRuntimeState(group).severity"
+                  :value="groupDisplayState(group).label"
+                  :severity="groupDisplayState(group).severity"
+                  :title="groupDisplayState(group).detail"
                   class="running-badge"
+                  role="status"
                 />
               </div>
               <div class="group-tags">
@@ -465,70 +435,21 @@
               </div>
             </div>
             <div class="group-meta">
-              <ModelStartStopButton
+              <ModelCardActions
                 v-if="primaryQuant(group)"
+                :model="primaryQuant(group)"
                 :name="groupTitle(group)"
-                show-label
-                :is-active="primaryQuant(group).is_active"
-                :is-proxy-loading="quantStatus(primaryQuant(group)) === 'loading'"
-                :is-starting="primaryQuant(group) && isQuantStarting(primaryQuant(group))"
-                :is-stopping="primaryQuant(group) && isQuantStopping(primaryQuant(group))"
+                :is-starting="isQuantStarting(primaryQuant(group))"
+                :is-stopping="isQuantStopping(primaryQuant(group))"
                 stop-propagation
-                @start="primaryQuant(group) && startModel(primaryQuant(group).id)"
-                @stop="primaryQuant(group) && stopModel(primaryQuant(group).id)"
+                @start="startModel(primaryQuant(group).id)"
+                @stop="stopModel(primaryQuant(group).id)"
+                @configure="configureModel(primaryQuant(group).id)"
+                @audio="openAudio(primaryQuant(group).id)"
+                @connect="openConnect(primaryQuant(group))"
+                @refresh="refreshModelStatus"
+                @delete="confirmDeleteModel(primaryQuant(group).id)"
               />
-              <Button
-                v-if="primaryQuant(group) && isAudioQuant(primaryQuant(group))"
-                icon="pi pi-volume-up"
-                label="Open Audio"
-                severity="secondary"
-                size="small"
-                :aria-label="`Open audio for ${groupTitle(group)}`"
-                v-tooltip.top="'Audio'"
-                @click.stop="openAudio(primaryQuant(group).id)"
-              />
-              <Button
-                v-if="
-                  primaryQuant(group) &&
-                  modelRuntimeState(primaryQuant(group)).actionable &&
-                  !isAudioQuant(primaryQuant(group))
-                "
-                label="Connect"
-                icon="pi pi-link"
-                size="small"
-                :aria-label="`Connect ${groupTitle(group)}`"
-                @click.stop="openConnect(primaryQuant(group))"
-              />
-              <Button
-                v-if="primaryQuant(group)"
-                label="Configure"
-                icon="pi pi-cog"
-                text
-                severity="secondary"
-                size="small"
-                :aria-label="`Configure ${groupTitle(group)}`"
-                @click.stop="configureModel(primaryQuant(group).id)"
-              />
-              <details class="row-menu" @click.stop>
-                <summary :aria-label="`More actions for ${groupTitle(group)}`">More</summary>
-                <ModelWarmupButton
-                  v-if="primaryQuant(group)"
-                  :model="primaryQuant(group)"
-                  :disabled="
-                    isQuantStarting(primaryQuant(group)) || isQuantStopping(primaryQuant(group))
-                  "
-                />
-                <button
-                  type="button"
-                  @click="
-                    primaryQuant(group)
-                      ? confirmDeleteModel(primaryQuant(group).id)
-                      : confirmDeleteGroup(group.huggingface_id)
-                  "
-                >
-                  Delete
-                </button>
-              </details>
             </div>
             <div
               v-if="primaryQuant(group) && primaryQuant(group).downloaded_at"
@@ -618,6 +539,8 @@
       </template>
     </Dialog>
 
+    <LibraryToast @configure="configureModel" />
+
     <ConnectDialog
       v-model:visible="connectVisible"
       :model="connectModel"
@@ -650,7 +573,6 @@ import {
 } from '@/utils/libraryPresentation'
 import { formatAxiosDetail } from '@/utils/apiErrors'
 import { useLibrarySelection } from '@/composables/useLibrarySelection'
-import { isAudioPackage } from '@/utils/audioModel'
 import { useQueryState } from '@/composables/useQueryState'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { watchDialogFocus } from '@/composables/useFocusReturn'
@@ -668,8 +590,9 @@ import Tag from 'primevue/tag'
 import Dialog from 'primevue/dialog'
 import Password from 'primevue/password'
 import ModelRow from '@/components/ModelRow.vue'
-import ModelStartStopButton from '@/components/ModelStartStopButton.vue'
-import ModelWarmupButton from '@/components/ModelWarmupButton.vue'
+import ModelCardActions from '@/components/models/ModelCardActions.vue'
+import LibraryTransitionStatus from '@/components/models/LibraryTransitionStatus.vue'
+import LibraryToast from '@/components/models/LibraryToast.vue'
 import LibrarySavedFilters from '@/components/models/LibrarySavedFilters.vue'
 import LibraryBulkActions from '@/components/models/LibraryBulkActions.vue'
 import { useModelStore } from '@/stores/models'
@@ -885,6 +808,22 @@ const runtimeOutage = computed(() => {
 
 const catalogFailed = computed(() => Boolean(modelStore.modelsError) && !modelStore.loading)
 
+/** Runtime state for a single quantization, including in-flight transitions. */
+function quantRuntimeState(quant) {
+  return modelRuntimeState(quant, {
+    isStarting: isQuantStarting(quant),
+    isStopping: isQuantStopping(quant),
+  })
+}
+
+/** Group status follows an in-flight transition before its settled state. */
+function groupDisplayState(group) {
+  const transition = (group?.quantizations || [])
+    .map((quant) => quantRuntimeState(quant))
+    .find((state) => state.key === 'starting' || state.key === 'stopping')
+  return transition || groupRuntimeState(group)
+}
+
 function groupRuntimeQuality(group) {
   const quants = group?.quantizations || []
   if (quants.some((quant) => quant?.runtime_quality === 'unreachable')) return 'unreachable'
@@ -953,7 +892,9 @@ const displayGroups = computed(() => {
   return groups
 })
 
-const libraryLines = computed(() => buildLibraryLines(displayGroups.value))
+const libraryLines = computed(() =>
+  buildLibraryLines(displayGroups.value, { stateFor: quantRuntimeState }),
+)
 
 /** Quantizations represented by a visible checkbox in the current layout. */
 const selectableQuants = computed(() => {
@@ -984,6 +925,21 @@ const {
   clearSelection,
 } = useLibrarySelection({ visibleIds: selectableQuantIds, filterKey: libraryFilterKey })
 const transitionIds = computed(() => [...startingModels.value, ...stoppingModels.value])
+const transitionEntries = computed(() => {
+  const entries = []
+  for (const id of startingModels.value) {
+    const quant = findQuantById(id)
+    entries.push({ id, label: quant?.quantization || quant?.name || id, verb: 'Starting' })
+  }
+  for (const id of stoppingModels.value) {
+    const quant = findQuantById(id)
+    entries.push({ id, label: quant?.quantization || quant?.name || id, verb: 'Stopping' })
+  }
+  return entries
+})
+function refreshModelStatus() {
+  void retryCatalogs()
+}
 const selectedModels = computed(() => {
   const selected = new Set(selectedIds.value)
   return selectableQuants.value.filter((quant) => selected.has(String(quant.id)))
@@ -1058,8 +1014,29 @@ function modelRunState(quant) {
 
 function modelHasStarted(quant) {
   if (!quant) return false
-  const quality = String(quant.runtime_quality || '').toLowerCase()
-  return quality === 'verified' && modelRunState(quant) === 'running'
+  return modelRuntimeState(quant).key === 'running'
+}
+
+function modelHasFailed(quant) {
+  if (!quant) return false
+  return modelRuntimeState(quant).key === 'error'
+}
+
+function modelDisplayName(modelId) {
+  const quant = findQuantById(modelId)
+  return quant?.quantization || quant?.name || String(modelId)
+}
+
+/** Failures land in the library toast so Configure stays one click away. */
+function notifyStartFailure(modelId, detail) {
+  toast.add({
+    severity: 'error',
+    summary: 'Failed to start',
+    detail,
+    life: 7000,
+    group: 'model-library',
+    configureModelId: modelId,
+  })
 }
 
 function isQuantStopping(quant) {
@@ -1137,7 +1114,7 @@ async function startModel(modelId, confirmation = null) {
     const deadline = Date.now() + START_CONFIRM_MS
     while (Date.now() < deadline && !catalogDisposed) {
       const quant = findQuantById(modelId)
-      if (modelHasStarted(quant)) break
+      if (modelHasStarted(quant) || modelHasFailed(quant) || stoppingModels.value.has(k)) break
       if (!startingNoted && modelRunState(quant) === 'loading') {
         startingNoted = true
         toast.add({ severity: 'info', summary: 'Model is starting', life: 3000 })
@@ -1150,26 +1127,37 @@ async function startModel(modelId, confirmation = null) {
     } catch {
       /* The following toast reports that startup was not confirmed. */
     }
-    if (modelHasStarted(findQuantById(modelId))) {
-      toast.add({ severity: 'success', summary: 'Model started', life: 3000 })
+    const quant = findQuantById(modelId)
+    if (stoppingModels.value.has(k)) {
+      /* The user cancelled this start with Stop; the stop toast reports the outcome. */
+    } else if (modelHasStarted(quant)) {
+      toast.add({
+        severity: 'success',
+        summary: 'Model started',
+        detail: `${modelDisplayName(modelId)} is running.`,
+        life: 3000,
+      })
+    } else if (modelHasFailed(quant)) {
+      notifyStartFailure(
+        modelId,
+        quant?.last_error || 'The model reported a failure while starting.',
+      )
     } else {
       toast.add({
         severity: 'warn',
         summary: 'Startup not confirmed',
         detail: 'The model was not observed running. Refresh finished; you can start it again.',
-        life: 5000,
+        life: 7000,
+        group: 'model-library',
+        configureModelId: modelId,
       })
     }
   } catch (e) {
     if (!confirmation && confirmWithheldAction(e, 'start', (pair) => startModel(modelId, pair))) {
       return
     }
-    toast.add({
-      severity: 'error',
-      summary: 'Failed to start',
-      detail: formatAxiosDetail(e),
-      life: 4000,
-    })
+    await refreshCatalogs().catch(() => {})
+    notifyStartFailure(modelId, formatAxiosDetail(e))
   } finally {
     startingModels.value.delete(k)
     startingModels.value = new Set(startingModels.value)
@@ -1179,6 +1167,8 @@ async function startModel(modelId, confirmation = null) {
 
 async function stopModel(modelId, confirmation = null) {
   const k = modelIdKey(modelId)
+  startingModels.value.delete(k)
+  startingModels.value = new Set(startingModels.value)
   stoppingModels.value.add(k)
   stoppingModels.value = new Set(stoppingModels.value)
   queueCatalogPoll(FAST_POLL_MS)
@@ -1215,11 +1205,6 @@ async function stopModel(modelId, confirmation = null) {
 
 function configureModel(modelId) {
   router.push(`/models/${encodeURIComponent(modelId)}/config`)
-}
-
-function isAudioQuant(quant) {
-  if (!quant) return false
-  return isAudioPackage(quant)
 }
 
 function openAudio(modelId) {
@@ -1850,7 +1835,7 @@ onUnmounted(() => {
 .library-list__head,
 .library-list__row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 8rem 7.5rem 20rem;
+  grid-template-columns: minmax(0, 1fr) 8rem 7.5rem 22rem;
   gap: 1rem;
   align-items: center;
   padding: 0.75rem 1rem;
@@ -1921,12 +1906,14 @@ onUnmounted(() => {
   font-weight: 650;
 }
 
-.library-list__status[data-status='running'],
-.library-list__status[data-status='ready'] {
+.library-list__status[data-status='running'] {
   color: var(--status-success);
 }
 
-.library-list__status[data-status='loading'] {
+.library-list__status[data-status='starting'],
+.library-list__status[data-status='stopping'],
+.library-list__status[data-status='stale'],
+.library-list__status[data-status='unknown'] {
   color: var(--status-warning, #f59e0b);
 }
 
@@ -1967,10 +1954,6 @@ onUnmounted(() => {
   padding-left: 1rem;
   border-left: 1px solid var(--border-primary);
   min-width: 0;
-}
-
-.library-list__actions :deep(.p-button) {
-  min-width: 2.75rem;
 }
 
 .library-list .row-menu summary.library-list__more {
@@ -2262,23 +2245,5 @@ onUnmounted(() => {
   .library-view {
     grid-column: 1 / -1;
   }
-}
-
-.library-list__menu-items {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 0.25rem);
-  z-index: 3;
-  display: grid;
-  gap: 0.25rem;
-  width: max-content;
-  padding: 0.4rem;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-secondary);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
-}
-.library-list__menu-items > button:not(.p-button) {
-  color: var(--status-error);
 }
 </style>

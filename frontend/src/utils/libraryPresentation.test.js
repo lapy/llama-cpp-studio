@@ -119,7 +119,20 @@ describe('library presentation', () => {
     ])
     expect(lines[0]).toMatchObject({ size: '4.0 KB', running: true, quant: null })
     expect(lines[1]).toMatchObject({ size: '1.5 KB', running: false })
-    expect(lines[2]).toMatchObject({ size: '2.5 KB', running: true, status: 'Ready' })
+    expect(lines[2]).toMatchObject({ size: '2.5 KB', running: true, status: 'Running' })
     expect(lines[3].meta).toContain('org/single')
+  })
+
+  it('lets the library show in-flight transition labels in list rows', () => {
+    const groups = [
+      {
+        huggingface_id: 'org/single',
+        quantizations: [{ id: 's1', is_active: false, status: 'stopped' }],
+      },
+    ]
+    const lines = buildLibraryLines(groups, {
+      stateFor: () => ({ key: 'starting', label: 'Starting', detail: 'Waiting.' }),
+    })
+    expect(lines[0]).toMatchObject({ status: 'Starting', statusKey: 'starting' })
   })
 })

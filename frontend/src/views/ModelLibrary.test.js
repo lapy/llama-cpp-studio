@@ -10,6 +10,7 @@ import { LIBRARY_PRESETS_KEY } from '@/utils/libraryFilterPresets'
 const fetchModels = vi.fn().mockResolvedValue(undefined)
 const fetchSafetensorsModels = vi.fn().mockResolvedValue(undefined)
 const fetchHuggingfaceTokenStatus = vi.fn().mockResolvedValue(undefined)
+const toastAdd = vi.fn()
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -21,7 +22,7 @@ vi.mock('primevue/useconfirm', () => ({
 }))
 
 vi.mock('primevue/usetoast', () => ({
-  useToast: () => ({ add: vi.fn() }),
+  useToast: () => ({ add: (...args) => toastAdd(...args) }),
 }))
 
 vi.mock('@/stores/engines', () => ({
@@ -84,6 +85,7 @@ function mountLibrary() {
         },
         Tag: { props: ['value'], template: '<span>{{ value }}</span>' },
         Dialog: true,
+        Toast: true,
         Password: true,
         ConfirmDialog: true,
         PageHeader: { template: '<div><slot name="meta" /><slot name="actions" /></div>' },
@@ -97,10 +99,7 @@ function mountLibrary() {
           template:
             '<div class="quant-row" :class="{ \'is-active\': quant.is_active }">{{ quant.quantization }}</div>',
         },
-        ModelStartStopButton: {
-          props: ['name'],
-          template: '<button class="sss" @click="$emit(`start`)">start {{ name }}</button>',
-        },
+        ModelWarmupButton: true,
       },
     },
   })
@@ -121,6 +120,7 @@ describe('ModelLibrary running glow', () => {
     modelStore.models = []
     modelStore.startModel.mockReset()
     modelStore.stopModel.mockReset()
+    toastAdd.mockReset()
     localStorage.removeItem(LIBRARY_PRESETS_KEY)
     localStorage.removeItem('llama-studio.library.view')
   })
@@ -293,7 +293,7 @@ describe('ModelLibrary running glow', () => {
     const wrapper = mountLibrary()
     await flushWithFakeTimers()
 
-    await wrapper.get('button.sss').trigger('click')
+    await wrapper.get('button[aria-label="Start org/live"]').trigger('click')
     await flushWithFakeTimers()
 
     expect(modelStore.startModel).toHaveBeenCalledTimes(2)
@@ -307,6 +307,157 @@ describe('ModelLibrary running glow', () => {
     )
     wrapper.unmount()
     vi.useRealTimers()
+  })
+
+  it('shows inline start progress, a cancel Stop and Starting on the card while a start is in flight', async () => {
+    modelStore.models = [
+      {
+        huggingface_id: 'org/live',
+        base_model_name: 'Live model',
+        quantizations: [{ id: 'q4', quantization: 'Q4_K_M', is_active: false, status: 'stopped' }],
+      },
+    ]
+    let resolveStart
+    modelStore.startModel.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveStart = resolve
+        }),
+    )
+    const wrapper = mountLibrary()
+    await flushPromises()
+
+    await wrapper.get('button[aria-label="Start Live model"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Starting Q4_K_M…')
+    expect(wrapper.get('.running-badge').text()).toBe('Starting')
+    expect(
+      wrapper.get('button[aria-label="Stop Live model"]').attributes('disabled'),
+    ).toBeUndefined()
+
+    modelStore.models[0].quantizations[0].is_active = true
+    modelStore.models[0].quantizations[0].status = 'ready'
+    resolveStart({})
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('Starting Q4_K_M…')
+    expect(wrapper.get('button[aria-label="Connect Live model"]')).toBeTruthy()
+    wrapper.unmount()
+  })
+
+  it('keeps a failed start actionable with Retry and surfaces last_error', async () => {
+    modelStore.models = [
+      {
+        huggingface_id: 'org/live',
+        base_model_name: 'Live model',
+        quantizations: [
+          {
+            id: 'q4',
+            quantization: 'Q4_K_M',
+            format: 'safetensors',
+            is_active: false,
+            status: 'stopped',
+          },
+        ],
+      },
+    ]
+    modelStore.startModel.mockRejectedValueOnce(new Error('CUDA out of memory'))
+    const wrapper = mountLibrary()
+    await flushPromises()
+
+    fetchModels.mockImplementation(async () => {
+      modelStore.models[0].quantizations[0].status = 'failed'
+      modelStore.models[0].quantizations[0].last_error =
+        'CUDA out of memory while loading 7B weights'
+    })
+
+    await wrapper.get('button[aria-label="Start Live model"]').trigger('click')
+    await flushPromises()
+    await flushPromises()
+
+    const retry = wrapper.get('button[aria-label="Retry start for Live model"]')
+    expect(retry.attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('.model-actions__error').text()).toBe(
+      'CUDA out of memory while loading 7B weights',
+    )
+    expect(wrapper.get('.model-actions__error').attributes('title')).toBe(
+      'CUDA out of memory while loading 7B weights',
+    )
+    expect(toastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({
+        severity: 'error',
+        group: 'model-library',
+        configureModelId: 'q4',
+      }),
+    )
+
+    await retry.trigger('click')
+    await flushPromises()
+    expect(modelStore.startModel).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+  })
+
+  it('refreshes the library after a successful start so the card becomes Connect', async () => {
+    modelStore.models = [
+      {
+        huggingface_id: 'org/live',
+        base_model_name: 'Live model',
+        quantizations: [
+          {
+            id: 'q4',
+            quantization: 'Q4_K_M',
+            format: 'safetensors',
+            is_active: false,
+            status: 'stopped',
+          },
+        ],
+      },
+    ]
+    modelStore.startModel.mockImplementation(async () => {
+      modelStore.models[0].quantizations[0].is_active = true
+      modelStore.models[0].quantizations[0].status = 'ready'
+    })
+    const wrapper = mountLibrary()
+    await flushPromises()
+
+    await wrapper.get('button[aria-label="Start Live model"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('button[aria-label="Connect Live model"]')).toBeTruthy()
+    expect(wrapper.findAll('button[aria-label="Start Live model"]')).toHaveLength(0)
+    expect(toastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({ severity: 'success', summary: 'Model started' }),
+    )
+    wrapper.unmount()
+  })
+
+  it('offers Refresh status for a stale model and reloads the library from it', async () => {
+    modelStore.models = [
+      {
+        huggingface_id: 'org/live',
+        base_model_name: 'Live model',
+        quantizations: [
+          {
+            id: 'q4',
+            quantization: 'Q4_K_M',
+            is_active: false,
+            status: 'ready',
+            runtime_quality: 'stale',
+          },
+        ],
+      },
+    ]
+    const wrapper = mountLibrary()
+    await flushPromises()
+    expect(wrapper.get('.running-badge').text()).toBe('Status unavailable')
+    fetchModels.mockClear()
+
+    await wrapper.get('button[aria-label="Refresh status for Live model"]').trigger('click')
+    await flushPromises()
+
+    expect(fetchModels).toHaveBeenCalled()
+    wrapper.unmount()
   })
 
   it('selects visible models, shows the indeterminate state and clears on filter changes', async () => {
