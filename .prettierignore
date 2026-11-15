@@ -1,4 +1,5 @@
 data/
 frontend/dist/
 frontend/src/api/openapi.json
+frontend/src/engines/build-defaults.generated.json
 package-lock.json

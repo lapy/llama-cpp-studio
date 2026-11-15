@@ -24,13 +24,13 @@ export function useTaskFilter(options = {}) {
       const typeMatch = !types || types.length === 0 || types.includes(t.type)
       const metadataMatch = !metadataKey || t?.metadata?.[metadataKey] === metadataValue
       const statusMatch =
-        t.status === 'running'
-        || t.status === 'queued'
-        || t.status === 'cancelling'
-        || t.status === 'cancelled'
-        || t.status === 'canceled'
-        || (showCompleted && t.status === 'completed')
-        || t.status === 'failed'
+        t.status === 'running' ||
+        t.status === 'queued' ||
+        t.status === 'cancelling' ||
+        t.status === 'cancelled' ||
+        t.status === 'canceled' ||
+        (showCompleted && t.status === 'completed') ||
+        t.status === 'failed'
       return taskIdMatch && typeMatch && metadataMatch && statusMatch
     })
   })

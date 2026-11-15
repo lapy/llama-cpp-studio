@@ -54,8 +54,10 @@ try {
           const url = new URL(entry.name)
           if (url.origin !== location.origin) return false
           if (url.pathname.startsWith('/api')) return false
-          return url.pathname.startsWith('/assets/')
-            || /\.(?:js|css|woff2?|svg|ico|png|webp)$/.test(url.pathname)
+          return (
+            url.pathname.startsWith('/assets/') ||
+            /\.(?:js|css|woff2?|svg|ico|png|webp)$/.test(url.pathname)
+          )
         })
         .reduce((sum, entry) => sum + (entry.transferSize || 0), 0)
       return {

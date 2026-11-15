@@ -75,21 +75,27 @@ describe('useTaskActions', () => {
   })
 
   it('retries only failed engine builds that identify a version', () => {
-    expect(retryableVersionId({
-      status: 'failed',
-      type: 'build',
-      metadata: { engine: 'llama_cpp', version_name: 'source-main' },
-    })).toBe('llama_cpp:source-main')
-    expect(retryableVersionId({
-      status: 'failed',
-      type: 'download',
-      metadata: { huggingface_id: 'org/model', filename: 'model.gguf' },
-    })).toBe('')
-    expect(retryableVersionId({
-      status: 'running',
-      type: 'build',
-      metadata: { engine: 'llama_cpp', version_name: 'source-main' },
-    })).toBe('')
+    expect(
+      retryableVersionId({
+        status: 'failed',
+        type: 'build',
+        metadata: { engine: 'llama_cpp', version_name: 'source-main' },
+      }),
+    ).toBe('llama_cpp:source-main')
+    expect(
+      retryableVersionId({
+        status: 'failed',
+        type: 'download',
+        metadata: { huggingface_id: 'org/model', filename: 'model.gguf' },
+      }),
+    ).toBe('')
+    expect(
+      retryableVersionId({
+        status: 'running',
+        type: 'build',
+        metadata: { engine: 'llama_cpp', version_name: 'source-main' },
+      }),
+    ).toBe('')
   })
 
   it('getTaskLogs returns logs from the progress store', () => {

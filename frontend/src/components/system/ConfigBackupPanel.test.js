@@ -15,11 +15,13 @@ enableAutoUnmount(afterEach)
 const plan = { applicable: true, plan_id: 'plan-a', items: [], notice: 'Saved only' }
 function deferred() {
   let resolve
-  const promise = new Promise(r => { resolve = r })
+  const promise = new Promise((r) => {
+    resolve = r
+  })
   return { promise, resolve }
 }
 function button(wrapper, label) {
-  return wrapper.findAll('button').find(b => b.text() === label)
+  return wrapper.findAll('button').find((b) => b.text() === label)
 }
 async function selectBackup(wrapper) {
   const input = wrapper.get('input[type=file]')
@@ -39,7 +41,9 @@ describe('configuration restore recovery', () => {
     const pending = deferred()
     const wrapper = mount(ConfigBackupPanel)
     await selectBackup(wrapper)
-    axios.post.mockImplementation((url) => url.endsWith('/apply') ? pending.promise : Promise.resolve({ data: plan }))
+    axios.post.mockImplementation((url) =>
+      url.endsWith('/apply') ? pending.promise : Promise.resolve({ data: plan }),
+    )
     const restore = button(wrapper, 'Restore saved settings')
     await restore.trigger('click')
     await restore.trigger('click')
@@ -83,11 +87,9 @@ describe('configuration restore recovery', () => {
     const wrapper = mount(ConfigBackupPanel)
     await flushPromises()
     const pending = deferred()
-    axios.get.mockImplementation((url) => (
-      url === '/api/config-backup'
-        ? pending.promise
-        : Promise.resolve({ data: [] })
-    ))
+    axios.get.mockImplementation((url) =>
+      url === '/api/config-backup' ? pending.promise : Promise.resolve({ data: [] }),
+    )
     const clicked = []
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function click() {
       clicked.push(this)

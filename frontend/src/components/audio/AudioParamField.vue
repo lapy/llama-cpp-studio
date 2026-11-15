@@ -80,9 +80,7 @@ const props = defineProps({
 
 defineEmits(['update:modelValue', 'update:json'])
 
-const placeholder = computed(() => (
-  props.param.default != null ? String(props.param.default) : ''
-))
+const placeholder = computed(() => (props.param.default != null ? String(props.param.default) : ''))
 
 const jsonDisplay = computed(() => jsonParamDisplay(props.modelValue))
 </script>

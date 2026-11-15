@@ -24,7 +24,6 @@ export function useDialog(initialVisible = false) {
     visible,
     open,
     close,
-    toggle
+    toggle,
   }
 }
-

@@ -14,7 +14,8 @@ import ThemeToggle from './ThemeToggle.vue'
 const ButtonStub = {
   props: ['icon', 'severity', 'text', 'title'],
   emits: ['click'],
-  template: '<button :data-icon="icon" :title="title" :class="$attrs.class" @click="$emit(`click`)"><slot /></button>',
+  template:
+    '<button :data-icon="icon" :title="title" :class="$attrs.class" @click="$emit(`click`)"><slot /></button>',
 }
 
 describe('ThemeToggle', () => {

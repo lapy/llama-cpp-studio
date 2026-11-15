@@ -70,8 +70,7 @@
   padding: clamp(2.5rem, 7vw, 4.5rem) 2rem;
   text-align: center;
   color: var(--text-secondary);
-  border: 1px dashed
-    color-mix(in srgb, var(--border-secondary) 72%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--border-secondary) 72%, transparent);
   border-radius: var(--radius-2xl);
   background:
     radial-gradient(

@@ -2,8 +2,8 @@
   <section id="config-backup" class="config-backup" aria-labelledby="config-backup-heading">
     <h2 id="config-backup-heading">Backup and restore</h2>
     <p class="restore-notice">
-      Back up preferences, model settings, and templates. Credentials, model files, and
-      running state are excluded.
+      Back up preferences, model settings, and templates. Credentials, model files, and running
+      state are excluded.
     </p>
     <div class="backup-actions-grid">
       <div class="backup-action-card">

@@ -1,19 +1,10 @@
 <template>
   <div v-if="hasContent" class="config-card">
     <div class="section-label">{{ title }}</div>
-    <Message
-      v-if="error"
-      severity="error"
-      :closable="false"
-      class="config-scan-message"
-    >
+    <Message v-if="error" severity="error" :closable="false" class="config-scan-message">
       {{ error }}
     </Message>
-    <div
-      v-for="clip in clips"
-      :key="clip.id"
-      class="task-audio-clip"
-    >
+    <div v-for="clip in clips" :key="clip.id" class="task-audio-clip">
       <div v-if="clip.label && clips.length > 1" class="section-hint">{{ clip.label }}</div>
       <audio :src="clip.url" controls class="audio-player" />
       <div class="audio-actions">
@@ -45,9 +36,7 @@ const props = defineProps({
 
 defineEmits(['download'])
 
-const hasContent = computed(() =>
-  Boolean(props.error || props.clips?.length || props.text),
-)
+const hasContent = computed(() => Boolean(props.error || props.clips?.length || props.text))
 
 function downloadLabel(clip) {
   if (props.clips.length > 1 && clip?.label) {

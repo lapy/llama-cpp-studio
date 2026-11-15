@@ -1195,11 +1195,12 @@
           ]
         },
         {
-          "count": 2,
+          "count": 3,
           "file": "frontend/src/views/ModelConfig.test.js",
           "lines": [
-            709,
-            717
+            735,
+            736,
+            748
           ]
         },
         {
@@ -2876,18 +2877,19 @@
           ]
         },
         {
-          "count": 9,
+          "count": 10,
           "file": "frontend/src/composables/engineReadiness.test.js",
           "lines": [
-            28,
-            29,
-            32,
+            38,
+            39,
             44,
-            45,
-            46,
-            59,
-            67,
-            71
+            47,
+            61,
+            62,
+            63,
+            76,
+            84,
+            88
           ]
         },
         {

@@ -27,10 +27,7 @@ const props = defineProps({
 })
 const toast = useToast()
 const busy = ref(false)
-const available = computed(
-  () =>
-    props.model.is_active && !isAudioPackage(props.model),
-)
+const available = computed(() => props.model.is_active && !isAudioPackage(props.model))
 const loading = computed(
   () =>
     (props.model.status || props.model.run_state) === 'loading' ||

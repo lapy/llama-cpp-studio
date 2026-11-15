@@ -286,8 +286,7 @@ textarea {
     font-size: 1rem;
   }
   :where(a, button, input, select, textarea, summary, [tabindex]) {
-    scroll-margin-block: calc(var(--app-header-height) + 1rem)
-      calc(var(--bottom-nav-height) + 1rem);
+    scroll-margin-block: calc(var(--app-header-height) + 1rem) calc(var(--bottom-nav-height) + 1rem);
   }
 }
 

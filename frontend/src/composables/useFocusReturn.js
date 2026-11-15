@@ -20,7 +20,9 @@ export function useFocusReturn() {
     const stillThere = current && typeof document !== 'undefined' && document.contains(current)
     const target = stillThere
       ? current
-      : (typeof document !== 'undefined' ? document.getElementById(MAIN_CONTENT_ID) : null)
+      : typeof document !== 'undefined'
+        ? document.getElementById(MAIN_CONTENT_ID)
+        : null
     target?.focus?.()
   }
 

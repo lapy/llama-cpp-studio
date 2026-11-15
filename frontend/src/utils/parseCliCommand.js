@@ -41,12 +41,7 @@ export const STUDIO_RESERVED_KEYS = new Set([
 const STUDIO_ENV_PREFIX = 'LLAMA_STUDIO_'
 const RUNTIME_ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
 /** Env names that collide with Studio-owned listen / identity, plus the reserved prefix. */
-const STUDIO_RESERVED_ENV_KEYS = new Set([
-  'HOST',
-  'HOSTNAME',
-  'PORT',
-  'SERVER_PORT',
-])
+const STUDIO_RESERVED_ENV_KEYS = new Set(['HOST', 'HOSTNAME', 'PORT', 'SERVER_PORT'])
 const COMMAND_WORDS = new Set([
   'sglang',
   'serve',
@@ -321,7 +316,9 @@ function flagTakesValue(param) {
 
 function coerceBool(raw) {
   if (typeof raw === 'boolean') return raw
-  const text = String(raw ?? '').trim().toLowerCase()
+  const text = String(raw ?? '')
+    .trim()
+    .toLowerCase()
   if (['1', 'true', 'yes', 'on'].includes(text)) return true
   if (['0', 'false', 'no', 'off'].includes(text)) return false
   return null
@@ -426,8 +423,11 @@ function buildFlagIndex(catalogParams) {
   for (const source of catalogParams || []) {
     if (!source || !source.key) continue
     const listSpec = /\[.*\.\.\..*\]/.test(String(source.value_spec || source.metavar || ''))
-    const param = (source.type === 'list' || source.nargs === '+' || source.nargs === '*' || listSpec) && !['repeatable', 'csv_enum', 'semicolon_enum'].includes(source.value_kind)
-      ? { ...source, value_kind: 'space_list' } : source
+    const param =
+      (source.type === 'list' || source.nargs === '+' || source.nargs === '*' || listSpec) &&
+      !['repeatable', 'csv_enum', 'semicolon_enum'].includes(source.value_kind)
+        ? { ...source, value_kind: 'space_list' }
+        : source
     const flags = new Set()
     for (const flag of [param.primary_flag, param.negative_flag, ...(param.flags || [])]) {
       if (flag) flags.add(String(flag))
@@ -458,7 +458,14 @@ export function valuesEqual(a, b) {
     if (a.length !== b.length) return false
     return a.every((item, idx) => valuesEqual(item, b[idx]))
   }
-  if (a && b && typeof a === 'object' && typeof b === 'object' && !Array.isArray(a) && !Array.isArray(b)) {
+  if (
+    a &&
+    b &&
+    typeof a === 'object' &&
+    typeof b === 'object' &&
+    !Array.isArray(a) &&
+    !Array.isArray(b)
+  ) {
     try {
       return JSON.stringify(a) === JSON.stringify(b)
     } catch {
@@ -529,10 +536,10 @@ function consumeOptionalValue(tokens, index, inline, inlineValue) {
 function recordParsedValue(bucket, param, flag, value, tokens, extra = {}) {
   const prev = bucket.get(param.key)
   if (
-    prev
-    && !['repeatable', 'space_list'].includes(param.value_kind)
-    && !isDelimitedEnumParam(param)
-    && !valuesEqual(prev.value, value)
+    prev &&
+    !['repeatable', 'space_list'].includes(param.value_kind) &&
+    !isDelimitedEnumParam(param) &&
+    !valuesEqual(prev.value, value)
   ) {
     extra.onReplace?.(flag, param)
   }
@@ -709,7 +716,12 @@ export function parseCliCommand(text, catalogParams = []) {
 
     const incoming = coerceCliValue(raw, param, { polarity })
     const allowed = optionValues(param)
-    if (allowed.length && incoming != null && !Array.isArray(incoming) && !allowed.map(String).includes(String(incoming))) {
+    if (
+      allowed.length &&
+      incoming != null &&
+      !Array.isArray(incoming) &&
+      !allowed.map(String).includes(String(incoming))
+    ) {
       warnings.push(`${flag} value ${raw} is not in the catalog options for ${param.key}`)
     }
 
@@ -754,7 +766,8 @@ export function buildImportPreview(parsed, currentValues = {}) {
 }
 
 function currentEnvLookup(currentEnv, key) {
-  const env = currentEnv && typeof currentEnv === 'object' && !Array.isArray(currentEnv) ? currentEnv : {}
+  const env =
+    currentEnv && typeof currentEnv === 'object' && !Array.isArray(currentEnv) ? currentEnv : {}
   const exact = Object.prototype.hasOwnProperty.call(env, key) ? key : null
   if (exact) return { present: true, key: exact, value: env[exact] }
   const upper = String(key || '').toUpperCase()
@@ -769,7 +782,9 @@ export function buildEnvImportPreview(parsed, currentEnv = {}) {
     return {
       ...row,
       currentValue: current.present ? current.value : undefined,
-      change: changeKind(current.present ? current.value : undefined, row.value, { present: current.present }),
+      change: changeKind(current.present ? current.value : undefined, row.value, {
+        present: current.present,
+      }),
     }
   })
 }

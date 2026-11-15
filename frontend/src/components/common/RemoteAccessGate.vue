@@ -141,8 +141,7 @@ function submit() {
   justify-content: center;
   overflow: hidden;
   background:
-    radial-gradient(ellipse at top, rgba(34, 211, 238, 0.12), transparent 46%),
-    var(--bg-primary);
+    radial-gradient(ellipse at top, rgba(34, 211, 238, 0.12), transparent 46%), var(--bg-primary);
 }
 
 .access-gate__pending {

@@ -170,7 +170,14 @@ test('touch layouts retain minimum target sizes and reflow at 320 CSS pixels', a
   try {
     for (const theme of ['dark', 'light']) {
       await page.addInitScript((value) => localStorage.setItem('theme', value), theme)
-      for (const path of ['/models', '/search', '/audio', '/engines', '/proxy', '/system#config-backup']) {
+      for (const path of [
+        '/models',
+        '/search',
+        '/audio',
+        '/engines',
+        '/proxy',
+        '/system#config-backup',
+      ]) {
         await page.goto(`http://127.0.0.1:4179${path}`)
         await expect(page.locator('main h1').first()).toBeVisible()
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(

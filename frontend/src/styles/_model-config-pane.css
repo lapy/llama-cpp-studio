@@ -550,11 +550,7 @@
   padding: 0.35rem 0.65rem;
   border-radius: 999px;
   border: 1px solid var(--border-primary, #2a2f45);
-  background: color-mix(
-    in srgb,
-    var(--accent-cyan, #22d3ee) 8%,
-    var(--bg-card, #161b2e)
-  );
+  background: color-mix(in srgb, var(--accent-cyan, #22d3ee) 8%, var(--bg-card, #161b2e));
   color: var(--text-primary, #e5e7eb);
   font-size: 0.8125rem;
   cursor: pointer;
@@ -566,11 +562,7 @@
 
 .param-search-tag:hover {
   border-color: var(--accent-cyan, #22d3ee);
-  background: color-mix(
-    in srgb,
-    var(--accent-cyan, #22d3ee) 14%,
-    var(--bg-card, #161b2e)
-  );
+  background: color-mix(in srgb, var(--accent-cyan, #22d3ee) 14%, var(--bg-card, #161b2e));
   transform: translateY(-1px);
 }
 

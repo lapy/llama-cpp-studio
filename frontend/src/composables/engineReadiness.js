@@ -3,7 +3,18 @@
  * Installed-but-not-runnable builds stay out of the ready set.
  */
 
-const AUDIO_TASKS = new Set(['vad', 'asr', 'diar', 'sep', 'gen', 'tts', 'clon', 'vc', 's2s', 'align'])
+const AUDIO_TASKS = new Set([
+  'vad',
+  'asr',
+  'diar',
+  'sep',
+  'gen',
+  'tts',
+  'clon',
+  'vc',
+  's2s',
+  'align',
+])
 
 export function engineCardOrder(descriptor) {
   if (descriptor?.runnable) return 0
@@ -31,7 +42,8 @@ export function engineMatchesFilters(descriptor, { task = 'all', hardware = 'all
   } else if (task === 'embeddings') {
     if (!descriptor.supports_embeddings && !tasks.has('embeddings')) return false
   } else if (task === 'text') {
-    if (tasks.size && !tasks.has('text-generation') && !tasks.has('text2text-generation')) return false
+    if (tasks.size && !tasks.has('text-generation') && !tasks.has('text2text-generation'))
+      return false
   }
   if (hardware === 'cpu') {
     if (!formats.has('gguf') && !descriptor.cpu_supported) return false

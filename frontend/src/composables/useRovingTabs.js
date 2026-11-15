@@ -2,7 +2,8 @@
 export function onRovingTabKeydown(event) {
   const key = event.key
   if (!['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(key)) return
-  const tablist = event.currentTarget?.closest?.('[role="tablist"]') || event.currentTarget?.parentElement
+  const tablist =
+    event.currentTarget?.closest?.('[role="tablist"]') || event.currentTarget?.parentElement
   if (!tablist) return
   const tabs = [...tablist.querySelectorAll('[role="tab"]:not([disabled])')]
   const index = tabs.indexOf(event.currentTarget)

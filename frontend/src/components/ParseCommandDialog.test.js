@@ -58,7 +58,8 @@ const catalogParams = [
 const buttonStub = {
   props: ['label', 'icon', 'text', 'severity', 'loading', 'outlined', 'rounded', 'disabled'],
   emits: ['click'],
-  template: '<button :data-label="label" :disabled="disabled" @click="$emit(`click`)">{{ label }}</button>',
+  template:
+    '<button :data-label="label" :disabled="disabled" @click="$emit(`click`)">{{ label }}</button>',
 }
 
 function mountDialog(props = {}) {
@@ -106,9 +107,9 @@ function mountDialog(props = {}) {
 describe('ParseCommandDialog', () => {
   it('live-previews importable params and excludes Studio-owned host/port', async () => {
     const wrapper = mountDialog()
-    await wrapper.get('#parse-command-text').setValue(
-      'llama-server --host 0.0.0.0 --port 8081 --ctx-size 8192 --temp 0.4',
-    )
+    await wrapper
+      .get('#parse-command-text')
+      .setValue('llama-server --host 0.0.0.0 --port 8081 --ctx-size 8192 --temp 0.4')
     await flushPromises()
 
     expect(wrapper.text()).toContain('Context Size')
@@ -135,9 +136,9 @@ describe('ParseCommandDialog', () => {
 
   it('emits only confirmed catalog values on apply', async () => {
     const wrapper = mountDialog()
-    await wrapper.get('#parse-command-text').setValue(
-      '--host 127.0.0.1 --port 9 --temp 0.9 --mirostat 1 --unknown-x',
-    )
+    await wrapper
+      .get('#parse-command-text')
+      .setValue('--host 127.0.0.1 --port 9 --temp 0.9 --mirostat 1 --unknown-x')
     await flushPromises()
 
     await wrapper.get('button[data-label="Apply 1 parameter"]').trigger('click')
@@ -148,16 +149,18 @@ describe('ParseCommandDialog', () => {
 
   it('previews importable env vars and skips Studio-managed env names', async () => {
     const wrapper = mountDialog({ currentEnv: { FLASHINFER_DISABLE_VERSION_CHECK: '0' } })
-    await wrapper.get('#parse-command-text').setValue(
-      [
-        'CUDA_VISIBLE_DEVICES=0,1,2,3',
-        'FLASHINFER_DISABLE_VERSION_CHECK=1',
-        'PORT=8081',
-        'LLAMA_STUDIO_MODEL_PATH=/x',
-        'sglang',
-        'serve',
-      ].join('\n'),
-    )
+    await wrapper
+      .get('#parse-command-text')
+      .setValue(
+        [
+          'CUDA_VISIBLE_DEVICES=0,1,2,3',
+          'FLASHINFER_DISABLE_VERSION_CHECK=1',
+          'PORT=8081',
+          'LLAMA_STUDIO_MODEL_PATH=/x',
+          'sglang',
+          'serve',
+        ].join('\n'),
+      )
     await flushPromises()
 
     expect(wrapper.text()).toContain('Environment variables')

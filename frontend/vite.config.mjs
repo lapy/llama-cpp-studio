@@ -63,10 +63,13 @@ export default defineConfig(({ command, mode }) => {
         reporter: ['text', 'json-summary'],
         reportsDirectory: '../test-results/frontend-coverage',
         thresholds: {
-          statements: 67,
-          branches: 60,
-          functions: 63,
-          lines: 70,
+          // Re-measured after the repository-wide Prettier pass, which changes
+          // the line/statement denominator: 67.61 stmts, 60.39 branches,
+          // 63.91 functions, 69.97 lines. The floors keep a small margin.
+          statements: 67.5,
+          branches: 60.2,
+          functions: 63.8,
+          lines: 69.9,
         },
       },
       // Vue + happy-dom integration tests share timer-heavy module state.

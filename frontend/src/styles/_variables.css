@@ -49,11 +49,7 @@
   --focus-ring: rgba(129, 140, 248, 0.3);
 
   /* Gradients (simplified) */
-  --gradient-primary: linear-gradient(
-    135deg,
-    var(--accent-cyan),
-    var(--accent-blue)
-  );
+  --gradient-primary: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
   --gradient-success: linear-gradient(135deg, var(--status-success), #059669);
   --gradient-warning: linear-gradient(135deg, var(--status-warning), #d97706);
   --gradient-error: linear-gradient(135deg, var(--status-error), #dc2626);

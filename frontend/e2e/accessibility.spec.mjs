@@ -40,23 +40,27 @@ async function installApi(page, state) {
       return
     }
     if (path === '/api/models' && method === 'GET') {
-      await json(route, [{
-        base_model_name: 'Demo',
-        huggingface_id: 'org/demo',
-        quantizations: [{
-          id: 'demo-model',
-          name: 'Demo',
-          format: 'gguf',
-          quantization: 'Q4_K_M',
-          is_active: true,
-          run_state: 'running',
-          status: 'running',
-          runtime_quality: 'verified',
-          config: { engine: 'llama_cpp' },
-          proxy_model_id: 'demo-model',
-          proxy_name: 'demo-model',
-        }],
-      }])
+      await json(route, [
+        {
+          base_model_name: 'Demo',
+          huggingface_id: 'org/demo',
+          quantizations: [
+            {
+              id: 'demo-model',
+              name: 'Demo',
+              format: 'gguf',
+              quantization: 'Q4_K_M',
+              is_active: true,
+              run_state: 'running',
+              status: 'running',
+              runtime_quality: 'verified',
+              config: { engine: 'llama_cpp' },
+              proxy_model_id: 'demo-model',
+              proxy_name: 'demo-model',
+            },
+          ],
+        },
+      ])
       return
     }
     if (path === '/api/inference/keys') return json(route, { keys: [] })
@@ -79,13 +83,15 @@ async function installApi(page, state) {
         launch_manifests: true,
         requires_proxy_reload: false,
         migration_required: false,
-        models: [{
-          catalog_id: 'demo-model',
-          model_id: 'demo-model',
-          action: 'publish_next_start',
-          running: false,
-          requires_proxy_reload: false,
-        }],
+        models: [
+          {
+            catalog_id: 'demo-model',
+            model_id: 'demo-model',
+            action: 'publish_next_start',
+            running: false,
+            requires_proxy_reload: false,
+          },
+        ],
       })
       return
     }
@@ -140,7 +146,11 @@ test('keyboard restore can preview, confirm, and cancel', async ({ page }) => {
   const restore = page.getByRole('button', { name: 'Restore saved settings' })
   await expect(restore).toBeEnabled()
   await file.focus()
-  for (let step = 0; step < 12 && await restore.evaluate((node) => document.activeElement !== node); step += 1) {
+  for (
+    let step = 0;
+    step < 12 && (await restore.evaluate((node) => document.activeElement !== node));
+    step += 1
+  ) {
     await page.keyboard.press('Tab')
   }
   await expect(restore).toBeFocused()
@@ -201,7 +211,9 @@ test('diagnostics, restore, and connect stay reachable at 200% zoom', async ({ p
   await installApi(page, { applies: 0 })
   await page.goto('/models')
   await page.getByRole('button', { name: 'List' }).click()
-  await page.evaluate(() => { document.documentElement.style.zoom = '2' })
+  await page.evaluate(() => {
+    document.documentElement.style.zoom = '2'
+  })
   const connect = page.getByRole('button', { name: 'Connect Demo' })
   await connect.scrollIntoViewIfNeeded()
   await expect(connect).toBeVisible()
@@ -214,7 +226,9 @@ test('diagnostics, restore, and connect stay reachable at 200% zoom', async ({ p
   await diagnostics.scrollIntoViewIfNeeded()
   await expect(diagnostics).toBeVisible()
   await page.goto('/restore')
-  await page.evaluate(() => { document.documentElement.style.zoom = '2' })
+  await page.evaluate(() => {
+    document.documentElement.style.zoom = '2'
+  })
   const download = page.getByRole('button', { name: 'Download backup' })
   await download.scrollIntoViewIfNeeded()
   await expect(download).toBeVisible()
@@ -237,7 +251,9 @@ for (const theme of ['dark']) {
         await expect(navigation).toBeVisible()
         await expect(navigation.locator('[aria-current="page"]')).toHaveCount(1)
         expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1)
-        expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1)
+        expect(
+          await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+        ).toBeLessThanOrEqual(1)
         const bounds = await navigation.boundingBox()
         const activity = await page.locator('.activity-toggle').boundingBox()
         if (width <= 900 && activity) expect(activity.y + activity.height).toBeLessThan(bounds.y)

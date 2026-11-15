@@ -44,7 +44,14 @@
       </li>
     </ol>
   </section>
-  <button v-else-if="dismissed && !verifiedSuccess" type="button" class="setup-reopen" @click="reopen">Show setup guide</button>
+  <button
+    v-else-if="dismissed && !verifiedSuccess"
+    type="button"
+    class="setup-reopen"
+    @click="reopen"
+  >
+    Show setup guide
+  </button>
 </template>
 
 <script setup>
@@ -79,10 +86,16 @@ const hasModels = computed(() => quants.value.length > 0)
 
 const configReviewed = computed(() => quants.value.some((quant) => quant?.config_reviewed))
 
-const hasVerifiedRunning = computed(() => quants.value.some((quant) => modelRuntimeState(quant).actionable))
+const hasVerifiedRunning = computed(() =>
+  quants.value.some((quant) => modelRuntimeState(quant).actionable),
+)
 
 const setupModel = computed(() => quants.value.find((q) => !q.config_reviewed) || quants.value[0])
-const runningModel = computed(() => quants.value.find((q) => q.is_active && !['stale', 'unreachable', 'unknown'].includes(q.runtime_quality)))
+const runningModel = computed(() =>
+  quants.value.find(
+    (q) => q.is_active && !['stale', 'unreachable', 'unknown'].includes(q.runtime_quality),
+  ),
+)
 const proxyKnown = computed(() => enginesStore.systemStatus?.proxy_status != null)
 const proxyHealthy = computed(() => Boolean(enginesStore.systemStatus?.proxy_status?.healthy))
 
@@ -118,7 +131,9 @@ const steps = computed(() => {
       label: 'Review configuration',
       detail: 'Open the model, check the engine and context, then save.',
       done: configReviewed.value,
-      to: setupModel.value ? `/models/${encodeURIComponent(setupModel.value.id)}/config` : '/models',
+      to: setupModel.value
+        ? `/models/${encodeURIComponent(setupModel.value.id)}/config`
+        : '/models',
       action: 'Configure model',
     },
     {
@@ -175,21 +190,29 @@ async function activateStep() {
     if (currentStep.value?.to) router.push(currentStep.value.to)
     return
   }
-  const model = quants.value.find((quant) => quant.config_reviewed && !quant.is_active) || setupModel.value
+  const model =
+    quants.value.find((quant) => quant.config_reviewed && !quant.is_active) || setupModel.value
   if (!model || starting.value) return
   starting.value = true
   try {
     await modelStore.startModel(model.id)
     await modelStore.fetchModels()
   } catch {
-    setupError.value = 'Could not start the model. Open its configuration to check the engine, then retry.'
-  } finally { starting.value = false }
+    setupError.value =
+      'Could not start the model. Open its configuration to check the engine, then retry.'
+  } finally {
+    starting.value = false
+  }
 }
 
 function reopen() {
   dismissed.value = false
   expanded.value = true
-  try { localStorage.removeItem(DISMISS_KEY) } catch { /* Session-only preference. */ }
+  try {
+    localStorage.removeItem(DISMISS_KEY)
+  } catch {
+    /* Session-only preference. */
+  }
 }
 
 function dismiss() {

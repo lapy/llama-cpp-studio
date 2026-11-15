@@ -12,7 +12,9 @@ import { isAudioEngineId } from '@/engines/registry'
 const AUDIO_TASKS = new Set(['asr', 'tts', 'vc', 'svc', 's2s', 'gen', 'clon'])
 
 export function normalizePublicInferenceUrl(value) {
-  const text = String(value || '').trim().replace(/\/+$/, '')
+  const text = String(value || '')
+    .trim()
+    .replace(/\/+$/, '')
   if (!text) return ''
   let parsed
   try {
@@ -38,17 +40,27 @@ export function connectKind(model) {
   const engine = model.config?.engine || model.engine || ''
   const tasks = model.tasks || model.config?.tasks || []
   const task = String(model.config?.task || model.task || '').toLowerCase()
-  if (isAudioEngineId(engine) || isAudioEngineId(model.format) || AUDIO_TASKS.has(task) || tasks.some((item) => AUDIO_TASKS.has(item))) {
+  if (
+    isAudioEngineId(engine) ||
+    isAudioEngineId(model.format) ||
+    AUDIO_TASKS.has(task) ||
+    tasks.some((item) => AUDIO_TASKS.has(item))
+  ) {
     return 'audio'
   }
-  if (model.is_embedding_model || tasks.includes('embeddings') || model.pipeline_tag === 'feature-extraction') {
+  if (
+    model.is_embedding_model ||
+    tasks.includes('embeddings') ||
+    model.pipeline_tag === 'feature-extraction'
+  ) {
     return 'embeddings'
   }
   return 'chat'
 }
 
 export function connectRequest(model) {
-  const id = model?.proxy_model_id || model?.proxy_name || model?.config?.model_alias || model?.id || ''
+  const id =
+    model?.proxy_model_id || model?.proxy_name || model?.config?.model_alias || model?.id || ''
   const kind = connectKind(model)
   if (kind === 'embeddings') {
     return {
@@ -60,8 +72,8 @@ export function connectRequest(model) {
   if (kind === 'audio') {
     // The contract's generic task route (Studio proxy serves every audio task
     // there; per-task dedicated routes ride the model's own config).
-    const path = audioContract.value.generic_studio_path
-      || OFFLINE_AUDIO_CONTRACT.generic_studio_path
+    const path =
+      audioContract.value.generic_studio_path || OFFLINE_AUDIO_CONTRACT.generic_studio_path
     return {
       kind,
       path,

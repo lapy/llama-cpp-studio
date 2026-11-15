@@ -12,9 +12,27 @@ describe('useTaskFilter', () => {
   it('returns running, completed, and failed tasks when showCompleted is true', () => {
     const store = useProgressStore()
     store.tasks = {
-      run: { task_id: 'run', type: 'download', status: 'running', progress: 10, description: 'Running' },
-      done: { task_id: 'done', type: 'download', status: 'completed', progress: 100, description: 'Done' },
-      fail: { task_id: 'fail', type: 'build', status: 'failed', progress: 50, description: 'Failed' },
+      run: {
+        task_id: 'run',
+        type: 'download',
+        status: 'running',
+        progress: 10,
+        description: 'Running',
+      },
+      done: {
+        task_id: 'done',
+        type: 'download',
+        status: 'completed',
+        progress: 100,
+        description: 'Done',
+      },
+      fail: {
+        task_id: 'fail',
+        type: 'build',
+        status: 'failed',
+        progress: 50,
+        description: 'Failed',
+      },
     }
 
     const { filteredTasks } = useTaskFilter({ showCompleted: ref(true) })

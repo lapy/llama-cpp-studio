@@ -40,32 +40,35 @@ describe('useAudioInferenceClient', () => {
   })
 
   it('resolves inference model id from alias then proxy ids', () => {
-    expect(audioInferenceModelId(
-      { id: 'pkg/demo', proxy_model_id: 'swap-id' },
-      { model_alias: 'friendly' },
-    )).toBe('friendly')
+    expect(
+      audioInferenceModelId(
+        { id: 'pkg/demo', proxy_model_id: 'swap-id' },
+        { model_alias: 'friendly' },
+      ),
+    ).toBe('friendly')
     expect(audioInferenceModelId({ id: 'pkg/demo', proxy_name: 'proxy' })).toBe('proxy')
     expect(audioInferenceModelId({ id: 'pkg/demo' })).toBe('pkg/demo')
   })
 
   it('sends speech rate only for scanned request options', () => {
     const registry = {
-      sections: [{
-        params: [
-          { scope: 'request_option', key: 'speed' },
-          { scope: 'session_option', key: 'speaking_rate' },
-        ],
-      }],
+      sections: [
+        {
+          params: [
+            { scope: 'request_option', key: 'speed' },
+            { scope: 'session_option', key: 'speaking_rate' },
+          ],
+        },
+      ],
     }
     expect(acceptedSpeechRateKeys(registry)).toEqual(['speed'])
-    expect(speechRateRequestFields(
-      { options: { speed: '1.25', speaking_rate: 0.8 } },
-      acceptedSpeechRateKeys(registry),
-    )).toEqual({ speed: 1.25 })
-    expect(speechRateRequestFields(
-      { options: { speed: '1.25' } },
-      [],
-    )).toEqual({})
+    expect(
+      speechRateRequestFields(
+        { options: { speed: '1.25', speaking_rate: 0.8 } },
+        acceptedSpeechRateKeys(registry),
+      ),
+    ).toEqual({ speed: 1.25 })
+    expect(speechRateRequestFields({ options: { speed: '1.25' } }, [])).toEqual({})
   })
 
   it('maps config task to workspace tab kind', () => {
@@ -132,12 +135,16 @@ describe('useAudioInferenceClient', () => {
     const pcmA = new Uint8Array([1, 0, 2, 0])
     const pcmB = new Uint8Array([3, 0, 4, 0])
     const b64 = (bytes) => btoa(String.fromCharCode(...bytes))
-    const fetchMock = vi.fn().mockResolvedValue(sseResponse([
-      `data: {"type":"speech.audio.delta","audio":"${b64(pcmA)}"}\n\n`,
-      `data: {"type":"speech.text.delta","delta":"Hi"}\ndata: {"type":"speech.audio.delta","audio":"${b64(pcmB)}"}\n\n`,
-      'data: {"type":"speech.audio.done","timing":{"ttft_ms":42}}\n\n',
-      'data: [DONE]\n\n',
-    ]))
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        sseResponse([
+          `data: {"type":"speech.audio.delta","audio":"${b64(pcmA)}"}\n\n`,
+          `data: {"type":"speech.text.delta","delta":"Hi"}\ndata: {"type":"speech.audio.delta","audio":"${b64(pcmB)}"}\n\n`,
+          'data: {"type":"speech.audio.done","timing":{"ttft_ms":42}}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      )
     vi.stubGlobal('fetch', fetchMock)
 
     const frames = []
@@ -149,7 +156,9 @@ describe('useAudioInferenceClient', () => {
       voice: 'alba',
       onAudio: (bytes, index) => frames.push([index, bytes.length]),
       onText: (delta) => texts.push(delta),
-      onTiming: (value) => { timing = value },
+      onTiming: (value) => {
+        timing = value
+      },
     })
 
     const sent = JSON.parse(fetchMock.mock.calls[0][1].body)
@@ -162,7 +171,10 @@ describe('useAudioInferenceClient', () => {
       response_format: 'pcm',
     })
     expect(fetchMock.mock.calls[0][1].headers.get('Accept')).toBe('text/event-stream')
-    expect(frames).toEqual([[0, 4], [1, 4]])
+    expect(frames).toEqual([
+      [0, 4],
+      [1, 4],
+    ])
     expect(texts).toEqual(['Hi'])
     expect(timing).toEqual({ ttft_ms: 42 })
     expect(Array.from(result.pcm)).toEqual([1, 0, 2, 0, 3, 0, 4, 0])
@@ -203,7 +215,8 @@ describe('useAudioInferenceClient', () => {
     expect(view.getUint32(40, true)).toBe(4)
   })
 
-  it('posts multipart transcriptions to Studio /v1/audio/transcriptions', async () => {    vi.stubGlobal('window', { location: { origin: 'http://studio.test' } })
+  it('posts multipart transcriptions to Studio /v1/audio/transcriptions', async () => {
+    vi.stubGlobal('window', { location: { origin: 'http://studio.test' } })
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       headers: { get: () => 'application/json' },
@@ -260,7 +273,9 @@ describe('useAudioInferenceClient', () => {
   })
 
   it('posts generic tasks to Studio /v1/tasks/run', async () => {
-    vi.stubGlobal('window', { location: { origin: 'http://studio.test', hostname: 'studio.test', protocol: 'http:' } })
+    vi.stubGlobal('window', {
+      location: { origin: 'http://studio.test', hostname: 'studio.test', protocol: 'http:' },
+    })
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       headers: { get: () => 'application/json' },
@@ -302,10 +317,30 @@ describe('useAudioInferenceClient', () => {
         vc: 'tasks_run',
       },
       operations: [
-        { id: 'speech', studio_path: '/v1/audio/speech', request_defaults_key: 'speech_defaults', body_shape: 'openai-json' },
-        { id: 'transcriptions', studio_path: '/v1/audio/transcriptions', request_defaults_key: 'transcription_defaults', body_shape: 'multipart-form' },
-        { id: 'alignments', studio_path: '/v1/audio/alignments', request_defaults_key: 'task_defaults', body_shape: 'multipart-form' },
-        { id: 'tasks_run', studio_path: '/audioapi/v1/tasks/run', request_defaults_key: 'task_defaults', body_shape: 'tasks-run' },
+        {
+          id: 'speech',
+          studio_path: '/v1/audio/speech',
+          request_defaults_key: 'speech_defaults',
+          body_shape: 'openai-json',
+        },
+        {
+          id: 'transcriptions',
+          studio_path: '/v1/audio/transcriptions',
+          request_defaults_key: 'transcription_defaults',
+          body_shape: 'multipart-form',
+        },
+        {
+          id: 'alignments',
+          studio_path: '/v1/audio/alignments',
+          request_defaults_key: 'task_defaults',
+          body_shape: 'multipart-form',
+        },
+        {
+          id: 'tasks_run',
+          studio_path: '/audioapi/v1/tasks/run',
+          request_defaults_key: 'task_defaults',
+          body_shape: 'tasks-run',
+        },
       ],
     }
     try {
@@ -323,10 +358,12 @@ describe('useAudioInferenceClient', () => {
   })
 
   it('preserves engine input names without inventing conversion aliases', () => {
-    expect(tasksRunRequestObject({
-      source_audio: '/data/src.wav',
-      target_voice: '/data/ref.wav',
-    })).toEqual({
+    expect(
+      tasksRunRequestObject({
+        source_audio: '/data/src.wav',
+        target_voice: '/data/ref.wav',
+      }),
+    ).toEqual({
       source_audio: '/data/src.wav',
       target_voice: '/data/ref.wav',
     })
@@ -335,8 +372,8 @@ describe('useAudioInferenceClient', () => {
   it('decodes base64 WAV task results into playable blobs', async () => {
     // Minimal RIFF/WAV header bytes → base64 "UklGRgAAAABXQVZF..."
     const wavBytes = new Uint8Array([
-      0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00,
-      0x57, 0x41, 0x56, 0x45, 0x66, 0x6d, 0x74, 0x20,
+      0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x41, 0x56, 0x45, 0x66, 0x6d, 0x74,
+      0x20,
     ])
     let binary = ''
     for (const byte of wavBytes) binary += String.fromCharCode(byte)

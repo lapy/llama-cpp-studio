@@ -7,10 +7,10 @@
     @update:visible="emit('update:visible', $event)"
   >
     <p class="parse-command-lead">
-      Paste a server command, raw flags, or <code>KEY=value</code> environment assignments.
-      Matching catalog parameters and model process environment variables appear below as you type.
-      Studio-managed options (listen host/port, model path, alias, <code>LLAMA_STUDIO_*</code>)
-      are never imported.
+      Paste a server command, raw flags, or <code>KEY=value</code> environment assignments. Matching
+      catalog parameters and model process environment variables appear below as you type.
+      Studio-managed options (listen host/port, model path, alias, <code>LLAMA_STUDIO_*</code>) are
+      never imported.
     </p>
 
     <div class="parse-command-field">
@@ -63,10 +63,17 @@
       <div class="parse-command-section">
         <div class="section-label">
           Import preview
-          <small class="section-hint">{{ importableRows.length }} parameter(s) can be applied</small>
+          <small class="section-hint"
+            >{{ importableRows.length }} parameter(s) can be applied</small
+          >
         </div>
-        <Message v-if="!importableRows.length && !envRows.length" severity="secondary" :closable="false">
-          No catalog parameters or environment variables to import. Studio-owned, unknown, and deprecated items are listed below.
+        <Message
+          v-if="!importableRows.length && !envRows.length"
+          severity="secondary"
+          :closable="false"
+        >
+          No catalog parameters or environment variables to import. Studio-owned, unknown, and
+          deprecated items are listed below.
         </Message>
         <Message v-else-if="!importableRows.length" severity="secondary" :closable="false">
           No catalog parameters to import. Environment variables are listed below.
@@ -144,7 +151,11 @@
           <small class="section-hint">Deprecated or unsupported; opt in to apply</small>
         </div>
         <ul class="parse-preview-list">
-          <li v-for="row in parsed.unsupported" :key="`unsup-${row.key}`" class="parse-preview-item">
+          <li
+            v-for="row in parsed.unsupported"
+            :key="`unsup-${row.key}`"
+            class="parse-preview-item"
+          >
             <Checkbox
               :input-id="`import-unsup-${row.key}`"
               :model-value="selectedUnsupportedKeys.includes(row.key)"
@@ -294,7 +305,12 @@ watch(
   (next, prev) => {
     const stillPresent = new Set(importableRows.value.map((row) => row.key))
     const keep = selectedKeys.value.filter((key) => stillPresent.has(key))
-    const prevKeys = new Set((prev || '').split('|').map((part) => part.split(':')[0]).filter(Boolean))
+    const prevKeys = new Set(
+      (prev || '')
+        .split('|')
+        .map((part) => part.split(':')[0])
+        .filter(Boolean),
+    )
     for (const row of importableRows.value) {
       if (!prevKeys.has(row.key) && row.change !== 'unchanged') keep.push(row.key)
     }
@@ -315,7 +331,12 @@ watch(
   (next, prev) => {
     const stillPresent = new Set(envRows.value.map((row) => row.key))
     const keep = selectedEnvKeys.value.filter((key) => stillPresent.has(key))
-    const prevKeys = new Set((prev || '').split('|').map((part) => part.split(':')[0]).filter(Boolean))
+    const prevKeys = new Set(
+      (prev || '')
+        .split('|')
+        .map((part) => part.split(':')[0])
+        .filter(Boolean),
+    )
     for (const row of envRows.value) {
       if (!prevKeys.has(row.key) && row.change !== 'unchanged') keep.push(row.key)
     }
@@ -333,7 +354,8 @@ function toggleKey(key, checked) {
 
 function toggleEnv(key, checked) {
   if (checked) {
-    if (!selectedEnvKeys.value.includes(key)) selectedEnvKeys.value = [...selectedEnvKeys.value, key]
+    if (!selectedEnvKeys.value.includes(key))
+      selectedEnvKeys.value = [...selectedEnvKeys.value, key]
     return
   }
   selectedEnvKeys.value = selectedEnvKeys.value.filter((item) => item !== key)

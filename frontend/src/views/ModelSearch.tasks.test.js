@@ -82,7 +82,8 @@ function mountModelSearch() {
       stubs: {
         Button: {
           props: ['label', 'loading'],
-          template: '<button :data-label="label" :data-loading="loading ? \'1\' : \'0\'" @click="$emit(\'click\')">{{ label }}</button>',
+          template:
+            '<button :data-label="label" :data-loading="loading ? \'1\' : \'0\'" @click="$emit(\'click\')">{{ label }}</button>',
         },
         Tag: {
           props: ['value'],

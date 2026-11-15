@@ -31,8 +31,20 @@ function mountChecklist() {
 describe('SetupChecklist', () => {
   it('does not treat an inactive install as ready and waits for descriptors', async () => {
     enginesStore.engineDescriptors = [
-      { id: 'llama_cpp', label: 'llama.cpp', runnable: false, installed_versions: 1, enabled: true },
-      { id: 'unsloth_llama', label: 'Unsloth llama.cpp', runnable: false, installed_versions: 0, enabled: true },
+      {
+        id: 'llama_cpp',
+        label: 'llama.cpp',
+        runnable: false,
+        installed_versions: 1,
+        enabled: true,
+      },
+      {
+        id: 'unsloth_llama',
+        label: 'Unsloth llama.cpp',
+        runnable: false,
+        installed_versions: 0,
+        enabled: true,
+      },
     ]
     modelStore.models = []
     const wrapper = mountChecklist()
@@ -50,9 +62,13 @@ describe('SetupChecklist', () => {
     enginesStore.engineDescriptors = [
       { id: 'unsloth_llama', label: 'Unsloth llama.cpp', runnable: true, enabled: true },
     ]
-    modelStore.models = [{
-      quantizations: [{ id: 'm1', is_active: false, config_reviewed: false, runtime_quality: 'verified' }],
-    }]
+    modelStore.models = [
+      {
+        quantizations: [
+          { id: 'm1', is_active: false, config_reviewed: false, runtime_quality: 'verified' },
+        ],
+      },
+    ]
     const wrapper = mountChecklist()
     await flushPromises()
     expect(wrapper.text()).toContain('Review configuration')
@@ -64,9 +80,13 @@ describe('SetupChecklist', () => {
       { id: 'llama_cpp', label: 'llama.cpp', runnable: true, enabled: true },
     ]
     enginesStore.systemStatus = { proxy_status: { healthy: true } }
-    modelStore.models = [{
-      quantizations: [{ id: 'm1', is_active: true, config_reviewed: true, runtime_quality: 'verified' }],
-    }]
+    modelStore.models = [
+      {
+        quantizations: [
+          { id: 'm1', is_active: true, config_reviewed: true, runtime_quality: 'verified' },
+        ],
+      },
+    ]
     const wrapper = mountChecklist()
     await flushPromises()
     expect(wrapper.find('.setup-checklist').exists()).toBe(false)

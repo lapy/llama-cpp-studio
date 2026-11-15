@@ -46,9 +46,9 @@ const visible = ref(true)
 
 const description = computed(
   () =>
-    props.description
-    || engineBuildHint(props.engineKey)
-    || 'Configure build or install defaults before you proceed. Reopen Build settings from the dialog header anytime.',
+    props.description ||
+    engineBuildHint(props.engineKey) ||
+    'Configure build or install defaults before you proceed. Reopen Build settings from the dialog header anytime.',
 )
 
 function loadDismissed() {

@@ -1,10 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import {
-  formatBytes,
-  formatBytesIEC,
-  formatDate,
-  formatNumber,
-} from './formatting.js'
+import { formatBytes, formatBytesIEC, formatDate, formatNumber } from './formatting.js'
 
 describe('formatBytes', () => {
   it('formats zero and small values', () => {

@@ -48,8 +48,7 @@ enableAutoUnmount(afterEach)
 // No emits:['click'] so parent @click falls through as a native listener.
 const buttonStub = {
   props: ['label', 'icon', 'text', 'severity', 'loading', 'outlined', 'rounded'],
-  template:
-    '<button :data-label="label" :aria-label="$attrs[`aria-label`]">{{ label }}</button>',
+  template: '<button :data-label="label" :aria-label="$attrs[`aria-label`]">{{ label }}</button>',
 }
 
 const textInputStub = {
