@@ -133,6 +133,17 @@
               <code class="version-name">CUDA {{ v.version }}</code>
               <Tag v-if="v.is_current" value="Active" severity="success" />
               <Button
+                v-else
+                label="Activate"
+                icon="pi pi-play"
+                size="small"
+                severity="success"
+                outlined
+                :loading="cudaActivating === v.version"
+                :disabled="Boolean(cudaActivating)"
+                @click="activateCuda(v.version)"
+              />
+              <Button
                 icon="pi pi-trash"
                 text
                 severity="danger"
@@ -319,6 +330,7 @@ const cuda = computed(() => enginesStore.cudaStatus || {})
 const cudaVersionOptions = computed(() => cuda.value.available_versions || [])
 const cudaInstallVersion = ref(null)
 const cudaInstalling = ref(false)
+const cudaActivating = ref(null)
 const cudaInstallDialogVisible = ref(false)
 
 async function installCuda() {
@@ -337,6 +349,18 @@ async function installCuda() {
     toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
   } finally {
     cudaInstalling.value = false
+  }
+}
+
+async function activateCuda(version) {
+  cudaActivating.value = version
+  try {
+    await enginesStore.activateCuda({ version })
+    toast.add({ severity: 'success', summary: `CUDA ${version} activated`, life: 3000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+  } finally {
+    cudaActivating.value = null
   }
 }
 

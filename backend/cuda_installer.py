@@ -47,6 +47,7 @@ class CUDAInstaller(CancellableOperationManager):
     OPERATION_DESCRIPTIONS = {
         "install": "Install CUDA",
         "uninstall": "Uninstall CUDA",
+        "activate": "Activate CUDA",
     }
 
     # Supported CUDA release lines.  The concrete patch for each line is
@@ -380,9 +381,34 @@ class CUDAInstaller(CancellableOperationManager):
 
     def _detect_installed_version(self) -> Optional[str]:
         """Detect installed CUDA version by checking nvcc or state."""
-        # First check state for installed versions
         state = self._load_state()
         installations = state.get("installations", {})
+
+        # Activation records the selected version explicitly.  Prefer that
+        # pointer over installation time so selecting an older toolkit remains
+        # visible after a refresh/restart.
+        active_version = str(state.get("installed_version") or "").strip()
+        if active_version:
+            active_info = installations.get(active_version, {})
+            active_path = active_info.get("path") or state.get("cuda_path")
+            if active_path and os.path.exists(active_path):
+                return active_version
+
+        # Older state files predate installed_version.  Resolve the current
+        # link against their recorded installation paths before falling back
+        # to the most recently installed entry.
+        current_link = os.path.join(self._cuda_install_dir, "current")
+        if os.path.lexists(current_link):
+            try:
+                current_path = os.path.normcase(os.path.realpath(current_link))
+                for installed_version, info in installations.items():
+                    install_path = info.get("path")
+                    if install_path and os.path.normcase(os.path.realpath(install_path)) == current_path:
+                        return str(installed_version)
+            except (OSError, ValueError):
+                pass
+
+        # First check state for installed versions
         if installations:
             # Return the most recently installed version
             latest_version = None
@@ -430,6 +456,56 @@ class CUDAInstaller(CancellableOperationManager):
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
         return None
+
+    async def activate(self, version: str) -> Dict[str, Any]:
+        """Select an existing Studio-managed CUDA installation."""
+        version = str(version or "").strip()
+        if not version:
+            raise ValueError("CUDA version is required")
+
+        async with self._lock:
+            if self._operation:
+                raise RuntimeError("Another CUDA installer operation is already running")
+
+            state = self._load_state()
+            install_info = state.get("installations", {}).get(version)
+            if not isinstance(install_info, dict):
+                raise RuntimeError(f"CUDA {version} installation not found in state")
+            install_path = str(install_info.get("path") or "").strip()
+            if not install_path or not os.path.isfile(os.path.join(install_path, "bin", "nvcc")):
+                raise RuntimeError(f"CUDA {version} installation is missing or incomplete")
+
+            self._update_current_symlink(install_path)
+            selected_path = self._get_cuda_path()
+            if not selected_path or os.path.normcase(os.path.realpath(selected_path)) != os.path.normcase(
+                os.path.realpath(install_path)
+            ):
+                raise RuntimeError(f"Failed to activate CUDA {version}")
+
+            state["installed_version"] = version
+            state["cuda_path"] = install_path
+            self._save_state(state)
+
+            cuda_env = self.get_cuda_env(version)
+            if cuda_env:
+                os.environ.update(cuda_env)
+
+            try:
+                from backend.proxy.control import get_proxy_controller
+
+                await get_proxy_controller().restart_proxy()
+            except Exception as restart_error:
+                logger.warning(
+                    "Failed to restart Studio proxy after activating CUDA %s: %s",
+                    version,
+                    restart_error,
+                )
+
+            return {
+                "message": f"CUDA {version} activated",
+                "version": version,
+                "cuda_path": install_path,
+            }
 
     def _get_cuda_path(self, version: Optional[str] = None) -> Optional[str]:
         """Get CUDA installation path."""
