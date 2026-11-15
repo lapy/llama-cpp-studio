@@ -4,6 +4,14 @@
     :class="{ 'is-active': quant.is_active && runtimeState.key !== 'unknown' }"
   >
     <div class="quant-info">
+      <label v-if="selectable" class="quant-select">
+        <input
+          type="checkbox"
+          :checked="selected"
+          :aria-label="`Select ${quant.quantization || quant.name || 'model'}`"
+          @change="emit('select', quant.id)"
+        />
+      </label>
       <div class="quant-main">
         <div class="quant-heading">
           <code class="quant-name">{{ quant.quantization || quant.name }}</code>
@@ -108,6 +116,14 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  selectable: {
+    type: Boolean,
+    default: false,
+  },
+  selected: {
+    type: Boolean,
+    default: false,
+  },
   formatBytes: {
     type: Function,
     required: true,
@@ -125,10 +141,24 @@ const proxyStatus = computed(() =>
 const runtimeState = computed(() => modelRuntimeState(quant.value))
 const isAudioModel = computed(() => isAudioPackage(quant.value))
 
-const emit = defineEmits(['start', 'stop', 'configure', 'audio', 'delete', 'connect'])
+const emit = defineEmits(['start', 'stop', 'configure', 'audio', 'delete', 'connect', 'select'])
 </script>
 
 <style scoped>
+.quant-select {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-right: 0.5rem;
+}
+
+.quant-select input {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--accent-cyan, #22d3ee);
+}
+
 .row-menu {
   position: relative;
 }

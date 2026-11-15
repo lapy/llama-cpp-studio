@@ -139,6 +139,7 @@
             </select>
           </div>
         </div>
+        <LibrarySavedFilters :filters="libraryPresetFilters" @apply="applyLibraryPreset" />
         <div class="library-view" role="group" aria-label="Library layout">
           <button type="button" :aria-pressed="viewMode === 'cards'" @click="setViewMode('cards')">
             Cards
@@ -149,12 +150,29 @@
         </div>
       </div>
 
-      <div class="library-results-summary" role="status">
-        <span>{{ visibleModelCount }} of {{ totalModels }} models</span>
+      <div class="library-results-summary">
+        <span role="status">{{ visibleModelCount }} of {{ totalModels }} models</span>
+        <label class="library-select-all">
+          <input
+            type="checkbox"
+            :checked="selectionSummary.all"
+            :indeterminate="selectionSummary.some"
+            :disabled="!selectableQuantIds.length"
+            aria-label="Select all visible models"
+            @change="toggleSelectAll"
+          />
+          Select all visible
+        </label>
         <button v-if="hasLibraryFilters" type="button" @click="clearLibraryFilters">
           Clear filters
         </button>
       </div>
+      <LibraryBulkActions
+        :models="selectedModels"
+        :busy-ids="transitionIds"
+        @complete="onBulkComplete"
+        @clear="clearSelection"
+      />
       <div v-if="hasLibraryFilters" class="search-chips" aria-label="Active library filters">
         <button v-if="libraryQuery" type="button" class="search-chip" @click="libraryQuery = ''">
           Name: {{ libraryQuery }} ×
@@ -217,6 +235,14 @@
         >
           <div class="library-list__model" role="cell">
             <div class="library-list__title">
+              <input
+                v-if="line.quant"
+                type="checkbox"
+                class="library-list__select"
+                :checked="isSelected(line.quant.id)"
+                :aria-label="`Select ${line.title}`"
+                @change="toggleSelection(line.quant.id)"
+              />
               <span class="library-list__name" :title="line.title">{{ line.title }}</span>
             </div>
             <div v-if="line.meta" class="library-list__meta">{{ line.meta }}</div>
@@ -335,7 +361,7 @@
                     class="file-size file-size--total"
                     title="Total size (all quantizations)"
                   >
-                    {{ formatBytes(groupTotalFileSize(group)) }}
+                    {{ formatLibraryBytes(groupTotalFileSize(group)) }}
                   </span>
                   <Tag
                     :value="groupRuntimeState(group).label"
@@ -388,6 +414,14 @@
           <div v-else class="group-header safetensors-header">
             <div class="group-title">
               <div class="group-heading">
+                <label v-if="primaryQuant(group)" class="library-check">
+                  <input
+                    type="checkbox"
+                    :checked="isSelected(primaryQuant(group).id)"
+                    :aria-label="`Select ${groupTitle(group)}`"
+                    @change="toggleSelection(primaryQuant(group).id)"
+                  />
+                </label>
                 <span class="group-name">{{ groupTitle(group) }}</span>
                 <span
                   v-if="group.huggingface_id && groupTitle(group) !== group.huggingface_id"
@@ -395,7 +429,7 @@
                   >{{ group.huggingface_id }}</span
                 >
                 <span v-if="primaryQuant(group) && primaryQuant(group).file_size" class="file-size">
-                  {{ formatBytes(primaryQuant(group).file_size) }}
+                  {{ formatLibraryBytes(primaryQuant(group).file_size) }}
                 </span>
                 <Tag
                   :value="groupRuntimeState(group).label"
@@ -501,7 +535,7 @@
               class="safetensors-header__footer"
             >
               <span class="downloaded-at">
-                Downloaded {{ formatDate(primaryQuant(group).downloaded_at) }}
+                Downloaded {{ formatLibraryDate(primaryQuant(group).downloaded_at) }}
               </span>
             </div>
           </div>
@@ -515,8 +549,11 @@
                 :quant="quant"
                 :is-starting="isQuantStarting(quant)"
                 :is-stopping="isQuantStopping(quant)"
-                :format-bytes="formatBytes"
-                :format-date="formatDate"
+                :format-bytes="formatLibraryBytes"
+                :format-date="formatLibraryDate"
+                selectable
+                :selected="isSelected(quant.id)"
+                @select="toggleSelection"
                 @start="startModel"
                 @stop="stopModel"
                 @configure="configureModel"
@@ -598,6 +635,21 @@ import {
   taskLabel,
   formatLabel,
 } from '@/utils/modelPresentation'
+import {
+  buildLibraryLines,
+  formatLibraryBytes,
+  formatLibraryDate,
+  groupEngine,
+  groupIsRunning,
+  groupTitle,
+  isStandaloneGroup,
+  primaryQuant,
+  prettyEngine,
+  quantStatus,
+  groupTotalFileSize,
+} from '@/utils/libraryPresentation'
+import { formatAxiosDetail } from '@/utils/apiErrors'
+import { useLibrarySelection } from '@/composables/useLibrarySelection'
 import { isAudioPackage } from '@/utils/audioModel'
 import { useQueryState } from '@/composables/useQueryState'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
@@ -618,11 +670,11 @@ import Password from 'primevue/password'
 import ModelRow from '@/components/ModelRow.vue'
 import ModelStartStopButton from '@/components/ModelStartStopButton.vue'
 import ModelWarmupButton from '@/components/ModelWarmupButton.vue'
+import LibrarySavedFilters from '@/components/models/LibrarySavedFilters.vue'
+import LibraryBulkActions from '@/components/models/LibraryBulkActions.vue'
 import { useModelStore } from '@/stores/models'
 import { useProgressStore } from '@/stores/progress'
 import { audioTabFromConfig } from '@/composables/useAudioInferenceClient'
-import { defaultEngineForFormat } from '@/engines/registry'
-import { engineLabel } from '@/composables/engineVersionDelete'
 import { requireSingleConfirmation } from '@/composables/singleConfirm'
 import {
   versionDeleteErrorText,
@@ -731,6 +783,20 @@ useQueryState(
     ]),
   ),
 )
+const libraryPresetFilters = computed(() => ({
+  q: libraryQuery.value,
+  status: statusFilter.value,
+  engine: engineFilter.value,
+  task: taskFilter.value,
+  sort: sortBy.value,
+}))
+function applyLibraryPreset(filters) {
+  libraryQuery.value = filters?.q ?? ''
+  statusFilter.value = filters?.status ?? 'all'
+  engineFilter.value = filters?.engine ?? 'all'
+  taskFilter.value = filters?.task ?? 'all'
+  sortBy.value = filters?.sort ?? 'name'
+}
 const startingModels = ref(new Set())
 const stoppingModels = ref(new Set())
 const showTokenDialog = ref(false)
@@ -819,13 +885,6 @@ const runtimeOutage = computed(() => {
 
 const catalogFailed = computed(() => Boolean(modelStore.modelsError) && !modelStore.loading)
 
-function groupEngine(group) {
-  const quant = primaryQuant(group)
-  return (
-    (quant?.config && quant.config.engine) || (quant ? defaultEngineForFormat(quant.format) : '')
-  )
-}
-
 function groupRuntimeQuality(group) {
   const quants = group?.quantizations || []
   if (quants.some((quant) => quant?.runtime_quality === 'unreachable')) return 'unreachable'
@@ -894,115 +953,44 @@ const displayGroups = computed(() => {
   return groups
 })
 
-function prettyEngine(engineId) {
-  if (!engineId) return ''
-  const label = engineLabel(engineId)
-  return label === 'another engine' ? String(engineId) : label
-}
+const libraryLines = computed(() => buildLibraryLines(displayGroups.value))
 
-function formatKind(format) {
-  if (format === 'gguf') return 'GGUF'
-  if (format === 'safetensors') return 'Safetensors'
-  return ''
-}
-
-function sameIdentity(left, right) {
-  const normalize = (value) =>
-    String(value || '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '')
-  const a = normalize(left)
-  const b = normalize(right)
-  return Boolean(a) && a === b
-}
-
-function listMeta(group, quant, includeVariant) {
-  const title = groupTitle(group)
-  const parts = []
-  const repo = group?.huggingface_id
-  if (repo && !sameIdentity(title, repo)) parts.push(repo)
-  const engine = prettyEngine(quant?.config?.engine || groupEngine(group))
-  if (engine) parts.push(engine)
-  const variant = quant?.quantization
-  const showVariant = includeVariant && variant && variant !== title
-  const kind = formatKind(quant?.format)
-  if (kind && !showVariant) parts.push(kind)
-  if (showVariant) parts.push(variant)
-  const taskLabels = { asr: 'ASR', tts: 'Speech', embeddings: 'Embeddings' }
-  const tasks = (quant?.tasks || group?.tasks || [])
-    .filter((task) => task && task !== 'text-generation')
-    .slice(0, 2)
-    .map((task) => taskLabels[task] || task)
-  if (tasks.length) parts.push(tasks.join(', '))
-  return parts.join(' · ')
-}
-
-function notableStatus(quant) {
-  const state = modelRuntimeState(quant)
-  return state.key === 'stopped' ? null : state
-}
-
-function lineIsRunning(quant) {
-  if (!quant || quant.runtime_quality === 'unreachable') return false
-  const status = quantStatus(quant)
-  return Boolean(quant.is_active) || status === 'ready' || status === 'loading'
-}
-
-const libraryLines = computed(() => {
-  const lines = []
-  for (const group of displayGroups.value) {
-    const quants = group.quantizations || []
-    const title = groupTitle(group)
-    if (quants.length > 1) {
-      lines.push({
-        key: `group:${group.huggingface_id}`,
-        kind: 'group',
-        title,
-        meta: listMeta(group, primaryQuant(group), false),
-        size: groupTotalFileSize(group) ? formatBytes(groupTotalFileSize(group)) : '',
-        status: '',
-        statusKey: '',
-        running: groupIsRunning(group),
-        groupId: group.huggingface_id,
-        quant: null,
-      })
-      for (const quant of quants) {
-        const status = notableStatus(quant)
-        lines.push({
-          key: quant.id,
-          kind: 'variant',
-          title: quant.quantization || quant.name || 'Variant',
-          meta: '',
-          size: quant.file_size ? formatBytes(quant.file_size) : '',
-          status: status?.label || '',
-          statusKey: status?.key || '',
-          running: lineIsRunning(quant),
-          quant,
-          groupId: group.huggingface_id,
-        })
-      }
-      continue
-    }
-    const quant = quants[0] || null
-    const status = quant ? notableStatus(quant) : null
-    lines.push({
-      key: quant?.id || group.huggingface_id,
-      kind: 'single',
-      title,
-      meta: listMeta(group, quant, true),
-      size: quant?.file_size ? formatBytes(quant.file_size) : '',
-      status: status?.label || '',
-      statusKey: status?.key || '',
-      running: lineIsRunning(quant),
-      quant,
-      groupId: group.huggingface_id,
-    })
+/** Quantizations represented by a visible checkbox in the current layout. */
+const selectableQuants = computed(() => {
+  if (viewMode.value === 'list') {
+    return libraryLines.value.flatMap((line) => (line.quant ? [line.quant] : []))
   }
-  return lines
+  return displayGroups.value.flatMap((group) => {
+    if (isStandaloneGroup(group)) {
+      const quant = primaryQuant(group)
+      return quant ? [quant] : []
+    }
+    if (!expandedGroups.value.has(group.huggingface_id)) return []
+    return group.quantizations || []
+  })
 })
-
-function groupTitle(group) {
-  return group?.base_model_name || group?.huggingface_id || 'Model'
+const selectableQuantIds = computed(() =>
+  selectableQuants.value.map((quant) => quant.id).filter(Boolean),
+)
+const libraryFilterKey = computed(() =>
+  [libraryQuery.value.trim(), statusFilter.value, engineFilter.value, taskFilter.value].join('|'),
+)
+const {
+  selectedIds,
+  summary: selectionSummary,
+  isSelected,
+  toggle: toggleSelection,
+  toggleSelectAll,
+  clearSelection,
+} = useLibrarySelection({ visibleIds: selectableQuantIds, filterKey: libraryFilterKey })
+const transitionIds = computed(() => [...startingModels.value, ...stoppingModels.value])
+const selectedModels = computed(() => {
+  const selected = new Set(selectedIds.value)
+  return selectableQuants.value.filter((quant) => selected.has(String(quant.id)))
+})
+function onBulkComplete(result) {
+  if (result?.done) clearSelection()
+  queueCatalogPoll()
 }
 
 function setViewMode(mode) {
@@ -1019,31 +1007,6 @@ const totalModels = computed(() =>
 )
 
 // ── Group expand/collapse ──────────────────────────────────
-function isStandaloneGroup(group) {
-  if (!group || !Array.isArray(group.quantizations) || !group.quantizations.length) return false
-  if (group.quantizations.length === 1) return true
-  return group.quantizations.every(
-    (q) =>
-      q.format === 'safetensors' ||
-      ['prepared_bundle', 'builtin'].includes(q.artifact?.package_kind),
-  )
-}
-
-function primaryQuant(group) {
-  if (!group || !Array.isArray(group.quantizations) || !group.quantizations.length) return null
-  return group.quantizations[0]
-}
-
-function groupIsRunning(group) {
-  return (group?.quantizations || []).some((quant) => lineIsRunning(quant))
-}
-
-/** Sum of file_size across all quantizations in a GGUF group (bytes). */
-function groupTotalFileSize(group) {
-  if (!group?.quantizations?.length) return 0
-  return group.quantizations.reduce((sum, q) => sum + (Number(q.file_size) || 0), 0)
-}
-
 function toggleGroup(hfId) {
   if (expandedGroups.value.has(hfId)) {
     expandedGroups.value.delete(hfId)
@@ -1062,10 +1025,6 @@ function modelIdKey(id) {
   return String(id)
 }
 
-function quantStatus(quant) {
-  return String(quant?.status || quant?.run_state || '').toLowerCase()
-}
-
 function openConnect(quant) {
   connectModel.value = quant
   connectVisible.value = true
@@ -1073,28 +1032,6 @@ function openConnect(quant) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-function formatAxiosDetail(e) {
-  const payload = e?.response?.data
-  const d = payload?.detail ?? payload
-  if (typeof d === 'string') return d
-  if (Array.isArray(d)) {
-    return d
-      .map((x) =>
-        typeof x === 'object' && x?.msg
-          ? `${Array.isArray(x.loc) ? x.loc.join('.') : ''}: ${x.msg}`.replace(/^\.\s*/, '')
-          : String(x),
-      )
-      .filter(Boolean)
-      .join('; ')
-  }
-  if (d && typeof d === 'object') {
-    if (typeof d.msg === 'string') return d.msg
-    if (typeof d.message === 'string') return d.message
-    if (typeof d.error === 'string') return d.error
-  }
-  return e?.message || 'Request failed'
 }
 
 function findQuantById(modelId) {
@@ -1405,32 +1342,6 @@ async function clearToken() {
     const outcome = noteDocumentSaveFailure(toast, e)
     if (outcome) tokenNotice.value = outcome
     else toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
-  }
-}
-
-// ── Formatters ─────────────────────────────────────────────
-// Decimal (1000) so MB/GB match Hugging Face
-function formatBytes(bytes) {
-  if (!bytes) return ''
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let i = 0
-  let val = bytes
-  while (val >= 1000 && i < units.length - 1) {
-    val /= 1000
-    i++
-  }
-  return `${val.toFixed(1)} ${units[i]}`
-}
-
-function formatDate(iso) {
-  if (!iso) return ''
-  try {
-    return new Intl.RelativeTimeFormat('en', { numeric: 'auto' }).format(
-      Math.round((new Date(iso) - Date.now()) / 86400000),
-      'day',
-    )
-  } catch {
-    return iso.slice(0, 10)
   }
 }
 
@@ -2242,6 +2153,7 @@ onUnmounted(() => {
 }
 .library-results-summary {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
@@ -2256,6 +2168,31 @@ onUnmounted(() => {
   border-radius: var(--radius-sm);
   padding: 0.5rem 0.75rem;
   cursor: pointer;
+}
+.library-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.library-select-all input,
+.library-list__select,
+.library-check input {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--accent-cyan);
+}
+.library-check {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+.library-list__select {
+  flex: 0 0 auto;
+  align-self: center;
 }
 
 @media (max-width: 900px) {
