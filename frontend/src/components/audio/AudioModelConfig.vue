@@ -559,199 +559,25 @@
       tabindex="0"
       class="config-tab-panel"
     >
-      <div class="config-card">
-        <div class="section-label section-label--inline">
-          {{ requestDefaultsSectionTitle }}
-          <small class="section-hint"
-            ><code>{{ apiEndpoint }}</code></small
-          >
-        </div>
-
-        <Message
-          v-if="instructionsPolicyGuidance"
-          severity="info"
-          :closable="false"
-          class="config-scan-message"
-        >
-          {{ instructionsPolicyGuidance }}
-        </Message>
-
-        <div v-if="swapSetParamsPreview" class="setparams-preview">
-          <button
-            type="button"
-            class="setparams-preview__label setparams-preview__toggle"
-            :aria-expanded="showSetParamsPreview"
-            @click="showSetParamsPreview = !showSetParamsPreview"
-          >
-            <span>Saved request defaults preview</span>
-            <i
-              class="pi"
-              :class="showSetParamsPreview ? 'pi-chevron-up' : 'pi-chevron-down'"
-              aria-hidden="true"
-            />
-          </button>
-          <pre v-if="showSetParamsPreview" class="setparams-preview__code">{{
-            JSON.stringify(swapSetParamsPreview, null, 2)
-          }}</pre>
-        </div>
-
-        <template v-if="isProfiledAudioModel">
-          <div v-if="requestFieldGroups.length" class="tts-subsection">
-            <div v-for="group in requestFieldGroups" :key="group.id" class="tts-speech-group">
-              <div v-if="requestFieldGroups.length > 1" class="tts-speech-group__label">
-                {{ group.label }}
-              </div>
-              <div class="params-grid section-params">
-                <div
-                  v-for="field in group.fields"
-                  :key="`${group.id}-${field.key}`"
-                  class="param-field"
-                >
-                  <label class="param-field__label">
-                    {{ field.label }}
-                    <i
-                      v-if="field.description || field.hint"
-                      class="pi pi-info-circle param-info"
-                      v-tooltip.top="requestDefaultFieldTooltip(field)"
-                      tabindex="0"
-                      aria-label="About request default field"
-                    />
-                  </label>
-                  <ToggleSwitch
-                    v-if="field.type === 'bool'"
-                    :model-value="Boolean(requestDefaultValue(field))"
-                    @update:model-value="(value) => setRequestDefaultValue(field, value)"
-                  />
-                  <InputNumber
-                    v-else-if="field.type === 'int' || field.type === 'float'"
-                    :model-value="requestDefaultValue(field)"
-                    :minFractionDigits="field.type === 'float' ? 1 : 0"
-                    :maxFractionDigits="field.type === 'float' ? 6 : 0"
-                    :min="field.minimum"
-                    :max="field.maximum"
-                    class="param-input"
-                    @update:model-value="(value) => setRequestDefaultValue(field, value)"
-                  />
-                  <Textarea
-                    v-else-if="field.type === 'textarea'"
-                    :model-value="requestDefaultValue(field) || ''"
-                    :placeholder="field.placeholder || ''"
-                    rows="2"
-                    class="w-full textarea-cli param-input"
-                    @update:model-value="(value) => setRequestDefaultValue(field, value)"
-                  />
-                  <Select
-                    v-else-if="fieldSelectOptions(field).length"
-                    :model-value="requestDefaultValue(field) || ''"
-                    :options="fieldSelectOptions(field)"
-                    optionLabel="label"
-                    optionValue="value"
-                    :placeholder="field.placeholder || 'Choose a value'"
-                    showClear
-                    editable
-                    class="param-input"
-                    @update:model-value="(value) => setRequestDefaultValue(field, value)"
-                  />
-                  <InputText
-                    v-else
-                    :model-value="requestDefaultValue(field) || ''"
-                    :placeholder="field.placeholder || ''"
-                    class="param-input"
-                    @update:model-value="(value) => setRequestDefaultValue(field, value)"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        </template>
-
-        <Message v-else severity="secondary" :closable="false" class="config-scan-message">
-          No request defaults profile is available for this audio model.
-        </Message>
-      </div>
-
-      <details class="config-card config-details-block">
-        <summary class="config-details-summary">API example</summary>
-        <div class="config-details-body">
-          <div class="tts-subsection__head">
-            <p class="config-muted-hint">
-              Model id:
-              <code>{{ config.model_alias || stableModelId || 'your-model-id' }}</code>
-            </p>
-            <Button
-              label="Copy curl"
-              icon="pi pi-copy"
-              size="small"
-              severity="secondary"
-              outlined
-              type="button"
-              @click="copyApiExample"
-            />
-          </div>
-          <Textarea
-            :model-value="requestApiExample"
-            readonly
-            rows="10"
-            class="w-full textarea-cli cmd-preview-textarea"
-            autoResize
-          />
-        </div>
-      </details>
-
-      <details v-if="audioRequestCapabilities.length" class="config-card config-details-block">
-        <summary class="config-details-summary">
-          Request-only parameters
-          <span class="config-details-summary__count">{{ audioRequestCapabilities.length }}</span>
-        </summary>
-        <div class="config-details-body">
-          <p class="config-muted-hint">
-            Available on requests, not as startup settings. Prefer Defaults above when a matching
-            field exists.
-          </p>
-          <div class="config-toolbar__row">
-            <span class="p-input-icon-left config-search-wrap">
-              <i class="pi pi-search" aria-hidden="true" />
-              <InputText
-                v-model="referenceSearchQuery"
-                type="search"
-                placeholder="Filter…"
-                class="config-search-input"
-                aria-label="Filter request parameters"
-              />
-            </span>
-          </div>
-          <div class="request-cap-grid" role="list">
-            <div
-              v-for="param in filteredRequestCapabilities"
-              :key="`request-${param.key}`"
-              class="request-cap-item"
-              role="listitem"
-            >
-              <code class="request-cap-item__key">{{ param.key }}</code>
-              <span class="request-cap-item__label">{{ param.label }}</span>
-              <i
-                v-if="param.description"
-                class="pi pi-info-circle param-info request-cap-item__info"
-                v-tooltip.top="paramDescriptionTooltip(param)"
-              />
-            </div>
-          </div>
-          <Message
-            v-if="!filteredRequestCapabilities.length"
-            severity="secondary"
-            :closable="false"
-            class="config-scan-message"
-          >
-            No request parameters match your filter.
-          </Message>
-        </div>
-      </details>
+      <ModelConfigAudioProfiles
+        :title="requestDefaultsSectionTitle"
+        :endpoint="apiEndpoint"
+        :guidance="instructionsPolicyGuidance"
+        :profiled="isProfiledAudioModel"
+        :groups="requestFieldGroups"
+        :resolve-value="requestDefaultValue"
+        :resolve-options="fieldSelectOptions"
+        :defaults-preview="swapSetParamsPreview"
+        :api-example="requestApiExample"
+        :model-id="config.model_alias || stableModelId || 'your-model-id'"
+        :capabilities="audioRequestCapabilities"
+        @update-request-default="applyProfileDefault"
+      />
     </div>
   </div>
 </template>
 
 <script setup>
-import { copyText } from '@/utils/clipboard'
 import { computed, onMounted, ref, watch, onUnmounted } from 'vue'
 import { onRovingTabKeydown } from '@/composables/useRovingTabs'
 import { useToast } from 'primevue/usetoast'
@@ -760,12 +586,12 @@ import { requireSingleConfirmation } from '@/composables/singleConfirm'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import InputText from 'primevue/inputtext'
-import InputNumber from 'primevue/inputnumber'
 import ToggleSwitch from 'primevue/toggleswitch'
 import Select from 'primevue/select'
 import Message from 'primevue/message'
 import Textarea from 'primevue/textarea'
 import AudioParamField from '@/components/audio/AudioParamField.vue'
+import ModelConfigAudioProfiles from '@/components/models/ModelConfigAudioProfiles.vue'
 import {
   useAudioModelConfig,
   paramDescriptionTooltip,
@@ -821,10 +647,8 @@ const currentTab = computed(() =>
   props.hideTabs && props.activeTab ? props.activeTab : internalTab.value,
 )
 const serverSearchQuery = ref('')
-const referenceSearchQuery = ref('')
 const hideUnsupportedParams = ref(true)
 const showAdvancedRuntime = ref(false)
-const showSetParamsPreview = ref(false)
 const rescanLoading = ref(false)
 const referenceAudioItems = ref([])
 const referenceAudioLoading = ref(false)
@@ -920,6 +744,10 @@ const {
   setVoicePresetField,
   setDefaultVoicePresetSelection,
 } = audio
+
+function applyProfileDefault({ field, value }) {
+  setRequestDefaultValue(field, value)
+}
 
 const tabs = computed(() => [
   { id: 'server', label: 'Runtime', icon: 'pi pi-server' },
@@ -1325,21 +1153,6 @@ function removeAdvancedParam(param) {
   setAudioParamValue(param, null)
 }
 
-const filteredRequestCapabilities = computed(() => {
-  const q = referenceSearchQuery.value.trim().toLowerCase()
-  if (!q) return audioRequestCapabilities.value
-  return audioRequestCapabilities.value.filter((param) => {
-    const hay = [param.key, param.label, param.description].join(' ').toLowerCase()
-    return hay.includes(q)
-  })
-})
-
-function requestDefaultFieldTooltip(field) {
-  const modelHints = [field?.description, field?.hint].filter(Boolean)
-  if (modelHints.length) return modelHints.join('\n\n')
-  return 'Saved as a request default for this model.'
-}
-
 async function rescanCliParams() {
   rescanLoading.value = true
   try {
@@ -1375,25 +1188,6 @@ async function rescanCliParams() {
     })
   } finally {
     rescanLoading.value = false
-  }
-}
-
-async function copyApiExample() {
-  try {
-    await copyText(requestApiExample.value)
-    toast.add({
-      severity: 'success',
-      summary: 'Copied',
-      detail: 'API example copied to clipboard.',
-      life: 2500,
-    })
-  } catch {
-    toast.add({
-      severity: 'warn',
-      summary: 'Copy failed',
-      detail: 'Select the text manually.',
-      life: 4000,
-    })
   }
 }
 </script>
@@ -1438,54 +1232,6 @@ async function copyApiExample() {
 
 .runtime-empty-message {
   margin-top: 0.85rem;
-}
-
-.config-details-block {
-  padding-top: 0.85rem;
-  padding-bottom: 0.85rem;
-}
-
-.config-details-block > .config-details-summary {
-  list-style: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.875rem;
-  font-weight: 600;
-  text-transform: none;
-  letter-spacing: 0;
-  color: var(--text-primary);
-}
-
-.config-details-block > .config-details-summary::-webkit-details-marker {
-  display: none;
-}
-
-.config-details-summary__count {
-  font-weight: 600;
-  text-transform: none;
-  letter-spacing: normal;
-  opacity: 0.8;
-}
-
-.config-details-body {
-  margin-top: 0.75rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-}
-
-.setparams-preview__toggle {
-  width: 100%;
-  border: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  color: inherit;
-  cursor: pointer;
-  text-align: left;
 }
 
 .reference-audio-actions {
