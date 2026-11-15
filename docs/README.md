@@ -50,6 +50,9 @@ the code. Treat them as the starting point for engineering and operational work.
   hardcoded engine-ID literal sites. Regenerate with
   `python scripts/parity-inventory.py`; `npm run lint:engine-literals` fails when literals
   outside `backend/engines/` grow beyond this committed baseline.
+- [Adding an engine (definition-only)](engine-onboarding.md): the YAML onboarding path,
+  what startup derives, the acceptance test that enforces it, the static
+  mechanism/presentation boundaries, and generated-asset refresh commands.
 - [Feature implementation map](studio-native-refactoring-plan.md): feature-to-source and
   validation coverage map.
 - [Frontend standards](frontend-standards.md): frontend accessibility, styling, API
