@@ -167,6 +167,8 @@ def test_audio_contract_response_envelope():
         }
     )
     assert parsed.generic_studio_path == "/audioapi/v1/tasks/run"
+    assert parsed.schema_ == "audio-cpp.studio-contract/v0"
+    assert parsed.model_dump(by_alias=True)["schema"] == "audio-cpp.studio-contract/v0"
 
 
 def test_community_voices_shape():
