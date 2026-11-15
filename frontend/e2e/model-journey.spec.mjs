@@ -421,7 +421,7 @@ test('keeps engine preparation incomplete when descriptors fail, then recovers o
 }) => {
   const state = { enginesMode: 'fail-once', enginesCalls: 0, installed: false }
   const errors = await openLibrary(page, state)
-  await expect(page.getByRole('heading', { name: 'Set up an engine' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Check your engine' })).toBeVisible()
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Download a model' })).toBeVisible()
   await expectNoHorizontalOverflow(page)

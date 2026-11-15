@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import ModelLibrary from './ModelLibrary.vue'
 import { LIBRARY_PRESETS_KEY } from '@/utils/libraryFilterPresets'
+import { ConnectDialog, FirstModelPanel, SetupChecklist } from '@/components/models/lazyLibraryUi'
 
 const fetchModels = vi.fn().mockResolvedValue(undefined)
 const fetchSafetensorsModels = vi.fn().mockResolvedValue(undefined)
@@ -14,6 +15,11 @@ const toastAdd = vi.fn()
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: vi.fn() }),
+  RouterLink: {
+    name: 'RouterLink',
+    props: ['to'],
+    template: '<a :href="to"><slot /></a>',
+  },
 }))
 
 const confirmRequire = vi.fn()
@@ -252,7 +258,55 @@ describe('ModelLibrary running glow', () => {
     const wrapper = mountLibrary()
     await flushPromises()
     expect(wrapper.text()).toContain('Could not load models')
-    expect(wrapper.text()).not.toContain('No models downloaded yet')
+    expect(wrapper.text()).not.toContain('Add your first model')
+    wrapper.unmount()
+  })
+
+  it('shows first-model onboarding with starter search deep links when the library is empty', async () => {
+    const wrapper = mountLibrary()
+    await flushPromises()
+
+    const panel = wrapper.get('.first-model')
+    expect(panel.text()).toContain('Add your first model')
+    expect(panel.text()).toContain('Starter models')
+
+    const searchLink = wrapper
+      .findAll('.first-model a')
+      .find((link) => link.text().trim() === 'Search models')
+    expect(searchLink).toBeTruthy()
+    expect(searchLink.attributes('href')).toBe('/search')
+
+    const cards = wrapper.findAll('.first-model__list li .first-model__card')
+    expect(cards).toHaveLength(3)
+    expect(cards.map((card) => card.attributes('href'))).toEqual([
+      '/search?q=bartowski%2FQwen_Qwen3-0.6B-GGUF',
+      '/search?q=LiquidAI%2FLFM2.5-1.2B-Instruct-GGUF',
+      '/search?q=ggml-org%2FSmolLM3-3B-GGUF',
+    ])
+    expect(cards[0].text()).toContain('Qwen3 0.6B')
+    expect(cards[0].text()).toContain('bartowski/Qwen_Qwen3-0.6B-GGUF')
+    expect(cards[0].text()).toContain('smallest option here')
+    wrapper.unmount()
+  })
+
+  it('code-splits first-run guidance and the connect dialog out of the library chunk', () => {
+    for (const component of [FirstModelPanel, SetupChecklist, ConnectDialog]) {
+      expect(typeof component.__asyncLoader).toBe('function')
+    }
+  })
+
+  it('hides the first-model empty state once the library has a model', async () => {
+    modelStore.models = [
+      {
+        huggingface_id: 'org/a',
+        quantizations: [{ id: 'a', quantization: 'Q4', is_active: false, status: 'stopped' }],
+      },
+    ]
+    const wrapper = mountLibrary()
+    await flushPromises()
+
+    expect(wrapper.find('.first-model').exists()).toBe(false)
+    expect(wrapper.find('.model-group').exists()).toBe(true)
     wrapper.unmount()
   })
 

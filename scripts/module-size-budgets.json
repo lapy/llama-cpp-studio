@@ -15,7 +15,7 @@
   "frontend/src/stores/engines.js": 794,
   "frontend/src/views/EnginesView.vue": 4590,
   "frontend/src/views/ModelConfig.vue": 4712,
-  "frontend/src/views/ModelLibrary.vue": 2249,
+  "frontend/src/views/ModelLibrary.vue": 2235,
   "frontend/src/views/ModelSearch.vue": 4814,
   "frontend/src/views/ProxyView.vue": 3052
 }

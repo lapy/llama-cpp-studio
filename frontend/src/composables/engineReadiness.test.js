@@ -3,6 +3,7 @@ import {
   engineCardCta,
   engineCardOrder,
   engineMatchesFilters,
+  engineSetupState,
   runnableEngineIds,
 } from './engineReadiness'
 
@@ -19,6 +20,34 @@ describe('engine readiness', () => {
     expect(engineCardOrder({ runnable: true, installed_versions: 1 })).toBe(0)
     expect(engineCardOrder({ runnable: false, installed_versions: 2 })).toBe(1)
     expect(engineCardOrder({ runnable: false, installed_versions: 0 })).toBe(2)
+  })
+
+  it('distinguishes a missing engine from an inactive install and a ready engine', () => {
+    expect(engineSetupState([])).toEqual({ key: 'missing', names: [] })
+    expect(
+      engineSetupState([{ id: 'a', label: 'Engine A', installed_versions: 1, runnable: false }]),
+    ).toEqual({ key: 'inactive', names: ['Engine A'] })
+    expect(
+      engineSetupState([
+        { id: 'a', label: 'Engine A', installed_versions: 2, runnable: false },
+        { id: 'b', label: 'Engine B', installed_versions: 1, runnable: true },
+      ]),
+    ).toEqual({ key: 'ready', names: ['Engine B'] })
+  })
+
+  it('does not count a feature-disabled install as ready or installed', () => {
+    expect(
+      engineSetupState([
+        { id: 'a', label: 'Engine A', installed_versions: 1, runnable: true, enabled: false },
+      ]),
+    ).toEqual({ key: 'missing', names: [] })
+  })
+
+  it('treats an active version without an installed count as installed', () => {
+    expect(engineSetupState([{ id: 'a', label: 'Engine A', active_version: 'build-1' }])).toEqual({
+      key: 'inactive',
+      names: ['Engine A'],
+    })
   })
 
   it('labels an active version Manage and an inactive install Activate', () => {

@@ -45,7 +45,7 @@
     </ol>
   </section>
   <button
-    v-else-if="dismissed && !verifiedSuccess"
+    v-else-if="descriptorsReady && dismissed && !verifiedSuccess"
     type="button"
     class="setup-reopen"
     @click="reopen"
@@ -60,7 +60,7 @@ import { useRouter } from 'vue-router'
 import { useModelStore } from '@/stores/models'
 import { useEnginesStore } from '@/stores/engines'
 import { modelRuntimeState } from '@/utils/modelPresentation'
-import { runnableEngineIds } from '@/composables/engineReadiness'
+import { engineSetupState } from '@/composables/engineReadiness'
 
 const router = useRouter()
 
@@ -75,12 +75,11 @@ const expanded = ref(false)
 const starting = ref(false)
 const setupError = ref('')
 const descriptorsReady = ref(false)
+const descriptorError = ref(false)
 
 const quants = computed(() =>
   (modelStore.models || []).flatMap((group) => group.quantizations || []),
 )
-
-const engineReady = computed(() => runnableEngineIds(enginesStore.engineDescriptors).length > 0)
 
 const hasModels = computed(() => quants.value.length > 0)
 
@@ -90,41 +89,117 @@ const hasVerifiedRunning = computed(() =>
   quants.value.some((quant) => modelRuntimeState(quant).actionable),
 )
 
-const setupModel = computed(() => quants.value.find((q) => !q.config_reviewed) || quants.value[0])
-const runningModel = computed(() =>
-  quants.value.find(
-    (q) => q.is_active && !['stale', 'unreachable', 'unknown'].includes(q.runtime_quality),
-  ),
+function isStartingState(state) {
+  return state.key === 'starting' || state.key === 'loading'
+}
+
+const hasActiveModel = computed(() =>
+  quants.value.some((quant) => quant?.is_active && !isStartingState(modelRuntimeState(quant))),
 )
+
+const hasLoadingModel = computed(() =>
+  quants.value.some((quant) => isStartingState(modelRuntimeState(quant))),
+)
+
+const verifiedRunningModel = computed(
+  () => quants.value.find((quant) => modelRuntimeState(quant).actionable) || null,
+)
+
+const activeModel = computed(() => quants.value.find((quant) => quant?.is_active) || null)
+
+const setupModel = computed(() => quants.value.find((q) => !q.config_reviewed) || quants.value[0])
+
+const startableModel = computed(
+  () => quants.value.find((quant) => quant.config_reviewed && !quant.is_active) || null,
+)
+
 const proxyKnown = computed(() => enginesStore.systemStatus?.proxy_status != null)
 const proxyHealthy = computed(() => Boolean(enginesStore.systemStatus?.proxy_status?.healthy))
+const proxyOffline = computed(() => proxyKnown.value && !proxyHealthy.value)
 
-const runnableNames = computed(() =>
-  (enginesStore.engineDescriptors || [])
-    .filter((descriptor) => descriptor?.runnable)
-    .map((descriptor) => descriptor.label || descriptor.id)
-    .join(', '),
+// A failed descriptor request must not look like a fresh install. The store
+// keeps the last successful list, so only an empty list plus a failed request
+// becomes the explicit "unknown" state.
+const engine = computed(() => {
+  const state = engineSetupState(enginesStore.engineDescriptors)
+  if (state.key === 'missing' && descriptorError.value) return { key: 'unknown', names: [] }
+  return state
+})
+
+const engineReady = computed(() => engine.value.key === 'ready')
+
+const engineStep = computed(() => {
+  const names = engine.value.names.join(', ')
+  if (engine.value.key === 'ready') {
+    return {
+      label: 'Engine ready',
+      detail: names ? `${names} can launch a model.` : 'An engine can launch a model.',
+      action: 'Manage engines',
+    }
+  }
+  if (engine.value.key === 'inactive') {
+    return {
+      label: 'Activate an engine',
+      detail: names
+        ? `Installed but not active: ${names}. Activate a version to start a model.`
+        : 'An engine is installed but not active. Activate a version to start a model.',
+      action: 'Activate an engine',
+    }
+  }
+  if (engine.value.key === 'unknown') {
+    return {
+      label: 'Check your engine',
+      detail:
+        'Engine status could not be loaded. Open Engines to verify an engine is installed and active.',
+      action: 'Open engines',
+    }
+  }
+  return {
+    label: 'Install an engine',
+    detail: 'Install and activate an engine before starting a model.',
+    action: 'Install an engine',
+  }
+})
+
+const connectTarget = computed(() =>
+  proxyHealthy.value && verifiedRunningModel.value ? '/models' : '/proxy',
 )
+
+const connectAction = computed(() =>
+  connectTarget.value === '/models' ? 'Open model library' : 'Open proxy',
+)
+
+const connectDetail = computed(() => {
+  if (proxyOffline.value) {
+    return activeModel.value
+      ? 'The inference proxy is offline. Start the proxy to reach the running model, then connect a client.'
+      : 'The inference proxy is offline. Start it before connecting a client.'
+  }
+  if (!proxyKnown.value) {
+    return 'Proxy status is unavailable. Open Proxy to check it before connecting a client.'
+  }
+  return 'Open Connect on the running model to copy its endpoint and a sample request.'
+})
 
 const steps = computed(() => {
   const items = [
     {
       id: 'engine',
-      label: 'Set up an engine',
-      detail: engineReady.value
-        ? `${runnableNames.value} can launch a model.`
-        : 'Install and activate an engine before starting a model.',
+      ...engineStep.value,
       done: engineReady.value,
       to: '/engines',
-      action: engineReady.value ? 'Manage engines' : 'Install an engine',
+      actionable: true,
     },
     {
       id: 'download',
       label: 'Download a model',
-      detail: 'Search for a model compatible with your engine.',
+      detail: hasModels.value
+        ? `${quants.value.length} model${quants.value.length === 1 ? '' : 's'} in your library.`
+        : 'Search for a GGUF model that fits your engine.',
       done: hasModels.value,
       to: '/search',
       action: 'Search and download',
+      actionable: true,
     },
     {
       id: 'config',
@@ -135,35 +210,45 @@ const steps = computed(() => {
         ? `/models/${encodeURIComponent(setupModel.value.id)}/config`
         : '/models',
       action: 'Configure model',
+      actionable: Boolean(setupModel.value),
     },
     {
       id: 'start',
       label: 'Start the model',
-      detail: 'Start a configured model from the library.',
-      done: hasVerifiedRunning.value,
+      detail: hasVerifiedRunning.value
+        ? 'A verified model is running.'
+        : hasActiveModel.value
+          ? 'A model is active, but the proxy has not verified it yet.'
+          : 'Start a configured model from the library.',
+      // A model that is already active has finished this step. If the proxy
+      // cannot verify it, the next actionable step is the proxy — not a
+      // second Start that would be rejected.
+      done: hasVerifiedRunning.value || hasActiveModel.value,
       to: null,
       action: 'Start configured model',
+      actionable: Boolean(startableModel.value),
     },
     {
       id: 'connect',
       label: 'Ready to connect',
-      detail:
-        proxyKnown.value && !proxyHealthy.value
-          ? 'The inference proxy is offline. Start it before connecting a client.'
-          : 'Open Connect on a running model to copy its endpoint and a sample request.',
+      detail: connectDetail.value,
       done: hasVerifiedRunning.value && proxyHealthy.value,
-      to: proxyHealthy.value && runningModel.value ? '/models' : '/proxy',
-      action: proxyHealthy.value ? 'Open model library' : 'Open proxy',
+      to: connectTarget.value,
+      action: connectAction.value,
+      actionable: true,
     },
   ]
-  const currentId = items.find((step) => !step.done)?.id
+  const currentId = items.find((step) => !step.done && step.actionable !== false)?.id
   return items.map((step) => ({ ...step, current: step.id === currentId }))
 })
 
 const currentStep = computed(() => steps.value.find((step) => step.current) || null)
+
+// A verified running model proves an engine is ready, so a transient
+// descriptor failure must not bring the guide back after it was dismissed by
+// success. Regression (stopped model or unhealthy proxy) still reopens it.
 const verifiedSuccess = computed(
-  () =>
-    descriptorsReady.value && engineReady.value && hasVerifiedRunning.value && proxyHealthy.value,
+  () => descriptorsReady.value && hasVerifiedRunning.value && proxyHealthy.value,
 )
 
 const visible = computed(
@@ -171,14 +256,18 @@ const visible = computed(
     descriptorsReady.value &&
     !dismissed.value &&
     !verifiedSuccess.value &&
-    steps.value.some((step) => !step.done),
+    // A loading model is already progressing; there is no corrective action
+    // to offer until it becomes ready or fails.
+    !hasLoadingModel.value &&
+    Boolean(currentStep.value),
 )
 
 onMounted(async () => {
   try {
     await enginesStore.fetchEngineDescriptors()
+    descriptorError.value = false
   } catch {
-    /* The engine step stays incomplete when descriptors cannot be loaded. */
+    descriptorError.value = true
   } finally {
     descriptorsReady.value = true
   }
@@ -190,8 +279,7 @@ async function activateStep() {
     if (currentStep.value?.to) router.push(currentStep.value.to)
     return
   }
-  const model =
-    quants.value.find((quant) => quant.config_reviewed && !quant.is_active) || setupModel.value
+  const model = startableModel.value
   if (!model || starting.value) return
   starting.value = true
   try {

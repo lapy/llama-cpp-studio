@@ -15,7 +15,11 @@ import { fileURLToPath } from 'node:url'
 // measured 269_9xx and 270_121 bytes, so the old ceiling was inside the
 // build-to-build gzip variance. Keep the same ~1 KB headroom above the
 // observed maximum.
-const BUDGET_BYTES = 272_000
+// 2026-11-15: 272_000 -> 280_000 after the run-UX/onboarding shell increased
+// the cold /models graph to 272_670 bytes gzip (+2_216 for the first-model
+// empty state). Keep ~5 KB headroom so a feature PR does not sit inside the
+// build-vs-feature noise band; lazy-load the empty state to recover headroom.
+const BUDGET_BYTES = 280_000
 const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
 function add(chosen, relative) {
