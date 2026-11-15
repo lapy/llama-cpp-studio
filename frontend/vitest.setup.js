@@ -1,5 +1,15 @@
 import { afterEach, beforeEach, vi } from 'vitest'
 
+let unexpectedFetch
+
+function guardUnexpectedNetwork() {
+  unexpectedFetch = vi.fn((input) => {
+    const target = typeof input === 'string' ? input : input?.url || String(input)
+    throw new Error(`Unexpected network request in unit test: ${target}`)
+  })
+  vi.stubGlobal('fetch', unexpectedFetch)
+}
+
 // Dropped DOM events when timers change
 //
 // Vue records the time a listener is attached and ignores a later DOM event
@@ -58,10 +68,18 @@ function keepAttachedListenersReachable() {
 // cache before each test mounts anything.
 beforeEach(async () => {
   vi.useRealTimers()
+  guardUnexpectedNetwork()
   await Promise.resolve()
   keepAttachedListenersReachable()
 })
 
 afterEach(() => {
   vi.useRealTimers()
+  if (unexpectedFetch?.mock.calls.length) {
+    const targets = unexpectedFetch.mock.calls.map(([input]) =>
+      typeof input === 'string' ? input : input?.url || String(input),
+    )
+    throw new Error(`Unexpected network requests in unit test: ${targets.join(', ')}`)
+  }
+  vi.unstubAllGlobals()
 })
