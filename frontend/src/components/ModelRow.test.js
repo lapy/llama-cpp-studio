@@ -1,7 +1,16 @@
-import { describe, it, expect } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { describe, it, expect, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
 
 import ModelRow from './ModelRow.vue'
+
+vi.mock('primevue/usetoast', () => ({ useToast: () => ({ add: () => {} }) }))
+
+const ButtonStub = {
+  props: ['label', 'icon', 'ariaLabel', 'disabled', 'loading', 'severity', 'text', 'size'],
+  emits: ['click'],
+  template:
+    '<button :aria-label="ariaLabel" :data-icon="icon" :disabled="disabled" @click="$emit(`click`)">{{ label }}</button>',
+}
 
 function mountRow(overrides = {}) {
   return mount(ModelRow, {
@@ -24,22 +33,25 @@ function mountRow(overrides = {}) {
         tooltip: () => {},
       },
       stubs: {
-        Button: true,
-        ModelStartStopButton: true,
+        Button: ButtonStub,
         ModelWarmupButton: true,
         Tag: {
-          props: ['value'],
-          template: '<span>{{ value }}</span>',
+          props: ['value', 'title'],
+          template: '<span :title="title">{{ value }}</span>',
         },
       },
     },
   })
 }
 
+function buttonByLabel(wrapper, label) {
+  return wrapper.get(`button[aria-label="${label}"]`)
+}
+
 describe('ModelRow', () => {
-  it('reacts to proxy status updates from loading to ready', async () => {
+  it('reacts to proxy status updates from starting to running', async () => {
     const wrapper = mountRow()
-    expect(wrapper.text()).toContain('Loading')
+    expect(wrapper.text()).toContain('Starting')
 
     await wrapper.setProps({
       quant: {
@@ -51,8 +63,8 @@ describe('ModelRow', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('Ready')
-    expect(wrapper.text()).not.toContain('Loading')
+    expect(wrapper.text()).toContain('Running')
+    expect(wrapper.text()).not.toContain('Starting')
   })
 
   it('marks the row active when the quantization is running', () => {
@@ -76,7 +88,7 @@ describe('ModelRow', () => {
     expect(wrapper.get('.quant-row').classes()).not.toContain('is-active')
   })
 
-  it('keeps a stale running observation distinct from stopped', () => {
+  it('keeps stale observations distinct from a verified stopped row', () => {
     const wrapper = mountRow({
       quant: {
         id: 'model-1',
@@ -87,7 +99,8 @@ describe('ModelRow', () => {
         runtime_quality: 'stale',
       },
     })
-    expect(wrapper.text()).toContain('Last seen running')
+    expect(wrapper.text()).toContain('Status unavailable')
+    expect(wrapper.get('[role="status"]').attributes('title')).toContain('Last seen running')
     expect(wrapper.get('.quant-row').classes()).toContain('is-active')
   })
 
@@ -104,6 +117,44 @@ describe('ModelRow', () => {
     expect(wrapper.get('.quant-row').classes()).not.toContain('is-active')
   })
 
+  it('shows Start for a stopped model, Starting… plus Stop while starting, and Connect when running', async () => {
+    const wrapper = mountRow({
+      quant: { id: 'model-1', quantization: 'Q4_K_M', is_active: false, status: 'stopped' },
+    })
+    expect(buttonByLabel(wrapper, 'Start Q4_K_M')).toBeTruthy()
+    expect(wrapper.findAll('button[aria-label="Stop Q4_K_M"]')).toHaveLength(0)
+
+    await wrapper.setProps({ isStarting: true })
+    await flushPromises()
+    expect(buttonByLabel(wrapper, 'Q4_K_M is starting').text()).toContain('Starting…')
+    expect(buttonByLabel(wrapper, 'Stop Q4_K_M')).toBeTruthy()
+
+    await wrapper.setProps({
+      isStarting: false,
+      quant: { id: 'model-1', quantization: 'Q4_K_M', is_active: true, status: 'ready' },
+    })
+    await flushPromises()
+    expect(buttonByLabel(wrapper, 'Connect Q4_K_M')).toBeTruthy()
+    expect(buttonByLabel(wrapper, 'Stop Q4_K_M')).toBeTruthy()
+  })
+
+  it('shows a failed start as Retry start with the truncated error text available in full', () => {
+    const message = 'CUDA out of memory while loading the model'
+    const wrapper = mountRow({
+      quant: {
+        id: 'model-1',
+        quantization: 'Q4_K_M',
+        is_active: false,
+        status: 'failed',
+        last_error: message,
+      },
+    })
+    expect(buttonByLabel(wrapper, 'Retry start for Q4_K_M')).toBeTruthy()
+    const inlineError = wrapper.get('.model-actions__error')
+    expect(inlineError.text()).toBe(message)
+    expect(inlineError.attributes('title')).toBe(message)
+  })
+
   it('emits audio for audio.cpp models', async () => {
     const wrapper = mountRow({
       quant: {
@@ -116,10 +167,7 @@ describe('ModelRow', () => {
       },
     })
 
-    const audioBtn = wrapper
-      .findAllComponents({ name: 'Button' })
-      .find((btn) => btn.attributes('icon') === 'pi pi-volume-up')
-    expect(audioBtn).toBeTruthy()
+    const audioBtn = buttonByLabel(wrapper, 'Open audio for demo')
     await audioBtn.trigger('click')
     expect(wrapper.emitted('audio')?.[0]).toEqual(['audio/demo'])
   })

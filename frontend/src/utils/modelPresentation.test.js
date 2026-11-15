@@ -11,7 +11,7 @@ describe('runtime presentation', () => {
         runtime_quality: quality,
       })
       expect(state.actionable).toBe(false)
-      expect(state.label).not.toBe('Ready')
+      expect(state.label).toBe('Status unavailable')
       expect(state.severity).toBe('warn')
     },
   )
@@ -22,9 +22,39 @@ describe('runtime presentation', () => {
       }).key,
     ).toBe('unknown')
   })
-  it('distinguishes loading, ready and a stopped model', () => {
+  it('uses one Running label for a ready server state and an active process', () => {
+    expect(modelRuntimeState({ status: 'ready', is_active: true })).toMatchObject({
+      key: 'running',
+      label: 'Running',
+      actionable: true,
+    })
+    expect(modelRuntimeState({ status: 'ready', is_active: false }).label).toBe('Running')
+    expect(modelRuntimeState({ is_active: true }).label).toBe('Running')
+  })
+  it('uses one Starting label for loading and in-flight starts', () => {
+    expect(modelRuntimeState({ status: 'loading', is_active: true })).toMatchObject({
+      key: 'starting',
+      label: 'Starting',
+      actionable: false,
+    })
+    expect(modelRuntimeState({ status: 'stopped' }, { isStarting: true })).toMatchObject({
+      key: 'starting',
+      label: 'Starting',
+    })
+    expect(modelRuntimeState({ is_active: true }, { isStopping: true }).label).toBe('Stopping')
+  })
+  it('distinguishes loading, running and a stopped model', () => {
     expect(modelRuntimeState({ status: 'loading', is_active: true }).actionable).toBe(false)
     expect(modelRuntimeState({ status: 'ready', is_active: true }).actionable).toBe(true)
     expect(modelRuntimeState({ is_active: false }).label).toBe('Stopped')
+  })
+  it('carries the failure detail used by the inline error and tooltip', () => {
+    expect(modelRuntimeState({ status: 'failed', last_error: 'CUDA out of memory' })).toMatchObject(
+      {
+        key: 'error',
+        label: 'Failed',
+        detail: 'CUDA out of memory',
+      },
+    )
   })
 })

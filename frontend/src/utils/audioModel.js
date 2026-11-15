@@ -7,7 +7,7 @@
  */
 
 /** The engine/format marker that identifies an audio package. */
-const AUDIO_PACKAGE = 'audio_cpp'
+export const AUDIO_PACKAGE = 'audio_cpp'
 
 export function isAudioPackage(model) {
   if (!model) return false
