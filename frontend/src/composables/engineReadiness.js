@@ -60,3 +60,30 @@ export function runnableEngineIds(descriptors) {
     .filter((descriptor) => descriptor && descriptor.enabled !== false && descriptor.runnable)
     .map((descriptor) => descriptor.id)
 }
+
+function descriptorNames(descriptors) {
+  return descriptors.map((descriptor) => descriptor.label || descriptor.id).filter(Boolean)
+}
+
+/**
+ * First-run engine state for the setup guide.
+ *
+ * `missing` means nothing usable is installed, `inactive` means there are
+ * installed versions but none is the active runnable build, and `ready` means
+ * at least one enabled engine can launch a model. Feature-disabled engines do
+ * not count as installed because activating them cannot make them runnable.
+ */
+export function engineSetupState(descriptors) {
+  const enabled = (descriptors || []).filter(
+    (descriptor) => descriptor && descriptor.enabled !== false,
+  )
+  const ready = enabled.filter((descriptor) => descriptor.runnable)
+  if (ready.length) return { key: 'ready', names: descriptorNames(ready) }
+
+  const installed = enabled.filter(
+    (descriptor) => Number(descriptor.installed_versions) > 0 || Boolean(descriptor.active_version),
+  )
+  if (installed.length) return { key: 'inactive', names: descriptorNames(installed) }
+
+  return { key: 'missing', names: [] }
+}
