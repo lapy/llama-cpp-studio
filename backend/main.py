@@ -303,15 +303,32 @@ app = FastAPI(
 )
 
 
-@app.middleware("http")
-async def audio_engine_extension_context(request: Request, call_next):
-    """Resolve which declared audio engine owns an extension request."""
-    engine_id = audio_cpp_versions.engine_for_path(request.url.path)
-    token = audio_cpp_versions.set_engine_context(engine_id)
-    try:
-        return await call_next(request)
-    finally:
-        audio_cpp_versions.reset_engine_context(token)
+class AudioEngineExtensionContextMiddleware:
+    """Resolve which declared audio engine owns an extension request.
+
+    This stays a pure ASGI middleware. ``@app.middleware("http")`` wraps the
+    router in ``BaseHTTPMiddleware``, which runs the endpoint in a child task;
+    the store-write gate only tracks the task that serves the request, so that
+    boundary would let a response escape before its queued operation rows were
+    durable.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+        engine_id = audio_cpp_versions.engine_for_path(str(scope.get("path") or ""))
+        token = audio_cpp_versions.set_engine_context(engine_id)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            audio_cpp_versions.reset_engine_context(token)
+
+
+app.add_middleware(AudioEngineExtensionContextMiddleware)
 
 
 @app.exception_handler(HTTPException)

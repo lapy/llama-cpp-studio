@@ -292,6 +292,25 @@ def test_a_queued_operation_write_failure_is_not_a_successful_response(tmp_path,
     assert store.list_operations()[0]["status"] == "running"
 
 
+def test_the_response_gate_wraps_the_router_without_a_task_boundary():
+    """Queued writes must stay attributable to the task that serves the request.
+
+    ``StoreIoMiddleware`` only tracks writes made by the request task. A
+    ``BaseHTTPMiddleware`` placed inside it runs the endpoint in a child task,
+    so the response would no longer wait for its own queued operation rows.
+    """
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    from backend.main import app
+    from backend.store_io import StoreIoMiddleware
+
+    # ``user_middleware`` is ordered outermost first.
+    classes = [entry.cls for entry in app.user_middleware]
+    gate_index = classes.index(StoreIoMiddleware)
+    for inner in classes[gate_index + 1 :]:
+        assert not issubclass(inner, BaseHTTPMiddleware), inner
+
+
 @pytest.mark.parametrize(
     "checkpoint,phase",
     [

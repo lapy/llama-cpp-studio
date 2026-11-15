@@ -812,7 +812,7 @@ def test_activate_returns_capability_delta(client, store, monkeypatch, tmp_path)
 
 @pytest.mark.asyncio
 async def test_activate_audio_cpp_runs_in_background_and_reports_progress(
-    client, store, monkeypatch, tmp_path
+    store, monkeypatch, tmp_path
 ):
     """API activation returns an operation immediately; result arrives on the task."""
     server_path, cli_path = fake_audio_binaries(tmp_path)
@@ -852,10 +852,20 @@ async def test_activate_audio_cpp_runs_in_background_and_reports_progress(
         lambda: FakeSwap(),
     )
 
-    r = client.post(
-        "/api/llama-versions/versions/activate",
-        json={"version_id": "audio_cpp:v-async"},
-    )
+    import httpx
+
+    from backend.main import app
+
+    # Serve the request on this test's loop. A plain TestClient runs each
+    # request on a fresh portal loop that is closed with the response, which
+    # abandons the background activation task it spawned. On the shared loop
+    # the task keeps running while this test polls for its outcome.
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as http:
+        r = await http.post(
+            "/api/llama-versions/versions/activate",
+            json={"version_id": "audio_cpp:v-async"},
+        )
     assert r.status_code == 200
     data = r.json()
     assert data["background"] is True
@@ -865,9 +875,6 @@ async def test_activate_audio_cpp_runs_in_background_and_reports_progress(
     assert store.get_active_engine_version("audio_cpp")["version"] == "v-async"
 
     pm = get_progress_manager()
-    # The activation runs on the app's portal loop and shares the global
-    # thread pool with leftovers from earlier tests, so allow a generous
-    # deadline on loaded CI runners; the loop breaks as soon as it settles.
     for _ in range(600):
         task = pm.get_task(operation_id)
         if task and task.get("status") in {"completed", "failed"}:

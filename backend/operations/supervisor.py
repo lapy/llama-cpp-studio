@@ -248,8 +248,10 @@ class OperationSupervisor:
         """Durably record that the effect may have started, before any launch.
 
         ``committed is False`` finishes the row as not started. Any other
-        durability failure finishes it unknown. Either way the caller must
-        not launch the process or send the request.
+        durability failure finishes it unknown. Either terminal row is durable
+        before the error propagates, so the caller observes the state a restart
+        will recover from. Either way the caller must not launch the process or
+        send the request.
         """
         from backend.store_io import StoreDurabilityError
 
@@ -257,7 +259,7 @@ class OperationSupervisor:
             await self.note_effect_started(operation_id)
         except StoreDurabilityError as exc:
             if exc.committed is False:
-                self.finish_operation(
+                await self.finish_operation_durable(
                     operation_id,
                     "interrupted",
                     "The action had not started. It was not run again.",
@@ -271,7 +273,7 @@ class OperationSupervisor:
                     current["detail"] = detail
                     with self._lock:
                         self._records[operation_id] = current
-                self.finish_operation(
+                await self.finish_operation_durable(
                     operation_id,
                     "unknown",
                     "Whether this action finished could not be established. It was not run again.",
@@ -315,12 +317,10 @@ class OperationSupervisor:
         current["updated_at"] = time.time()
         self._persist(current)
 
-    def finish_operation(
-        self,
-        operation_id: str,
-        status: str,
-        message: str = "",
-    ) -> None:
+    def _prepare_terminal(
+        self, operation_id: str, status: str, message: str
+    ) -> tuple[dict, list[str]]:
+        """Release this operation's claims and build its terminal record."""
         if status not in TERMINAL_STATES:
             status = "failed"
         with self._lock:
@@ -337,20 +337,55 @@ class OperationSupervisor:
         current["status"] = status
         current["message"] = message
         current["updated_at"] = time.time()
-        try:
-            self._persist(current)
-        except Exception:
-            # A rejected terminal write never reached disk. Put the resource
-            # back when the running row was restored, so it cannot sit on disk
-            # with no owner. A write that was queued keeps the release.
-            if not self._kept_submission(operation_id, current):
-                with self._lock:
-                    for key in release:
-                        self._resources.setdefault(key, operation_id)
-            raise
+        return current, release
+
+    def _restore_claims_after_rejected_finish(
+        self, operation_id: str, record: dict, release: list[str]
+    ) -> None:
+        # A rejected terminal write never reached disk. Put the resource back
+        # when the running row was restored, so it cannot sit on disk with no
+        # owner. A write that was queued keeps the release.
+        if not self._kept_submission(operation_id, record):
+            with self._lock:
+                for key in release:
+                    self._resources.setdefault(key, operation_id)
+
+    @staticmethod
+    def _record_finished(status: str) -> None:
         from backend.ops_metrics import record_operation
 
         record_operation(status)
+
+    def finish_operation(
+        self,
+        operation_id: str,
+        status: str,
+        message: str = "",
+    ) -> None:
+        current, release = self._prepare_terminal(operation_id, status, message)
+        try:
+            self._persist(current)
+        except Exception:
+            self._restore_claims_after_rejected_finish(operation_id, current, release)
+            raise
+        self._record_finished(str(current["status"]))
+
+    async def finish_operation_durable(
+        self,
+        operation_id: str,
+        status: str,
+        message: str = "",
+    ) -> None:
+        """Finish an operation and return only after its terminal row is durable."""
+        from backend.store_io import run_store_durable
+
+        current, release = self._prepare_terminal(operation_id, status, message)
+        try:
+            await self._persist_durable(current, run_store_durable)
+        except Exception:
+            self._restore_claims_after_rejected_finish(operation_id, current, release)
+            raise
+        self._record_finished(str(current["status"]))
 
     def note_known(self, operation_id: str) -> bool:
         with self._lock:
