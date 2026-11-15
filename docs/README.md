@@ -31,7 +31,10 @@ feature overview.
   task/endpoint selection, typed options, assets/voices, model inspection, and audio
   transport boundaries.
 
-## Engineering
+## Current engineering references
+
+These documents describe the current implementation and are maintained alongside
+the code. Treat them as the starting point for engineering and operational work.
 
 - [Remote development stack for agents](agent-dev-stack.md): isolated checkout/state/ports,
   optional GPU selection, SSH and JSON/MCP control, guarded patches/tests/logs/reload,
@@ -53,15 +56,32 @@ feature overview.
   boundary, component, and validation conventions.
 - [Third-party notices](../THIRD_PARTY_NOTICES.md): attribution and licensing information.
 
-## Release history and verification
+## Active delivery plans
+
+These documents track work that is still transitional or awaiting a stated exit
+condition. Their "remaining work" sections take precedence over older assessments.
 
 - [Delivery map](delivery-map.md): gains, architecture, compatibility, and remaining work
   for the config-driven engine definitions release.
+- [Config-driven engine refactoring plan](config-driven-engine-refactoring-plan.md):
+  active requirements, boundaries, and completion criteria for definition-driven engines.
+- [Launch manifests plan](launch-manifests-plan.md): active runtime publication and
+  reconciliation design; use the runtime behavior cases above for concrete scenarios.
+
+## Verification evidence and history
+
+These are dated records of a particular review, migration, or validation run. They
+provide useful evidence but do not override the current references or active plans
+above. Check each document's date and commit before relying on its counts or findings.
+
 - [Change inventory](change-inventory.md): the dependent commit series and exact files.
 - [Verification evidence](review-verification-evidence.md): commands, totals, and hardware
   coverage limits.
 - [Migration notes](engine-definitions-migration-notes.md): upgrade and rollback behavior
   for existing installations.
+- Historical assessments and completed campaign/verification records remain in this
+  directory for traceability; filenames containing a date describe that dated snapshot,
+  not the repository's current status.
 
 The running service supplies interactive management API documentation at `/docs` and its
 machine-readable schema at `/openapi.json`. The
