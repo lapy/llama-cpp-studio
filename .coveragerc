@@ -1,0 +1,14 @@
+[run]
+branch = True
+source =
+    backend
+    devcontrol
+
+[report]
+fail_under = 71
+precision = 2
+show_missing = True
+omit =
+    backend/tests/*
+    devcontrol/tests/*
+
