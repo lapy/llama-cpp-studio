@@ -155,6 +155,10 @@
                 size="small"
                 @click="confirmUninstallCuda(v.version)"
               />
+              <p v-if="cudaWarningFor(v.version)" class="cuda-compat-warning" role="status">
+                <i class="pi pi-exclamation-triangle" aria-hidden="true" />
+                <span>{{ cudaWarningFor(v.version)?.message }}</span>
+              </p>
             </div>
           </div>
         </div>
@@ -217,7 +221,23 @@
           :options="cudaVersionOptions"
           placeholder="Select versionâ€¦"
           class="w-full"
+          :aria-describedby="pickerCudaWarnings.length ? 'cuda-install-warnings' : undefined"
         />
+        <div
+          v-if="pickerCudaWarnings.length"
+          id="cuda-install-warnings"
+          class="cuda-compat-warnings"
+        >
+          <p
+            v-for="warning in pickerCudaWarnings"
+            :key="warning.version"
+            class="cuda-compat-warning"
+            role="status"
+          >
+            <i class="pi pi-exclamation-triangle" aria-hidden="true" />
+            <span>{{ warning.message }}</span>
+          </p>
+        </div>
       </div>
     </div>
     <template #footer>
@@ -249,6 +269,7 @@ import { useToast } from 'primevue/usetoast'
 import { useConfirm } from 'primevue/useconfirm'
 import { requireSingleConfirmation } from '@/composables/singleConfirm'
 import { useEnginesStore } from '@/stores/engines'
+import { cudaCompatibilityWarnings } from '@/utils/cudaCompatibility'
 const enginesStore = useEnginesStore(),
   toast = useToast(),
   confirm = useConfirm()
@@ -353,6 +374,30 @@ const cuda = computed(() => enginesStore.cudaStatus || {})
 const installerCacheBytes = computed(() => Number(cuda.value.installer_cache?.bytes) || 0)
 const cudaVersionOptions = computed(() => cuda.value.available_versions || [])
 const cudaInstallVersion = ref(null)
+
+// Guidance only: an incompatible version can still be installed or activated.
+const cudaVersionWarnings = computed(() =>
+  cudaCompatibilityWarnings(
+    [
+      ...(cuda.value.available_versions || []),
+      ...(cuda.value.installed_versions || []).map((entry) => entry.version),
+    ],
+    gpus.value,
+  ),
+)
+
+function cudaWarningFor(version) {
+  return cudaVersionWarnings.value.find((warning) => warning.version === version) || null
+}
+
+const pickerCudaWarnings = computed(() => {
+  const selected = cudaInstallVersion.value ? cudaWarningFor(cudaInstallVersion.value) : null
+  if (selected) return [selected]
+  return (cuda.value.available_versions || [])
+    .map((version) => cudaWarningFor(version))
+    .filter(Boolean)
+})
+
 const cudaInstalling = ref(false)
 const cudaActivating = ref(null)
 const cudaCleaning = ref(false)
@@ -560,6 +605,25 @@ h3 {
 .ev-version-row {
   padding-block: 0.5rem;
   border-top: 1px solid var(--border-primary);
+}
+.cuda-compat-warnings {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+.cuda-compat-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  color: var(--status-warning);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+.ev-version-row .cuda-compat-warning {
+  flex-basis: 100%;
+}
+.cuda-compat-warning .pi {
+  margin-top: 0.15rem;
 }
 .hardware-error {
   color: var(--status-warning);

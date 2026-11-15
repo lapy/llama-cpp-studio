@@ -42,6 +42,7 @@ describe('HardwarePanel', () => {
     store.cleanupCudaInstallers.mockResolvedValue({ freed_bytes: 0, removed: 0 })
     store.fetchGpuInfo.mockClear()
     store.cudaStatus = {}
+    store.gpuInfo = { gpus: [] }
     toastAdd.mockClear()
     confirmRequire.mockClear()
   })
@@ -220,6 +221,82 @@ describe('HardwarePanel', () => {
         detail: 'CUDA 12.8.2 installation not found in state',
       }),
     )
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
+  it('warns that a CUDA 13 install cannot target a Volta GPU', async () => {
+    store.cudaStatus = { available_versions: ['13.0.1', '12.9'] }
+    store.gpuInfo = {
+      gpus: [{ name: 'Tesla Volta-SXM2-32GB', compute_capability: '7.0' }],
+    }
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const warnings = wrapper.findAll('.cuda-compat-warning')
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0].attributes('role')).toBe('status')
+    expect(warnings[0].text()).toContain('CUDA 13.x needs Turing (7.5)+')
+    expect(warnings[0].text()).toContain('Tesla Volta-SXM2-32GB is 7.0')
+    expect(warnings[0].text()).toContain('Choose 12.9 or older.')
+
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
+  it('warns on an installed CUDA version without blocking activation', async () => {
+    store.cudaStatus = {
+      installed: true,
+      version: '13.0.1',
+      installed_versions: [{ version: '13.0.1', is_current: false }],
+    }
+    store.gpuInfo = {
+      gpus: [{ name: 'Tesla Volta-SXM2-32GB', compute_capability: '7.0' }],
+    }
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const rowWarning = wrapper.get('.ev-version-row .cuda-compat-warning')
+    expect(rowWarning.text()).toContain('CUDA 13.x needs Turing (7.5)+')
+    // The warning is guidance: the row still offers activation.
+    expect(wrapper.findAll('button').some((button) => button.text() === 'Activate')).toBe(true)
+
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
+  it('does not warn when the GPU meets the minimum for the offered versions', async () => {
+    store.cudaStatus = { available_versions: ['12.9'] }
+    store.gpuInfo = { gpus: [{ name: 'Tesla Volta-SXM2-32GB', compute_capability: '7.0' }] }
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.find('.cuda-compat-warning').exists()).toBe(false)
+
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
+  it('does not warn when the GPU is newer than the CUDA 13 minimum', async () => {
+    store.cudaStatus = { available_versions: ['13.0.1'] }
+    store.gpuInfo = { gpus: [{ name: 'RTX 4090', compute_capability: '8.9' }] }
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.find('.cuda-compat-warning').exists()).toBe(false)
+
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
+  it('does not warn when the GPU compute capability is unknown', async () => {
+    store.cudaStatus = { available_versions: ['13.0.1'] }
+    store.gpuInfo = { gpus: [{ name: 'Unknown GPU' }] }
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.find('.cuda-compat-warning').exists()).toBe(false)
+
     wrapper.unmount()
     vi.useRealTimers()
   })
