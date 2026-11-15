@@ -555,6 +555,16 @@
           ]
         },
         {
+          "count": 4,
+          "file": "frontend/e2e/fixtures/payloads.mjs",
+          "lines": [
+            145,
+            146,
+            149,
+            170
+          ]
+        },
+        {
           "count": 3,
           "file": "backend/proxy/launch_spec.py",
           "lines": [
@@ -1238,6 +1248,13 @@
           "lines": [
             173
           ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/api/contractFixtures.test.js",
+          "lines": [
+            312
+          ]
         }
       ]
     },
@@ -1758,6 +1775,15 @@
           ]
         },
         {
+          "count": 3,
+          "file": "frontend/e2e/fixtures/payloads.mjs",
+          "lines": [
+            39,
+            132,
+            180
+          ]
+        },
+        {
           "count": 2,
           "file": "backend/main.py",
           "lines": [
@@ -1819,6 +1845,14 @@
           "lines": [
             65,
             85
+          ]
+        },
+        {
+          "count": 2,
+          "file": "frontend/src/api/contractFixtures.test.js",
+          "lines": [
+            242,
+            312
           ]
         },
         {
