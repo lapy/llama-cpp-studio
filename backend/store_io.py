@@ -391,7 +391,13 @@ async def drain_store_io() -> None:
 
 
 class StoreIoMiddleware:
-    """Fsync queued store writes before the first response byte."""
+    """Fsync queued store writes before the first response byte.
+
+    Middleware inside this one must be pure ASGI. A ``BaseHTTPMiddleware``
+    runs the endpoint in a child task, and ``run_store`` only attaches the
+    writes of the task that serves the request, so that boundary would let the
+    response overtake its own queued writes.
+    """
 
     def __init__(self, app: Any) -> None:
         self.app = app
