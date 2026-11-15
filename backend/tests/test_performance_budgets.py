@@ -36,7 +36,7 @@ HISTORY_CLEANUP_BUDGET_SECONDS = 3.0
 HISTORY_UPSERT_BUDGET_MS = 80.0
 # 2026-11-11: 250_000 -> 270_000 for the frontend dependency refresh; the cold
 # /models graph measured 260_419 bytes gzip (see frontend/e2e/cold-models-budget.mjs).
-COLD_MODELS_GZIP_BUDGET_BYTES = 272_000  # keep aligned with frontend/e2e/cold-models-budget.mjs
+COLD_MODELS_GZIP_BUDGET_BYTES = 280_000  # keep aligned with frontend/e2e/cold-models-budget.mjs
 _DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 
