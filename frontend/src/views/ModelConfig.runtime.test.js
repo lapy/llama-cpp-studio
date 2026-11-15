@@ -79,6 +79,7 @@ async function mountConfig() {
       plugins: [pinia],
       directives: { tooltip: () => {} },
       stubs: {
+        ModelConfigActionBar: false,
         Button: {
           props: ['label'],
           emits: ['click'],

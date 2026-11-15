@@ -7,6 +7,7 @@ import ModelConfig from './ModelConfig.vue'
 
 const toastAdd = vi.fn()
 const fetchModels = vi.fn()
+const startModel = vi.fn()
 const fetchRuntimePlanState = vi.fn()
 const fetchGpuList = vi.fn()
 const invalidateRuntimePlan = vi.fn()
@@ -64,6 +65,7 @@ vi.mock('@/stores/models', () => ({
     ],
     allQuantizations: [],
     fetchModels,
+    startModel,
   }),
 }))
 
@@ -83,11 +85,15 @@ vi.mock('@/stores/engines', () => ({
 }))
 
 import axios from 'axios'
+import { ENGINE_DESCRIPTORS } from '@/engines/registry'
+
+const [PRIMARY_ENGINE_ID, SECONDARY_ENGINE_ID] = Object.keys(ENGINE_DESCRIPTORS)
 
 const buttonStub = {
-  props: ['label', 'icon', 'text', 'severity', 'loading', 'outlined', 'rounded'],
+  props: ['label', 'icon', 'text', 'severity', 'loading', 'outlined', 'rounded', 'disabled'],
   emits: ['click'],
-  template: '<button :data-label="label" @click="$emit(`click`)">{{ label }}</button>',
+  template:
+    '<button :data-label="label" :disabled="disabled" @click="!disabled && $emit(`click`)">{{ label }}</button>',
 }
 
 const textInputStub = {
@@ -182,6 +188,8 @@ describe('ModelConfig', () => {
     delete engineRuntime.runtimePlan.launch_manifests
     toastAdd.mockReset()
     fetchModels.mockReset()
+    startModel.mockReset()
+    startModel.mockResolvedValue({ status: 'running' })
     fetchRuntimePlanState.mockReset()
     fetchGpuList.mockReset()
     fetchEngineDescriptors.mockReset()
@@ -519,6 +527,7 @@ describe('ModelConfig', () => {
     expect(envValues).toContain('bar')
     expect(wrapper.text()).not.toContain('2 GPUs selected')
 
+    await wrapper.get('input[placeholder="0.8"]').setValue('0.9')
     await wrapper.get('button[data-label="Save changes"]').trigger('click')
     await flushPromises()
 
@@ -781,6 +790,159 @@ describe('ModelConfig', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Saved changes for this model are not published yet')
-    expect(wrapper.text()).toContain('Saved · awaiting application')
+    expect(wrapper.text()).toContain('Saved · needs apply')
+  })
+
+  it('renders the overview identity, engine selector, at-a-glance facts and review', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    const overview = wrapper.get('.config-overview')
+    expect(wrapper.find('.config-workbench').exists()).toBe(false)
+    expect(overview.text()).toContain('Test Model')
+    expect(overview.text()).toContain('org/model')
+    expect(overview.text()).toContain('GGUF')
+    expect(overview.text()).toContain('Q4_K_M')
+    expect(overview.text()).toContain('llama.cpp')
+
+    const engineGroup = overview.get('[role="radiogroup"][aria-label="Engine"]')
+    const engineRadios = engineGroup.findAll('[role="radio"]')
+    expect(engineRadios.length).toBeGreaterThan(0)
+    expect(engineRadios.some((radio) => radio.attributes('aria-checked') === 'true')).toBe(true)
+
+    expect(overview.text()).toContain('At a glance')
+    expect(overview.text()).toContain('Context window')
+    expect(overview.text()).toContain('GPU & offload')
+    expect(overview.text()).toContain('Endpoint')
+    expect(overview.text()).toContain('Apply state')
+    expect(overview.text()).toContain('Review')
+    expect(overview.text()).toContain('Ready to start')
+  })
+
+  it('switches engines from the overview identity card', async () => {
+    engineDescriptors.push(
+      {
+        id: PRIMARY_ENGINE_ID,
+        label: ENGINE_DESCRIPTORS[PRIMARY_ENGINE_ID].label,
+        enabled: true,
+        installed_versions: 1,
+        artifact_formats: ['gguf'],
+      },
+      {
+        id: SECONDARY_ENGINE_ID,
+        label: ENGINE_DESCRIPTORS[SECONDARY_ENGINE_ID].label,
+        enabled: true,
+        installed_versions: 1,
+        artifact_formats: ['gguf'],
+      },
+    )
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    const option = wrapper
+      .get('.config-overview [role="radiogroup"][aria-label="Engine"]')
+      .findAll('[role="radio"]')
+      .find((radio) => radio.text().includes(ENGINE_DESCRIPTORS[SECONDARY_ENGINE_ID].label))
+    await option.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.vm.config.engine).toBe(SECONDARY_ENGINE_ID)
+    expect(wrapper.vm.savedConfig.engine).toBe(PRIMARY_ENGINE_ID)
+    expect(axios.get).toHaveBeenCalledWith(
+      '/api/models/param-registry',
+      expect.objectContaining({
+        params: expect.objectContaining({ engine: SECONDARY_ENGINE_ID }),
+      }),
+    )
+  })
+
+  it('shows launch-plan reasons in the overview with a link to the fix section', async () => {
+    engineRuntime.runtimePlan.launch_manifests = true
+    engineRuntime.runtimePlan.models = [
+      {
+        catalog_id: 'model-1',
+        model_id: 'model-1',
+        action: 'invalid',
+        running: false,
+        reasons: ['Context size exceeds the model limit.'],
+      },
+    ]
+
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    const overview = wrapper.get('.config-overview')
+    expect(overview.text()).toContain('Configuration cannot be compiled')
+    expect(overview.text()).toContain('Context size exceeds the model limit.')
+    const openRuntime = overview
+      .findAll('button')
+      .find((button) => button.text() === 'Open Runtime')
+    expect(openRuntime).toBeDefined()
+
+    await openRuntime.trigger('click')
+    await flushPromises()
+    expect(wrapper.vm.pageTab).toBe('runtime')
+  })
+
+  it('starts the model from the action bar only when the configuration is clean', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    const startButton = () => wrapper.get('.config-action-bar button[data-label="Start model"]')
+    expect(startButton().attributes('disabled')).toBeUndefined()
+
+    await startButton().trigger('click')
+    await flushPromises()
+
+    expect(startModel).toHaveBeenCalledWith('model-1')
+    expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({ summary: 'Model starting' }))
+  })
+
+  it('disables Start while the form is dirty and never calls the store', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    await wrapper.get('input[placeholder="0.8"]').setValue('0.9')
+    await flushPromises()
+
+    const startButton = wrapper.get('.config-action-bar button[data-label="Start model"]')
+    expect(startButton.attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('Save or discard these edits before starting the model.')
+
+    await startButton.trigger('click')
+    await flushPromises()
+
+    expect(startModel).not.toHaveBeenCalled()
+    expect(
+      wrapper.get('.config-action-bar button[data-label="Save changes"]').attributes('disabled'),
+    ).toBeUndefined()
+  })
+
+  it('opens the apply flow from the action bar when saved settings need applying', async () => {
+    engineRuntime.runtimePlan.launch_manifests = true
+    engineRuntime.runtimePlan.models = [
+      { catalog_id: 'model-1', model_id: 'model-1', action: 'publish_next_start', running: false },
+    ]
+
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    const apply = wrapper.get('.config-action-bar button[data-label="Use on next start"]')
+    await apply.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.vm.applyImpactVisible).toBe(true)
   })
 })

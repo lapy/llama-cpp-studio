@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { enableAutoUnmount, flushPromises, shallowMount } from '@vue/test-utils'
 import { reactive } from 'vue'
 import { AUDIO_ENGINE_IDS, ENGINE_DESCRIPTORS } from '@/engines/registry'
-import { sectionHashForTab, tabIdForHash } from '@/composables/useModelConfigSections'
+import {
+  MODEL_CONFIG_OVERVIEW_TAB,
+  sectionHashForTab,
+  tabIdForHash,
+} from '@/composables/useModelConfigSections'
 import { readDraft, writeDraft } from '@/composables/useDraftGuard'
 import ModelConfig from './ModelConfig.vue'
 
@@ -176,7 +180,7 @@ async function mountReady() {
     attachTo: document.body,
     global: {
       directives: { tooltip: () => {} },
-      stubs: { Button: buttonStub },
+      stubs: { Button: buttonStub, ModelConfigActionBar: false },
     },
   })
   await vi.waitFor(() => expect(wrapper.vm.loading).toBe(false))
@@ -193,10 +197,25 @@ function tabByLabel(wrapper, label) {
 describe('ModelConfig deep-linkable sections', () => {
   it('maps audio labels and ids to their real tabs', () => {
     const tabs = ENGINE_DESCRIPTORS[AUDIO_ENGINE_IDS[0]].configTabs
+    expect(sectionHashForTab(MODEL_CONFIG_OVERVIEW_TAB)).toBe('overview')
+    expect(tabIdForHash('#overview', tabs)).toBe('')
+    expect(tabIdForHash('#overview', [MODEL_CONFIG_OVERVIEW_TAB, ...tabs])).toBe('overview')
     expect(tabIdForHash('#runtime', tabs)).toBe('server')
     expect(tabIdForHash('#defaults', tabs)).toBe('api')
     expect(tabIdForHash('#api', tabs)).toBe('api')
     expect(sectionHashForTab(tabs[0])).toBe('runtime')
+  })
+
+  it('opens the overview from its deep link', async () => {
+    route.hash = '#overview'
+    const wrapper = await mountReady()
+
+    await vi.waitFor(() => expect(wrapper.vm.pageTab).toBe('overview'))
+    await vi.waitFor(() =>
+      expect(scrollCalls).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: 'config-panel-overview' })]),
+      ),
+    )
   })
 
   it('opens a section inside a tab from the initial hash and follows hashchange', async () => {
@@ -233,13 +252,13 @@ describe('ModelConfig deep-linkable sections', () => {
     route.hash = ''
     await flushPromises()
 
-    await vi.waitFor(() => expect(wrapper.vm.pageTab).toBe('runtime'))
+    await vi.waitFor(() => expect(wrapper.vm.pageTab).toBe('overview'))
   })
 
-  it('keeps the runtime default without a hash and puts a clicked tab in the URL', async () => {
+  it('keeps the overview default without a hash and puts a clicked tab in the URL', async () => {
     const wrapper = await mountReady()
 
-    expect(wrapper.vm.pageTab).toBe('runtime')
+    expect(wrapper.vm.pageTab).toBe('overview')
     expect(scrollCalls).toHaveLength(0)
 
     await tabByLabel(wrapper, 'Launch').trigger('click')

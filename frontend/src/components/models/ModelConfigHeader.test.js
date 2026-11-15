@@ -34,7 +34,6 @@ describe('ModelConfigHeader', () => {
     const wrapper = mountHeader({
       canCheckForUpdates: true,
       isAudioEngine: true,
-      hasUnsavedChanges: true,
     })
 
     expect(wrapper.text()).toContain('Demo Model')
@@ -45,7 +44,6 @@ describe('ModelConfigHeader', () => {
     expect(wrapper.get('a').attributes('rel')).toBe('noopener noreferrer')
     expect(wrapper.text()).toContain('Check for updates')
     expect(wrapper.text()).toContain('Open Audio')
-    expect(wrapper.text()).toContain('Unsaved changes')
   })
 
   it('forwards navigation and action intent to the view', async () => {
