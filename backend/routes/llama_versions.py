@@ -34,6 +34,7 @@ from backend.task_cancel_registry import TaskCancelledError
 from backend.build_task_manager import BuildTaskManager
 from backend.concurrency import run_blocking
 from backend.gpu_detector import detect_build_capabilities
+from backend.cuda_errors import CudaInstallerError
 from backend.cuda_installer import get_cuda_installer
 from backend.proxy.control import mark_runtime_changed
 from backend.operations.action_recovery import (
@@ -1970,12 +1971,6 @@ async def install_cuda(request: dict):
         install_tensorrt = request.get("install_tensorrt", False)
         installer = get_cuda_installer()
 
-        if installer.is_operation_running():
-            raise HTTPException(
-                status_code=400,
-                detail="A CUDA installation operation is already running",
-            )
-
         result = await installer.install(
             version=version,
             install_cudnn=install_cudnn,
@@ -1984,6 +1979,8 @@ async def install_cuda(request: dict):
         return result
     except ActionAdmissionError as e:
         raise HTTPException(status_code=409, detail=e.detail) from e
+    except CudaInstallerError as e:
+        raise HTTPException(status_code=e.http_status, detail=e.to_detail()) from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
@@ -2010,6 +2007,8 @@ async def activate_cuda(request: dict):
         installer = get_cuda_installer()
         result = await installer.activate(request.get("version", ""))
         return result
+    except CudaInstallerError as e:
+        raise HTTPException(status_code=e.http_status, detail=e.to_detail()) from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except RuntimeError as e:
@@ -2025,12 +2024,6 @@ async def uninstall_cuda(request: dict):
         version = request.get("version")  # Optional - if not provided, uninstalls current
         installer = get_cuda_installer()
 
-        if installer.is_operation_running():
-            raise HTTPException(
-                status_code=400,
-                detail="A CUDA installation operation is already running",
-            )
-
         result = await installer.uninstall(version)
         return result
     except ActionAdmissionError as e:
@@ -2040,6 +2033,8 @@ async def uninstall_cuda(request: dict):
             status_code=409,
             detail={"code": "ACTION_IN_FLIGHT", "message": str(e)},
         ) from e
+    except CudaInstallerError as e:
+        raise HTTPException(status_code=e.http_status, detail=e.to_detail()) from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:

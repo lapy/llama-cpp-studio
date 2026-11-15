@@ -19,8 +19,10 @@ const store = reactive({
   fetchGpuInfo: vi.fn().mockResolvedValue({}),
 })
 
+const { toastAdd } = vi.hoisted(() => ({ toastAdd: vi.fn() }))
+
 vi.mock('@/stores/engines', () => ({ useEnginesStore: () => store }))
-vi.mock('primevue/usetoast', () => ({ useToast: () => ({ add: vi.fn() }) }))
+vi.mock('primevue/usetoast', () => ({ useToast: () => ({ add: toastAdd }) }))
 vi.mock('primevue/useconfirm', () => ({ useConfirm: () => ({ require: vi.fn() }) }))
 
 import HardwarePanel from './HardwarePanel.vue'
@@ -33,6 +35,7 @@ describe('HardwarePanel', () => {
     store.fetchCudaStatus.mockClear()
     store.activateCuda.mockClear()
     store.fetchGpuInfo.mockClear()
+    toastAdd.mockClear()
     store.cudaStatus = {}
   })
 
@@ -117,5 +120,42 @@ describe('HardwarePanel', () => {
     await flushPromises()
 
     expect(store.activateCuda).toHaveBeenCalledWith({ version: '12.8.2' })
+  })
+
+  it('shows the typed CUDA error message instead of the generic request text', async () => {
+    store.cudaStatus = {
+      installed: true,
+      version: '12.8',
+      installed_versions: [
+        { version: '12.8', is_current: true },
+        { version: '12.8.2', is_current: false },
+      ],
+    }
+    store.activateCuda.mockRejectedValueOnce({
+      message: 'Request failed with status code 404',
+      response: {
+        data: {
+          detail: {
+            code: 'cuda_version_not_installed',
+            message: 'CUDA 12.8.2 installation not found in state',
+          },
+        },
+      },
+    })
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const activate = wrapper.findAll('button').find((button) => button.text() === 'Activate')
+    await activate.trigger('click')
+    await flushPromises()
+
+    expect(toastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({
+        severity: 'error',
+        detail: 'CUDA 12.8.2 installation not found in state',
+      }),
+    )
+    wrapper.unmount()
+    vi.useRealTimers()
   })
 })
