@@ -67,21 +67,7 @@
       <Button label="Retry" icon="pi pi-refresh" @click="retryCatalogs" />
     </EmptyState>
 
-    <EmptyState
-      v-else-if="!catalogLoading && !storeHasModels"
-      icon="pi pi-inbox"
-      title="No models downloaded yet"
-      description="Install a compatible engine, then search for a model."
-    >
-      <Button label="Search models" icon="pi pi-search" @click="$router.push('/search')" />
-      <Button
-        label="Engines"
-        icon="pi pi-cog"
-        severity="secondary"
-        outlined
-        @click="$router.push('/engines')"
-      />
-    </EmptyState>
+    <FirstModelPanel v-else-if="!catalogLoading && !storeHasModels" />
 
     <div v-else class="library-workspace">
       <div class="library-toolbar">
@@ -608,6 +594,7 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import LoadingState from '@/components/common/LoadingState.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import SetupChecklist from '@/components/common/SetupChecklist.vue'
+import FirstModelPanel from '@/components/models/FirstModelPanel.vue'
 import ConnectDialog from '@/components/common/ConnectDialog.vue'
 import { useEnginesStore } from '@/stores/engines'
 

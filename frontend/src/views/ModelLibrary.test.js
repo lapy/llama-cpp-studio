@@ -14,6 +14,11 @@ const toastAdd = vi.fn()
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: vi.fn() }),
+  RouterLink: {
+    name: 'RouterLink',
+    props: ['to'],
+    template: '<a :href="to"><slot /></a>',
+  },
 }))
 
 const confirmRequire = vi.fn()
@@ -252,7 +257,49 @@ describe('ModelLibrary running glow', () => {
     const wrapper = mountLibrary()
     await flushPromises()
     expect(wrapper.text()).toContain('Could not load models')
-    expect(wrapper.text()).not.toContain('No models downloaded yet')
+    expect(wrapper.text()).not.toContain('Add your first model')
+    wrapper.unmount()
+  })
+
+  it('shows first-model onboarding with starter search deep links when the library is empty', async () => {
+    const wrapper = mountLibrary()
+    await flushPromises()
+
+    const panel = wrapper.get('.first-model')
+    expect(panel.text()).toContain('Add your first model')
+    expect(panel.text()).toContain('Starter models')
+
+    const searchLink = wrapper
+      .findAll('.first-model a')
+      .find((link) => link.text().trim() === 'Search models')
+    expect(searchLink).toBeTruthy()
+    expect(searchLink.attributes('href')).toBe('/search')
+
+    const cards = wrapper.findAll('.first-model__list li .first-model__card')
+    expect(cards).toHaveLength(3)
+    expect(cards.map((card) => card.attributes('href'))).toEqual([
+      '/search?q=Qwen%2FQwen2.5-0.5B-Instruct-GGUF',
+      '/search?q=Qwen%2FQwen2.5-1.5B-Instruct-GGUF',
+      '/search?q=bartowski%2FLlama-3.2-1B-Instruct-GGUF',
+    ])
+    expect(cards[0].text()).toContain('Qwen2.5 0.5B Instruct')
+    expect(cards[0].text()).toContain('Qwen/Qwen2.5-0.5B-Instruct-GGUF')
+    expect(cards[0].text()).toContain('fastest first download')
+    wrapper.unmount()
+  })
+
+  it('hides the first-model empty state once the library has a model', async () => {
+    modelStore.models = [
+      {
+        huggingface_id: 'org/a',
+        quantizations: [{ id: 'a', quantization: 'Q4', is_active: false, status: 'stopped' }],
+      },
+    ]
+    const wrapper = mountLibrary()
+    await flushPromises()
+
+    expect(wrapper.find('.first-model').exists()).toBe(false)
+    expect(wrapper.find('.model-group').exists()).toBe(true)
     wrapper.unmount()
   })
 
