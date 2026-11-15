@@ -6,15 +6,18 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import ModelLibrary from './ModelLibrary.vue'
 import { LIBRARY_PRESETS_KEY } from '@/utils/libraryFilterPresets'
+import { AUDIO_PACKAGE } from '@/utils/audioModel'
 import { ConnectDialog, FirstModelPanel, SetupChecklist } from '@/components/models/lazyLibraryUi'
 
 const fetchModels = vi.fn().mockResolvedValue(undefined)
 const fetchSafetensorsModels = vi.fn().mockResolvedValue(undefined)
 const fetchHuggingfaceTokenStatus = vi.fn().mockResolvedValue(undefined)
 const toastAdd = vi.fn()
+const routerPush = vi.hoisted(() => vi.fn())
+const progressMock = vi.hoisted(() => ({ downloadComplete: null }))
 
 vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: routerPush }),
   RouterLink: {
     name: 'RouterLink',
     props: ['to'],
@@ -49,7 +52,10 @@ vi.mock('@/stores/engines', () => ({
 vi.mock('@/stores/progress', () => ({
   useProgressStore: () => ({
     subscribe: () => () => {},
-    subscribeToDownloadComplete: () => () => {},
+    subscribeToDownloadComplete: (callback) => {
+      progressMock.downloadComplete = callback
+      return () => {}
+    },
   }),
 }))
 
@@ -124,9 +130,12 @@ describe('ModelLibrary running glow', () => {
     modelStore.modelsError = null
     modelStore.modelsStale = false
     modelStore.models = []
+    modelStore.allQuantizations = []
     modelStore.startModel.mockReset()
     modelStore.stopModel.mockReset()
     toastAdd.mockReset()
+    routerPush.mockReset()
+    progressMock.downloadComplete = null
     localStorage.removeItem(LIBRARY_PRESETS_KEY)
     localStorage.removeItem('llama-studio.library.view')
   })
@@ -397,6 +406,129 @@ describe('ModelLibrary running glow', () => {
 
     expect(wrapper.text()).not.toContain('Starting Q4_K_M…')
     expect(wrapper.get('button[aria-label="Connect Live model"]')).toBeTruthy()
+    wrapper.unmount()
+  })
+
+  it('leads an unreviewed downloaded card with Set up and routes to its configuration', async () => {
+    modelStore.models = [
+      {
+        huggingface_id: 'org/new',
+        base_model_name: 'New model',
+        quantizations: [
+          {
+            id: 'q4',
+            quantization: 'Q4_K_M',
+            is_active: false,
+            status: 'stopped',
+            config_reviewed: false,
+          },
+        ],
+      },
+    ]
+    const wrapper = mountLibrary()
+    await flushPromises()
+
+    const setup = wrapper.get('button[aria-label="Set up New model"]')
+    expect(setup.text()).toBe('Set up')
+    expect(wrapper.get('.model-actions__setup-tag').text()).toBe('Needs setup')
+    expect(wrapper.findAll('button[aria-label="Start New model"]')).toHaveLength(0)
+
+    await setup.trigger('click')
+    await flushPromises()
+    expect(routerPush).toHaveBeenCalledWith('/models/q4/config')
+    wrapper.unmount()
+  })
+
+  it('switches an unreviewed card to Start when a refresh reports reviewed configuration', async () => {
+    modelStore.models = [
+      {
+        huggingface_id: 'org/live',
+        base_model_name: 'Live model',
+        quantizations: [
+          {
+            id: 'q4',
+            quantization: 'Q4_K_M',
+            is_active: false,
+            status: 'stopped',
+            config_reviewed: false,
+          },
+        ],
+      },
+    ]
+    const wrapper = mountLibrary()
+    await flushPromises()
+    expect(wrapper.find('button[aria-label="Set up Live model"]').exists()).toBe(true)
+
+    // Saving the configuration sets config_reviewed; the library update arrives by its normal refresh.
+    modelStore.models[0].quantizations[0].config_reviewed = true
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
+
+    expect(wrapper.get('button[aria-label="Start Live model"]').text()).toBe('Start')
+    expect(wrapper.find('.model-actions__setup-tag').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('offers Set up once when a download completes', async () => {
+    modelStore.models = [
+      {
+        huggingface_id: 'org/live',
+        base_model_name: 'Live model',
+        quantizations: [
+          {
+            id: 'q4',
+            quantization: 'Q4_K_M',
+            is_active: false,
+            status: 'stopped',
+            config_reviewed: false,
+          },
+        ],
+      },
+    ]
+    modelStore.allQuantizations = [{ id: 'q4', config_reviewed: false, format: 'gguf' }]
+    const wrapper = mountLibrary()
+    await flushPromises()
+
+    await progressMock.downloadComplete({
+      status: 'completed',
+      model_id: 'q4',
+      huggingface_id: 'org/live',
+      model_format: 'gguf',
+    })
+    await flushPromises()
+
+    expect(toastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({
+        summary: 'Model downloaded',
+        detail: 'Set it up to start.',
+        group: 'model-library',
+        configureModelId: 'q4',
+      }),
+    )
+
+    const toastCount = toastAdd.mock.calls.length
+    await progressMock.downloadComplete({ status: 'completed', model_id: 'q4' })
+    await flushPromises()
+    expect(toastAdd).toHaveBeenCalledTimes(toastCount)
+    wrapper.unmount()
+  })
+
+  it('does not announce setup for a reviewed or audio download', async () => {
+    modelStore.allQuantizations = [
+      { id: 'reviewed', config_reviewed: true, format: 'gguf' },
+      { id: 'audio', config_reviewed: false, format: AUDIO_PACKAGE },
+    ]
+    const wrapper = mountLibrary()
+    await flushPromises()
+
+    await progressMock.downloadComplete({ status: 'completed', model_id: 'reviewed' })
+    await progressMock.downloadComplete({ status: 'completed', model_id: 'audio' })
+    await flushPromises()
+
+    expect(toastAdd).not.toHaveBeenCalledWith(
+      expect.objectContaining({ summary: 'Model downloaded' }),
+    )
     wrapper.unmount()
   })
 

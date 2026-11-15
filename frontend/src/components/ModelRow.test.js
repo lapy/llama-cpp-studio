@@ -49,6 +49,53 @@ function buttonByLabel(wrapper, label) {
 }
 
 describe('ModelRow', () => {
+  it('leads an unreviewed downloaded row with Set up and its Needs setup tag', async () => {
+    const wrapper = mountRow({
+      quant: {
+        id: 'model-1',
+        quantization: 'Q4_K_M',
+        is_active: false,
+        status: 'stopped',
+        config_reviewed: false,
+      },
+    })
+    const setup = buttonByLabel(wrapper, 'Set up Q4_K_M')
+    expect(setup.text()).toBe('Set up')
+    expect(wrapper.get('.model-actions__setup-tag').text()).toBe('Needs setup')
+    expect(wrapper.findAll('button[aria-label="Start Q4_K_M"]')).toHaveLength(0)
+
+    await setup.trigger('click')
+    expect(wrapper.emitted('configure')?.[0]).toEqual(['model-1'])
+  })
+
+  it('returns to the Start primary once the configuration is reviewed', async () => {
+    const wrapper = mountRow({
+      quant: {
+        id: 'model-1',
+        quantization: 'Q4_K_M',
+        is_active: false,
+        status: 'stopped',
+        config_reviewed: true,
+      },
+    })
+    expect(buttonByLabel(wrapper, 'Start Q4_K_M')).toBeTruthy()
+    expect(wrapper.find('.model-actions__setup-tag').exists()).toBe(false)
+  })
+
+  it('does not lead a running model with Set up even when it is unreviewed', () => {
+    const wrapper = mountRow({
+      quant: {
+        id: 'model-1',
+        quantization: 'Q4_K_M',
+        is_active: true,
+        status: 'ready',
+        config_reviewed: false,
+      },
+    })
+    expect(buttonByLabel(wrapper, 'Connect Q4_K_M')).toBeTruthy()
+    expect(wrapper.find('.model-actions__setup-tag').exists()).toBe(false)
+  })
+
   it('reacts to proxy status updates from starting to running', async () => {
     const wrapper = mountRow()
     expect(wrapper.text()).toContain('Starting')
