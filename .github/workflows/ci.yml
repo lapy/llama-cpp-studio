@@ -75,6 +75,7 @@ jobs:
         run: |
           ruff check backend scripts devcontrol
           ruff format --check backend scripts devcontrol
+          python scripts/module-size-ratchet.py
           python scripts/check-version.py
           python scripts/export-openapi.py --check
 
