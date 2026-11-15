@@ -1,0 +1,11 @@
+{
+  "backend/build_progress.py": 86.3,
+  "backend/cuda_installer.py": 24.8,
+  "backend/data_store.py": 83.4,
+  "backend/operations/cancellable.py": 90.2,
+  "backend/operations/supervisor.py": 78.8,
+  "backend/proxy/studio/manager.py": 65.6,
+  "backend/routes/llama_versions.py": 66.1,
+  "backend/routes/models.py": 60.2,
+  "backend/store_io.py": 90.7
+}
