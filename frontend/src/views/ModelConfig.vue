@@ -184,54 +184,27 @@
           description="Choose the parameters this engine uses when it starts, then review what is overridden."
         />
         <div class="config-card">
-          <div v-if="basicParams.length" class="workbench-block">
-            <div class="section-label section-label--inline">
-              Basics
-              <i
-                class="pi pi-info-circle param-info"
-                tabindex="0"
-                aria-label="About basics"
-                v-tooltip.top="
-                  'Common settings for this engine. Default is inherited. Override is saved with this model.'
-                "
-              />
-            </div>
-            <div class="params-grid">
-              <div v-for="param in basicParams" :key="param.key" class="param-field">
-                <label :for="`basic-${param.key}`" class="param-field__label">
-                  <span class="param-field__name">{{ param.label }}</span>
-                  <code class="param-key-hint">{{ param.key }}</code>
-                  <Tag
-                    class="param-field__state"
-                    :value="isExplicitOverride(param) ? 'Override' : 'Default'"
-                    :severity="isExplicitOverride(param) ? 'info' : 'secondary'"
-                  />
-                </label>
-                <InputNumber
-                  :input-id="`basic-${param.key}`"
-                  v-model="config[param.key]"
-                  :placeholder="param.default != null ? String(param.default) : 'Engine default'"
-                  class="param-input"
-                  :disabled="param.supported === false"
-                  :min="param.min"
-                  :max="param.max"
-                  :pt="{ pcInputText: { root: { 'aria-describedby': `basic-help-${param.key}` } } }"
-                />
-                <small :id="`basic-help-${param.key}`" class="param-default-help">{{
-                  parameterHelp(param)
-                }}</small>
-                <button
-                  v-if="isExplicitOverride(param)"
-                  class="param-reset"
-                  type="button"
-                  @click="useParameterDefault(param)"
-                >
-                  Use engine default
-                </button>
-              </div>
-            </div>
-          </div>
-
+          <ModelConfigParamGroups
+            v-if="catalogSections.length"
+            :key="`${config.engine}:${sglangRuntime}`"
+            :params="runtimeParams"
+            :addable-params="addableParamList"
+            :config="config"
+            :search-query="paramSearchQuery"
+            :hide-unsupported="hideUnsupportedParams"
+            :is-modified="isExplicitOverride"
+            :is-delimited-enum="isDelimitedEnumParam"
+            :max-context-suggestion="maxContextSuggestion"
+            :layer-count-suggestion="layerCountSuggestion"
+            :pinned-keys="BASIC_PARAM_KEYS"
+            @update:search-query="paramSearchQuery = $event"
+            @update:hide-unsupported="hideUnsupportedParams = $event"
+            @update:param="setParamValue"
+            @update:json="updateJsonParam"
+            @reset:param="useParameterDefault"
+            @remove:param="removeParamKey"
+            @add:param="addParamKey"
+          />
           <ModelConfigGpuCard
             v-if="showNvidiaGpuBind"
             v-model:mode="gpuMode"
@@ -239,249 +212,6 @@
             :gpus="nvidiaGpuSelectOptions"
             class="workbench-block"
           />
-
-          <template v-if="!isAudioEngine && catalogSections.length">
-            <div class="workbench-block">
-              <div class="config-toolbar__row">
-                <span class="p-input-icon-left config-search-wrap">
-                  <i class="pi pi-search" aria-hidden="true" />
-                  <InputText
-                    v-model="paramSearchQuery"
-                    type="search"
-                    placeholder="Add a parameter…"
-                    class="config-search-input"
-                    aria-label="Search parameters to add"
-                  />
-                </span>
-                <Button
-                  v-if="paramSearchQuery"
-                  icon="pi pi-times"
-                  text
-                  rounded
-                  severity="secondary"
-                  v-tooltip.top="'Clear search'"
-                  aria-label="Clear search"
-                  @click="paramSearchQuery = ''"
-                />
-                <div class="toggle-field">
-                  <ToggleSwitch
-                    v-model="hideUnsupportedParams"
-                    input-id="toggle-hide-unsupported"
-                  />
-                  <label for="toggle-hide-unsupported">Hide unsupported</label>
-                </div>
-              </div>
-              <div v-if="paramSearchQuery.trim()" class="param-tag-cloud-wrap">
-                <div class="section-label section-label--inline">Add parameter</div>
-                <div v-if="searchTagResults.length" class="param-tag-cloud" role="list">
-                  <button
-                    v-for="p in searchTagResults"
-                    :key="p.key"
-                    type="button"
-                    class="param-search-tag"
-                    role="listitem"
-                    @click="addParamKey(p.key)"
-                  >
-                    <span class="param-search-tag__label">{{ p.label }}</span>
-                    <code class="param-search-tag__key">{{ p.key }}</code>
-                  </button>
-                </div>
-                <Message v-else severity="secondary" :closable="false" class="config-scan-message">
-                  No parameters match. Try other words, turn off “hide unsupported”, or clear the
-                  search.
-                </Message>
-              </div>
-              <p v-if="!paneParams.length" class="config-muted-hint">
-                Search above to add parameters. Saved values that differ from the engine default
-                appear here.
-              </p>
-              <div v-else class="params-grid">
-                <div
-                  v-for="param in paneParams"
-                  :key="`${param.sectionId}-${param.key}`"
-                  class="param-field"
-                  :class="{ 'param-field--unsupported': param.supported === false }"
-                >
-                  <div class="param-field__head">
-                    <label :for="`p-${param.sectionId}-${param.key}`" class="param-field__label">
-                      <span class="param-field__name">
-                        {{ param.label }}
-                        <Tag
-                          v-if="param.supported === false"
-                          value="Not in this build"
-                          severity="secondary"
-                          class="param-supported-tag"
-                        />
-                        <i
-                          class="pi pi-info-circle param-info"
-                          tabindex="0"
-                          :aria-label="`About ${param.label}`"
-                          v-tooltip.top="paramDescriptionTooltip(param)"
-                        />
-                      </span>
-                      <code class="param-key-hint">{{ param.key }}</code>
-                    </label>
-                    <Button
-                      type="button"
-                      icon="pi pi-times"
-                      text
-                      rounded
-                      severity="secondary"
-                      class="param-remove-btn"
-                      aria-label="Remove parameter (reset to default)"
-                      v-tooltip.top="'Remove from pane (reset to default)'"
-                      @click="removeParamKey(param.key)"
-                    />
-                  </div>
-                  <template
-                    v-if="
-                      param.type === 'int' &&
-                      (param.key === 'ctx_size' || param.key === 'session_len')
-                    "
-                  >
-                    <div class="param-slider-row">
-                      <Slider
-                        v-model="config[param.key]"
-                        :min="512"
-                        :max="maxContextSuggestion || 131072"
-                        :step="256"
-                        class="param-slider"
-                        :disabled="param.supported === false"
-                      />
-                      <span v-if="maxContextSuggestion" class="param-hint">
-                        Suggested max: {{ maxContextSuggestion.toLocaleString() }} tokens
-                      </span>
-                    </div>
-                    <InputNumber
-                      :input-id="`p-${param.sectionId}-${param.key}`"
-                      v-model="config[param.key]"
-                      :placeholder="String(param.default ?? '')"
-                      class="param-input"
-                      :disabled="param.supported === false"
-                    />
-                  </template>
-                  <template v-else-if="param.type === 'int' && param.key === 'n_gpu_layers'">
-                    <div class="param-slider-row">
-                      <Slider
-                        v-model="config[param.key]"
-                        :min="0"
-                        :max="layerCountSuggestion || 128"
-                        :step="1"
-                        class="param-slider"
-                        :disabled="param.supported === false"
-                      />
-                      <span v-if="layerCountSuggestion" class="param-hint">
-                        Detected layers: {{ layerCountSuggestion }}
-                      </span>
-                    </div>
-                    <InputNumber
-                      :input-id="`p-${param.sectionId}-${param.key}`"
-                      v-model="config[param.key]"
-                      :placeholder="String(param.default ?? '')"
-                      class="param-input"
-                      :disabled="param.supported === false"
-                    />
-                  </template>
-                  <Select
-                    v-else-if="param.value_kind === 'flag' && param.negative_flag"
-                    :input-id="`p-${param.sectionId}-${param.key}`"
-                    v-model="config[param.key]"
-                    :options="triStateOptions"
-                    optionLabel="label"
-                    optionValue="value"
-                    placeholder="Default"
-                    showClear
-                    class="param-input"
-                    :disabled="param.supported === false"
-                  />
-                  <InputTags
-                    v-else-if="['repeatable', 'space_list'].includes(param.value_kind)"
-                    :input-id="`p-${param.sectionId}-${param.key}`"
-                    v-model="config[param.key]"
-                    delimiter=","
-                    class="param-input"
-                    :disabled="param.supported === false"
-                  />
-                  <MultiSelect
-                    v-else-if="isDelimitedEnumParam(param)"
-                    :input-id="`p-${param.sectionId}-${param.key}`"
-                    v-model="config[param.key]"
-                    :options="param.options || []"
-                    optionLabel="label"
-                    optionValue="value"
-                    display="chip"
-                    :placeholder="csvEnumPlaceholder(param)"
-                    class="param-input w-full"
-                    :disabled="param.supported === false"
-                  />
-                  <Select
-                    v-else-if="param.options && param.options.length"
-                    :input-id="`p-${param.sectionId}-${param.key}`"
-                    v-model="config[param.key]"
-                    :options="param.options"
-                    optionLabel="label"
-                    optionValue="value"
-                    :placeholder="param.default != null ? String(param.default) : ''"
-                    :showClear="param.required !== true"
-                    class="param-input"
-                    :disabled="param.supported === false"
-                  />
-                  <InputNumber
-                    v-else-if="param.type === 'int'"
-                    :input-id="`p-${param.sectionId}-${param.key}`"
-                    v-model="config[param.key]"
-                    :placeholder="String(param.default ?? '')"
-                    class="param-input"
-                    :disabled="param.supported === false"
-                  />
-                  <InputNumber
-                    v-else-if="param.type === 'float'"
-                    :input-id="`p-${param.sectionId}-${param.key}`"
-                    v-model="config[param.key]"
-                    :minFractionDigits="1"
-                    :maxFractionDigits="4"
-                    :placeholder="String(param.default ?? '')"
-                    class="param-input"
-                    :disabled="param.supported === false"
-                  />
-                  <ToggleSwitch
-                    v-else-if="param.type === 'bool'"
-                    :input-id="`p-${param.sectionId}-${param.key}`"
-                    v-model="config[param.key]"
-                    :disabled="param.supported === false"
-                  />
-                  <Textarea
-                    v-else-if="param.type === 'json'"
-                    :id="`p-${param.sectionId}-${param.key}`"
-                    :model-value="jsonParamDisplay(config[param.key])"
-                    rows="4"
-                    class="w-full textarea-cli param-input"
-                    :placeholder="jsonParamPlaceholder(param)"
-                    :disabled="param.supported === false"
-                    autoResize
-                    @update:model-value="(v) => updateJsonParam(param.key, v)"
-                  />
-                  <InputText
-                    v-else
-                    :id="`p-${param.sectionId}-${param.key}`"
-                    v-model="config[param.key]"
-                    :placeholder="param.default != null ? String(param.default) : ''"
-                    class="param-input"
-                    :disabled="param.supported === false"
-                  />
-                  <small class="param-default-help">{{ parameterHelp(param) }}</small>
-                  <button
-                    v-if="isExplicitOverride(param)"
-                    class="param-reset"
-                    type="button"
-                    @click="useParameterDefault(param)"
-                  >
-                    Use engine default
-                  </button>
-                </div>
-              </div>
-            </div>
-          </template>
         </div>
       </div>
 
@@ -1067,14 +797,10 @@ import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import Tag from 'primevue/tag'
 import InputText from 'primevue/inputtext'
-import InputNumber from 'primevue/inputnumber'
 import ToggleSwitch from 'primevue/toggleswitch'
 import Select from 'primevue/select'
-import InputTags from 'primevue/inputtags'
 import Message from 'primevue/message'
 import Textarea from 'primevue/textarea'
-import Slider from 'primevue/slider'
-import MultiSelect from 'primevue/multiselect'
 import LoadingState from '@/components/common/LoadingState.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ModelConfigHeader from '@/components/models/ModelConfigHeader.vue'
@@ -1083,6 +809,7 @@ import ModelConfigOverview from '@/components/models/ModelConfigOverview.vue'
 import ModelConfigSectionHeading from '@/components/models/ModelConfigSectionHeading.vue'
 import ModelConfigLaunchSettings from '@/components/models/ModelConfigLaunchSettings.vue'
 import ModelConfigGpuCard from '@/components/models/ModelConfigGpuCard.vue'
+import ModelConfigParamGroups from '@/components/models/ModelConfigParamGroups.vue'
 import AudioModelConfig from '@/components/audio/AudioModelConfig.vue'
 import ConfigChangeReview from '@/components/ConfigChangeReview.vue'
 import ParseCommandDialog from '@/components/ParseCommandDialog.vue'
@@ -1290,11 +1017,6 @@ const filteredConfigTemplates = computed(() => {
       .includes(query),
   )
 })
-const triStateOptions = [
-  { label: 'Default', value: null },
-  { label: 'Enabled', value: true },
-  { label: 'Disabled', value: false },
-]
 let unsavedPreviewTimer = null
 let unsavedPreviewRequestId = 0
 /** @type {AbortController | null} */
@@ -1796,6 +1518,27 @@ const basicParams = computed(() =>
   BASIC_PARAM_KEYS.map((key) => catalogParamByKey.value.get(key)).filter(Boolean),
 )
 
+/**
+ * Rows shown in the Runtime parameter groups: the always-visible basic params
+ * plus every explicitly active catalog param (order preserved, keys deduped).
+ */
+const runtimeParams = computed(() => {
+  const seen = new Set()
+  const out = []
+  for (const param of [...basicParams.value, ...paneParams.value]) {
+    if (!param?.key || seen.has(param.key)) continue
+    seen.add(param.key)
+    out.push(param)
+  }
+  return out
+})
+
+/** Catalog params that search can still add to the pane (not already shown). */
+const addableParamList = computed(() => {
+  const shown = new Set(runtimeParams.value.map((param) => param.key))
+  return catalogParamList.value.filter((param) => !shown.has(param.key))
+})
+
 function engineIsInstalled(option) {
   const count = option?.descriptor?.installed_versions
   if (count == null) return true
@@ -1815,12 +1558,9 @@ const unavailableSavedEngine = computed(() => {
 function useParameterDefault(param) {
   delete config.value[param.key]
 }
-function parameterHelp(param) {
-  const value =
-    param.default == null || param.default === ''
-      ? 'chosen by the engine'
-      : JSON.stringify(param.default)
-  return `Engine default: ${value}`
+
+function setParamValue(key, value) {
+  config.value[key] = value
 }
 
 function isExplicitOverride(param) {
@@ -1840,44 +1580,6 @@ const applyRuntimeHint = computed(() => {
   }
   return 'Publish this model’s saved settings for its next start. It stays stopped, and other models stay loaded.'
 })
-
-/** Multi-word AND search on label, key, flags, description. */
-function paramMatchesSearch(param, queryRaw) {
-  if (hideUnsupportedParams.value && param.supported === false) return false
-  const raw = queryRaw.trim().toLowerCase()
-  if (!raw) return false
-  const hay = [param.label || '', param.key || '', param.description || '', ...(param.flags || [])]
-    .join(' ')
-    .toLowerCase()
-  const tokens = raw.split(/\s+/).filter(Boolean)
-  return tokens.every((t) => hay.includes(t))
-}
-
-const searchTagResults = computed(() => {
-  const q = paramSearchQuery.value
-  if (!q.trim()) return []
-  const active = new Set(activeParamKeys.value)
-  const out = []
-  for (const p of catalogParamList.value) {
-    if (active.has(p.key)) continue
-    if (paramMatchesSearch(p, q)) out.push(p)
-    if (out.length >= 100) break
-  }
-  return out
-})
-
-function paramDescriptionTooltip(param) {
-  const parts = [param.description].filter(Boolean)
-  if (param.primary_flag) {
-    parts.push(`Primary flag: ${param.primary_flag}`)
-  }
-  if (param.negative_flag) {
-    parts.push(`Negative flag: ${param.negative_flag}`)
-  } else if (param.flags?.length) {
-    parts.push(`CLI: ${param.flags.join(', ')}`)
-  }
-  return parts.join('\n\n') || param.label || param.key
-}
 
 function hasExplicitValue(sec, key) {
   return Object.prototype.hasOwnProperty.call(sec || {}, key)
@@ -1909,16 +1611,6 @@ function setActiveKeysFromSection(sec, params) {
     if (paramIsActiveInSection(sec, p)) keys.push(p.key)
   }
   activeParamKeys.value = keys
-}
-
-function csvEnumPlaceholder(param) {
-  if (Array.isArray(param.default) && param.default.length) {
-    return param.default.join(', ')
-  }
-  if (param.default != null && param.default !== '') {
-    return String(param.default)
-  }
-  return 'Select one or more'
 }
 
 function isDelimitedEnumParam(param) {
@@ -2105,39 +1797,6 @@ function refreshSavedCmdPreviewIfVisible() {
   if (cmdPreviewDialogVisible.value && cmdPreviewDialogMode.value === 'saved') {
     void fetchSavedCmdPreview()
   }
-}
-
-function jsonParamDisplay(value) {
-  if (value == null || value === '') return ''
-  if (typeof value === 'string') {
-    const trimmed = value.trim()
-    if (!trimmed) return ''
-    try {
-      return JSON.stringify(JSON.parse(trimmed), null, 2)
-    } catch {
-      return value
-    }
-  }
-  if (typeof value === 'object') {
-    try {
-      return JSON.stringify(value, null, 2)
-    } catch {
-      return ''
-    }
-  }
-  return String(value)
-}
-
-function jsonParamPlaceholder(param) {
-  if (param?.default != null && typeof param.default === 'object') {
-    try {
-      return JSON.stringify(param.default, null, 2)
-    } catch {
-      return String(param.default)
-    }
-  }
-  if (param?.default != null) return String(param.default)
-  return '{"key": "value"}'
 }
 
 function updateJsonParam(key, text) {
@@ -3763,16 +3422,6 @@ onBeforeUnmount(() => {
   line-height: 1.45;
 }
 
-.param-field--unsupported {
-  opacity: 0.88;
-}
-
-.param-supported-tag {
-  margin-left: 0.35rem;
-  vertical-align: middle;
-  font-size: var(--text-xs) !important;
-}
-
 /* ── Card ─────────────────────────────────────────────── */
 .config-card {
   background: var(--bg-card);
@@ -3798,10 +3447,6 @@ onBeforeUnmount(() => {
   letter-spacing: normal;
   text-transform: none;
   color: var(--accent-cyan, #22d3ee);
-}
-
-.param-tag-cloud-wrap {
-  margin-top: 0.55rem;
 }
 
 .section-label {
@@ -3831,55 +3476,7 @@ onBeforeUnmount(() => {
   text-underline-offset: 2px;
 }
 
-/* ── Params grid ──────────────────────────────────────── */
-.params-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
-  gap: 0.75rem 1rem;
-}
-
-.param-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  min-width: 0;
-}
-
-.param-field__label {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  column-gap: 0.5rem;
-  row-gap: 0.15rem;
-  flex: 1;
-  min-width: 0;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--text-secondary);
-}
-
-.param-field__name {
-  grid-column: 1;
-  grid-row: 1;
-  min-width: 0;
-}
-
-.param-field__label > .param-key-hint {
-  grid-column: 1;
-  grid-row: 2;
-  margin-left: 0;
-  justify-self: start;
-}
-
-.param-field__state {
-  grid-column: 2;
-  grid-row: 1;
-  justify-self: end;
-}
-
-.param-input {
-  width: 100%;
-}
+/* ── Audio request capability summary ─────────────── */
 
 .audio-capability-tags {
   display: flex;
@@ -4017,100 +3614,15 @@ onBeforeUnmount(() => {
   }
 }
 
-.param-info {
-  font-size: var(--text-xs);
-  cursor: help;
-  opacity: 0.6;
-}
-
 /* ── Actions (sticky bar) ───────────────────────────────── */
 .config-card:empty {
   display: none;
 }
 
-.param-slider-row {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  margin-bottom: 0.25rem;
-}
-
-.param-slider {
-  width: 100%;
-  max-width: 15rem;
-}
-
 /* Align PrimeVue slider handle with the track bar */
-.param-slider :deep(.p-slider) {
-  height: 0.5rem;
-}
-.param-slider :deep(.p-slider-handle) {
-  width: 1rem;
-  height: 1rem;
-  top: 50%;
-  margin-top: -0.5rem;
-}
-
-.param-hint {
-  font-size: var(--text-xs);
-  color: var(--text-secondary, #9ca3af);
-}
 
 /* ── Unsaved indicator ─────────────────────────────────── */
 /* ── Catalog toolbar (search, toggles, jump nav) ───────── */
-.config-toolbar {
-  margin-bottom: 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.config-toolbar__row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.config-toolbar__row .toggle-field {
-  flex-shrink: 0;
-}
-
-.config-search-wrap {
-  position: relative;
-  flex: 1;
-  min-width: min(100%, 12rem);
-}
-
-.config-search-wrap .pi-search {
-  position: absolute;
-  left: 0.75rem;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--text-secondary, #9ca3af);
-  pointer-events: none;
-  z-index: 1;
-  font-size: 0.875rem;
-}
-
-.config-search-wrap :deep(.p-inputtext),
-.config-search-wrap :deep(input.config-search-input) {
-  width: 100%;
-  padding-left: 2.35rem;
-}
-
-.toggle-field {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.toggle-field label {
-  font-size: 0.875rem;
-  color: var(--text-secondary, #9ca3af);
-  cursor: pointer;
-  user-select: none;
-}
 
 .apply-impact__lead {
   margin: 0 0 0.85rem;
@@ -4183,78 +3695,6 @@ onBeforeUnmount(() => {
 
 .config-tag-lead {
   margin-bottom: 0.75rem;
-}
-
-.param-tag-cloud {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-}
-
-.param-search-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  flex-wrap: wrap;
-  max-width: 100%;
-  padding: 0.35rem 0.65rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-primary);
-  background: color-mix(in srgb, var(--accent-cyan) 8%, var(--bg-card));
-  color: var(--text-primary);
-  font-size: 0.8125rem;
-  cursor: pointer;
-  transition:
-    border-color 0.15s ease,
-    background 0.15s ease,
-    transform 0.12s ease;
-}
-
-.param-search-tag:hover {
-  border-color: var(--accent-cyan, #22d3ee);
-  background: color-mix(in srgb, var(--accent-cyan) 12%, var(--bg-primary));
-}
-
-.param-search-tag:focus-visible {
-  outline: 2px solid var(--accent-cyan, #22d3ee);
-  outline-offset: 2px;
-}
-
-.param-search-tag__key {
-  font-size: var(--text-xs);
-  padding: 0.1rem 0.35rem;
-  border-radius: 0.25rem;
-  background: rgba(0, 0, 0, 0.3);
-  color: var(--text-secondary, #9ca3af);
-}
-
-.param-field__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin-bottom: 0.35rem;
-}
-
-.param-remove-btn {
-  flex-shrink: 0;
-  margin-top: -0.15rem;
-}
-
-.section-params {
-  padding-top: 0.5rem;
-  border-top: 1px solid var(--border-primary, #2a2f45);
-}
-
-.param-key-hint {
-  margin-left: 0;
-  padding: 0.1rem 0.35rem;
-  font-size: var(--text-xs);
-  font-weight: 400;
-  color: var(--text-secondary, #9ca3af);
-  background: rgba(0, 0, 0, 0.25);
-  border-radius: 0.25rem;
-  vertical-align: middle;
 }
 
 .config-templates-layout {
@@ -4436,30 +3876,5 @@ onBeforeUnmount(() => {
     flex-direction: column;
     align-items: stretch;
   }
-
-  .config-search-wrap {
-    min-width: 0;
-    width: 100%;
-  }
-
-  .toggle-field {
-    flex: 1 1 100%;
-  }
-}
-
-.param-default-help {
-  font-size: var(--text-xs);
-  line-height: 1.6;
-  color: var(--text-secondary);
-}
-.param-reset {
-  justify-self: start;
-  width: fit-content;
-  border: 0;
-  background: transparent;
-  color: var(--accent-primary);
-  padding: 0.25rem 0;
-  cursor: pointer;
-  font-size: var(--text-xs);
 }
 </style>
