@@ -652,313 +652,24 @@
         tabindex="0"
         class="config-tab-panel"
       >
-        <div class="config-card config-launch">
-          <div v-if="showCompanionsCard" class="advanced-block">
-            <div class="section-label section-label--inline">
-              Companions
-              <i
-                class="pi pi-info-circle param-info"
-                tabindex="0"
-                aria-label="About companions"
-                v-tooltip.top="
-                  'Attach mmproj, MTP, or DFlash weights. MTP and DFlash cannot be used together.'
-                "
-              />
-            </div>
-            <div v-if="companionsLoading" class="companions-loading">
-              Loading companion options…
-            </div>
-            <div v-else class="companions-grid">
-              <div class="companion-field">
-                <label for="config-mmproj">Projector (mmproj)</label>
-                <div class="companion-field__row">
-                  <Select
-                    id="config-mmproj"
-                    v-model="selectedMmproj"
-                    :options="mmprojOptions"
-                    optionLabel="label"
-                    optionValue="value"
-                    class="w-full"
-                    :disabled="companionBusy"
-                    placeholder="None"
-                  />
-                  <Button
-                    label="Apply"
-                    icon="pi pi-save"
-                    size="small"
-                    severity="success"
-                    outlined
-                    :loading="companionBusyField === 'mmproj'"
-                    :disabled="companionBusy || !mmprojSelectionChanged"
-                    @click="applyCompanion('mmproj')"
-                  />
-                </div>
-              </div>
-              <div class="companion-field">
-                <label for="config-mtp">MTP draft</label>
-                <div class="companion-field__row">
-                  <Select
-                    id="config-mtp"
-                    v-model="selectedMtp"
-                    :options="mtpOptions"
-                    optionLabel="label"
-                    optionValue="value"
-                    class="w-full"
-                    :disabled="companionBusy"
-                    placeholder="None"
-                    @update:model-value="onMtpSelected"
-                  />
-                  <Button
-                    label="Apply"
-                    icon="pi pi-save"
-                    size="small"
-                    severity="success"
-                    outlined
-                    :loading="companionBusyField === 'mtp'"
-                    :disabled="companionBusy || !mtpSelectionChanged"
-                    @click="applyCompanion('mtp')"
-                  />
-                </div>
-              </div>
-              <div class="companion-field">
-                <label for="config-dflash">DFlash draft</label>
-                <div class="companion-field__row">
-                  <Select
-                    id="config-dflash"
-                    v-model="selectedDflash"
-                    :options="dflashOptions"
-                    optionLabel="label"
-                    optionValue="value"
-                    class="w-full"
-                    :disabled="companionBusy"
-                    placeholder="None"
-                    @update:model-value="onDflashSelected"
-                  />
-                  <Button
-                    label="Apply"
-                    icon="pi pi-save"
-                    size="small"
-                    severity="success"
-                    outlined
-                    :loading="companionBusyField === 'dflash'"
-                    :disabled="companionBusy || !dflashSelectionChanged"
-                    @click="applyCompanion('dflash')"
-                  />
-                </div>
-              </div>
-              <div class="companion-field">
-                <label for="config-dspark">DSpark draft</label>
-                <div class="companion-field__row">
-                  <Select
-                    id="config-dspark"
-                    v-model="selectedDspark"
-                    :options="dsparkOptions"
-                    optionLabel="label"
-                    optionValue="value"
-                    class="w-full"
-                    :disabled="companionBusy"
-                    placeholder="None"
-                    @update:model-value="onDsparkSelected"
-                  />
-                  <Button
-                    label="Apply"
-                    icon="pi pi-save"
-                    size="small"
-                    severity="success"
-                    outlined
-                    :loading="companionBusyField === 'dspark'"
-                    :disabled="companionBusy || !dsparkSelectionChanged"
-                    @click="applyCompanion('dspark')"
-                  />
-                </div>
-              </div>
-              <div v-if="(companionFiles.engram_files || []).length" class="companion-field">
-                <label>Engram tables</label>
-                <small class="config-muted-hint">
-                  These are swappable n-gram table shards; use the repo's set_split.py and rename
-                  the table to the target quant's table shard.
-                </small>
-                <ul class="engram-file-list">
-                  <li v-for="table in companionFiles.engram_files" :key="table.filename">
-                    <code>{{ table.label || table.filename }}</code>
-                    <span>{{ table.filename }}</span>
-                  </li>
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          <div class="config-split-grid split-grid">
-            <div class="advanced-field">
-              <label class="advanced-field__label">
-                {{ stableIdLabel }}
-              </label>
-              <InputText
-                :model-value="stableModelId"
-                readonly
-                class="w-full"
-                :aria-label="stableIdAria"
-              />
-            </div>
-
-            <div class="advanced-field">
-              <label class="advanced-field__label">
-                {{ aliasLabel }}
-                <i
-                  class="pi pi-info-circle param-info"
-                  tabindex="0"
-                  aria-label="About API alias"
-                  v-tooltip.top="aliasTooltip"
-                />
-              </label>
-              <InputText
-                v-model="config.model_alias"
-                placeholder="e.g. my-app-model"
-                class="w-full"
-              />
-            </div>
-          </div>
-
-          <RequestAliasesEditor
-            :key="config.engine"
-            v-model="config.set_params_by_id"
-            :base-name="requestAliasBase"
-            @validity="requestAliasesValid = $event"
-          />
-
-          <div class="advanced-block">
-            <div class="section-label section-label--inline">
-              Custom arguments
-              <i
-                class="pi pi-info-circle param-info"
-                tabindex="0"
-                aria-label="About custom arguments"
-                v-tooltip.top="'Raw CLI flags appended to the server command.'"
-              />
-            </div>
-            <Textarea
-              v-model="config.custom_args"
-              rows="2"
-              placeholder="e.g. --some-flag value --another-flag"
-              class="w-full textarea-cli"
-              autoResize
-            />
-            <Button
-              v-if="canImportCommand"
-              label="Parse into parameters"
-              icon="pi pi-sparkles"
-              size="small"
-              severity="secondary"
-              outlined
-              class="mt-2"
-              type="button"
-              @click="openParseCommandDialog(config.custom_args)"
-            />
-          </div>
-          <div class="advanced-block">
-            <div class="section-label section-label--inline">
-              Environment
-              <i
-                class="pi pi-info-circle param-info"
-                tabindex="0"
-                aria-label="About environment variables"
-                v-tooltip.top="
-                  'Environment variables passed to this model process. CUDA_VISIBLE_DEVICES is set from the GPU control when NVIDIA GPUs are detected. LLAMA_STUDIO_* keys are reserved and ignored.'
-                "
-              />
-            </div>
-            <div
-              v-for="item in runtimeEnvRowsDisplayed"
-              :key="item.originalIndex"
-              class="runtime-env-row"
-            >
-              <InputText
-                :model-value="item.row.key"
-                placeholder="VAR_NAME"
-                class="runtime-env-key"
-                aria-label="Environment variable name"
-                @update:model-value="
-                  (v) => {
-                    item.row.key = v
-                    syncRuntimeEnvFromRows()
-                  }
-                "
-              />
-              <Select
-                :model-value="item.row.mode || 'set'"
-                :options="envModeOptions"
-                option-label="label"
-                option-value="value"
-                class="runtime-env-mode"
-                aria-label="Environment variable mode"
-                @update:model-value="
-                  (v) => {
-                    item.row.mode = v
-                    syncRuntimeEnvFromRows()
-                  }
-                "
-              />
-              <InputText
-                v-if="(item.row.mode || 'set') !== 'unset'"
-                :model-value="item.row.value"
-                placeholder="value"
-                class="runtime-env-value"
-                aria-label="Environment variable value"
-                @update:model-value="
-                  (v) => {
-                    item.row.value = v
-                    syncRuntimeEnvFromRows()
-                  }
-                "
-              />
-              <Button
-                icon="pi pi-trash"
-                severity="danger"
-                text
-                rounded
-                type="button"
-                aria-label="Remove variable"
-                @click="removeRuntimeEnvRow(item.originalIndex)"
-              />
-            </div>
-            <Button
-              label="Add variable"
-              icon="pi pi-plus"
-              severity="secondary"
-              outlined
-              type="button"
-              class="mt-2"
-              @click="addRuntimeEnvRow"
-            />
-          </div>
-          <div class="advanced-block">
-            <div class="section-label section-label--inline">Command</div>
-            <div class="config-cmd-actions">
-              <Button
-                label="Live preview"
-                icon="pi pi-eye"
-                severity="secondary"
-                outlined
-                :loading="
-                  unsavedCmdPreviewLoading &&
-                  cmdPreviewDialogVisible &&
-                  cmdPreviewDialogMode === 'unsaved'
-                "
-                @click="openCmdPreviewDialog('unsaved')"
-              />
-              <Button
-                label="Saved command"
-                icon="pi pi-terminal"
-                severity="secondary"
-                outlined
-                :loading="
-                  cmdPreviewLoading && cmdPreviewDialogVisible && cmdPreviewDialogMode === 'saved'
-                "
-                @click="openCmdPreviewDialog('saved')"
-              />
-            </div>
-          </div>
-        </div>
+        <ModelConfigLaunchSettings
+          v-model:model-alias="config.model_alias"
+          v-model:set-params-by-id="config.set_params_by_id"
+          v-model:custom-args="config.custom_args"
+          :model="model"
+          :engine="config.engine"
+          :stable-model-id="stableModelId"
+          :can-import-command="canImportCommand"
+          :env-rows="runtimeEnvRowsDisplayed"
+          :cmd-preview="cmdPreviewState"
+          @refresh-model="refreshModelFromStore"
+          @validity="requestAliasesValid = $event"
+          @parse-command="openParseCommandDialog"
+          @open-cmd-preview="openCmdPreviewDialog"
+          @add-env-row="addRuntimeEnvRow"
+          @remove-env-row="removeRuntimeEnvRow"
+          @update-env-row="updateRuntimeEnvRow"
+        />
       </div>
 
       <p v-if="persistenceNotice" class="persistence-notice" role="status">
@@ -1514,8 +1225,8 @@ import MultiSelect from 'primevue/multiselect'
 import LoadingState from '@/components/common/LoadingState.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ModelConfigHeader from '@/components/models/ModelConfigHeader.vue'
+import ModelConfigLaunchSettings from '@/components/models/ModelConfigLaunchSettings.vue'
 import AudioModelConfig from '@/components/audio/AudioModelConfig.vue'
-import RequestAliasesEditor from '@/components/RequestAliasesEditor.vue'
 import ConfigChangeReview from '@/components/ConfigChangeReview.vue'
 import ParseCommandDialog from '@/components/ParseCommandDialog.vue'
 import { buildConfigChanges, countConfigChanges } from '@/utils/configChanges'
@@ -1569,16 +1280,6 @@ const templateMutationNotice = ref(null)
 const templateMutationHeld = computed(() => saveHeldForRefresh(templateMutationNotice.value))
 const templateMutationKind = ref('apply')
 const templateApplyPersist = ref(false)
-const requestAliasBase = computed(
-  () =>
-    String(config.value.model_alias || '')
-      .trim()
-      .toLowerCase()
-      .replace(/[/\\\s]+/g, '-')
-      .replace(/[^a-z0-9._-]/g, '-')
-      .replace(/-{2,}/g, '-')
-      .replace(/^[._-]+|[._-]+$/g, '') || stableModelId.value,
-)
 const requestAliasesValid = ref(true)
 const configSaveHeld = computed(
   () => !requestAliasesValid.value || saveHeldForRefresh(persistenceNotice.value),
@@ -1616,19 +1317,6 @@ async function refreshTemplateMutation() {
     templatesOk && configOk ? null : classifyPersistenceError(new Error('reload failed'))
 }
 const refreshingModel = ref(false)
-const companionsLoading = ref(false)
-const companionBusyField = ref(null)
-const companionFiles = ref({
-  mmproj_files: [],
-  mtp_files: [],
-  dflash_files: [],
-  dspark_files: [],
-  engram_files: [],
-})
-const selectedMmproj = ref('')
-const selectedMtp = ref('')
-const selectedDflash = ref('')
-const selectedDspark = ref('')
 const model = ref(null)
 const config = ref({})
 const savedConfig = ref({}) // for reset
@@ -1692,6 +1380,12 @@ const applyingRuntime = ref(false)
 const applyStopRequested = ref(false)
 const cmdPreviewDialogVisible = ref(false)
 const cmdPreviewDialogMode = ref('unsaved')
+const cmdPreviewState = computed(() => ({
+  dialogVisible: cmdPreviewDialogVisible.value,
+  mode: cmdPreviewDialogMode.value,
+  loading: cmdPreviewLoading.value,
+  unsavedLoading: unsavedCmdPreviewLoading.value,
+}))
 const templatesDialogVisible = ref(false)
 const parseCommandDialogVisible = ref(false)
 const parseCommandSeed = ref('')
@@ -1809,17 +1503,6 @@ function isAudioPanel(engineId) {
   return ENGINE_DESCRIPTORS[engineId]?.configPanel === 'audio'
 }
 const isAudioEngine = computed(() => isAudioPanel(config.value.engine))
-const engineConfigCopy = computed(() => ENGINE_DESCRIPTORS[config.value.engine]?.configCopy || {})
-const stableIdLabel = computed(() => engineConfigCopy.value.stableIdLabel || 'Stable ID')
-const stableIdAria = computed(
-  () => engineConfigCopy.value.stableIdAria || 'Stable Studio proxy model ID',
-)
-const aliasLabel = computed(() => engineConfigCopy.value.aliasLabel || 'API alias')
-const aliasTooltip = computed(
-  () =>
-    engineConfigCopy.value.aliasTooltip ||
-    'Optional id apps send as model. Must be unique. Running state uses the stable ID, not this alias.',
-)
 function runtimeKeyFor(engineId) {
   return ENGINE_DESCRIPTORS[engineId]?.runtimeKey || ''
 }
@@ -1885,32 +1568,6 @@ const canCheckForUpdates = computed(() => {
   if (!configCapability('modelUpdates')) return false
   return modelFormat.value === 'gguf' || modelFormat.value === 'safetensors'
 })
-const showCompanionsCard = computed(
-  () => modelFormat.value === 'gguf' && !!model.value?.huggingface_id,
-)
-const companionBusy = computed(() => !!companionBusyField.value)
-const mmprojOptions = computed(() =>
-  companionDropdownOptions(companionFiles.value.mmproj_files, 'mmproj'),
-)
-const mtpOptions = computed(() => companionDropdownOptions(companionFiles.value.mtp_files, 'mtp'))
-const dflashOptions = computed(() =>
-  companionDropdownOptions(companionFiles.value.dflash_files, 'dflash'),
-)
-const dsparkOptions = computed(() =>
-  companionDropdownOptions(companionFiles.value.dspark_files, 'dspark'),
-)
-const mmprojSelectionChanged = computed(
-  () => (selectedMmproj.value || '') !== (model.value?.mmproj_filename || ''),
-)
-const mtpSelectionChanged = computed(
-  () => (selectedMtp.value || '') !== (model.value?.mtp_filename || ''),
-)
-const dflashSelectionChanged = computed(
-  () => (selectedDflash.value || '') !== (model.value?.dflash_filename || ''),
-)
-const dsparkSelectionChanged = computed(
-  () => (selectedDspark.value || '') !== (model.value?.dspark_filename || ''),
-)
 
 function openAudioWorkspace() {
   const modelId = model.value?.id || route.params.id
@@ -2145,11 +1802,6 @@ function onGpuModeKeydown(event) {
   setGpuMode(gpuModeOptions[next].value)
   event.currentTarget.querySelectorAll('[role="radio"]')[next]?.focus()
 }
-
-const envModeOptions = [
-  { label: 'Set value', value: 'set' },
-  { label: 'Unset', value: 'unset' },
-]
 
 const modelLaunchPlan = computed(() => {
   const rows = enginesStore.runtimePlan?.models
@@ -2720,6 +2372,13 @@ function removeRuntimeEnvRow(idx) {
   syncCudaSelectionFromEnv()
 }
 
+function updateRuntimeEnvRow({ originalIndex, field, value }) {
+  const row = runtimeEnvRows.value[originalIndex]
+  if (!row) return
+  row[field] = value
+  syncRuntimeEnvFromRows()
+}
+
 function getRawCudaVisibleFromRuntimeEnv() {
   const se = config.value.runtime_env
   if (!se || typeof se !== 'object' || Array.isArray(se)) return ''
@@ -2890,6 +2549,11 @@ function findModelById(id) {
   }
   // Fallback: search allQuantizations
   return modelStore.allQuantizations.find((m) => String(m.id) === sid) ?? null
+}
+
+function refreshModelFromStore() {
+  const found = findModelById(route.params.id)
+  if (found) model.value = found
 }
 
 async function fetchGpuListForBind() {
@@ -3347,69 +3011,6 @@ function changeSglangRuntime(runtime) {
   applyEngineSectionToForm(engine)
 }
 
-function companionDropdownOptions(files = [], kind = 'mmproj') {
-  const none = { label: 'None', value: '', size: 0 }
-  const options = (files || []).map((file) => {
-    const filename = file.filename || file.value || ''
-    let label = file.label || filename
-    if (kind === 'mmproj') {
-      const m = filename.match(/(F16|F32|BF16|Q\d[_A-Z0-9]*)/i)
-      label = m ? m[1].toUpperCase() : filename
-    }
-    return { label, value: filename, size: file.size || 0 }
-  })
-  options.sort((a, b) => a.label.localeCompare(b.label))
-  return [none, ...options]
-}
-
-function syncCompanionSelectionsFromModel() {
-  selectedMmproj.value = model.value?.mmproj_filename || ''
-  selectedMtp.value = model.value?.mtp_filename || ''
-  selectedDflash.value = model.value?.dflash_filename || ''
-  selectedDspark.value = model.value?.dspark_filename || ''
-}
-
-async function loadCompanions() {
-  if (!showCompanionsCard.value || !model.value?.id) {
-    companionFiles.value = {
-      mmproj_files: [],
-      mtp_files: [],
-      dflash_files: [],
-      dspark_files: [],
-      engram_files: [],
-    }
-    return
-  }
-  companionsLoading.value = true
-  try {
-    const data = await modelStore.fetchModelCompanions(model.value.id)
-    companionFiles.value = {
-      mmproj_files: data?.mmproj_files || [],
-      mtp_files: data?.mtp_files || [],
-      dflash_files: data?.dflash_files || [],
-      dspark_files: data?.dspark_files || [],
-      engram_files: data?.engram_files || [],
-    }
-    syncCompanionSelectionsFromModel()
-  } catch (e) {
-    companionFiles.value = {
-      mmproj_files: [],
-      mtp_files: [],
-      dflash_files: [],
-      dspark_files: [],
-      engram_files: [],
-    }
-    toast.add({
-      severity: 'warn',
-      summary: 'Companions',
-      detail: formatAxiosDetail(e) || 'Could not load companion files from Hugging Face.',
-      life: 4000,
-    })
-  } finally {
-    companionsLoading.value = false
-  }
-}
-
 async function checkForModelUpdates() {
   if (!model.value?.id || refreshingModel.value) return
   refreshingModel.value = true
@@ -3442,103 +3043,6 @@ async function checkForModelUpdates() {
   }
 }
 
-function onMtpSelected(value) {
-  selectedMtp.value = value || ''
-  if (selectedMtp.value) {
-    selectedDflash.value = ''
-    selectedDspark.value = ''
-  }
-}
-
-function onDflashSelected(value) {
-  selectedDflash.value = value || ''
-  if (selectedDflash.value) {
-    selectedMtp.value = ''
-    selectedDspark.value = ''
-  }
-}
-
-function onDsparkSelected(value) {
-  selectedDspark.value = value || ''
-  if (selectedDspark.value) {
-    selectedMtp.value = ''
-    selectedDflash.value = ''
-  }
-}
-
-async function applyCompanion(kind) {
-  if (!model.value?.id || companionBusy.value) return
-  companionBusyField.value = kind
-  try {
-    let response
-    if (kind === 'mmproj') {
-      const opt = mmprojOptions.value.find((o) => o.value === (selectedMmproj.value || ''))
-      response = await modelStore.updateModelProjector(
-        model.value.id,
-        selectedMmproj.value || null,
-        opt?.size || 0,
-      )
-    } else if (kind === 'mtp') {
-      const opt = mtpOptions.value.find((o) => o.value === (selectedMtp.value || ''))
-      response = await modelStore.updateModelMtp(
-        model.value.id,
-        selectedMtp.value || null,
-        opt?.size || 0,
-      )
-      if (selectedMtp.value) selectedDflash.value = ''
-    } else if (kind === 'dflash') {
-      const opt = dflashOptions.value.find((o) => o.value === (selectedDflash.value || ''))
-      response = await modelStore.updateModelDflash(
-        model.value.id,
-        selectedDflash.value || null,
-        opt?.size || 0,
-      )
-      if (selectedDflash.value) selectedMtp.value = ''
-    } else {
-      const opt = dsparkOptions.value.find((o) => o.value === (selectedDspark.value || ''))
-      response = await modelStore.updateModelDspark(
-        model.value.id,
-        selectedDspark.value || null,
-        opt?.size || 0,
-      )
-      if (selectedDspark.value) {
-        selectedMtp.value = ''
-        selectedDflash.value = ''
-      }
-    }
-
-    await modelStore.fetchModels()
-    const found = findModelById(route.params.id)
-    if (found) model.value = found
-    syncCompanionSelectionsFromModel()
-
-    if (response?.applied) {
-      toast.add({
-        severity: 'success',
-        summary: 'Companion updated',
-        detail: response.message || 'Applied',
-        life: 3000,
-      })
-    } else {
-      toast.add({
-        severity: 'success',
-        summary: 'Download started',
-        detail: response?.message || 'Track progress in notifications',
-        life: 3000,
-      })
-    }
-  } catch (e) {
-    toast.add({
-      severity: 'error',
-      summary: 'Companion update failed',
-      detail: formatAxiosDetail(e) || e.message,
-      life: 4000,
-    })
-  } finally {
-    companionBusyField.value = null
-  }
-}
-
 // ── Load ───────────────────────────────────────────────────
 async function loadAll() {
   loading.value = true
@@ -3557,7 +3061,6 @@ async function loadAll() {
       return
     }
     model.value = found
-    syncCompanionSelectionsFromModel()
 
     const cfgResp = await axios.get(modelApiUrl('/config'))
     const cfg = cfgResp.data
@@ -3577,7 +3080,6 @@ async function loadAll() {
       fetchParamRegistry(engine),
       gpuListPromise,
       engineDescriptorsPromise,
-      loadCompanions(),
       enginesStore.fetchRuntimePlan?.() ?? Promise.resolve(),
     ])
 
@@ -4364,34 +3866,6 @@ onBeforeUnmount(() => {
   font-size: 0.875rem;
 }
 
-.runtime-env-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
-}
-
-.runtime-env-row :deep(.runtime-env-key) {
-  flex: 0 0 11rem;
-  width: 11rem;
-  max-width: 100%;
-  min-width: 0;
-}
-
-.runtime-env-row :deep(.runtime-env-mode) {
-  flex: 0 0 10.75rem;
-  width: 10.75rem;
-  max-width: 100%;
-  min-width: 0;
-}
-
-.runtime-env-row :deep(.runtime-env-value) {
-  flex: 1 1 12rem;
-  width: auto;
-  min-width: 8rem;
-}
-
 .cmd-preview-env-label {
   margin-top: 0.75rem;
   margin-bottom: 0.35rem;
@@ -4400,12 +3874,6 @@ onBeforeUnmount(() => {
 
 .config-cmd-actions-card {
   margin-bottom: 1rem;
-}
-
-.config-cmd-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
 }
 
 .cmd-preview-dialog-hint {
@@ -4564,29 +4032,6 @@ onBeforeUnmount(() => {
   color: var(--text-secondary);
 }
 
-.advanced-block,
-.advanced-field {
-  min-width: 0;
-}
-
-.config-launch > * + .advanced-block,
-.config-launch > * + .config-split-grid {
-  margin-top: 0.75rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--border-primary, #2a2f45);
-}
-
-.advanced-field__label {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin-bottom: 0.35rem;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
 .alias-link {
   font-weight: 500;
   letter-spacing: normal;
@@ -4596,59 +4041,6 @@ onBeforeUnmount(() => {
 
 .param-tag-cloud-wrap {
   margin-top: 0.55rem;
-}
-
-.companions-loading {
-  color: var(--text-secondary, #9ca3af);
-  font-size: 0.875rem;
-}
-
-.companions-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.875rem;
-}
-
-@media (min-width: 900px) {
-  .companions-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-.companion-field label {
-  display: block;
-  font-size: 0.8rem;
-  color: var(--text-secondary, #9ca3af);
-  margin-bottom: 0.35rem;
-}
-
-.companion-field__row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.companion-field__row .p-select {
-  flex: 1;
-  min-width: 0;
-}
-
-.engram-file-list {
-  list-style: none;
-  margin: 0.4rem 0 0;
-  padding: 0;
-  display: grid;
-  gap: 0.3rem;
-}
-
-.engram-file-list li {
-  display: flex;
-  gap: 0.5rem;
-  align-items: baseline;
-  font-size: 0.75rem;
-  color: var(--text-secondary, #9ca3af);
-  overflow-wrap: anywhere;
 }
 
 .section-label {
@@ -4762,10 +4154,6 @@ onBeforeUnmount(() => {
   font-size: 0.875rem;
   line-height: 1.45;
   color: var(--text-secondary);
-}
-
-.config-launch .config-split-grid {
-  gap: 0.65rem;
 }
 
 .engine-option:hover {
@@ -5458,10 +4846,6 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 768px) {
-  .companion-field__row {
-    flex-wrap: wrap;
-  }
-
   .config-actions {
     flex-wrap: wrap;
     justify-content: stretch;

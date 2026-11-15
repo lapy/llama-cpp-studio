@@ -49,7 +49,9 @@ AREA_CAPS: Dict[str, int] = {
     # 2026-11-15: new test-only contract fixtures reference three engine ids
     # in UI shape descriptors; no production dispatch was added.
     "frontend/src/api/": 3,
-    "frontend/src/components/": 72,
+    # 2026-11-15: 72 -> 73. The extracted launch-settings test pins one
+    # engine id; the view itself shed the same literals.
+    "frontend/src/components/": 73,
     # 2026-11-15: 58 -> 59. Prettier split one line in
     # engineReadiness.test.js, putting a second id literal on its own line.
     "frontend/src/composables/": 59,
