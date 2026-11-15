@@ -21,6 +21,7 @@
 
         <!-- Main Content -->
         <main id="main-content" class="layout-main" tabindex="-1">
+          <LiveUpdatesBanner />
           <section v-if="routeFailure" role="alert">
             <h2>Unable to open this view</h2>
             <p>The page could not be loaded. Check your connection and retry.</p>
@@ -68,6 +69,7 @@ import { useTheme } from '@/composables/useTheme'
 import AppHeader from '@/components/layout/AppHeader.vue'
 import AppNavigation from '@/components/layout/AppNavigation.vue'
 import AppFooter from '@/components/layout/AppFooter.vue'
+import LiveUpdatesBanner from '@/components/common/LiveUpdatesBanner.vue'
 import TaskNotifications from '@/components/common/TaskNotifications.vue'
 import RemoteAccessGate from '@/components/common/RemoteAccessGate.vue'
 import { setSessionExpiredHandler } from '@/api/client.js'

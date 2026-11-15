@@ -716,7 +716,7 @@ test('retries a proxy outage without dropping the saved context size', async ({ 
       'The inference proxy could not be reached. Running models are not shown as stopped.',
     ),
   ).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeVisible()
   await page.goto('/models/demo-model/config')
   await expect(
     page.getByText('Saved settings are on this page, but the proxy could not be reached.'),
@@ -729,7 +729,7 @@ test('retries a proxy outage without dropping the saved context size', async ({ 
   await expect(outage).toBeVisible()
   state.runtimeQuality = 'verified'
   state.runPhase = 'stopped'
-  await page.getByRole('button', { name: 'Retry' }).click()
+  await page.getByRole('button', { name: 'Retry', exact: true }).click()
   await expect(outage).toHaveCount(0)
   await expect(page.getByText('Unreachable')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Start Demo' })).toBeEnabled()

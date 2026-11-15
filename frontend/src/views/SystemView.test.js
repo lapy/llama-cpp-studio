@@ -1,4 +1,4 @@
-import { it, expect, vi } from 'vitest'
+import { beforeEach, it, expect, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { reactive } from 'vue'
 const route = reactive({ hash: '' })
@@ -10,14 +10,23 @@ const store = reactive({
     },
   },
 })
+const retryConnection = vi.fn()
+const progressStore = reactive({
+  isConnected: true,
+  connectionState: 'live',
+  reconnectAttempt: 0,
+  lastEventAt: null,
+  retryConnection,
+})
 vi.mock('@/stores/engines', () => ({ useEnginesStore: () => store }))
-vi.mock('@/stores/progress', () => ({ useProgressStore: () => ({ isConnected: true }) }))
+vi.mock('@/stores/progress', () => ({ useProgressStore: () => progressStore }))
 vi.mock('@/components/system/NeedsAttentionPanel.vue', () => ({
   default: { template: '<div class="needs-attention-stub">Needs attention panel</div>' },
 }))
 import SystemView from './SystemView.vue'
-it('separates diagnostics, backup and history and keeps persistence details redacted', async () => {
-  const wrapper = mount(SystemView, {
+
+function mountSystem() {
+  return mount(SystemView, {
     global: {
       stubs: {
         RouterLink: { template: '<a><slot /></a>' },
@@ -26,6 +35,19 @@ it('separates diagnostics, backup and history and keeps persistence details reda
       },
     },
   })
+}
+
+beforeEach(() => {
+  route.hash = ''
+  retryConnection.mockReset()
+  progressStore.isConnected = true
+  progressStore.connectionState = 'live'
+  progressStore.reconnectAttempt = 0
+  progressStore.lastEventAt = null
+})
+
+it('separates diagnostics, backup and history and keeps persistence details redacted', async () => {
+  const wrapper = mountSystem()
   expect(wrapper.text()).toContain('The save was not stored')
   expect(wrapper.text()).not.toContain('SECRET')
   expect(wrapper.text()).toContain('Needs attention panel')
@@ -39,5 +61,22 @@ it('separates diagnostics, backup and history and keeps persistence details reda
   await flushPromises()
   expect(wrapper.text()).toContain('History panel')
   expect(wrapper.text()).not.toContain('Backup panel')
+  wrapper.unmount()
+})
+
+it('renders live-update state, last event age, attempt count, and a retry action', async () => {
+  progressStore.isConnected = false
+  progressStore.connectionState = 'connecting'
+  progressStore.reconnectAttempt = 3
+  progressStore.lastEventAt = Date.now() - 5_000
+  const wrapper = mountSystem()
+
+  expect(wrapper.text()).toContain('Reconnecting')
+  expect(wrapper.text()).toContain('Last event 5s ago')
+  expect(wrapper.text()).toContain('Retry attempts: 3')
+  const retry = wrapper.get('.live-updates-health__retry')
+  expect(retry.attributes('aria-label')).toBe('Retry live updates')
+  await retry.trigger('click')
+  expect(retryConnection).toHaveBeenCalledTimes(1)
   wrapper.unmount()
 })
