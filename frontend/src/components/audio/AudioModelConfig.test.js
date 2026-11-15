@@ -36,6 +36,11 @@ vi.mock('@/stores/engines', () => ({
   }),
 }))
 
+vi.mock('@/composables/useAudioContract', async (importOriginal) => ({
+  ...(await importOriginal()),
+  fetchAudioContract: vi.fn().mockResolvedValue({ operations: [] }),
+}))
+
 import AudioModelConfig from './AudioModelConfig.vue'
 
 enableAutoUnmount(afterEach)
