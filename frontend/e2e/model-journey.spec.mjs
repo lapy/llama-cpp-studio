@@ -810,5 +810,7 @@ test('keeps an unknown recovery when reconcile cannot be established', async ({ 
   await expect(page.getByText('could not be established')).toBeVisible()
   await page.locator('.activity-recovery').getByRole('button', { name: 'Refresh' }).click()
   await expect(page.getByText('could not be established')).toBeVisible()
-  expect(state.reconcilePosts).toBe(1)
+  // The same unknown-outcome copy is visible before and after refresh, so its
+  // visibility cannot prove that the POST handler has completed.
+  await expect.poll(() => state.reconcilePosts || 0).toBe(1)
 })
