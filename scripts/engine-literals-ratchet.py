@@ -66,7 +66,9 @@ AREA_CAPS: Dict[str, int] = {
     # 2026-11-15: 323 -> 325. CUDA activation adds one reviewed API endpoint
     # call site in engines.js; the ratchet's token set matches the shared
     # versions URL prefix for two engine ids.
-    "frontend/src/stores/": 325,
+    # 2026-11-15: 325 -> 327. Installer-cache cleanup adds one more reviewed
+    # versions-URL call site in engines.js (counted for both engine ids).
+    "frontend/src/stores/": 327,
     "frontend/src/test-fixtures/": 43,
     # R90 raised this 6 -> 7: the audio-package predicate now lives once in
     # frontend/src/utils/audioModel.js (four duplicated checks across views and

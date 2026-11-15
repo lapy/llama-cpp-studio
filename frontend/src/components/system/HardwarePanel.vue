@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <section class="hardware-panel" aria-labelledby="hardware-heading">
     <div class="hardware-heading">
       <h2 id="hardware-heading">Hardware resources</h2>
@@ -130,7 +130,12 @@
 
           <div v-if="cuda.installed_versions?.length" class="ev-version-list">
             <div v-for="v in cuda.installed_versions" :key="v.version" class="ev-version-row">
-              <code class="version-name">CUDA {{ v.version }}</code>
+              <span class="version-identity">
+                <code class="version-name">CUDA {{ v.version }}</code>
+                <span v-if="v.size_bytes != null" class="version-size">
+                  {{ formatBytesIEC(v.size_bytes) }}
+                </span>
+              </span>
               <Tag v-if="v.is_current" value="Active" severity="success" />
               <Button
                 v-else
@@ -153,6 +158,24 @@
             </div>
           </div>
         </div>
+
+        <div v-if="installerCacheBytes > 0" class="cuda-toolkit-cache">
+          <span class="cuda-toolkit-cache__label">
+            Installer cache: {{ formatBytesIEC(installerCacheBytes) }} ({{
+              cuda.installer_cache?.files ?? 0
+            }}
+            files)
+          </span>
+          <Button
+            label="Clean installer cache"
+            icon="pi pi-trash"
+            severity="danger"
+            outlined
+            size="small"
+            :loading="cudaCleaning"
+            @click="confirmCleanupCudaInstallers"
+          />
+        </div>
       </div>
 
       <div
@@ -168,7 +191,7 @@
         >
           <i class="pi pi-bolt metric-icon" />
           <div class="metric-data">
-            <div class="metric-label">GPU — {{ gpuItem.name }}</div>
+            <div class="metric-label">GPU â€” {{ gpuItem.name }}</div>
             <div class="metric-value">
               {{ formatBytesIEC(gpuVramUsedBytes(gpuItem)) }} /
               {{ formatBytesIEC(gpuVramTotalBytes(gpuItem)) }} VRAM
@@ -179,7 +202,7 @@
       </div>
     </div>
   </section>
-  <!-- ── CUDA Install Dialog ────────────────────────────── -->
+  <!-- â”€â”€ CUDA Install Dialog â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
   <Dialog
     v-model:visible="cudaInstallDialogVisible"
     header="Install CUDA Toolkit"
@@ -192,7 +215,7 @@
         <Select
           v-model="cudaInstallVersion"
           :options="cudaVersionOptions"
-          placeholder="Select version…"
+          placeholder="Select versionâ€¦"
           class="w-full"
         />
       </div>
@@ -325,12 +348,14 @@ function gpuPercent(g) {
   return total > 0 ? Math.round((used / total) * 100) : 0
 }
 
-// ── CUDA ───────────────────────────────────────────────────
+// â”€â”€ CUDA â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const cuda = computed(() => enginesStore.cudaStatus || {})
+const installerCacheBytes = computed(() => Number(cuda.value.installer_cache?.bytes) || 0)
 const cudaVersionOptions = computed(() => cuda.value.available_versions || [])
 const cudaInstallVersion = ref(null)
 const cudaInstalling = ref(false)
 const cudaActivating = ref(null)
+const cudaCleaning = ref(false)
 const cudaInstallDialogVisible = ref(false)
 
 /** Typed CUDA failures answer `detail = {code, message}`; legacy ones a string. */
@@ -385,6 +410,31 @@ function confirmUninstallCuda(version) {
         toast.add({ severity: 'info', summary: `CUDA ${version} uninstalled`, life: 3000 })
       } catch (e) {
         toast.add({ severity: 'error', summary: 'Failed', detail: cudaErrorDetail(e), life: 4000 })
+      }
+    },
+  })
+}
+
+function confirmCleanupCudaInstallers() {
+  requireSingleConfirmation(confirm, {
+    message: 'Delete the downloaded CUDA installer files? Installed toolkits are kept.',
+    header: 'Clean Installer Cache',
+    icon: 'pi pi-exclamation-triangle',
+    acceptClass: 'p-button-danger',
+    accept: async () => {
+      cudaCleaning.value = true
+      try {
+        const result = await enginesStore.cleanupCudaInstallers()
+        toast.add({
+          severity: 'success',
+          summary: 'Installer cache cleaned',
+          detail: `${formatBytesIEC(result?.freed_bytes ?? 0)} freed`,
+          life: 3000,
+        })
+      } catch (e) {
+        toast.add({ severity: 'error', summary: 'Failed', detail: cudaErrorDetail(e), life: 4000 })
+      } finally {
+        cudaCleaning.value = false
       }
     },
   })
@@ -481,6 +531,31 @@ h3 {
   display: grid;
   gap: 0.35rem;
   overflow-wrap: anywhere;
+}
+.version-identity {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.version-size {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.cuda-toolkit-cache {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-primary);
+}
+.cuda-toolkit-cache__label {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
 }
 .ev-version-row {
   padding-block: 0.5rem;

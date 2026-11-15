@@ -126,6 +126,55 @@ class CUDAInstaller(CancellableOperationManager):
         os.makedirs(os.path.dirname(self._state_path), exist_ok=True)
         os.makedirs(self._cuda_install_dir, exist_ok=True)
 
+    @staticmethod
+    def _directory_size(path: str) -> int:
+        """Total bytes of the regular files under ``path``.
+
+        Unreadable or vanishing entries count as zero and symlinks are skipped
+        (never followed), so status reporting survives a partially removed
+        installation or installer cache.
+        """
+        total = 0
+        try:
+            for root, dirnames, filenames in os.walk(path, followlinks=False):
+                dirnames[:] = [
+                    name for name in dirnames if not os.path.islink(os.path.join(root, name))
+                ]
+                for filename in filenames:
+                    file_path = os.path.join(root, filename)
+                    try:
+                        if os.path.islink(file_path):
+                            continue
+                        total += os.path.getsize(file_path)
+                    except OSError:
+                        continue
+        except OSError:
+            return total
+        return total
+
+    def _installer_cache_status(self) -> Dict[str, Any]:
+        """Summarize the downloaded CUDA runfiles kept in the cache directory."""
+        total_bytes = 0
+        file_count = 0
+        try:
+            for root, _dirnames, filenames in os.walk(self._download_dir, followlinks=False):
+                for filename in filenames:
+                    file_path = os.path.join(root, filename)
+                    try:
+                        if os.path.islink(file_path) or not os.path.isfile(file_path):
+                            continue
+                        total_bytes += os.path.getsize(file_path)
+                    except OSError:
+                        continue
+                    file_count += 1
+        except OSError:
+            pass
+        return {
+            "bytes": total_bytes,
+            "files": file_count,
+            "directory": self._download_dir,
+        }
+
     def _update_current_symlink(self, install_path: str) -> None:
         """Create or update the /app/data/cuda/current symlink to point to the active CUDA installation."""
         current_symlink = os.path.join(self._cuda_install_dir, "current")
@@ -2353,6 +2402,7 @@ class CUDAInstaller(CancellableOperationManager):
                     {
                         "version": v,
                         "path": install_path,
+                        "size_bytes": self._directory_size(install_path),
                         "installed_at": info.get("installed_at"),
                         "is_system_install": info.get("is_system_install", False),
                         "is_current": v == version,
@@ -2367,6 +2417,7 @@ class CUDAInstaller(CancellableOperationManager):
             "cuda_path": cuda_path,
             "installed_at": state.get("installed_at"),
             "installed_versions": installed_versions,
+            "installer_cache": self._installer_cache_status(),
             "operation": self._operation,
             "operation_started_at": self._operation_started_at,
             "last_error": self._last_error,
@@ -2488,3 +2539,44 @@ class CUDAInstaller(CancellableOperationManager):
 
             self._create_task(_runner())
             return self._started_response(f"CUDA {version} uninstallation started")
+
+    async def cleanup_installers(self) -> Dict[str, Any]:
+        """Delete cached CUDA installer downloads, leaving installed toolkits alone.
+
+        Only regular files under the download directory are removed. Directory
+        entries and symlinks are skipped so cleanup can never follow a link out
+        of the cache, and installed toolkits live under a different root.
+        """
+        async with self._lock:
+            if self._operation:
+                raise RuntimeError("Another CUDA installer operation is already running")
+
+            freed_bytes = 0
+            removed = 0
+            for root, _dirnames, filenames in os.walk(self._download_dir, followlinks=False):
+                for filename in filenames:
+                    file_path = os.path.join(root, filename)
+                    try:
+                        if os.path.islink(file_path) or not os.path.isfile(file_path):
+                            continue
+                        size = os.path.getsize(file_path)
+                        os.remove(file_path)
+                    except OSError as exc:
+                        logger.warning(f"Failed to remove CUDA installer {file_path}: {exc}")
+                        continue
+                    freed_bytes += size
+                    removed += 1
+
+            # Best-effort prune of now-empty subdirectories; the cache root itself
+            # stays so a later download does not need to recreate it.
+            for root, dirnames, _filenames in os.walk(self._download_dir, topdown=False):
+                for dirname in dirnames:
+                    dir_path = os.path.join(root, dirname)
+                    if os.path.islink(dir_path):
+                        continue
+                    try:
+                        os.rmdir(dir_path)
+                    except OSError:
+                        continue
+
+            return {"freed_bytes": freed_bytes, "removed": removed}

@@ -1026,7 +1026,7 @@
           ]
         },
         {
-          "count": 21,
+          "count": 22,
           "file": "frontend/src/stores/engines.js",
           "lines": [
             69,
@@ -1049,7 +1049,8 @@
             381,
             386,
             392,
-            686
+            398,
+            692
           ]
         },
         {
@@ -1558,7 +1559,7 @@
           ]
         },
         {
-          "count": 20,
+          "count": 21,
           "file": "frontend/src/stores/engines.js",
           "lines": [
             69,
@@ -1580,7 +1581,8 @@
             381,
             386,
             392,
-            686
+            398,
+            692
           ]
         },
         {
