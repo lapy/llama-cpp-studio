@@ -125,7 +125,9 @@ def _catalog_from(directory: str) -> List[Dict[str, Any]]:
     texts = _read_prompt_texts(directory)
     catalog: List[Dict[str, Any]] = []
     for filename in sorted(os.listdir(directory)):
-        if not filename.lower().endswith(".wav") or os.path.isdir(os.path.join(directory, filename)):
+        if not filename.lower().endswith(".wav") or os.path.isdir(
+            os.path.join(directory, filename)
+        ):
             continue
         data = _read_bytes(os.path.join(directory, filename)) or b""
         voice_id = os.path.splitext(filename)[0]
@@ -235,8 +237,10 @@ def library_status(source_root: str = "") -> Dict[str, Any]:
                 ),
             }
         )
-    installed = bool(catalog) and ready_voices == len(catalog) and os.path.isfile(
-        os.path.join(root, PROMPT_TEXT_NAME)
+    installed = (
+        bool(catalog)
+        and ready_voices == len(catalog)
+        and os.path.isfile(os.path.join(root, PROMPT_TEXT_NAME))
     )
     status = {
         "source": {

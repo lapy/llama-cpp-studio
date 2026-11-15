@@ -62,9 +62,7 @@ def test_status_reflects_detection(tmp_path: Path, monkeypatch):
     )
 
     monkeypatch.setattr(installer, "_detect_installed_version", lambda: "0.10.0")
-    monkeypatch.setattr(
-        installer, "_resolve_binary_path", lambda: "/opt/lmdeploy/bin/lmdeploy"
-    )
+    monkeypatch.setattr(installer, "_resolve_binary_path", lambda: "/opt/lmdeploy/bin/lmdeploy")
 
     status = installer.status()
     assert status["installed"] is True

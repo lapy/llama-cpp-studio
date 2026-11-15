@@ -189,12 +189,8 @@ OPERATIONS: Tuple[Operation, ...] = (
 )
 
 _OPERATIONS_BY_ID: Dict[str, Operation] = {op.id: op for op in OPERATIONS}
-_OPERATIONS_BY_NATIVE_PATH: Dict[str, Operation] = {
-    op.native_path: op for op in OPERATIONS
-}
-_OPERATIONS_BY_STUDIO_PATH: Dict[str, Operation] = {
-    op.studio_path: op for op in OPERATIONS
-}
+_OPERATIONS_BY_NATIVE_PATH: Dict[str, Operation] = {op.native_path: op for op in OPERATIONS}
+_OPERATIONS_BY_STUDIO_PATH: Dict[str, Operation] = {op.studio_path: op for op in OPERATIONS}
 
 # Studio request-defaults bucket per request operation. This is a Studio
 # persistence concept (which config blob holds the saved defaults), never an
@@ -307,9 +303,7 @@ def resolve_operation(
             continue
         if text in (TASKS_RUN_ALIAS.lstrip("/"), "v1/tasks/run"):
             return _OPERATIONS_BY_ID["tasks_run"]
-        op = operation_for_native_path(
-            f"/{text}"
-        ) or operation_for_studio_path(f"/{text}")
+        op = operation_for_native_path(f"/{text}") or operation_for_studio_path(f"/{text}")
         if op is None:
             op_id = _ENDPOINT_TOKENS.get(text.lower())
             op = _OPERATIONS_BY_ID.get(op_id or "")

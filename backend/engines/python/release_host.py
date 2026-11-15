@@ -41,6 +41,7 @@ logger = get_logger(__name__)
 GITHUB_ACCEPT = "application/vnd.github+json"
 GITHUB_TIMEOUT = 30.0
 
+
 def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -543,9 +544,7 @@ def release_engine_id() -> str:
     """The definition declaring the release-assets host."""
     from backend.engines.definitions.loader import load_default_engine_definitions
 
-    for engine_id, definition in sorted(
-        load_default_engine_definitions().definitions.items()
-    ):
+    for engine_id, definition in sorted(load_default_engine_definitions().definitions.items()):
         if str(getattr(definition, "native_host", "") or "") == "release_assets":
             return engine_id
     raise RuntimeError("no definition declares native_host: release_assets")

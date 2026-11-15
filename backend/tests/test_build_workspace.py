@@ -51,7 +51,9 @@ def test_workspace_key_changes_with_config_and_patches():
     base = workspace_key("llama_cpp", "https://example.com/llama.git", {"cuda": True})
     assert base == workspace_key("llama_cpp", "https://example.com/llama.git", {"cuda": True})
     assert base != workspace_key("llama_cpp", "https://example.com/llama.git", {"cuda": False})
-    assert base != workspace_key("llama_cpp", "https://example.com/llama.git", {"cuda": True}, ["patch"])
+    assert base != workspace_key(
+        "llama_cpp", "https://example.com/llama.git", {"cuda": True}, ["patch"]
+    )
     assert base != workspace_key("ik_llama", "https://example.com/llama.git", {"cuda": True})
 
 
@@ -82,9 +84,12 @@ def test_failed_sync_leaves_previous_checkout(origin, tmp_path):
         head = ws.sync_git(str(origin), "main")
         with pytest.raises(WorkspaceGitError):
             ws.sync_git(str(origin), "does-not-exist")
-        assert subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=ws.checkout_dir, text=True
-        ).strip() == head
+        assert (
+            subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=ws.checkout_dir, text=True
+            ).strip()
+            == head
+        )
         assert os.path.isdir(ws.checkout_dir)
     finally:
         ws.release()
@@ -308,12 +313,8 @@ def test_seal_scans_snapshot_library_dirs_once(tmp_path, monkeypatch):
         "_snapshot_library_dirs",
         lambda path: dir_calls.append(path) or [],
     )
-    monkeypatch.setattr(
-        workspace_module, "_is_linked_elf", lambda path: path.endswith(".so")
-    )
-    monkeypatch.setattr(
-        shutil, "which", lambda name: "/usr/bin/ldd" if name == "ldd" else None
-    )
+    monkeypatch.setattr(workspace_module, "_is_linked_elf", lambda path: path.endswith(".so"))
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/ldd" if name == "ldd" else None)
     monkeypatch.setattr(
         workspace_module.subprocess,
         "run",
@@ -341,9 +342,7 @@ def test_assert_dynamic_libs_resolve_accepts_precomputed_dirs(tmp_path, monkeypa
     seen = {}
 
     monkeypatch.setattr(workspace_module, "_is_linked_elf", lambda path: True)
-    monkeypatch.setattr(
-        shutil, "which", lambda name: "/usr/bin/ldd" if name == "ldd" else None
-    )
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/ldd" if name == "ldd" else None)
     monkeypatch.setattr(workspace_module, "_read_rpath", lambda path: "")
 
     def fake_run(argv, **kwargs):
@@ -408,12 +407,8 @@ def test_rebuild_and_update_hash_the_same_tree(monkeypatch, tmp_path):
     )
     workspace_source = tmp_path / "build-workspaces" / "audio_cpp" / "key" / "source"
     installed_source = tmp_path / "builds" / "source-v1" / "source"
-    first = ccache_environment(
-        ccache_base_dir(str(workspace_source)), launchers=True, cuda=True
-    )
-    second = ccache_environment(
-        ccache_base_dir(str(installed_source)), launchers=True, cuda=True
-    )
+    first = ccache_environment(ccache_base_dir(str(workspace_source)), launchers=True, cuda=True)
+    second = ccache_environment(ccache_base_dir(str(installed_source)), launchers=True, cuda=True)
     assert first["CCACHE_DIR"] == second["CCACHE_DIR"] == str(cache)
     assert os.path.relpath(workspace_source, first["CCACHE_BASEDIR"]) == "source"
     assert os.path.relpath(installed_source, second["CCACHE_BASEDIR"]) == "source"
@@ -424,11 +419,11 @@ def test_rebuild_and_update_hash_the_same_tree(monkeypatch, tmp_path):
     installed_llama = tmp_path / "llama" / "source-main" / "llama.cpp"
     llama_workspace = ccache_base_dir(str(workspace_llama), build_inside_checkout=True)
     llama_installed = ccache_base_dir(str(installed_llama), build_inside_checkout=True)
-    assert os.path.relpath(
-        os.path.join(str(workspace_llama), "ggml.c"), llama_workspace
-    ) == os.path.relpath(
-        os.path.join(str(installed_llama), "ggml.c"), llama_installed
-    ) == "ggml.c"
+    assert (
+        os.path.relpath(os.path.join(str(workspace_llama), "ggml.c"), llama_workspace)
+        == os.path.relpath(os.path.join(str(installed_llama), "ggml.c"), llama_installed)
+        == "ggml.c"
+    )
 
 
 def test_publish_rejects_a_binary_that_still_loads_the_workspace(origin, tmp_path):

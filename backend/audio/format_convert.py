@@ -60,11 +60,7 @@ class AudioConvertError(Exception):
 
 
 def is_wav_content(content: bytes) -> bool:
-    return (
-        len(content) >= 12
-        and content[:4] == b"RIFF"
-        and content[8:12] == b"WAVE"
-    )
+    return len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WAVE"
 
 
 def ffmpeg_available() -> bool:
@@ -150,11 +146,18 @@ def probe_audio_layout(content: bytes) -> Optional[Tuple[int, int]]:
     if shutil.which("ffprobe"):
         _code, stdout, _stderr = _capture_tool(
             [
-                "ffprobe", "-hide_banner", "-loglevel", "error",
-                "-protocol_whitelist", "pipe",
-                "-select_streams", "a:0",
-                "-show_entries", "stream=sample_rate,channels",
-                "-of", "json",
+                "ffprobe",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-protocol_whitelist",
+                "pipe",
+                "-select_streams",
+                "a:0",
+                "-show_entries",
+                "stream=sample_rate,channels",
+                "-of",
+                "json",
                 "pipe:0",
             ],
             content,
@@ -167,10 +170,16 @@ def probe_audio_layout(content: bytes) -> Optional[Tuple[int, int]]:
         return None
     _code, _stdout, stderr = _capture_tool(
         [
-            "ffmpeg", "-hide_banner", "-nostdin",
-            "-protocol_whitelist", "pipe",
-            "-i", "pipe:0",
-            "-f", "null", "-",
+            "ffmpeg",
+            "-hide_banner",
+            "-nostdin",
+            "-protocol_whitelist",
+            "pipe",
+            "-i",
+            "pipe:0",
+            "-f",
+            "null",
+            "-",
         ],
         content,
         timeout=PROBE_TIMEOUT_SECONDS,
@@ -193,10 +202,24 @@ def _run_ffmpeg(content: bytes, output_args: list[str], *, operation: str) -> by
         try:
             proc = subprocess.run(
                 [
-                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
-                    "-protocol_whitelist", "pipe", "-i", "pipe:0", "-map", "0:a:0",
-                    "-vn", "-sn", "-dn", *output_args,
-                    "-fs", str(MAX_CONVERTED_AUDIO_BYTES + 1), "pipe:1",
+                    "ffmpeg",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-nostdin",
+                    "-protocol_whitelist",
+                    "pipe",
+                    "-i",
+                    "pipe:0",
+                    "-map",
+                    "0:a:0",
+                    "-vn",
+                    "-sn",
+                    "-dn",
+                    *output_args,
+                    "-fs",
+                    str(MAX_CONVERTED_AUDIO_BYTES + 1),
+                    "pipe:1",
                 ],
                 input=content,
                 stdout=output,
@@ -213,7 +236,9 @@ def _run_ffmpeg(content: bytes, output_args: list[str], *, operation: str) -> by
         if proc.returncode != 0 or output.tell() == 0:
             errors.seek(0)
             detail = errors.read(4096).decode("utf-8", errors="replace").strip()
-            raise AudioConvertError(f"{operation} failed: {detail or 'unsupported or corrupt audio'}")
+            raise AudioConvertError(
+                f"{operation} failed: {detail or 'unsupported or corrupt audio'}"
+            )
         output.seek(0)
         return output.read(MAX_CONVERTED_AUDIO_BYTES + 1)
 
@@ -281,9 +306,11 @@ def ensure_wav_bytes(
     if is_wav_content(content) and wav_data_chunk_readable(content):
         return content, _wav_filename(filename)
 
-    forced = _valid_layout(sample_rate, channels) if (
-        sample_rate is not None and channels is not None
-    ) else None
+    forced = (
+        _valid_layout(sample_rate, channels)
+        if (sample_rate is not None and channels is not None)
+        else None
+    )
     rate, count = forced or probe_audio_layout(content) or (ASR_SAMPLE_RATE, ASR_CHANNELS)
 
     # Decode to raw PCM on stdout (size fields are irrelevant for s16le),
@@ -370,9 +397,7 @@ def wav_to_pcm16le(content: bytes) -> bytes:
         # Python's wave reader does not decode IEEE float or every extensible
         # WAV. Never label 24/32-bit samples (or floats) as signed PCM16.
         pass
-    return _run_ffmpeg(
-        content, ["-c:a", "pcm_s16le", "-f", "s16le"], operation="PCM conversion"
-    )
+    return _run_ffmpeg(content, ["-c:a", "pcm_s16le", "-f", "s16le"], operation="PCM conversion")
 
 
 def encode_wav_speech_format(content: bytes, response_format: str) -> Tuple[bytes, str]:

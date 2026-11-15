@@ -74,8 +74,7 @@ jobs:
       - name: Static analysis and version contract
         run: |
           ruff check backend scripts devcontrol
-          ruff format --check devcontrol
-          ruff format --check backend/config_history.py backend/routes/benchmarks.py backend/routes/config_history.py backend/services/model_benchmark.py backend/tests/test_config_history.py backend/tests/test_model_benchmark.py backend/tests/test_operation_state_machine.py backend/version.py scripts/check-version.py scripts/export-openapi.py
+          ruff format --check backend scripts devcontrol
           python scripts/check-version.py
           python scripts/export-openapi.py --check
 

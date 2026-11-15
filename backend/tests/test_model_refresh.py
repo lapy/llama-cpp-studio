@@ -57,13 +57,15 @@ def test_detect_hf_file_changes_resolves_mtp_folder_alias(monkeypatch, tmp_path)
     monkeypatch.setattr(
         hf,
         "resolve_cached_model_path",
-        lambda hf_id, filename: str(companion)
-        if filename
-        in {
-            "mtp-gemma-4-31B-it-Q8_0.gguf",
-            "MTP/mtp-gemma-4-31B-it-Q8_0.gguf",
-        }
-        else None,
+        lambda hf_id, filename: (
+            str(companion)
+            if filename
+            in {
+                "mtp-gemma-4-31B-it-Q8_0.gguf",
+                "MTP/mtp-gemma-4-31B-it-Q8_0.gguf",
+            }
+            else None
+        ),
     )
 
     result = hf.detect_hf_file_changes(
@@ -103,9 +105,7 @@ def test_get_remote_file_info_aliases_mtp_basename(monkeypatch):
                 out.append(FakePi(path, 514687104))
         return out
 
-    monkeypatch.setattr(
-        hf.hf_api, "get_paths_info", fake_paths_info
-    )
+    monkeypatch.setattr(hf.hf_api, "get_paths_info", fake_paths_info)
     monkeypatch.setattr(
         hf.hf_api,
         "list_repo_files",
@@ -234,9 +234,7 @@ def test_detect_hf_file_changes_unchanged_when_matching(monkeypatch, tmp_path):
             "weights.gguf": {"size": 3, "etag": "etag-1", "sha256": "sha-1"},
         },
     )
-    monkeypatch.setattr(
-        hf, "resolve_cached_model_path", lambda *_a, **_k: str(local_file)
-    )
+    monkeypatch.setattr(hf, "resolve_cached_model_path", lambda *_a, **_k: str(local_file))
     result = hf.detect_hf_file_changes(
         "org/model",
         ["weights.gguf"],
@@ -265,9 +263,7 @@ def test_download_model_passes_force_download(monkeypatch):
     monkeypatch.setattr(hf, "delete_cached_model_file", lambda *a, **k: True)
     monkeypatch.setattr(hf.os.path, "getsize", lambda _p: 42)
 
-    path, size = asyncio.run(
-        hf.download_model("org/model", "model.gguf", force_download=True)
-    )
+    path, size = asyncio.run(hf.download_model("org/model", "model.gguf", force_download=True))
     assert path == "/tmp/forced.gguf"
     assert size == 42
     assert calls["force_download"] is True
@@ -296,9 +292,7 @@ def test_refresh_model_route_up_to_date(monkeypatch):
             "path_corrections": [],
         },
     )
-    result = asyncio.run(
-        models_routes.refresh_model("org--model--Q4_K_M", BackgroundTasks())
-    )
+    result = asyncio.run(models_routes.refresh_model("org--model--Q4_K_M", BackgroundTasks()))
     assert result["updated"] is False
     assert "task_id" not in result
 
@@ -346,14 +340,10 @@ def test_refresh_model_route_heals_mtp_basename_path(monkeypatch):
             ],
         },
     )
-    result = asyncio.run(
-        models_routes.refresh_model("org--model--Q8_0", BackgroundTasks())
-    )
+    result = asyncio.run(models_routes.refresh_model("org--model--Q8_0", BackgroundTasks()))
     assert result["updated"] is False
     assert result["removed_remote"] == []
-    assert store.rows["org--model--Q8_0"]["mtp_filename"] == (
-        "MTP/mtp-gemma-4-31B-it-Q8_0.gguf"
-    )
+    assert store.rows["org--model--Q8_0"]["mtp_filename"] == ("MTP/mtp-gemma-4-31B-it-Q8_0.gguf")
     names = {f["filename"] for f in store.rows["org--model--Q8_0"]["files"]}
     assert "MTP/mtp-gemma-4-31B-it-Q8_0.gguf" in names
     assert "mtp-gemma-4-31B-it-Q8_0.gguf" not in names
@@ -410,9 +400,7 @@ def test_refresh_model_route_schedules_changed_files(monkeypatch):
     original = dict(model_downloads.active_downloads)
     model_downloads.active_downloads.clear()
     try:
-        result = asyncio.run(
-            models_routes.refresh_model("org--model--Q4_K_M", background)
-        )
+        result = asyncio.run(models_routes.refresh_model("org--model--Q4_K_M", background))
         assert result["updated"] is True
         assert result["task_id"].startswith("refresh_")
         assert len(result["files"]) == 2
@@ -451,9 +439,7 @@ def test_get_model_companions_route(monkeypatch):
 
 
 def test_get_model_companions_rejects_non_gguf(monkeypatch):
-    store = MemoryStore(
-        [{"id": "st", "huggingface_id": "org/st", "format": "safetensors"}]
-    )
+    store = MemoryStore([{"id": "st", "huggingface_id": "org/st", "format": "safetensors"}])
     monkeypatch.setattr(models_routes, "get_store", lambda: store)
     with pytest.raises(HTTPException, match="only supported for GGUF"):
         asyncio.run(models_routes.get_model_companions("st"))
@@ -521,9 +507,7 @@ def test_detect_hf_file_changes_companion_size_mismatch(monkeypatch, tmp_path):
     }
 
 
-def test_collect_model_refresh_plan_includes_weights_and_companions(
-    monkeypatch, tmp_path
-):
+def test_collect_model_refresh_plan_includes_weights_and_companions(monkeypatch, tmp_path):
     weight = tmp_path / "model-Q4_K_M.gguf"
     weight.write_bytes(b"weights")
     companion = tmp_path / "mmproj-F16.gguf"
@@ -670,9 +654,7 @@ def test_download_model_with_progress_passes_force_download(monkeypatch):
     assert calls["hub"]["force_download"] is True
 
 
-def test_refresh_model_task_force_downloads_and_writes_store_file_metadata(
-    monkeypatch, tmp_path
-):
+def test_refresh_model_task_force_downloads_and_writes_store_file_metadata(monkeypatch, tmp_path):
     model_id = "org--model--Q4_K_M"
     store = MemoryStore(
         [
@@ -764,5 +746,3 @@ def test_refresh_model_task_force_downloads_and_writes_store_file_metadata(
     assert observed["stale"] == 1
     # Companion attachment fields must remain unchanged.
     assert store.rows[model_id]["mmproj_filename"] == "mmproj-F16.gguf"
-
-

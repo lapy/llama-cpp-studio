@@ -55,9 +55,7 @@ def test_is_mtp_filename_and_excludes_from_quant_grouping():
     assert result is not None
     assert set(result["quantizations"].keys()) == {"Q8_0"}
     assert len(result["quantizations"]["Q8_0"]["files"]) == 1
-    assert result["quantizations"]["Q8_0"]["files"][0]["filename"] == (
-        "gemma-4-31B-it-Q8_0.gguf"
-    )
+    assert result["quantizations"]["Q8_0"]["files"][0]["filename"] == ("gemma-4-31B-it-Q8_0.gguf")
     assert len(result["mtp_files"]) == 2
     assert len(result["mmproj_files"]) == 1
 
@@ -292,9 +290,9 @@ def test_unsloth_dynamic_quants_dspark_and_engram_are_grouped():
     assert is_engram_filename("engram/DeepSeek-V4.1-Flash-1017-engram-MXFP8.gguf_file")
     assert is_engram_filename("engram/README.md") is False
     assert dspark_option_label("dspark-DeepSeek-V4.1-Flash-1017-Q8_0.gguf") == "Q8_0"
-    assert engram_option_label(
-        "engram/DeepSeek-V4.1-Flash-1017-engram-IQ4_NL.gguf_file"
-    ) == "IQ4_NL"
+    assert (
+        engram_option_label("engram/DeepSeek-V4.1-Flash-1017-engram-IQ4_NL.gguf_file") == "IQ4_NL"
+    )
 
     quants = (
         "UD-IQ1_M",
@@ -309,9 +307,7 @@ def test_unsloth_dynamic_quants_dspark_and_engram_are_grouped():
     )
     siblings = [
         SimpleNamespace(
-            rfilename=(
-                f"{quant}/DeepSeek-V4.1-Flash-1017-{quant}-00001-of-00005.gguf"
-            ),
+            rfilename=(f"{quant}/DeepSeek-V4.1-Flash-1017-{quant}-00001-of-00005.gguf"),
             size=100 + index,
         )
         for index, quant in enumerate(quants)
@@ -352,10 +348,7 @@ def test_unsloth_dynamic_quants_dspark_and_engram_are_grouped():
     result = asyncio.run(_process_single_model(model, "gguf"))
     assert result is not None
     assert set(result["quantizations"]) == set(quants)
-    assert all(
-        entry["variant_prefix"] == "UD"
-        for entry in result["quantizations"].values()
-    )
+    assert all(entry["variant_prefix"] == "UD" for entry in result["quantizations"].values())
     assert len(result["dspark_files"]) == 2
     assert {file["label"] for file in result["dspark_files"]} == {"Q8_0", "BF16"}
     assert len(result["engram_files"]) == 2

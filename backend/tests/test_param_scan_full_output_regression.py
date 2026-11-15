@@ -237,11 +237,7 @@ def test_audio_cpp_full_scan_log_regression():
     assert len(captures) == 3
     assert all(capture.complete for capture in captures)
     server = next(cap for cap in captures if cap.title.endswith("audiocpp_server --help"))
-    cli = next(
-        cap
-        for cap in captures
-        if cap.title.endswith("audiocpp_cli --help")
-    )
+    cli = next(cap for cap in captures if cap.title.endswith("audiocpp_cli --help"))
     loaders = next(cap for cap in captures if "list-loaders" in cap.title)
     assert server.line_count == server.declared_lines == 61
     assert cli.line_count == cli.declared_lines == 124

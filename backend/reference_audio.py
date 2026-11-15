@@ -19,11 +19,7 @@ MAX_REFERENCE_AUDIO_BYTES = 60 * 1024 * 1024
 
 
 def _is_wav_content(content: bytes) -> bool:
-    return (
-        len(content) >= 12
-        and content[:4] == b"RIFF"
-        and content[8:12] == b"WAVE"
-    )
+    return len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WAVE"
 
 
 def get_audio_model_bundle_root(model: dict) -> str:

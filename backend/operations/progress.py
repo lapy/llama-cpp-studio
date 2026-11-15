@@ -216,9 +216,7 @@ class ProgressManager:
                 "task_id": task_id,
                 "type": str(operation.get("kind") or "operation"),
                 "description": str(
-                    detail.get("description")
-                    or operation.get("kind")
-                    or "Recovered operation"
+                    detail.get("description") or operation.get("kind") or "Recovered operation"
                 ),
                 "progress": 100.0 if status == "completed" else 0.0,
                 "status": status,
@@ -280,11 +278,7 @@ class ProgressManager:
         if len(self._tasks) <= MAX_RETAINED_TASKS:
             return
         terminal = sorted(
-            (
-                task
-                for task in self._tasks.values()
-                if task.get("status") in TERMINAL_STATUSES
-            ),
+            (task for task in self._tasks.values() if task.get("status") in TERMINAL_STATUSES),
             key=lambda task: task.get("updated_at") or task.get("created_at") or 0,
         )
         while len(self._tasks) > MAX_RETAINED_TASKS and terminal:
@@ -307,10 +301,7 @@ class ProgressManager:
         for queue in self._subscribers:
             observe_queue_depth(queue.qsize())
             try:
-                if (
-                    payload["event"] in REPLACEABLE_EVENTS
-                    and queue.full()
-                ):
+                if payload["event"] in REPLACEABLE_EVENTS and queue.full():
                     self._signal_overflow(queue)
                     continue
                 queue.put_nowait(payload)
@@ -493,9 +484,7 @@ class ProgressManager:
         message: str = "",
         log_lines: List[str] = None,
     ):
-        self.send_build_progress_now(
-            task_id, stage, progress, message, log_lines
-        )
+        self.send_build_progress_now(task_id, stage, progress, message, log_lines)
 
     async def subscribe(self) -> AsyncGenerator[str, None]:
         """Yields SSE-formatted strings. Sends an initial comment so the client connection opens."""
@@ -506,9 +495,7 @@ class ProgressManager:
             yield ": heartbeat\n\n"
             await asyncio.sleep(0)
             snapshot = self.snapshot_tasks()
-            yield self._format_sse(
-                "task_snapshot", {"tasks": snapshot, "reason": "connect"}
-            )
+            yield self._format_sse("task_snapshot", {"tasks": snapshot, "reason": "connect"})
             for task in snapshot:
                 yield self._format_sse("task_updated", task)
             while True:

@@ -133,15 +133,12 @@ def item_matches_filters(item: dict, filters: dict) -> bool:
     package_kind = str(filters.get("package_kind") or "").strip()
     if package_kind and package_kind != item.get("package_kind"):
         return False
-    artifact_format = str(
-        filters.get("artifact_format") or filters.get("format") or ""
-    ).strip()
+    artifact_format = str(filters.get("artifact_format") or filters.get("format") or "").strip()
     if artifact_format and artifact_format != item.get("artifact_format"):
         return False
     install_method = str(filters.get("install_method") or "").strip()
     if install_method and not any(
-        variant.get("method") == install_method
-        for variant in item.get("install_variants") or []
+        variant.get("method") == install_method for variant in item.get("install_variants") or []
     ):
         return False
     release_status = str(filters.get("release_status") or "").strip()
@@ -154,4 +151,3 @@ def item_matches_filters(item: dict, filters: dict) -> bool:
     if isinstance(gated, bool) and gated != bool(item.get("gated")):
         return False
     return True
-

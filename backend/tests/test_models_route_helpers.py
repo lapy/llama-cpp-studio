@@ -23,10 +23,7 @@ def test_embedding_and_filename_helpers():
     assert models_routes._is_dflash_filename("laguna-s-2.1-DFlash-BF16.gguf") is True
     assert models_routes._is_dflash_filename("laguna-s-2.1-Q4_K_M.gguf") is False
 
-    assert (
-        model_metadata.looks_like_embedding_model("text-embedding", "plain model")
-        is True
-    )
+    assert model_metadata.looks_like_embedding_model("text-embedding", "plain model") is True
     assert model_metadata.looks_like_embedding_model(None, "bge-small-en-v1.5") is True
     assert model_metadata.looks_like_embedding_model(None, "chat model") is False
 
@@ -42,9 +39,7 @@ def test_embedding_and_filename_helpers():
         is True
     )
     assert (
-        model_metadata.model_is_embedding(
-            {"pipeline_tag": "feature-extraction", "config": {}}
-        )
+        model_metadata.model_is_embedding({"pipeline_tag": "feature-extraction", "config": {}})
         is True
     )
 
@@ -79,27 +74,19 @@ def test_get_model_or_404_and_companion_sharing():
         models_routes._get_model_or_404(FakeStore(), "missing")
 
     assert (
-        models_routes._other_models_share_mmproj(
-            FakeStore(), "org/model", "mmproj.gguf", "z"
-        )
+        models_routes._other_models_share_mmproj(FakeStore(), "org/model", "mmproj.gguf", "z")
         is True
     )
     assert (
-        models_routes._other_models_share_mmproj(
-            FakeStore(), "org/model", "missing.gguf", "z"
-        )
+        models_routes._other_models_share_mmproj(FakeStore(), "org/model", "missing.gguf", "z")
         is False
     )
     assert (
-        models_routes._other_models_share_mtp(
-            FakeStore(), "org/model", "MTP/mtp-a.gguf", "z"
-        )
+        models_routes._other_models_share_mtp(FakeStore(), "org/model", "MTP/mtp-a.gguf", "z")
         is True
     )
     assert (
-        models_routes._other_models_share_mtp(
-            FakeStore(), "org/model", "MTP/mtp-missing.gguf", "z"
-        )
+        models_routes._other_models_share_mtp(FakeStore(), "org/model", "MTP/mtp-missing.gguf", "z")
         is False
     )
     assert (
@@ -125,15 +112,9 @@ def test_remove_model_from_disk_uses_store_file_ledger(
         "purge_hf_repo_cache",
         lambda hf_id, **kwargs: purged.append(hf_id),
     )
-    monkeypatch.setattr(
-        models_routes, "_other_models_share_mmproj", lambda *args, **kwargs: False
-    )
-    monkeypatch.setattr(
-        models_routes, "_other_models_share_mtp", lambda *args, **kwargs: False
-    )
-    monkeypatch.setattr(
-        models_routes, "_other_models_share_dflash", lambda *args, **kwargs: False
-    )
+    monkeypatch.setattr(models_routes, "_other_models_share_mmproj", lambda *args, **kwargs: False)
+    monkeypatch.setattr(models_routes, "_other_models_share_mtp", lambda *args, **kwargs: False)
+    monkeypatch.setattr(models_routes, "_other_models_share_dflash", lambda *args, **kwargs: False)
 
     class FakeStore:
         def __init__(self, models=None):
@@ -193,9 +174,7 @@ def test_remove_model_from_disk_uses_store_file_ledger(
 
     deleted.clear()
     purged.clear()
-    monkeypatch.setattr(
-        models_routes, "_other_models_share_mtp", lambda *args, **kwargs: True
-    )
+    monkeypatch.setattr(models_routes, "_other_models_share_mtp", lambda *args, **kwargs: True)
     sibling = {
         "format": "gguf",
         "huggingface_id": "org/model",
@@ -253,9 +232,7 @@ def test_normalize_hf_overrides_validates_structure():
         models_routes._normalize_hf_overrides({"x": []})
 
 
-def test_refresh_gguf_model_metadata_updates_store_and_falls_back_on_name(
-    monkeypatch, tmp_path
-):
+def test_refresh_gguf_model_metadata_updates_store_and_falls_back_on_name(monkeypatch, tmp_path):
     gguf_path = tmp_path / "model.gguf"
     gguf_path.write_text("gguf", encoding="utf-8")
 

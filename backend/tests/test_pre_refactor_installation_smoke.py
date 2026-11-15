@@ -180,9 +180,9 @@ def test_pre_refactor_rows_list_with_their_paths(old_install, client):
     assert rows["lmdeploy:0.6.0"]["venv_path"] == str(old_install["lmdeploy_venv"])
 
     # The read path did not rewrite the historical document.
-    assert (old_install["config"] / "engines.yaml").read_text(
-        encoding="utf-8"
-    ) == old_install["original"]
+    assert (old_install["config"] / "engines.yaml").read_text(encoding="utf-8") == old_install[
+        "original"
+    ]
     # No snapshot ledger is invented for an installation that never had one.
     assert not (old_install["config"] / "install_snapshots.yaml").exists()
 

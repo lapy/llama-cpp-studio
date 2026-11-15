@@ -66,9 +66,7 @@ def _resolve_bundle_file_sizes(
     unresolved = [
         entry["filename"]
         for entry in entries
-        if entry
-        and entry.get("filename")
-        and max(int(entry.get("size") or 0), 0) == 0
+        if entry and entry.get("filename") and max(int(entry.get("size") or 0), 0) == 0
     ]
     if not unresolved:
         return
@@ -77,9 +75,7 @@ def _resolve_bundle_file_sizes(
     for entry in entries:
         if not entry or not entry.get("filename") or int(entry.get("size") or 0) > 0:
             continue
-        entry["size"] = max(
-            int((remote.get(entry["filename"]) or {}).get("size") or 0), 0
-        )
+        entry["size"] = max(int((remote.get(entry["filename"]) or {}).get("size") or 0), 0)
 
 
 def _record_model_file(
@@ -116,6 +112,7 @@ def _record_model_file(
 def _raise_if_cancelled(task_id: Optional[str]) -> None:
     if task_id and is_task_cancel_requested(task_id):
         raise TaskCancelledError("Download cancelled by user")
+
 
 CONFIG_CONTEXT_KEYS = (
     "max_position_embeddings",
@@ -198,9 +195,7 @@ async def register_single_model_download(
             and d.get("model_format", model_format) == model_format
             for d in active_downloads.values()
         ):
-            raise ActiveDownloadConflict(
-                "This quantization is already being downloaded"
-            )
+            raise ActiveDownloadConflict("This quantization is already being downloaded")
         active_downloads[task_id] = {
             "huggingface_id": huggingface_id,
             "filename": filename,
@@ -210,18 +205,13 @@ async def register_single_model_download(
         register_task_cancel(task_id)
 
 
-async def register_safetensors_bundle_download(
-    *, task_id: str, huggingface_id: str
-) -> None:
+async def register_safetensors_bundle_download(*, task_id: str, huggingface_id: str) -> None:
     async with download_lock:
         if any(
-            d["huggingface_id"] == huggingface_id
-            and d.get("model_format") == "safetensors-bundle"
+            d["huggingface_id"] == huggingface_id and d.get("model_format") == "safetensors-bundle"
             for d in active_downloads.values()
         ):
-            raise ActiveDownloadConflict(
-                "Safetensors bundle is already being downloaded"
-            )
+            raise ActiveDownloadConflict("Safetensors bundle is already being downloaded")
         active_downloads[task_id] = {
             "huggingface_id": huggingface_id,
             "filename": "bundle",
@@ -337,13 +327,10 @@ async def register_model_refresh_download(
             raise ActiveDownloadConflict("This model is already being refreshed")
         if any(
             d.get("huggingface_id") == huggingface_id
-            and d.get("model_format")
-            in ("gguf-bundle", "safetensors-bundle", "model-refresh")
+            and d.get("model_format") in ("gguf-bundle", "safetensors-bundle", "model-refresh")
             for d in active_downloads.values()
         ):
-            raise ActiveDownloadConflict(
-                "A download for this repository is already in progress"
-            )
+            raise ActiveDownloadConflict("A download for this repository is already in progress")
         active_downloads[task_id] = {
             "huggingface_id": huggingface_id,
             "model_id": model_id,
@@ -426,9 +413,7 @@ class BundleProgressProxy:
         aggregate_downloaded = max(aggregate_downloaded, previous_bytes)
         bundle_total = max(self._effective_total, aggregate_downloaded)
         aggregate_progress = (
-            min(99, int((aggregate_downloaded / bundle_total) * 100))
-            if bundle_total > 0
-            else 0
+            min(99, int((aggregate_downloaded / bundle_total) * 100)) if bundle_total > 0 else 0
         )
         aggregate_progress = max(aggregate_progress, previous_progress)
         self._high_water_bytes = aggregate_downloaded
@@ -436,9 +421,7 @@ class BundleProgressProxy:
 
         aggregate_eta = 0
         if speed_mbps > 0 and bundle_total > aggregate_downloaded:
-            aggregate_eta = int(
-                (bundle_total - aggregate_downloaded) / (speed_mbps * 1024 * 1024)
-            )
+            aggregate_eta = int((bundle_total - aggregate_downloaded) / (speed_mbps * 1024 * 1024))
 
         size_status = ""
         if bundle_total > 0:
@@ -522,22 +505,16 @@ async def collect_safetensors_runtime_metadata(
                 if "tokenizer_config" not in metadata:
                     metadata["tokenizer_config"] = tokenizer_config
                 tokenizer_max = None
-                tokenizer_max = _first_positive_int(
-                    tokenizer_config, TOKENIZER_CONTEXT_KEYS
-                )
+                tokenizer_max = _first_positive_int(tokenizer_config, TOKENIZER_CONTEXT_KEYS)
                 if tokenizer_max:
                     metadata["model_max_length"] = tokenizer_max
                     if not max_context_length:
                         max_context_length = tokenizer_max
                         metadata["max_context_length"] = tokenizer_max
         except Exception as exc:
-            logger.debug(
-                "Failed to fetch tokenizer_config for %s: %s", huggingface_id, exc
-            )
+            logger.debug("Failed to fetch tokenizer_config for %s: %s", huggingface_id, exc)
     except Exception as exc:
-        logger.warning(
-            "Failed to collect model details for %s: %s", huggingface_id, exc
-        )
+        logger.warning("Failed to collect model details for %s: %s", huggingface_id, exc)
 
     try:
         safetensors_meta = await get_safetensors_metadata_summary(huggingface_id)
@@ -591,18 +568,14 @@ async def save_safetensors_download(
     if isinstance(layer_count, (int, float)) and layer_count > 0:
         runtime_fields["layer_count"] = int(layer_count)
     detected_pipeline = pipeline_tag or safetensors_metadata.get("pipeline_tag")
-    is_embedding_like = mm.looks_like_embedding_model(
-        detected_pipeline, huggingface_id, filename
-    )
+    is_embedding_like = mm.looks_like_embedding_model(detected_pipeline, huggingface_id, filename)
     model_id = huggingface_id.replace("/", "--")
     model_record = store.get_model(model_id)
 
     if not model_record:
         from datetime import timezone as _tz
 
-        repo_name = (
-            huggingface_id.split("/")[-1] if isinstance(huggingface_id, str) else ""
-        )
+        repo_name = huggingface_id.split("/")[-1] if isinstance(huggingface_id, str) else ""
         base_model_name = repo_name or mm.extract_base_model_name(filename)
         model_type = mm.extract_model_type(huggingface_id or repo_name or filename)
         model_record = {
@@ -642,14 +615,17 @@ async def save_safetensors_download(
             store.update_model(model_id, updates)
         model_record = store.get_model(model_id) or model_record
 
-    model_record = _record_model_file(
-        store,
-        model_record["id"],
-        huggingface_id,
-        filename,
-        file_size,
-        remote_metadata=remote_metadata,
-    ) or model_record
+    model_record = (
+        _record_model_file(
+            store,
+            model_record["id"],
+            huggingface_id,
+            filename,
+            file_size,
+            remote_metadata=remote_metadata,
+        )
+        or model_record
+    )
     total_size = sum(
         int(entry.get("size") or 0)
         for entry in iter_model_files(model_record, roles={"weight", "shard"})
@@ -731,9 +707,7 @@ async def record_gguf_download_post_fetch(
         if not model_record.get("pipeline_tag") and detected_pipeline:
             updates["pipeline_tag"] = detected_pipeline
         if is_embedding_like:
-            if not effective_model_config_from_raw(model_record.get("config")).get(
-                "embedding"
-            ):
+            if not effective_model_config_from_raw(model_record.get("config")).get("embedding"):
                 updates["config"] = set_embedding_flag(
                     model_record.get("config"), model_format="gguf", store=store
                 )
@@ -742,14 +716,17 @@ async def record_gguf_download_post_fetch(
             store.update_model(model_id, updates)
         model_record = store.get_model(model_id) or model_record
 
-    model_record = _record_model_file(
-        store,
-        model_record["id"],
-        huggingface_id,
-        filename,
-        file_size,
-        remote_metadata=remote_metadata,
-    ) or model_record
+    model_record = (
+        _record_model_file(
+            store,
+            model_record["id"],
+            huggingface_id,
+            filename,
+            file_size,
+            remote_metadata=remote_metadata,
+        )
+        or model_record
+    )
     if aggregate_size:
         total_size = sum(
             int(entry.get("size") or 0)
@@ -757,8 +734,7 @@ async def record_gguf_download_post_fetch(
         )
         if total_size != (model_record.get("file_size") or 0):
             model_record = (
-                store.update_model(model_record["id"], {"file_size": total_size})
-                or model_record
+                store.update_model(model_record["id"], {"file_size": total_size}) or model_record
             )
 
     metadata_result = None
@@ -797,9 +773,7 @@ async def download_model_task(
         is_mmproj_download = model_format == "gguf" and "mmproj" in filename.lower()
         is_mtp_download = model_format == "gguf" and is_mtp_filename(filename)
         is_dflash_download = model_format == "gguf" and is_dflash_filename(filename)
-        is_companion_download = (
-            is_mmproj_download or is_mtp_download or is_dflash_download
-        )
+        is_companion_download = is_mmproj_download or is_mtp_download or is_dflash_download
 
         if progress_manager and task_id:
             file_path, file_size = await download_model_with_progress(
@@ -812,9 +786,7 @@ async def download_model_task(
                 huggingface_id,
             )
         else:
-            file_path, file_size = await download_model(
-                huggingface_id, filename, model_format
-            )
+            file_path, file_size = await download_model(huggingface_id, filename, model_format)
 
         if model_format == "gguf" and not is_companion_download:
             model_record, metadata_result = await record_gguf_download_post_fetch(
@@ -857,13 +829,9 @@ async def download_model_task(
                 "huggingface_id": huggingface_id,
                 "filename": filename,
                 "model_format": model_format,
-                "quantization": model_record.get("quantization")
-                if model_record
-                else None,
+                "quantization": model_record.get("quantization") if model_record else None,
                 "model_id": model_record.get("id") if model_record else None,
-                "base_model_name": (
-                    model_record.get("base_model_name") if model_record else None
-                ),
+                "base_model_name": (model_record.get("base_model_name") if model_record else None),
                 "pipeline_tag": (
                     model_record.get("pipeline_tag") if model_record else pipeline_tag
                 ),
@@ -873,9 +841,7 @@ async def download_model_task(
                 "timestamp": datetime.utcnow().isoformat(),
                 "metadata": metadata_result["metadata"] if metadata_result else None,
                 "updated_fields": (
-                    metadata_result["updated_fields"]
-                    if isinstance(metadata_result, dict)
-                    else {}
+                    metadata_result["updated_fields"] if isinstance(metadata_result, dict) else {}
                 ),
                 "file_size": file_size,
                 "file_path": file_path,
@@ -923,9 +889,7 @@ async def download_safetensors_bundle_task(
         total_files = len(files)
         bytes_completed = 0
         _resolve_bundle_file_sizes(huggingface_id, files)
-        aggregate_total = sum(
-            max(f.get("size") or 0, 0) for f in files
-        )
+        aggregate_total = sum(max(f.get("size") or 0, 0) for f in files)
         aggregate_total = max(aggregate_total, total_bundle_bytes or 0)
         aggregate_total = aggregate_total or None
 
@@ -1060,9 +1024,7 @@ async def download_gguf_bundle_task(
         bytes_completed = 0
         companions = [projector, mtp, dflash, dspark]
         _resolve_bundle_file_sizes(huggingface_id, [*files, *companions])
-        aggregate_total = sum(
-            max((f or {}).get("size") or 0, 0) for f in [*files, *companions]
-        )
+        aggregate_total = sum(max((f or {}).get("size") or 0, 0) for f in [*files, *companions])
         aggregate_total = max(aggregate_total, total_bundle_bytes or 0)
         aggregate_total = aggregate_total or None
 
@@ -1173,9 +1135,7 @@ async def download_gguf_bundle_task(
         if dspark and dspark.get("filename"):
             dspark_filename = await _download_companion(dspark, "dspark_filename")
             if dspark_filename:
-                store.update_model(
-                    model_id, {"mtp_filename": None, "dflash_filename": None}
-                )
+                store.update_model(model_id, {"mtp_filename": None, "dflash_filename": None})
                 remove_model_files(store, model_id, roles={"mtp", "dflash"})
         elif dflash and dflash.get("filename"):
             dflash_filename = await _download_companion(dflash, "dflash_filename")
@@ -1317,9 +1277,7 @@ async def download_model_projector_task(
         )
 
         if progress_manager:
-            progress_manager.complete_task(
-                task_id, f"Applied projector {mmproj_filename}"
-            )
+            progress_manager.complete_task(task_id, f"Applied projector {mmproj_filename}")
             await progress_manager.broadcast(
                 {
                     "type": "download_complete",
@@ -1398,9 +1356,7 @@ async def download_model_mtp_task(
                 huggingface_id,
             )
 
-        store.update_model(
-            model_id, {"mtp_filename": mtp_filename, "dflash_filename": None}
-        )
+        store.update_model(model_id, {"mtp_filename": mtp_filename, "dflash_filename": None})
         remove_model_files(store, model_id, roles={"dflash"})
         _record_model_file(
             store,
@@ -1412,9 +1368,7 @@ async def download_model_mtp_task(
         )
 
         if progress_manager:
-            progress_manager.complete_task(
-                task_id, f"Applied MTP draft {mtp_filename}"
-            )
+            progress_manager.complete_task(task_id, f"Applied MTP draft {mtp_filename}")
             await progress_manager.broadcast(
                 {
                     "type": "download_complete",
@@ -1493,9 +1447,7 @@ async def download_model_dflash_task(
                 huggingface_id,
             )
 
-        store.update_model(
-            model_id, {"dflash_filename": dflash_filename, "mtp_filename": None}
-        )
+        store.update_model(model_id, {"dflash_filename": dflash_filename, "mtp_filename": None})
         remove_model_files(store, model_id, roles={"mtp"})
         _record_model_file(
             store,
@@ -1507,9 +1459,7 @@ async def download_model_dflash_task(
         )
 
         if progress_manager:
-            progress_manager.complete_task(
-                task_id, f"Applied DFlash draft {dflash_filename}"
-            )
+            progress_manager.complete_task(task_id, f"Applied DFlash draft {dflash_filename}")
             await progress_manager.broadcast(
                 {
                     "type": "download_complete",
@@ -1635,9 +1585,7 @@ async def refresh_model_task(
                         remote_metadata=remote_metadata,
                     )
                 except Exception as exc:
-                    logger.warning(
-                        "Failed to refresh GGUF metadata for %s: %s", filename, exc
-                    )
+                    logger.warning("Failed to refresh GGUF metadata for %s: %s", filename, exc)
             else:
                 _record_model_file(
                     store,
@@ -1757,7 +1705,8 @@ async def download_model_dspark_task(
             )
 
         store.update_model(
-            model_id, {"dspark_filename": dspark_filename, "mtp_filename": None, "dflash_filename": None}
+            model_id,
+            {"dspark_filename": dspark_filename, "mtp_filename": None, "dflash_filename": None},
         )
         remove_model_files(store, model_id, roles={"mtp", "dflash"})
         _record_model_file(
@@ -1770,9 +1719,7 @@ async def download_model_dspark_task(
         )
 
         if progress_manager:
-            progress_manager.complete_task(
-                task_id, f"Applied DSpark draft {dspark_filename}"
-            )
+            progress_manager.complete_task(task_id, f"Applied DSpark draft {dspark_filename}")
             await progress_manager.broadcast(
                 {
                     "type": "download_complete",
@@ -1816,8 +1763,6 @@ async def download_model_dspark_task(
                 active_downloads.pop(task_id, None)
 
 
-
-
 async def register_gguf_dspark_download(
     *,
     task_id: str,
@@ -1840,5 +1785,3 @@ async def register_gguf_dspark_download(
             "model_format": "gguf-dspark",
         }
         register_task_cancel(task_id)
-
-

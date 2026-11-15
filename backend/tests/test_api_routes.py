@@ -138,9 +138,7 @@ def test_status_route_uses_configured_proxy_port(client, monkeypatch, tmp_path):
             return {"healthy": True, "status_code": 200, "loading_models": []}
 
     monkeypatch.setattr(swap_client, "ProxyClient", FakeClient)
-    monkeypatch.setattr(
-        status_routes, "get_proxy_client", swap_client.get_proxy_client
-    )
+    monkeypatch.setattr(status_routes, "get_proxy_client", swap_client.get_proxy_client)
     monkeypatch.setattr(status_routes, "get_proxy_port", swap_client.get_proxy_port)
     monkeypatch.setattr(status_routes.psutil, "cpu_percent", lambda interval=None: 5.0)
     monkeypatch.setattr(
@@ -173,28 +171,6 @@ def test_lmdeploy_status_route(client):
     r = client.get("/api/lmdeploy/status")
     assert r.status_code == 200
     assert isinstance(r.json(), dict)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def test_preview_command_unknown_model(client):
@@ -231,9 +207,7 @@ def test_saved_native_proxy_cmd_route_uses_stored_config(client, monkeypatch, tm
         seen["config"] = model.get("config")
         return {"ok": True, "cmd": "saved-cmd", "proxy_name": "org-model.q4_k_m"}
 
-    monkeypatch.setattr(
-        runtime_commands, "preview_model_command", fake_preview
-    )
+    monkeypatch.setattr(runtime_commands, "preview_model_command", fake_preview)
 
     r = client.get(f"/api/models/{quote('org/model', safe='')}/saved-command")
     assert r.status_code == 200
@@ -241,9 +215,7 @@ def test_saved_native_proxy_cmd_route_uses_stored_config(client, monkeypatch, tm
     assert seen["config"]["engines"]["llama_cpp"]["temperature"] == 0.7
 
 
-def test_model_config_default_limits_avoid_remote_huggingface(
-    client, monkeypatch, tmp_path
-):
+def test_model_config_default_limits_avoid_remote_huggingface(client, monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
     _seed_model(store)
 
@@ -263,9 +235,7 @@ def test_model_config_default_limits_avoid_remote_huggingface(
 def test_model_config_includes_local_runtime_limits(client, monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
     _seed_model(store)
-    store.update_model(
-        "org/model", {"max_context_length": 8192, "layer_count": 33}
-    )
+    store.update_model("org/model", {"max_context_length": 8192, "layer_count": 33})
 
     r = client.get(f"/api/models/{quote('org/model', safe='')}/config")
     assert r.status_code == 200
@@ -275,9 +245,7 @@ def test_model_config_includes_local_runtime_limits(client, monkeypatch, tmp_pat
     }
 
 
-def test_preview_command_route_applies_engine_section_replacement(
-    client, monkeypatch, tmp_path
-):
+def test_preview_command_route_applies_engine_section_replacement(client, monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
     _seed_model(store)
     store.update_model(
@@ -298,9 +266,7 @@ def test_preview_command_route_applies_engine_section_replacement(
         seen["config"] = model.get("config")
         return {"ok": True, "cmd": "preview-cmd", "proxy_name": "org-model.q4_k_m"}
 
-    monkeypatch.setattr(
-        runtime_commands, "preview_model_command", fake_preview
-    )
+    monkeypatch.setattr(runtime_commands, "preview_model_command", fake_preview)
 
     r = client.post(
         f"/api/models/{quote('org/model', safe='')}/preview-command",
@@ -338,9 +304,7 @@ def test_preview_command_route_merges_flat_payload_into_active_engine(
         seen["config"] = model.get("config")
         return {"ok": True, "cmd": "preview-flat-cmd", "proxy_name": "org-model.q4_k_m"}
 
-    monkeypatch.setattr(
-        runtime_commands, "preview_model_command", fake_preview
-    )
+    monkeypatch.setattr(runtime_commands, "preview_model_command", fake_preview)
 
     r = client.post(
         f"/api/models/{quote('org/model', safe='')}/preview-command",
@@ -379,9 +343,7 @@ def test_model_list_exposes_raw_native_proxy_status(client, monkeypatch, tmp_pat
     assert quant["run_state"] == "running"
 
 
-def test_model_list_expands_stale_safetensors_compatible_engines(
-    client, monkeypatch, tmp_path
-):
+def test_model_list_expands_stale_safetensors_compatible_engines(client, monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
     models_path = tmp_path / "config" / "models.yaml"
     models_path.write_text(
@@ -481,9 +443,10 @@ def test_search_file_size_route_and_removed_search_helpers(client, monkeypatch):
         404,
         405,
     }
-    assert client.post(
-        "/api/models/safetensors/org/repo/metadata/regenerate"
-    ).status_code in {404, 405}
+    assert client.post("/api/models/safetensors/org/repo/metadata/regenerate").status_code in {
+        404,
+        405,
+    }
     assert client.post("/api/models/safetensors/reload-from-disk").status_code in {
         404,
         405,
@@ -512,9 +475,7 @@ def test_safetensors_list_and_token_status_routes(client, monkeypatch):
                 }
             ]
 
-    monkeypatch.setattr(
-        models_routes, "get_store", lambda: Store()
-    )
+    monkeypatch.setattr(models_routes, "get_store", lambda: Store())
     monkeypatch.setattr(models_routes, "get_huggingface_token", lambda: "hf_1234567890")
     monkeypatch.setenv("HUGGINGFACE_API_KEY", "hf_env_token_123")
 
@@ -531,22 +492,16 @@ def test_safetensors_list_and_token_status_routes(client, monkeypatch):
 
 
 def test_quantization_sizes_preserves_validation_errors_as_400(client):
-    response = client.post(
-        "/api/models/quantization-sizes", json={"huggingface_id": "org/repo"}
-    )
+    response = client.post("/api/models/quantization-sizes", json={"huggingface_id": "org/repo"})
     assert response.status_code == 400
     assert "quantizations are required" in response.json()["detail"]
 
 
-def test_set_huggingface_token_route_handles_env_override_clear_and_success(
-    client, monkeypatch
-):
+def test_set_huggingface_token_route_handles_env_override_clear_and_success(client, monkeypatch):
     from backend.routes import models as models_routes
 
     monkeypatch.setenv("HUGGINGFACE_API_KEY", "hf_env_token_123")
-    locked = client.post(
-        "/api/models/huggingface-token", json={"token": "hf_override_123"}
-    )
+    locked = client.post("/api/models/huggingface-token", json={"token": "hf_override_123"})
     assert locked.status_code == 200
     assert locked.json()["from_environment"] is True
 
@@ -560,9 +515,7 @@ def test_set_huggingface_token_route_handles_env_override_clear_and_success(
     assert cleared.status_code == 200
     assert cleared.json()["has_token"] is False
 
-    saved = client.post(
-        "/api/models/huggingface-token", json={"token": "hf_valid_token_123"}
-    )
+    saved = client.post("/api/models/huggingface-token", json={"token": "hf_valid_token_123"})
     assert saved.status_code == 200
     assert saved.json()["has_token"] is True
     assert captured == ["", "hf_valid_token_123"]
@@ -642,9 +595,7 @@ def test_model_config_routes_round_trip_and_mark_stale(client, monkeypatch, tmp_
     assert marked["stale"] is True
 
 
-def test_model_start_route_passthroughs_native_proxy_response(
-    client, monkeypatch, tmp_path
-):
+def test_model_start_route_passthroughs_native_proxy_response(client, monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
     _seed_model(store)
 
@@ -664,9 +615,7 @@ def test_model_start_route_passthroughs_native_proxy_response(
     assert r.json() == {"model": "org-model.q4_k_m", "state": "loading"}
 
 
-def test_model_stop_route_passthroughs_native_proxy_response(
-    client, monkeypatch, tmp_path
-):
+def test_model_stop_route_passthroughs_native_proxy_response(client, monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
     _seed_model(store)
 
@@ -720,9 +669,7 @@ def test_cuda_cancel_unknown_task(client):
     assert r.json().get("ok") is False
 
 
-def test_sync_branch_source_version_schedules_incremental_build(
-    client, monkeypatch, tmp_path
-):
+def test_sync_branch_source_version_schedules_incremental_build(client, monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
     store.add_engine_version(
         "llama_cpp",
@@ -760,9 +707,7 @@ def test_sync_branch_source_version_schedules_incremental_build(
     assert called["repository_url"] == "https://example.test/llama.cpp.git"
 
 
-def test_sync_audio_cpp_branch_source_version_schedules_rebuild(
-    client, monkeypatch, tmp_path
-):
+def test_sync_audio_cpp_branch_source_version_schedules_rebuild(client, monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
     source_dir = tmp_path / "audio-cpp-builds" / "source-release-0.2" / "source"
     source_dir.mkdir(parents=True)
@@ -827,9 +772,7 @@ def test_sync_non_branch_source_version_rejected(client, monkeypatch, tmp_path):
     assert r.status_code == 400
 
 
-def test_update_version_build_config_freezes_per_build_settings(
-    client, monkeypatch, tmp_path
-):
+def test_update_version_build_config_freezes_per_build_settings(client, monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
     store.add_engine_version(
         "llama_cpp",
@@ -902,9 +845,7 @@ def test_update_audio_version_build_config(client, monkeypatch, tmp_path):
     assert stored["backend"] == "cuda"
 
 
-def test_update_version_build_config_rejects_python_engines(
-    client, monkeypatch, tmp_path
-):
+def test_update_version_build_config_rejects_python_engines(client, monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
     store.add_engine_version(
         "lmdeploy",
@@ -947,19 +888,17 @@ def test_param_registry_never_scans(client, monkeypatch):
         return {}
 
     monkeypatch.setattr(
-        models_routes, "get_store", lambda: SimpleNamespace(
+        models_routes,
+        "get_store",
+        lambda: SimpleNamespace(
             get_active_engine_version=lambda _e: {
                 "version": "v1",
                 "binary_path": "/tmp/llama-server",
             }
-        )
+        ),
     )
-    monkeypatch.setattr(
-        "backend.engines.params.get_version_entry", lambda *_a, **_k: None
-    )
-    monkeypatch.setattr(
-        "backend.engines.scan.scanner.scan_engine_version", fake_scan
-    )
+    monkeypatch.setattr("backend.engines.params.get_version_entry", lambda *_a, **_k: None)
+    monkeypatch.setattr("backend.engines.scan.scanner.scan_engine_version", fake_scan)
 
     r = client.get("/api/models/param-registry", params={"engine": "llama_cpp"})
     assert r.status_code == 200
@@ -975,12 +914,20 @@ def test_param_registry_audio_cpp_with_model_id(client, monkeypatch, tmp_path):
 
     specs = tmp_path / "model_specs"
     specs.mkdir()
-    (specs / "omnivoice.json").write_text(json.dumps({
-        "family": "omnivoice", "display_name": "OmniVoice",
-        "tasks": ["tts"], "options": {"request": [
-            {"name": "temperature", "type": "float"},
-        ]},
-    }))
+    (specs / "omnivoice.json").write_text(
+        json.dumps(
+            {
+                "family": "omnivoice",
+                "display_name": "OmniVoice",
+                "tasks": ["tts"],
+                "options": {
+                    "request": [
+                        {"name": "temperature", "type": "float"},
+                    ]
+                },
+            }
+        )
+    )
 
     model = {
         "id": "audio-cpp--omnivoice",
@@ -1174,12 +1121,8 @@ def test_activate_version_scans_when_catalog_missing(
         scanned["engine"] = engine
         return {"sections": [], "scan_error": None}
 
-    monkeypatch.setattr(
-        "backend.engines.scan.scanner.scan_engine_version", fake_scan
-    )
-    monkeypatch.setattr(
-        "backend.engines.params.get_version_entry", lambda *_a, **_k: None
-    )
+    monkeypatch.setattr("backend.engines.scan.scanner.scan_engine_version", fake_scan)
+    monkeypatch.setattr("backend.engines.params.get_version_entry", lambda *_a, **_k: None)
 
     class FakeSwapManager:
         async def _ensure_correct_binary_path(self):

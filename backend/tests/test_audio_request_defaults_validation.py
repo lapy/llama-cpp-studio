@@ -16,9 +16,7 @@ from backend.audio.request_defaults_validation import validate_saved_request_def
         ),
     ],
 )
-def test_validate_saved_request_defaults_rejects_mismatched_families(
-    family, task, config, message
-):
+def test_validate_saved_request_defaults_rejects_mismatched_families(family, task, config, message):
     errors = validate_saved_request_defaults(task=task, family=family, config=config)
     assert errors
     assert any(message in err for err in errors)

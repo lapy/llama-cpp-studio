@@ -76,11 +76,7 @@ class CancellableOperationManager:
                         str(resource),
                     )
                     break
-        if (
-            operation in CUDA_DEPENDENT_KINDS
-            and meta.get("engine")
-            and not meta.get("depends_on")
-        ):
+        if operation in CUDA_DEPENDENT_KINDS and meta.get("engine") and not meta.get("depends_on"):
             meta["depends_on"] = CUDA_TOOLKIT_KEY
         kind = operation if operation in _GATED_KINDS else "install"
         get_progress_manager().create_task(kind, description, meta, task_id=task_id)
@@ -165,12 +161,8 @@ class CancellableOperationManager:
 
         from backend.operations.supervisor import get_supervisor
 
-        operation_id = self._progress_task_id or self._make_task_id(
-            self._operation or "operation"
-        )
-        task = get_supervisor().spawn(
-            operation_id, _wrapped(), cancel=self._cancel_for_shutdown
-        )
+        operation_id = self._progress_task_id or self._make_task_id(self._operation or "operation")
+        task = get_supervisor().spawn(operation_id, _wrapped(), cancel=self._cancel_for_shutdown)
         self._current_task = task
 
         def _cleanup(fut: asyncio.Future) -> None:
@@ -213,8 +205,7 @@ class CancellableOperationManager:
                 "ok": True,
                 "terminated": False,
                 "message": (
-                    "Cancellation was already requested. "
-                    "Termination has not been verified."
+                    "Cancellation was already requested. Termination has not been verified."
                 ),
                 "task_id": task_id,
             }
@@ -252,9 +243,7 @@ class CancellableOperationManager:
                 self._clear_active_process()
                 self._cancellation_task = None
 
-        self._cancellation_task = asyncio.get_running_loop().create_task(
-            _cancel_and_finish()
-        )
+        self._cancellation_task = asyncio.get_running_loop().create_task(_cancel_and_finish())
         from backend.operations.supervisor import get_supervisor
 
         get_supervisor().track_cleanup(task_id, self._cancellation_task)

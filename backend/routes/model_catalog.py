@@ -58,11 +58,7 @@ def _filters(payload: Dict[str, Any]) -> dict:
         "artifact_format",
         "format",
     )
-    filters = {
-        key: payload.get(key)
-        for key in keys
-        if payload.get(key) not in (None, "")
-    }
+    filters = {key: payload.get(key) for key in keys if payload.get(key) not in (None, "")}
     if isinstance(payload.get("gated"), bool):
         filters["gated"] = payload["gated"]
     engine = filters.get("engine")
@@ -146,9 +142,7 @@ async def install_catalog_item(payload: dict = Body(default_factory=dict)):
         if payload.get(key) not in (None, "")
     }
     source_kind = str(source.get("kind") or "")
-    if source_kind == "utility" and not (
-        options.get("source_file") or options.get("source_dir")
-    ):
+    if source_kind == "utility" and not (options.get("source_file") or options.get("source_dir")):
         raise HTTPException(
             status_code=422,
             detail="This converter package requires source_file or source_dir.",
@@ -156,11 +150,7 @@ async def install_catalog_item(payload: dict = Body(default_factory=dict)):
 
     source = package.get("source") if isinstance(package.get("source"), dict) else source
     repo_id = str(source.get("repo_id") or source.get("repo") or "").strip()
-    resource_key = (
-        huggingface_resource_key(repo_id)
-        if repo_id
-        else f"audio-package:{package_id}"
-    )
+    resource_key = huggingface_resource_key(repo_id) if repo_id else f"audio-package:{package_id}"
     pm = get_progress_manager()
     try:
         task_id = pm.create_task(
@@ -191,9 +181,7 @@ async def install_catalog_item(payload: dict = Body(default_factory=dict)):
                 ),
             },
         ) from exc
-    get_supervisor().spawn(
-        task_id, _run_audio_install(task_id, package_id, options)
-    )
+    get_supervisor().spawn(task_id, _run_audio_install(task_id, package_id, options))
     return {
         "success": True,
         "task_id": task_id,
@@ -275,7 +263,7 @@ async def import_audio_bundle(payload: dict = Body(default_factory=dict)):
             source_path,
             str(payload.get("package_id") or "").strip() or None,
             str(payload.get("family") or "").strip() or None,
-        )
+        ),
     )
     return {
         "success": True,
@@ -298,8 +286,7 @@ async def cancel_audio_install(task_id: str):
             "terminated": False,
             "task_id": task_id,
             "message": (
-                "Cancellation was already requested. "
-                "The install has not been verified as stopped."
+                "Cancellation was already requested. The install has not been verified as stopped."
             ),
         }
     if task.get("status") != "running":
@@ -319,4 +306,3 @@ async def cancel_audio_install(task_id: str):
         "task_id": task_id,
         "message": "Cancellation was requested. The install has not been verified as stopped.",
     }
-

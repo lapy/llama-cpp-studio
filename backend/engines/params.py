@@ -166,11 +166,7 @@ def flags_from_entry(entry: Optional[dict]) -> List[str]:
 
 def _normalize_param_row(param: dict) -> dict:
     row = dict(param or {})
-    flags = [
-        str(f)
-        for f in (row.get("flags") or [])
-        if isinstance(f, str) and f.startswith("--")
-    ]
+    flags = [str(f) for f in (row.get("flags") or []) if isinstance(f, str) and f.startswith("--")]
     flags = list(dict.fromkeys(flags))
     primary_flag = row.get("primary_flag")
     if not primary_flag and flags:
@@ -210,9 +206,7 @@ def _normalize_param_row(param: dict) -> dict:
     row["negative_flag"] = negative_flag
     row["value_kind"] = value_kind
     row["scalar_type"] = scalar_type
-    row["multiple"] = bool(
-        value_kind in ("repeatable", "space_list", "csv_enum", "semicolon_enum")
-    )
+    row["multiple"] = bool(value_kind in ("repeatable", "space_list", "csv_enum", "semicolon_enum"))
     if value_kind == "flag":
         row["type"] = "bool"
     elif value_kind == "json_object":

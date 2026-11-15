@@ -114,18 +114,12 @@ def _defaults_equivalent(expected_raw: Optional[str], parsed_default: Any) -> bo
         return True
     if isinstance(parsed_default, bool):
         lower = str(expected_raw).strip().lower()
-        if parsed_default and (
-            "enabled" in lower or lower in {"true", "on", "yes"}
-        ):
+        if parsed_default and ("enabled" in lower or lower in {"true", "on", "yes"}):
             return True
-        if not parsed_default and (
-            "disabled" in lower or lower in {"false", "off", "no"}
-        ):
+        if not parsed_default and ("disabled" in lower or lower in {"false", "off", "no"}):
             return True
     if isinstance(parsed_default, (int, float)):
-        numeric_head = re.match(
-            r"^([-+]?\d+(?:\.\d+)?)", str(expected_raw).strip()
-        )
+        numeric_head = re.match(r"^([-+]?\d+(?:\.\d+)?)", str(expected_raw).strip())
         if numeric_head and float(numeric_head.group(1)) == float(parsed_default):
             return True
     if isinstance(parsed_default, list) and str(expected_raw).strip().lower() == "none":
@@ -360,9 +354,7 @@ def extract_llama_help_entries(text: str) -> List[dict]:
             full_help = " ".join(x for x in (inline_desc, description) if x)
             if _REMOVED_ARGUMENT_RE.search(full_help):
                 continue
-            description = re.sub(
-                r"\(env:\s*[^)]+\)", "", description, flags=re.IGNORECASE
-            ).strip()
+            description = re.sub(r"\(env:\s*[^)]+\)", "", description, flags=re.IGNORECASE).strip()
             if not flags:
                 continue
             entries.append(
@@ -474,9 +466,7 @@ def verify_llama_help_line_by_line(text: str, parsed: Sequence[dict]) -> List[st
     classified = classify_llama_help_lines(text)
     for row in classified:
         if row["role"] == "other":
-            issues.append(
-                f"line {row['line']}: unclassified help text: {row['text'][:80]!r}"
-            )
+            issues.append(f"line {row['line']}: unclassified help text: {row['text'][:80]!r}")
 
     by_primary = {p["primary_flag"]: p for p in parsed}
     option_lines = [row for row in classified if row["role"] == "option"]
@@ -486,9 +476,7 @@ def verify_llama_help_line_by_line(text: str, parsed: Sequence[dict]) -> List[st
         spec, inline = _split_spec_and_description(row["text"])
         flags = LONG_FLAG_RE.findall(spec)
         desc_parts = [inline] if inline else []
-        next_option_line = (
-            option_lines[idx + 1]["line"] if idx + 1 < len(option_lines) else 10**9
-        )
+        next_option_line = option_lines[idx + 1]["line"] if idx + 1 < len(option_lines) else 10**9
         for follow in classified:
             if follow["line"] <= row["line"]:
                 continue
@@ -503,9 +491,7 @@ def verify_llama_help_line_by_line(text: str, parsed: Sequence[dict]) -> List[st
             removed += 1
             continue
         if not flags:
-            issues.append(
-                f"line {row['line']}: option has no long flags: {row['text'][:80]!r}"
-            )
+            issues.append(f"line {row['line']}: option has no long flags: {row['text'][:80]!r}")
             continue
         expected_count += 1
         primary = _preferred_primary_flag(flags, spec)
@@ -527,14 +513,11 @@ def verify_llama_help_line_by_line(text: str, parsed: Sequence[dict]) -> List[st
             got = {str(o.get("value")) for o in (param.get("options") or [])}
             missing = enum_values - got
             if missing:
-                issues.append(
-                    f"line {row['line']} {primary}: enum missing {sorted(missing)}"
-                )
+                issues.append(f"line {row['line']} {primary}: enum missing {sorted(missing)}")
 
     if len(parsed) != expected_count:
         issues.append(
-            f"param count parsed={len(parsed)} live_options={expected_count} "
-            f"removed={removed}"
+            f"param count parsed={len(parsed)} live_options={expected_count} removed={removed}"
         )
     return issues
 
@@ -555,7 +538,9 @@ def llama_help_expected_rows(parsed: Sequence[dict]) -> List[dict]:
                 "scalar_type": param.get("scalar_type"),
                 "default": param.get("default"),
                 "section_id": param.get("section_id"),
-                "options": [str(opt.get("value")) for opt in options if opt.get("value") is not None],
+                "options": [
+                    str(opt.get("value")) for opt in options if opt.get("value") is not None
+                ],
                 "multiple": bool(param.get("multiple")),
                 "reserved": bool(param.get("reserved")),
             }
@@ -613,9 +598,7 @@ def classify_vllm_help_lines(text: str) -> List[dict]:
     return rows
 
 
-def infer_vllm_expected_kind(
-    option_line: str, flags: Sequence[str], description: str
-) -> str:
+def infer_vllm_expected_kind(option_line: str, flags: Sequence[str], description: str) -> str:
     """Classify a vllm serve option from help syntax, independent of parser internals."""
     flags = [f for f in flags if isinstance(f, str)]
     mo = VLLM_OPTION.match(option_line)
@@ -625,9 +608,7 @@ def infer_vllm_expected_kind(
         (f for f in flags if f.startswith("--") and not f.startswith("--no-")),
         flags[0] if flags else "",
     )
-    value_source, _inline_desc = _vllm_option_value_source(
-        spec_part, inline_tail, positive_flag
-    )
+    value_source, _inline_desc = _vllm_option_value_source(spec_part, inline_tail, positive_flag)
     vs = _extract_value_spec(value_source, list(flags)).strip()
     desc = description or ""
     positives = [f for f in flags if f.startswith("--") and not f.startswith("--no-")]
@@ -655,9 +636,7 @@ def verify_vllm_help_line_by_line(text: str, parsed: Sequence[dict]) -> List[str
     classified = classify_vllm_help_lines(text)
     for row in classified:
         if row["role"] == "other":
-            issues.append(
-                f"line {row['line']}: unclassified help text: {row['text'][:80]!r}"
-            )
+            issues.append(f"line {row['line']}: unclassified help text: {row['text'][:80]!r}")
 
     by_primary = {p["primary_flag"]: p for p in parsed}
     option_lines = [row for row in classified if row["role"] == "option"]
@@ -674,9 +653,7 @@ def verify_vllm_help_line_by_line(text: str, parsed: Sequence[dict]) -> List[str
             spec_part, inline_tail, positive_flag
         )
         desc_parts = [inline_desc] if inline_desc else []
-        next_option_line = (
-            option_lines[idx + 1]["line"] if idx + 1 < len(option_lines) else 10**9
-        )
+        next_option_line = option_lines[idx + 1]["line"] if idx + 1 < len(option_lines) else 10**9
         for follow in classified:
             if follow["line"] <= row["line"]:
                 continue
@@ -688,9 +665,7 @@ def verify_vllm_help_line_by_line(text: str, parsed: Sequence[dict]) -> List[str
                 desc_parts.append(follow["text"])
         description = " ".join(part for part in desc_parts if part)
         if not flags:
-            issues.append(
-                f"line {row['line']}: option has no long flags: {row['text'][:80]!r}"
-            )
+            issues.append(f"line {row['line']}: option has no long flags: {row['text'][:80]!r}")
             continue
         primary = _preferred_primary_flag(flags, spec_part)
         expected_kind = infer_vllm_expected_kind(row["text"], flags, description)
@@ -711,14 +686,10 @@ def verify_vllm_help_line_by_line(text: str, parsed: Sequence[dict]) -> List[str
             got = {str(o.get("value")) for o in (param.get("options") or [])}
             missing = enum_values - got
             if missing:
-                issues.append(
-                    f"line {row['line']} {primary}: enum missing {sorted(missing)}"
-                )
+                issues.append(f"line {row['line']} {primary}: enum missing {sorted(missing)}")
 
     if len(parsed) != len(option_lines):
-        issues.append(
-            f"param count parsed={len(parsed)} live_options={len(option_lines)}"
-        )
+        issues.append(f"param count parsed={len(parsed)} live_options={len(option_lines)}")
     return issues
 
 
@@ -746,9 +717,7 @@ def verify_all_help_params(
     issues: List[str] = []
 
     if len(parsed) != len(unique_primaries):
-        issues.append(
-            f"param count parsed={len(parsed)} unique_flags={len(unique_primaries)}"
-        )
+        issues.append(f"param count parsed={len(parsed)} unique_flags={len(unique_primaries)}")
 
     for pf in unique_primaries:
         param = by_primary.get(pf)
@@ -773,11 +742,7 @@ def verify_all_help_params(
                     issues.append(f"{label}: missing alias {flag}")
 
         negatives = [f for f in entry["flags"] if f.startswith("--no-")]
-        positives = [
-            f
-            for f in entry["flags"]
-            if f.startswith("--") and not f.startswith("--no-")
-        ]
+        positives = [f for f in entry["flags"] if f.startswith("--") and not f.startswith("--no-")]
         if negatives and positives:
             if param.get("value_kind") != "flag":
                 issues.append(
@@ -789,21 +754,15 @@ def verify_all_help_params(
                 )
 
         if param.get("section_id") != first_section[pf]:
-            issues.append(
-                f"{label}: section {param.get('section_id')!r} != {first_section[pf]!r}"
-            )
+            issues.append(f"{label}: section {param.get('section_id')!r} != {first_section[pf]!r}")
 
         if pf not in allow_empty:
             parsed_desc = (param.get("description") or "").strip()
             if not parsed_desc:
                 issues.append(f"{label}: empty description")
             elif not _description_matches_source(entry.get("desc", ""), parsed_desc):
-                if entry.get("desc") or re.search(
-                    r"\s{2,}[A-Za-z]", entry.get("src_line", "")
-                ):
-                    issues.append(
-                        f"{label}: description mismatch: {parsed_desc[:60]!r}"
-                    )
+                if entry.get("desc") or re.search(r"\s{2,}[A-Za-z]", entry.get("src_line", "")):
+                    issues.append(f"{label}: description mismatch: {parsed_desc[:60]!r}")
 
         src_line = entry.get("src_line") or ""
         source_text = f"{src_line} {entry.get('desc', '')}"
@@ -817,18 +776,12 @@ def verify_all_help_params(
             enum_values = _enum_values_from_source_line(src_line)
             kind = param.get("value_kind")
             if kind not in {"enum", "json_object"}:
-                issues.append(
-                    f"{label}: expected enum/json for {enum_values}, got {kind}"
-                )
+                issues.append(f"{label}: expected enum/json for {enum_values}, got {kind}")
             elif kind == "enum":
-                parsed_values = {
-                    str(o.get("value")) for o in (param.get("options") or [])
-                }
+                parsed_values = {str(o.get("value")) for o in (param.get("options") or [])}
                 missing = enum_values - parsed_values
                 if missing:
-                    issues.append(
-                        f"{label}: enum missing values {sorted(missing)}"
-                    )
+                    issues.append(f"{label}: enum missing values {sorted(missing)}")
 
         if pf not in skip_defaults:
             expected_default = _extract_default_from_text(source_text)
@@ -854,9 +807,7 @@ def verify_all_help_params(
 _AUDIO_USAGE_BRACKET_RE = re.compile(r"\[--([a-z0-9-]+)(?:\s+[^\]]*)?\]")
 _AUDIO_SKIP_SECTIONS = frozenset({"endpoints", "tasks"})
 _AUDIO_NESTED_OPTIONAL_FLAGS = frozenset({"--json"})
-_AUDIO_INT_METAVARS = frozenset(
-    {"n", "ms", "mb", "id", "port", "hz", "chars", "int", "seconds"}
-)
+_AUDIO_INT_METAVARS = frozenset({"n", "ms", "mb", "id", "port", "hz", "chars", "int", "seconds"})
 _AUDIO_FLOAT_METAVARS = frozenset({"float", "double"})
 
 
@@ -965,12 +916,7 @@ def extract_audio_cpp_help_entries(text: str, *, source: str = "cli") -> List[di
             continue
 
         bare_section = _AUDIO_BARE_KEYED_OPTION_SECTIONS.get(section)
-        if (
-            bare_section
-            and stripped
-            and not stripped.startswith("-")
-            and line[:1].isspace()
-        ):
+        if bare_section and stripped and not stripped.startswith("-") and line[:1].isspace():
             spec, desc = _split_spec_and_description(line)
             name = spec.split()[0] if spec.split() else ""
             if name and _AUDIO_BARE_OPTION_NAME_RE.match(name):
@@ -996,9 +942,7 @@ def extract_audio_cpp_help_entries(text: str, *, source: str = "cli") -> List[di
                 i += 1
                 continue
 
-        if stripped.startswith("--") or (
-            stripped.startswith("-") and "--" in stripped
-        ):
+        if stripped.startswith("--") or (stripped.startswith("-") and "--" in stripped):
             spec, inline_desc = _split_spec_and_description(line)
             desc_lines = [inline_desc] if inline_desc else []
             i += 1
@@ -1117,9 +1061,7 @@ def verify_audio_cpp_help_params(
             claimed_keys.add(param["key"])
             claimed_flags.add(str(param.get("primary_flag") or ""))
             if param.get("negative_flag") != entry["primary"]:
-                issues.append(
-                    f"{label}: negative_flag {param.get('negative_flag')!r}"
-                )
+                issues.append(f"{label}: negative_flag {param.get('negative_flag')!r}")
             if param.get("value_kind") != "flag":
                 issues.append(f"{label}: expected bool flag, got {param.get('value_kind')}")
             continue
@@ -1144,7 +1086,11 @@ def verify_audio_cpp_help_params(
             exp_key = _snake_from_long_flag(primary)
             if param.get("key") != exp_key and kind != "usage":
                 issues.append(f"{label}: key {param.get('key')!r} != {exp_key!r}")
-            if kind == "flag" and primary not in (param.get("flags") or []) and primary != param.get("negative_flag"):
+            if (
+                kind == "flag"
+                and primary not in (param.get("flags") or [])
+                and primary != param.get("negative_flag")
+            ):
                 issues.append(f"{label}: {primary} not in flags {param.get('flags')!r}")
 
         if kind == "usage":
@@ -1156,15 +1102,13 @@ def verify_audio_cpp_help_params(
             values = {str(item).lower() for item in pipe}
             if values <= {"true", "false"}:
                 if param.get("type") != "bool":
-                    issues.append(f"{label}: expected bool for true|false, got {param.get('type')!r}")
-            else:
-                parsed_values = [
-                    str(opt.get("value")) for opt in (param.get("options") or [])
-                ]
-                if parsed_values != list(pipe):
                     issues.append(
-                        f"{label}: enum {parsed_values} != {list(pipe)}"
+                        f"{label}: expected bool for true|false, got {param.get('type')!r}"
                     )
+            else:
+                parsed_values = [str(opt.get("value")) for opt in (param.get("options") or [])]
+                if parsed_values != list(pipe):
+                    issues.append(f"{label}: enum {parsed_values} != {list(pipe)}")
                 if param.get("type") != "select":
                     issues.append(f"{label}: expected select, got {param.get('type')!r}")
 
@@ -1172,9 +1116,7 @@ def verify_audio_cpp_help_params(
         if metavar in _AUDIO_INT_METAVARS and param.get("type") != "int":
             issues.append(f"{label}: metavar {metavar!r} expected int, got {param.get('type')!r}")
         if metavar in _AUDIO_FLOAT_METAVARS and param.get("type") != "float":
-            issues.append(
-                f"{label}: metavar {metavar!r} expected float, got {param.get('type')!r}"
-            )
+            issues.append(f"{label}: metavar {metavar!r} expected float, got {param.get('type')!r}")
         if metavar in {"bool", "boolean"} and param.get("type") != "bool":
             issues.append(f"{label}: metavar bool expected bool type")
 

@@ -333,9 +333,7 @@ def _set_rpath(binary: str, value: str) -> None:
     )
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or "").strip()
-        raise WorkspaceIsolationError(
-            f"Could not rewrite the library path of {binary}: {detail}"
-        )
+        raise WorkspaceIsolationError(f"Could not rewrite the library path of {binary}: {detail}")
 
 
 def _resolve_rpath_entry(binary: str, entry: str) -> str:
@@ -437,9 +435,7 @@ def assert_dynamic_libs_resolve(
     if "not a dynamic executable" in text:
         return
     if proc.returncode != 0 and "not found" not in text:
-        raise WorkspaceIsolationError(
-            f"Could not inspect libraries for {binary}: {text.strip()}"
-        )
+        raise WorkspaceIsolationError(f"Could not inspect libraries for {binary}: {text.strip()}")
     for line in proc.stdout.splitlines():
         if "=>" not in line:
             continue
@@ -650,7 +646,9 @@ class BuildWorkspace:
         previous = self.read_state()
         self.note(
             "locked",
-            recovered_from=previous.get("phase") if previous.get("phase") not in {"ready", "idle", ""} else "",
+            recovered_from=previous.get("phase")
+            if previous.get("phase") not in {"ready", "idle", ""}
+            else "",
         )
 
     def _steal_or_reject(self) -> None:
@@ -721,7 +719,11 @@ class BuildWorkspace:
         self.note("syncing", repo_url=repo_url, ref=ref)
         os.makedirs(self.path, exist_ok=True)
         git_dir = os.path.join(self.checkout_dir, ".git")
-        if os.path.isdir(self.checkout_dir) and not os.path.isdir(git_dir) and not os.path.isfile(git_dir):
+        if (
+            os.path.isdir(self.checkout_dir)
+            and not os.path.isdir(git_dir)
+            and not os.path.isfile(git_dir)
+        ):
             abandoned = self.checkout_dir + ".abandoned-" + str(int(time.time()))
             os.rename(self.checkout_dir, abandoned)
             logger.warning("Moved an incomplete workspace checkout aside to %s", abandoned)
@@ -737,7 +739,9 @@ class BuildWorkspace:
         if fetch.returncode != 0 and ref == "master":
             fetch = _git(["fetch", "--prune", "origin", "main"], cwd=self.checkout_dir, check=False)
         if fetch.returncode != 0:
-            fetch_all = _git(["fetch", "--prune", "--tags", "origin"], cwd=self.checkout_dir, check=False)
+            fetch_all = _git(
+                ["fetch", "--prune", "--tags", "origin"], cwd=self.checkout_dir, check=False
+            )
             if fetch_all.returncode != 0:
                 detail = (fetch.stderr or fetch.stdout or fetch_all.stderr or "").strip()
                 raise WorkspaceGitError(f"git fetch failed: {detail or 'unknown error'}")
@@ -855,7 +859,9 @@ class BuildWorkspace:
         published = self.publish_tree(
             self.checkout_dir,
             snapshot_dir,
-            required_relative=[".git"] if os.path.exists(os.path.join(self.checkout_dir, ".git")) else [],
+            required_relative=[".git"]
+            if os.path.exists(os.path.join(self.checkout_dir, ".git"))
+            else [],
         )
         site = site_packages_dir(venv_path)
         try:
@@ -982,14 +988,10 @@ def _repair_published_binaries(root: str, forbidden_root: str) -> None:
                 lib_dirs = _snapshot_library_dirs(root)
             repair_workspace_rpath(path, forbidden_root)
             try:
-                assert_dynamic_libs_resolve(
-                    path, forbidden_root, root, lib_dirs=lib_dirs
-                )
+                assert_dynamic_libs_resolve(path, forbidden_root, root, lib_dirs=lib_dirs)
             except WorkspaceIsolationError:
                 _ensure_origin_rpath(path)
-                assert_dynamic_libs_resolve(
-                    path, forbidden_root, root, lib_dirs=lib_dirs
-                )
+                assert_dynamic_libs_resolve(path, forbidden_root, root, lib_dirs=lib_dirs)
 
 
 def _clean_excludes() -> List[str]:
@@ -1008,7 +1010,9 @@ def _validate_ref(ref: str) -> str:
     return text
 
 
-def _git(args: Sequence[str], *, cwd: Optional[str] = None, check: bool = True) -> subprocess.CompletedProcess:
+def _git(
+    args: Sequence[str], *, cwd: Optional[str] = None, check: bool = True
+) -> subprocess.CompletedProcess:
     proc = subprocess.run(
         git_argv(*args),
         cwd=cwd,

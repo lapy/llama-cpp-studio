@@ -1124,9 +1124,7 @@ def scan_definition_engine_version(engine: str, version_row: dict) -> dict:
     for variant in variants or [{"argv_prefix": prefix}]:
         try:
             if variant.get("executable"):
-                executable = profile_variant_executable(
-                    variant["executable"], engine, version_row
-                )
+                executable = profile_variant_executable(variant["executable"], engine, version_row)
             else:
                 executable = profile_executable(engine, version_row)
         except Exception as exc:  # noqa: BLE001 — try the next declared variant

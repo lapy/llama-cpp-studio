@@ -124,7 +124,9 @@ def extract_help_captures(text: str) -> List[HelpCapture]:
             for line_no, line in enumerate(lines):
                 if start <= line_no < end:
                     continue
-                if any(other_start <= line_no < other_end for other_start, other_end in other_spans):
+                if any(
+                    other_start <= line_no < other_end for other_start, other_end in other_spans
+                ):
                     continue
                 numbered = HELP_LINE_RE.match(line)
                 if numbered:
@@ -175,11 +177,7 @@ def catalog_flags(sections: Sequence[dict]) -> List[str]:
     for section in sections or []:
         for row in section.get("params") or []:
             for flag in row.get("flags") or []:
-                if (
-                    isinstance(flag, str)
-                    and flag.startswith("--")
-                    and flag not in seen
-                ):
+                if isinstance(flag, str) and flag.startswith("--") and flag not in seen:
                     seen.add(flag)
                     flags.append(flag)
     return flags
@@ -196,11 +194,7 @@ def compute_flag_coverage(
     accounted = set(accounted_flags or ())
     help_set = set(help_flags)
     parsed_set = set(parsed_flags)
-    missing = [
-        flag
-        for flag in help_flags
-        if flag not in parsed_set and flag not in accounted
-    ]
+    missing = [flag for flag in help_flags if flag not in parsed_set and flag not in accounted]
     extra = [flag for flag in parsed_flags if flag not in help_set]
     reserved_missing = [flag for flag in missing if flag in RESERVED_FLAGS]
     interesting_missing = [flag for flag in missing if flag not in RESERVED_FLAGS]
@@ -254,9 +248,7 @@ def snapshot_param_rows(sections_or_params: Sequence[dict]) -> List[dict]:
 def coverage_issues(coverage: FlagCoverage) -> List[str]:
     issues: List[str] = []
     if coverage.interesting_missing:
-        issues.append(
-            "coverage missing from catalog: " + ",".join(coverage.interesting_missing)
-        )
+        issues.append("coverage missing from catalog: " + ",".join(coverage.interesting_missing))
     if coverage.extra:
         issues.append("coverage extra parsed: " + ",".join(coverage.extra))
     return issues

@@ -247,9 +247,7 @@ def test_save_safetensors_download_creates_model_and_aggregates_repo_size(monkey
             8192,
         )
 
-    monkeypatch.setattr(
-        model_downloads, "collect_safetensors_runtime_metadata", fake_collect
-    )
+    monkeypatch.setattr(model_downloads, "collect_safetensors_runtime_metadata", fake_collect)
     model = asyncio.run(
         model_downloads.save_safetensors_download(
             store,
@@ -286,9 +284,7 @@ def test_save_safetensors_download_updates_existing_model_file_ledger(
     async def fake_collect(hf_id, filename):
         return ({"pipeline_tag": "text-embedding"}, {"tensor_count": 8}, 4096)
 
-    monkeypatch.setattr(
-        model_downloads, "collect_safetensors_runtime_metadata", fake_collect
-    )
+    monkeypatch.setattr(model_downloads, "collect_safetensors_runtime_metadata", fake_collect)
     model = asyncio.run(
         model_downloads.save_safetensors_download(
             store,
@@ -344,9 +340,7 @@ def test_delete_safetensors_model_unregisters_running_model_and_marks_stale(
         "backend.proxy.client.get_proxy_client",
         lambda **kwargs: FakeClient(),
     )
-    monkeypatch.setattr(
-        "backend.proxy.control.get_proxy_controller", lambda: FakeManager()
-    )
+    monkeypatch.setattr("backend.proxy.control.get_proxy_controller", lambda: FakeManager())
     monkeypatch.setattr(
         models_routes,
         "purge_hf_repo_cache",
@@ -358,9 +352,7 @@ def test_delete_safetensors_model_unregisters_running_model_and_marks_stale(
         lambda: observed.setdefault("stale", True),
     )
 
-    result = asyncio.run(
-        models_routes.delete_safetensors_model({"huggingface_id": "org/repo"})
-    )
+    result = asyncio.run(models_routes.delete_safetensors_model({"huggingface_id": "org/repo"}))
 
     assert result["message"] == "Safetensors model org/repo deleted"
     assert observed == {

@@ -19,7 +19,10 @@ def _model(model_id: str, family: str, task: str = "tts") -> dict:
     return {
         "id": model_id,
         "compatible_engines": ["audio_cpp"],
-        "config": {"engine": "audio_cpp", "engines": {"audio_cpp": {"family": family, "task": task}}},
+        "config": {
+            "engine": "audio_cpp",
+            "engines": {"audio_cpp": {"family": family, "task": task}},
+        },
     }
 
 
@@ -48,7 +51,12 @@ def test_only_models_intersecting_delta_are_rescanned(tmp_path, monkeypatch):
         "backend.engines.audio_cpp.activation._profile_cache_is_fresh",
         lambda *a, **k: True,
     )
-    delta = {"added_families": ["omnivoice"], "removed_families": [], "added_tasks": [], "removed_tasks": []}
+    delta = {
+        "added_families": ["omnivoice"],
+        "removed_families": [],
+        "added_tasks": [],
+        "removed_tasks": [],
+    }
     plan = plan_profile_rescans(store, _row(tmp_path), delta, contract_changed=False)
     assert [(m["id"], force) for m, force in plan] == [("b", True)]
 
@@ -97,9 +105,7 @@ async def test_rescan_runs_with_bounded_concurrency(tmp_path, monkeypatch):
             active["current"] -= 1
         return {"fingerprint": f"fp-{model.get('id')}", "scan_error": None}
 
-    monkeypatch.setattr(
-        "backend.engines.scan.scanner.scan_audio_cpp_model_profile", fake_profile
-    )
+    monkeypatch.setattr("backend.engines.scan.scanner.scan_audio_cpp_model_profile", fake_profile)
     store = FakeStore([_model(f"m{i}", "qwen3_tts") for i in range(8)])
     plan = [(m, True) for m in store.list_models()]
     results = await act_mod.rescan_model_profiles(store, _row(tmp_path), plan)

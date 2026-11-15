@@ -397,9 +397,7 @@ class BuildProgressTracker:
         step = parse_build_step_ratio(line)
         if step:
             current, total = step
-            mapped = map_build_step_progress(
-                current, total, floor=self.floor, ceil=self.ceil
-            )
+            mapped = map_build_step_progress(current, total, floor=self.floor, ceil=self.ceil)
             self.progress = max(self.progress, mapped)
             # Global ninja counters supersede Makefile / git pass tracking.
             self._last_percent = None
@@ -410,9 +408,7 @@ class BuildProgressTracker:
         git = parse_git_progress(line)
         if git:
             phase, percent, current, total = git
-            mapped = map_git_phase_progress(
-                phase, percent, floor=self.floor, ceil=self.ceil
-            )
+            mapped = map_git_phase_progress(phase, percent, floor=self.floor, ceil=self.ceil)
             self.progress = max(self.progress, mapped)
             self._git_phase = phase
             if current is not None and total is not None:
@@ -456,9 +452,7 @@ def apply_build_step_progress(
     Prefer :class:`BuildProgressTracker` for live builds so Makefile percent
     restarts across targets stay monotonic within the stage window.
     """
-    tracker = BuildProgressTracker(
-        floor=floor, ceil=ceil, progress=current_progress
-    )
+    tracker = BuildProgressTracker(floor=floor, ceil=ceil, progress=current_progress)
     return tracker.apply_line(line)
 
 
@@ -956,16 +950,10 @@ class SourceInstallProgressTracker:
             self._pack_base = None
             span = ceil - floor
             self._reserve_rust = (
-                span >= SOURCE_RUST_BAND_MIN_SPAN
-                if reserve_rust is None
-                else bool(reserve_rust)
+                span >= SOURCE_RUST_BAND_MIN_SPAN if reserve_rust is None else bool(reserve_rust)
             )
-            self._native_ceil = _native_compile_ceil(
-                floor, ceil, reserve_rust=self._reserve_rust
-            )
-            self._build = BuildProgressTracker(
-                floor=floor, ceil=self._native_ceil, progress=floor
-            )
+            self._native_ceil = _native_compile_ceil(floor, ceil, reserve_rust=self._reserve_rust)
+            self._build = BuildProgressTracker(floor=floor, ceil=self._native_ceil, progress=floor)
             self.progress = max(self.progress, float(floor))
             self.message = "Compiling"
             return

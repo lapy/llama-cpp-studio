@@ -98,9 +98,7 @@ def test_fetch_latest_llama_cpp_release_falls_back_to_listing():
         ],
     )
 
-    with patch.object(
-        llama_github_refs.requests, "get", side_effect=[missing, listing]
-    ) as g:
+    with patch.object(llama_github_refs.requests, "get", side_effect=[missing, listing]) as g:
         out = llama_github_refs.fetch_latest_release_for_repository_source("llama.cpp")
     assert out["tag_name"] == "b1234"
     assert g.call_count == 2
@@ -112,9 +110,7 @@ def test_fetch_latest_release_ik_llama_is_none():
     from backend.engines.llama_cpp import github_refs as llama_github_refs
 
     with patch.object(llama_github_refs.requests, "get") as g:
-        out = llama_github_refs.fetch_latest_release_for_repository_source(
-            "ik_llama.cpp"
-        )
+        out = llama_github_refs.fetch_latest_release_for_repository_source("ik_llama.cpp")
     assert out is None
     g.assert_not_called()
 

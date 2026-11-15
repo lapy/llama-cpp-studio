@@ -114,11 +114,16 @@ def normalize_v2_catalog_packages(
         for package in contract.get("packages") or []:
             if not isinstance(package, dict) or not package.get("id"):
                 continue
-            declarations.setdefault(package["id"], []).append({
-                **package,
-                "family": contract["family"],
-                "download": {**(defaults.get("download") or {}), **(package.get("download") or {})},
-            })
+            declarations.setdefault(package["id"], []).append(
+                {
+                    **package,
+                    "family": contract["family"],
+                    "download": {
+                        **(defaults.get("download") or {}),
+                        **(package.get("download") or {}),
+                    },
+                }
+            )
 
     packages: List[Dict[str, Any]] = []
     for row in rows:
@@ -127,13 +132,19 @@ def normalize_v2_catalog_packages(
         package_id = str(row.get("id") or "").strip()
         if not package_id:
             continue
-        matches = [item for item in declarations.get(package_id, [])
-                   if not row.get("family") or item["family"] == row["family"]]
+        matches = [
+            item
+            for item in declarations.get(package_id, [])
+            if not row.get("family") or item["family"] == row["family"]
+        ]
         if len(matches) == 1:
             # The manager's compact listing omits these fields. Resolve them
             # from the exact engine declaration, never package-name heuristics.
-            row = {**matches[0], **row,
-                   "download": {**matches[0]["download"], **(row.get("download") or {})}}
+            row = {
+                **matches[0],
+                **row,
+                "download": {**matches[0]["download"], **(row.get("download") or {})},
+            }
         download = row.get("download") if isinstance(row.get("download"), dict) else {}
         authoritative_files = "files" in row or "required_files" in row
         repo = str(download.get("repo") or row.get("repo") or "").strip()
@@ -146,9 +157,7 @@ def normalize_v2_catalog_packages(
             description = (description + " (default)").strip()
         declared_files = list(row.get("files") or row.get("required_files") or [])
         include_prefixes = list(row.get("include_prefixes") or declared_files)
-        target_directory = str(
-            row.get("target_directory") or package_id
-        ).strip() or package_id
+        target_directory = str(row.get("target_directory") or package_id).strip() or package_id
         strip_prefix = str(row.get("strip_prefix") or "")
         # ``list --json`` omits strip_prefix; v2 still installs into
         # target_directory after stripping that HF prefix from remote paths.
@@ -156,7 +165,11 @@ def normalize_v2_catalog_packages(
             candidate = str(target_directory or "").replace("\\", "/").strip("/")
             if candidate and candidate != ".":
                 strip_prefix = candidate
-        for extra in ([] if authoritative_files else gguf_snapshot_sidecar_prefixes(declared_files or include_prefixes)):
+        for extra in (
+            []
+            if authoritative_files
+            else gguf_snapshot_sidecar_prefixes(declared_files or include_prefixes)
+        ):
             if extra not in include_prefixes:
                 include_prefixes.append(extra)
         if not authoritative_files and str(format_name).lower() == "gguf":
@@ -172,17 +185,24 @@ def normalize_v2_catalog_packages(
         packages.append(
             {
                 "id": package_id,
-                "display_name": str(row.get("display_name") or package_id).strip()
-                or package_id,
+                "display_name": str(row.get("display_name") or package_id).strip() or package_id,
                 "target_directory": target_directory,
                 "description": description,
                 "required_files": [
                     str(path).removeprefix(strip_prefix.rstrip("/") + "/")
-                    if strip_prefix and "files" in row else str(path)
+                    if strip_prefix and "files" in row
+                    else str(path)
                     for path in declared_files
                 ],
-                **({"files": declared_files, "strip_prefix": strip_prefix, "layout_source": "engine"}
-                   if "files" in row else {}),
+                **(
+                    {
+                        "files": declared_files,
+                        "strip_prefix": strip_prefix,
+                        "layout_source": "engine",
+                    }
+                    if "files" in row
+                    else {}
+                ),
                 "family": family,
                 "standalone": True,
                 "format": format_name,
@@ -190,9 +210,12 @@ def normalize_v2_catalog_packages(
                 "default": bool(row.get("default")),
                 **({"gated": row["gated"]} if isinstance(row.get("gated"), bool) else {}),
                 "source": {
-                    **({"gated": row["download"]["gated"]}
-                       if isinstance(row.get("download"), dict)
-                       and isinstance(row["download"].get("gated"), bool) else {}),
+                    **(
+                        {"gated": row["download"]["gated"]}
+                        if isinstance(row.get("download"), dict)
+                        and isinstance(row["download"].get("gated"), bool)
+                        else {}
+                    ),
                     "kind": str(download.get("kind") or "huggingface_snapshot"),
                     "repo_id": repo,
                     "revision": str(download.get("revision") or row.get("revision") or "main"),

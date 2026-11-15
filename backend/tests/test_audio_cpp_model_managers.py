@@ -110,10 +110,7 @@ def test_merge_catalog_packages_keeps_first_id_and_appends_new_ids():
 def test_resolve_v2_from_version_row_without_source_path(tmp_path):
     v2 = tmp_path / "model_manager_v2.py"
     v2.write_text("# v2\n", encoding="utf-8")
-    assert (
-        resolve_model_manager_v2_path(version_row={"model_manager_v2_path": str(v2)})
-        == str(v2)
-    )
+    assert resolve_model_manager_v2_path(version_row={"model_manager_v2_path": str(v2)}) == str(v2)
 
 
 def test_gguf_snapshot_sidecar_prefixes_add_embeddings_next_to_weight():
@@ -142,11 +139,13 @@ def test_normalize_v2_pocket_tts_includes_embedding_prefix_without_files_list():
 
 
 def test_catalog_adapter_preserves_access_flags_and_missing_identity():
-    rows = normalize_v2_catalog_packages([
-        {"id": "unknown", "repo": "org/a"},
-        {"id": "restricted", "family": "new", "repo": "org/b", "gated": True},
-        {"id": "public", "family": "new", "repo": "org/c", "download": {"gated": False}},
-    ])
+    rows = normalize_v2_catalog_packages(
+        [
+            {"id": "unknown", "repo": "org/a"},
+            {"id": "restricted", "family": "new", "repo": "org/b", "gated": True},
+            {"id": "public", "family": "new", "repo": "org/c", "download": {"gated": False}},
+        ]
+    )
     assert not rows[0]["family"]
     assert "gated" not in rows[0]
     assert "gated" not in rows[0]["source"]
@@ -159,20 +158,42 @@ def test_compact_catalog_resolves_exact_engine_download_declaration(tmp_path):
 
     specs = tmp_path / "model_specs"
     specs.mkdir()
-    (specs / "future.json").write_text(json.dumps({
-        "family": "future", "tasks": ["tts"],
-        "package_defaults": {"download": {
-            "kind": "huggingface_snapshot", "repo": "org/weights", "revision": "release-7", "gated": True,
-        }},
-        "packages": [{
-            "id": "future_small", "files": ["remote/small.gguf"],
-            "strip_prefix": "remote", "download": {"gated": False},
-        }],
-    }))
-    package = normalize_v2_catalog_packages([{
-        "id": "future_small", "family": "future", "format": "gguf", "target_directory": "local",
-        "repo": "org/weights",
-    }], source_path=str(tmp_path))[0]
+    (specs / "future.json").write_text(
+        json.dumps(
+            {
+                "family": "future",
+                "tasks": ["tts"],
+                "package_defaults": {
+                    "download": {
+                        "kind": "huggingface_snapshot",
+                        "repo": "org/weights",
+                        "revision": "release-7",
+                        "gated": True,
+                    }
+                },
+                "packages": [
+                    {
+                        "id": "future_small",
+                        "files": ["remote/small.gguf"],
+                        "strip_prefix": "remote",
+                        "download": {"gated": False},
+                    }
+                ],
+            }
+        )
+    )
+    package = normalize_v2_catalog_packages(
+        [
+            {
+                "id": "future_small",
+                "family": "future",
+                "format": "gguf",
+                "target_directory": "local",
+                "repo": "org/weights",
+            }
+        ],
+        source_path=str(tmp_path),
+    )[0]
     assert package["required_files"] == ["small.gguf"]
     assert package["files"] == ["remote/small.gguf"]
     assert package["layout_source"] == "engine"
@@ -183,11 +204,18 @@ def test_compact_catalog_resolves_exact_engine_download_declaration(tmp_path):
 
 
 def test_full_manager_record_preserves_explicit_empty_strip_prefix():
-    package = normalize_v2_catalog_packages([{
-        "id": "future", "format": "gguf", "target_directory": "local",
-        "files": ["weights.gguf"], "strip_prefix": "",
-        "download": {"kind": "huggingface_snapshot", "repo": "org/model"},
-    }])[0]
+    package = normalize_v2_catalog_packages(
+        [
+            {
+                "id": "future",
+                "format": "gguf",
+                "target_directory": "local",
+                "files": ["weights.gguf"],
+                "strip_prefix": "",
+                "download": {"kind": "huggingface_snapshot", "repo": "org/model"},
+            }
+        ]
+    )[0]
     assert package["source"]["strip_prefix"] == ""
     assert package["source"]["revision"] == "main"
     assert package["source"]["repo_id"] == "org/model"

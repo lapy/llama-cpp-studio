@@ -185,9 +185,7 @@ class LaunchManifestStore:
 
     def read_manifest(self, model_id: str, revision: str) -> Dict[str, Any]:
         revision = _validate_revision(revision)
-        path = os.path.join(
-            self.model_dir(model_id), "generations", revision, "manifest.json"
-        )
+        path = os.path.join(self.model_dir(model_id), "generations", revision, "manifest.json")
         _reject_escape(self.model_dir(model_id), path)
         if not os.path.isfile(path):
             raise ManifestStoreError(f"manifest {revision} is missing")
@@ -327,9 +325,7 @@ class LaunchManifestStore:
             by_model.setdefault(hit["model_id"], set()).add(hit["revision"])
         for model_id, revisions in by_model.items():
             for revision in revisions:
-                directory = os.path.join(
-                    self.model_dir(model_id), "generations", revision
-                )
+                directory = os.path.join(self.model_dir(model_id), "generations", revision)
                 if os.path.isdir(directory):
                     shutil.rmtree(directory)
             self._forget_retired_revisions(model_id, revisions)
@@ -387,9 +383,7 @@ class LaunchManifestStore:
 
     def _generation_exists(self, model_id: str, revision: str) -> bool:
         return os.path.isfile(
-            os.path.join(
-                self.model_dir(model_id), "generations", revision, "manifest.json"
-            )
+            os.path.join(self.model_dir(model_id), "generations", revision, "manifest.json")
         )
 
     def referenced_external_paths(self) -> List[str]:
@@ -439,9 +433,7 @@ class LaunchManifestStore:
             except BlockingIOError:
                 if time.monotonic() >= deadline:
                     os.close(fd)
-                    raise TimeoutError(
-                        f"timed out waiting for the launch gate of {model_id}"
-                    )
+                    raise TimeoutError(f"timed out waiting for the launch gate of {model_id}")
                 time.sleep(0.02)
 
     def release_gate(self, fd: int) -> None:

@@ -72,18 +72,27 @@ def _installer(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_builtin_registration_inspects_literal_id_without_creating_bundle(tmp_path, monkeypatch):
+async def test_builtin_registration_inspects_literal_id_without_creating_bundle(
+    tmp_path, monkeypatch
+):
     installer, store = _installer(tmp_path, monkeypatch)
-    package = {"id": "builtin-rnnoise", "family": "builtin_audio_utils", "install_kind": "builtin",
-               "source": {"kind": "builtin", "model_id": "rnnoise"}}
+    package = {
+        "id": "builtin-rnnoise",
+        "family": "builtin_audio_utils",
+        "install_kind": "builtin",
+        "source": {"kind": "builtin", "model_id": "rnnoise"},
+    }
     monkeypatch.setattr(installer, "package_metadata", lambda *_args: package)
     monkeypatch.setattr("backend.proxy.control.mark_runtime_changed", lambda: None)
     seen = []
 
     async def inspect(task_id, active, model_path, family):
         seen.append((model_path, family))
-        return {"family": family, "task_names": ["s2s"],
-                "tasks": [{"task": "s2s", "modes": ["offline"]}]}
+        return {
+            "family": family,
+            "task_names": ["s2s"],
+            "tasks": [{"task": "s2s", "modes": ["offline"]}],
+        }
 
     monkeypatch.setattr(installer, "_inspect", inspect)
     stored = await installer.install_package("builtin-task", package["id"])
@@ -101,8 +110,12 @@ async def test_builtin_registration_inspects_literal_id_without_creating_bundle(
 @pytest.mark.asyncio
 async def test_failed_builtin_inspection_does_not_publish_record(tmp_path, monkeypatch):
     installer, store = _installer(tmp_path, monkeypatch)
-    package = {"id": "builtin-missing", "family": "builtin_audio_utils", "install_kind": "builtin",
-               "source": {"kind": "builtin", "model_id": "missing"}}
+    package = {
+        "id": "builtin-missing",
+        "family": "builtin_audio_utils",
+        "install_kind": "builtin",
+        "source": {"kind": "builtin", "model_id": "missing"},
+    }
     monkeypatch.setattr(installer, "package_metadata", lambda *_args: package)
 
     async def inspect(*_args):
@@ -196,9 +209,7 @@ def test_resolve_inspect_family_prefers_hint_then_bundle(tmp_path, monkeypatch):
     installer, _ = _installer(tmp_path, monkeypatch)
     bundle = tmp_path / "bundle"
     bundle.mkdir()
-    (bundle / "config.json").write_text(
-        '{"model_type": "qwen3_asr"}', encoding="utf-8"
-    )
+    (bundle / "config.json").write_text('{"model_type": "qwen3_asr"}', encoding="utf-8")
     assert (
         installer._resolve_inspect_family(
             package={"id": "Qwen3-ASR-0.6B"},
@@ -260,9 +271,7 @@ async def test_install_package_passes_resolved_family_to_inspect(tmp_path, monke
 
 
 @pytest.mark.asyncio
-async def test_pocket_tts_install_does_not_seed_missing_session_voice(
-    tmp_path, monkeypatch
-):
+async def test_pocket_tts_install_does_not_seed_missing_session_voice(tmp_path, monkeypatch):
     installer, store = _installer(tmp_path, monkeypatch)
     package = {
         "id": "pocket-tts",
@@ -543,9 +552,7 @@ async def test_v2_install_downloads_gguf_embedding_sidecars(tmp_path, monkeypatc
     async def fake_manager(task_id, pkg, staging_root, active, options, **kwargs):
         target = os.path.join(staging_root, pkg["target_directory"])
         os.makedirs(target, exist_ok=True)
-        with open(
-            os.path.join(target, "pocket-tts-english-q8_0.gguf"), "wb"
-        ) as handle:
+        with open(os.path.join(target, "pocket-tts-english-q8_0.gguf"), "wb") as handle:
             handle.write(b"GGUF")
         return target
 
@@ -598,9 +605,7 @@ async def test_v2_install_downloads_gguf_embedding_sidecars(tmp_path, monkeypatc
         lambda: None,
     )
 
-    record = await installer.install_package(
-        "install-pocket-gguf", "pocket_tts_english_q8_0"
-    )
+    record = await installer.install_package("install-pocket-gguf", "pocket_tts_english_q8_0")
     assert downloaded == ["PocketTTS-GGUF/english/embeddings/azelma.safetensors"]
     embedding = os.path.join(
         record["bundle_path"],
@@ -699,9 +704,7 @@ async def test_composite_package_install_uses_model_manager(tmp_path, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_local_import_validates_then_atomically_promotes_bundle(
-    tmp_path, monkeypatch
-):
+async def test_local_import_validates_then_atomically_promotes_bundle(tmp_path, monkeypatch):
     installer, store = _installer(tmp_path, monkeypatch)
     stale_calls = []
     monkeypatch.setattr(
@@ -723,9 +726,7 @@ async def test_local_import_validates_then_atomically_promotes_bundle(
 
     monkeypatch.setattr(installer, "_inspect", inspect)
 
-    record = await installer.import_local_bundle(
-        "import-1", str(source), package_id="demo"
-    )
+    record = await installer.import_local_bundle("import-1", str(source), package_id="demo")
 
     final_bundle = tmp_path / "managed" / "demo"
     assert record["id"] == "audio-cpp--demo"
@@ -740,9 +741,7 @@ async def test_local_import_validates_then_atomically_promotes_bundle(
 
 
 @pytest.mark.asyncio
-async def test_failed_inspection_removes_staging_and_promoted_paths(
-    tmp_path, monkeypatch
-):
+async def test_failed_inspection_removes_staging_and_promoted_paths(tmp_path, monkeypatch):
     installer, _ = _installer(tmp_path, monkeypatch)
     source = tmp_path / "source"
     source.mkdir()
@@ -754,9 +753,7 @@ async def test_failed_inspection_removes_staging_and_promoted_paths(
     monkeypatch.setattr(installer, "_inspect", fail_inspection)
 
     with pytest.raises(RuntimeError, match="invalid package"):
-        await installer.import_local_bundle(
-            "import-fail", str(source), package_id="broken"
-        )
+        await installer.import_local_bundle("import-fail", str(source), package_id="broken")
 
     assert not (tmp_path / "managed" / "broken").exists()
     assert not list((tmp_path / "managed" / ".staging").glob("import-*"))
@@ -788,9 +785,7 @@ async def test_local_copy_honors_cancellation_before_writing(tmp_path, monkeypat
     request_task_cancel(task_id)
     try:
         with pytest.raises(TaskCancelledError, match="cancelled"):
-            await installer._copy_local_bundle(
-                task_id, str(source), str(destination)
-            )
+            await installer._copy_local_bundle(task_id, str(source), str(destination))
     finally:
         unregister_task_cancel(task_id)
 
@@ -806,9 +801,7 @@ async def test_existing_model_record_blocks_import_before_copy(tmp_path, monkeyp
     (source / "weights.bin").write_bytes(b"model")
 
     with pytest.raises(FileExistsError, match="already exists"):
-        await installer.import_local_bundle(
-            "duplicate", str(source), package_id="demo"
-        )
+        await installer.import_local_bundle("duplicate", str(source), package_id="demo")
 
     assert not (tmp_path / "managed").exists()
 
@@ -818,24 +811,39 @@ async def test_engine_declared_layout_does_not_probe_guessed_sidecars(tmp_path, 
     installer, _ = _installer(tmp_path, monkeypatch)
     monkeypatch.setattr(
         "backend.services.audio_model_installer.HfApi",
-        lambda **_kwargs: pytest.fail("engine file declarations must not trigger guessed downloads"),
+        lambda **_kwargs: pytest.fail(
+            "engine file declarations must not trigger guessed downloads"
+        ),
     )
-    await installer._download_gguf_sidecars("test", {
-        "layout_source": "engine", "files": ["model.gguf"],
-        "source": {"repo_id": "org/model"},
-    }, str(tmp_path))
+    await installer._download_gguf_sidecars(
+        "test",
+        {
+            "layout_source": "engine",
+            "files": ["model.gguf"],
+            "source": {"repo_id": "org/model"},
+        },
+        str(tmp_path),
+    )
 
 
 def test_declared_remote_files_validate_against_stripped_install_root(tmp_path):
     from backend.engines.audio_cpp.model_managers import normalize_v2_catalog_packages
 
-    package = normalize_v2_catalog_packages([{
-        "id": "new_package", "files": ["remote/model.gguf", "remote/metadata.json"],
-        "strip_prefix": "remote", "repo": "org/new",
-    }])[0]
+    package = normalize_v2_catalog_packages(
+        [
+            {
+                "id": "new_package",
+                "files": ["remote/model.gguf", "remote/metadata.json"],
+                "strip_prefix": "remote",
+                "repo": "org/new",
+            }
+        ]
+    )[0]
     (tmp_path / "model.gguf").write_bytes(b"fixture")
     with pytest.raises(RuntimeError, match="metadata.json"):
         AudioModelInstaller._check_required_files(package, str(tmp_path))
     (tmp_path / "metadata.json").write_text("{}")
     AudioModelInstaller._check_required_files(package, str(tmp_path))
-    assert AudioModelInstaller._declared_gguf_paths(package, str(tmp_path)) == [str(tmp_path / "model.gguf")]
+    assert AudioModelInstaller._declared_gguf_paths(package, str(tmp_path)) == [
+        str(tmp_path / "model.gguf")
+    ]

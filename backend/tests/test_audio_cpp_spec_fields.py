@@ -297,18 +297,29 @@ def test_scan_discovers_new_spec_options_after_engine_edit(spec_tree, monkeypatc
 def test_workspace_fields_preserve_transport_and_ignore_cli_utilities():
     from backend.engines.audio_cpp.spec_fields import workspace_request_fields
 
-    contract = {"family": "future", "options": {"request": [
-        {"name": "text", "type": "string", "required": True},
-        {"name": "sample", "type": "bool", "default": False},
-        {"name": "variance", "type": "float", "default": 0, "min": 0},
-    ]}}
+    contract = {
+        "family": "future",
+        "options": {
+            "request": [
+                {"name": "text", "type": "string", "required": True},
+                {"name": "sample", "type": "bool", "default": False},
+                {"name": "variance", "type": "float", "default": 0, "min": 0},
+            ]
+        },
+    }
     sections = [
-        {"id": "available_input_options", "params": [
-            {"key": "source_audio", "scope": "request_option", "transport": "request_only"},
-        ]},
-        {"id": "utility", "params": [
-            {"key": "help", "scope": "request_option", "transport": "request_only"},
-        ]},
+        {
+            "id": "available_input_options",
+            "params": [
+                {"key": "source_audio", "scope": "request_option", "transport": "request_only"},
+            ],
+        },
+        {
+            "id": "utility",
+            "params": [
+                {"key": "help", "scope": "request_option", "transport": "request_only"},
+            ],
+        },
         {"params": [{"key": "threads", "scope": "model"}]},
     ]
     fields = {field["key"]: field for field in workspace_request_fields(contract, sections)}
@@ -354,8 +365,18 @@ def test_conversion_profile_never_requires_session_voice(spec_tree):
     payload["ui"] = {"default_voice": "demo"}
     payload["tasks"] = ["tts", "vc"]
     path.write_text(json.dumps(payload))
-    assert overlay_task_profile_from_spec({}, str(root), "future_synth", task="tts")["requires_session_voice"] is True
-    assert overlay_task_profile_from_spec({}, str(root), "future_synth", task="vc")["requires_session_voice"] is False
+    assert (
+        overlay_task_profile_from_spec({}, str(root), "future_synth", task="tts")[
+            "requires_session_voice"
+        ]
+        is True
+    )
+    assert (
+        overlay_task_profile_from_spec({}, str(root), "future_synth", task="vc")[
+            "requires_session_voice"
+        ]
+        is False
+    )
 
 
 def test_scanned_request_field_groups_nested():

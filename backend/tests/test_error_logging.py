@@ -36,13 +36,15 @@ def test_describe_error_formats_validation_locations():
 
 def test_apply_rejection_is_logged_with_the_failure(client, caplog, monkeypatch):
     from backend.routes import runtime
+
     def rejected(*args, **kwargs):
         raise HTTPException(status_code=409, detail={"message": "llama-server binary not found"})
+
     monkeypatch.setattr(runtime, "build_apply_plan", rejected)
     with caplog.at_level(logging.WARNING, logger="backend.main"):
-        response = client.get('/api/runtime/pending')
+        response = client.get("/api/runtime/pending")
     assert response.status_code == 409
-    assert any('llama-server binary not found' in record.message for record in caplog.records)
+    assert any("llama-server binary not found" in record.message for record in caplog.records)
 
 
 def test_validation_errors_are_logged(client, caplog):

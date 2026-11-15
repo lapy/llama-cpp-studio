@@ -20,9 +20,7 @@ def test_prefer_directory_when_root_model_gguf_matches(tmp_path):
     link = root / "model.gguf"
     link.symlink_to(gguf)
 
-    assert prefer_directory_model_path(str(gguf), bundle_path=str(root)) == str(
-        root.resolve()
-    )
+    assert prefer_directory_model_path(str(gguf), bundle_path=str(root)) == str(root.resolve())
     assert resolve_audio_model_path(
         {"artifact": {"path": str(gguf), "bundle_path": str(root)}}
     ) == str(root.resolve())
@@ -32,9 +30,7 @@ def test_accepts_gguf_file_when_no_root_link(tmp_path):
     gguf = tmp_path / "alone.gguf"
     gguf.write_bytes(b"gguf")
     assert audio_model_path_ready(str(gguf))
-    assert resolve_audio_model_path({"artifact": {"path": str(gguf)}}) == str(
-        gguf.resolve()
-    )
+    assert resolve_audio_model_path({"artifact": {"path": str(gguf)}}) == str(gguf.resolve())
 
 
 def test_build_artifact_descriptor_records_layout(tmp_path):
@@ -54,7 +50,10 @@ def test_build_artifact_descriptor_records_layout(tmp_path):
 
 def test_builtin_identity_is_not_resolved_against_working_directory(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    model = {"family": "builtin_audio_utils", "artifact": build_builtin_artifact_descriptor("rnnoise")}
+    model = {
+        "family": "builtin_audio_utils",
+        "artifact": build_builtin_artifact_descriptor("rnnoise"),
+    }
     assert audio_model_ready(model)
     assert resolve_audio_model_path(model) == "rnnoise"
     assert resolve_audio_bundle_root(model) == ""
@@ -64,8 +63,13 @@ def test_builtin_identity_is_not_resolved_against_working_directory(tmp_path, mo
 
 
 def test_invalid_builtin_identity_does_not_bypass_package_path_validation(tmp_path):
-    model = {"family": "builtin_audio_utils", "artifact": {
-        "package_kind": "builtin", "model_id": "../rnnoise", "path": str(tmp_path),
-    }}
+    model = {
+        "family": "builtin_audio_utils",
+        "artifact": {
+            "package_kind": "builtin",
+            "model_id": "../rnnoise",
+            "path": str(tmp_path),
+        },
+    }
     assert not audio_model_ready(model)
     assert resolve_audio_model_path(model) == ""

@@ -70,12 +70,9 @@ class StoreDurabilityError(OSError):
             self.committed = "unknown"
 
 
-QUEUE_FULL_DESCRIPTION = (
-    "Persistence queue is full. Retry after the current writes finish."
-)
+QUEUE_FULL_DESCRIPTION = "Persistence queue is full. Retry after the current writes finish."
 WRITE_REPLACED_DESCRIPTION = (
-    "The document was replaced, but acknowledgement failed. "
-    "Refresh before trying again."
+    "The document was replaced, but acknowledgement failed. Refresh before trying again."
 )
 WRITE_UNCHANGED_DESCRIPTION = (
     "The save was not stored. The previous state is unchanged. "
@@ -84,9 +81,7 @@ WRITE_UNCHANGED_DESCRIPTION = (
 WRITE_UNKNOWN_DESCRIPTION = (
     "The save outcome could not be established. Refresh before trying again."
 )
-PERSISTENCE_FAILED_DESCRIPTION = (
-    "A persistence error occurred. Its details were not exported."
-)
+PERSISTENCE_FAILED_DESCRIPTION = "A persistence error occurred. Its details were not exported."
 SAFE_PERSISTENCE_DESCRIPTIONS = frozenset(
     {
         QUEUE_FULL_DESCRIPTION,
@@ -262,9 +257,7 @@ def run_store(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         on_loop = False
 
     if not _acquire_slot(blocking=not on_loop):
-        busy = StoreIoBusy(
-            "Persistence queue is full; retry after the current writes finish"
-        )
+        busy = StoreIoBusy("Persistence queue is full; retry after the current writes finish")
         _record_persistence_event("saturation", busy)
         raise busy
 
@@ -331,9 +324,7 @@ async def run_store_durable(func: Callable[..., Any], *args: Any, **kwargs: Any)
     except RuntimeError:
         on_loop = False
     if not _acquire_slot(blocking=not on_loop):
-        busy = StoreIoBusy(
-            "Persistence queue is full; retry after the current writes finish"
-        )
+        busy = StoreIoBusy("Persistence queue is full; retry after the current writes finish")
         _record_persistence_event("saturation", busy)
         raise busy
 

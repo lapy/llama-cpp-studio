@@ -110,6 +110,7 @@ def _forbidden_key(key: Any) -> bool:
     text = str(key)
     return text not in _TOKEN_LIMIT_KEYS and bool(_FORBIDDEN_KEY.search(text))
 
+
 LIMITS = {
     "includes": [
         "portable preferences",
@@ -151,15 +152,14 @@ def export_backup(store: DataStore) -> dict:
         "created_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "limits": copy.deepcopy(LIMITS),
         "preferences": _export_preferences(settings),
-        "models": [
-            dict(_export_model(row), ref=ref)
-            for row, ref in _model_references(models)
-        ],
+        "models": [dict(_export_model(row), ref=ref) for row, ref in _model_references(models)],
         "templates": [_export_template(row) for row in templates if isinstance(row, dict)],
     }
     encoded = _canonical(document).encode("utf-8")
     if len(encoded) > MAX_BACKUP_BYTES:
-        raise ConfigBackupError("BACKUP_TOO_LARGE", "The backup is larger than the supported size.", 413)
+        raise ConfigBackupError(
+            "BACKUP_TOO_LARGE", "The backup is larger than the supported size.", 413
+        )
     return document
 
 
@@ -218,7 +218,9 @@ def apply_backup(
         except Exception:
             outcome = _reconcile_locked(store)
             if outcome.get("outcome") in {"pre_import", "idle"}:
-                detail = "The restore did not finish. Documents were returned to the pre-import state."
+                detail = (
+                    "The restore did not finish. Documents were returned to the pre-import state."
+                )
             elif outcome.get("outcome") == "completed":
                 return {
                     "plan_id": plan["plan_id"],
@@ -226,7 +228,9 @@ def apply_backup(
                     "notice": PREVIEW_NOTICE,
                 }
             else:
-                detail = "The restore outcome could not be established. Restart before trying again."
+                detail = (
+                    "The restore outcome could not be established. Restart before trying again."
+                )
             raise ConfigBackupError("BACKUP_INCOMPLETE", detail, 500) from None
     return {"plan_id": plan["plan_id"], "outcome": "completed", "notice": PREVIEW_NOTICE}
 
@@ -385,7 +389,9 @@ def _journal(store: DataStore) -> Optional[dict]:
 def _require_no_journal(store: DataStore) -> None:
     if os.path.exists(os.path.join(store._config_dir, JOURNAL_FILENAME)):
         raise ConfigBackupError(
-            "BACKUP_RECOVERY_REQUIRED", "Reconcile the previous restore before continuing.", 409,
+            "BACKUP_RECOVERY_REQUIRED",
+            "Reconcile the previous restore before continuing.",
+            409,
         )
 
 
@@ -405,7 +411,8 @@ def _intended_documents(snapshot: dict, changes: dict) -> dict:
     for row in models:
         if isinstance(row, dict) and str(row.get("id")) in changes["models"]:
             row["config"] = _preserve_local_fields(
-                row.get("config"), changes["models"][str(row["id"])],
+                row.get("config"),
+                changes["models"][str(row["id"])],
             )
     templates = intended["model_config_templates.yaml"].setdefault("templates", [])
     for template_id, (_action, entry) in changes["templates"].items():
@@ -483,12 +490,6 @@ def _export_template(row: Mapping) -> dict:
     }
 
 
-
-
-
-
-
-
 def model_reference(model: Mapping) -> str:
     source = model.get("source") if isinstance(model.get("source"), dict) else {}
     provider = str(source.get("provider") or "").strip()
@@ -535,9 +536,7 @@ def _current_state(store: DataStore) -> dict:
         "models_by_ref": by_ref,
         "models_by_id": by_id,
         "templates": {
-            str(row.get("id")): row
-            for row in templates
-            if isinstance(row, dict) and row.get("id")
+            str(row.get("id")): row for row in templates if isinstance(row, dict) and row.get("id")
         },
     }
 
@@ -591,7 +590,9 @@ def _build_plan(
         if action != "skip":
             local_id = str(local["id"])
             if local_id in used_targets:
-                raise ConfigBackupError("BACKUP_MALFORMED", "Two backup models map to one local model.")
+                raise ConfigBackupError(
+                    "BACKUP_MALFORMED", "Two backup models map to one local model."
+                )
             used_targets.add(local_id)
         items.append({"kind": "model", "id": ref, "action": action, "local_id": local.get("id")})
         if action == "replace":
@@ -601,7 +602,10 @@ def _build_plan(
         local = current["templates"].get(template_id)
         default = "keep" if local else "add"
         action = _decision(
-            "templates", template_id, default, decisions,
+            "templates",
+            template_id,
+            default,
+            decisions,
             {"keep", "replace", "add", "skip"},
         )
         if action == "add" and local is not None:
@@ -620,14 +624,18 @@ def _build_plan(
         "mapping": mapping,
         "items": [(item["kind"], item["id"], item["action"]) for item in items],
     }
-    plan_id = hashlib.sha256(_canonical(identity).encode("utf-8")).hexdigest() if applicable else None
+    plan_id = (
+        hashlib.sha256(_canonical(identity).encode("utf-8")).hexdigest() if applicable else None
+    )
     return {"items": items, "changes": changes, "applicable": applicable, "plan_id": plan_id}
 
 
 def _decision(group: str, item_id: str, default: str, decisions: dict, allowed: set[str]) -> str:
     chosen = (decisions.get(group) or {}).get(item_id, default)
     if not isinstance(chosen, str) or chosen not in allowed:
-        raise ConfigBackupError("BACKUP_MALFORMED", "A restore decision is not one of the supported choices.")
+        raise ConfigBackupError(
+            "BACKUP_MALFORMED", "A restore decision is not one of the supported choices."
+        )
     return chosen
 
 
@@ -636,14 +644,20 @@ def _validated_backup(backup: Any) -> dict:
         raise ConfigBackupError("BACKUP_MALFORMED", "The backup must be a JSON object.")
     encoded = _canonical(backup).encode("utf-8")
     if len(encoded) > MAX_BACKUP_BYTES:
-        raise ConfigBackupError("BACKUP_TOO_LARGE", "The backup is larger than the supported size.", 413)
+        raise ConfigBackupError(
+            "BACKUP_TOO_LARGE", "The backup is larger than the supported size.", 413
+        )
     if backup.get("schema_version") != BACKUP_SCHEMA_VERSION or backup.get("kind") != BACKUP_KIND:
         raise ConfigBackupError("BACKUP_UNSUPPORTED", "This backup version is not supported.")
     _reject_forbidden(backup)
     preferences = backup.get("preferences")
     models = backup.get("models")
     templates = backup.get("templates")
-    if not isinstance(preferences, dict) or not isinstance(models, list) or not isinstance(templates, list):
+    if (
+        not isinstance(preferences, dict)
+        or not isinstance(models, list)
+        or not isinstance(templates, list)
+    ):
         raise ConfigBackupError("BACKUP_MALFORMED", "The backup is missing a required section.")
     cleaned_preferences = {}
     for key in ("public_inference_url", "proxy_port"):
@@ -653,7 +667,9 @@ def _validated_backup(backup: Any) -> dict:
             try:
                 cleaned_preferences[key] = normalize_public_inference_url(preferences[key])
             except (ValueError, TypeError, AttributeError) as exc:
-                raise ConfigBackupError("BACKUP_MALFORMED", "The public inference URL is invalid.") from exc
+                raise ConfigBackupError(
+                    "BACKUP_MALFORMED", "The public inference URL is invalid."
+                ) from exc
         else:
             cleaned_preferences[key] = _port(preferences[key])
     cleaned_models = []
@@ -675,14 +691,16 @@ def _validated_backup(backup: Any) -> dict:
         if template_id in seen_templates:
             raise ConfigBackupError("BACKUP_MALFORMED", "The backup repeats a template.")
         seen_templates.add(template_id)
-        cleaned_templates.append({
-            "id": template_id,
-            "name": str(entry.get("name") or "").strip(),
-            "description": str(entry.get("description") or "").strip(),
-            "include_routing": bool(entry.get("include_routing")),
-            "engines_scope": str(entry.get("engines_scope") or "all"),
-            "config": _require_portable(entry.get("config")),
-        })
+        cleaned_templates.append(
+            {
+                "id": template_id,
+                "name": str(entry.get("name") or "").strip(),
+                "description": str(entry.get("description") or "").strip(),
+                "include_routing": bool(entry.get("include_routing")),
+                "engines_scope": str(entry.get("engines_scope") or "all"),
+                "config": _require_portable(entry.get("config")),
+            }
+        )
     return {
         "schema_version": BACKUP_SCHEMA_VERSION,
         "kind": BACKUP_KIND,

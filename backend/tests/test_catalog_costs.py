@@ -35,9 +35,13 @@ def test_terminal_history_is_pruned_and_survives_restart(tmp_path):
     config_dir = tmp_path / "config"
     store = DataStore(config_dir=str(config_dir))
     now = time.time()
-    store.upsert_operation(_operation("running-old", "running", now - 10 * TERMINAL_OPERATION_MAX_AGE_SECONDS))
+    store.upsert_operation(
+        _operation("running-old", "running", now - 10 * TERMINAL_OPERATION_MAX_AGE_SECONDS)
+    )
     store.upsert_operation(_operation("failed-recent", "failed", now))
-    store.upsert_operation(_operation("failed-stale", "failed", now - TERMINAL_OPERATION_MAX_AGE_SECONDS - 5))
+    store.upsert_operation(
+        _operation("failed-stale", "failed", now - TERMINAL_OPERATION_MAX_AGE_SECONDS - 5)
+    )
     store.upsert_operation(_operation("done", "succeeded", now))
 
     kept = {row["operation_id"] for row in store.list_operations()}

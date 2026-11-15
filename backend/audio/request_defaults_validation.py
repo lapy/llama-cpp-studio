@@ -64,8 +64,7 @@ def validate_saved_request_defaults(
         source_path=source_path,
     )
     expected_key = str(
-        policy.get("request_defaults_key")
-        or request_defaults_key_for(task_key, family_key)
+        policy.get("request_defaults_key") or request_defaults_key_for(task_key, family_key)
     )
 
     speech_defaults = config.get("speech_defaults")
@@ -77,9 +76,7 @@ def validate_saved_request_defaults(
             f"{family_key or 'model'} routes through {policy.get('api_endpoint')} and uses "
             f"{expected_key}, not speech_defaults. Move these fields to {expected_key}."
         )
-    if expected_key != "transcription_defaults" and _defaults_has_content(
-        transcription_defaults
-    ):
+    if expected_key != "transcription_defaults" and _defaults_has_content(transcription_defaults):
         errors.append(
             f"{family_key or 'model'} does not use transcription_defaults for task '{task_key}'. "
             f"Use {expected_key} instead."
@@ -99,7 +96,8 @@ def validate_saved_request_defaults(
         if options is not None and not isinstance(options, dict):
             errors.append(f"{expected_key}.options must be an object")
         groups = request_field_groups_for(
-            task_key, family_key,
+            task_key,
+            family_key,
             source_path=source_path,
             profile_sections=(model_profile or {}).get("sections"),
         )

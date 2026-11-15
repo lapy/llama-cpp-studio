@@ -87,16 +87,6 @@ def test_duplicate_model_and_version_ids_are_rejected(tmp_path):
     assert len(store.get_engine_versions("llama_cpp")) == 1
 
 
-
-
-
-
-
-
-
-
-
-
 @pytest.mark.asyncio
 async def test_cancellation_keeps_manager_busy_until_termination(monkeypatch):
     from backend.operations.cancellable import CancellableOperationManager
@@ -124,9 +114,7 @@ async def test_cancellation_keeps_manager_busy_until_termination(monkeypatch):
             await current
         return True
 
-    monkeypatch.setattr(
-        "backend.operations.cancellable.cancel_running_operation", gated_cancel
-    )
+    monkeypatch.setattr("backend.operations.cancellable.cancel_running_operation", gated_cancel)
     assert manager.cancel_task(task_id)["ok"] is True
     await termination_started.wait()
     assert manager.is_operation_running()
@@ -222,9 +210,7 @@ async def test_supervisor_drain_waits_for_cleanup_after_worker_finishes(monkeypa
         return True
 
     manager._create_task(worker())
-    monkeypatch.setattr(
-        "backend.operations.cancellable.cancel_running_operation", delayed_cleanup
-    )
+    monkeypatch.setattr("backend.operations.cancellable.cancel_running_operation", delayed_cleanup)
     manager.cancel_task(task_id)
     await cleanup_started.wait()
     worker_release.set()
@@ -237,8 +223,6 @@ async def test_supervisor_drain_waits_for_cleanup_after_worker_finishes(monkeypa
     cleanup_release.set()
     await drain
     assert get_progress_manager().get_task(task_id)["status"] == "cancelled"
-
-
 
 
 def test_studio_data_dir_environment_is_authoritative(tmp_path, monkeypatch):
@@ -280,11 +264,19 @@ async def test_upstream_check_yields_while_the_request_is_in_flight(monkeypatch)
 def test_github_requests_have_a_deadline():
     from backend.engines.llama_cpp import github_refs as llama_github_refs
 
-    with patch.object(llama_github_refs.requests, "get", return_value=type("R", (), {
-        "status_code": 404,
-        "json": lambda self: [],
-        "raise_for_status": lambda self: None,
-    })()) as get:
+    with patch.object(
+        llama_github_refs.requests,
+        "get",
+        return_value=type(
+            "R",
+            (),
+            {
+                "status_code": 404,
+                "json": lambda self: [],
+                "raise_for_status": lambda self: None,
+            },
+        )(),
+    ) as get:
         llama_github_refs.fetch_latest_release_for_repository_source("llama.cpp")
     assert get.call_args.kwargs["timeout"] == llama_github_refs.GITHUB_TIMEOUT
 
@@ -342,7 +334,9 @@ def test_cancellation_stops_a_child_that_left_the_process_group(tmp_path):
                 pass
 
 
-def test_supervisor_rejects_the_same_install_directory_and_reconciles_restart(tmp_path, monkeypatch):
+def test_supervisor_rejects_the_same_install_directory_and_reconciles_restart(
+    tmp_path, monkeypatch
+):
     from backend import data_store
 
     store = DataStore(config_dir=str(tmp_path / "config"))
@@ -391,9 +385,12 @@ def test_remote_mode_requires_a_token_and_csrf(monkeypatch):
 
     with TestClient(app) as client:
         assert client.get("/api/models").status_code == 401
-        assert client.get(
-            "/api/models", headers={"Authorization": "Bearer studio-test-token"}
-        ).status_code != 401
+        assert (
+            client.get(
+                "/api/models", headers={"Authorization": "Bearer studio-test-token"}
+            ).status_code
+            != 401
+        )
         login = client.post("/api/session", json={"token": "studio-test-token"})
         assert login.status_code == 200
         assert client.post("/api/models", json={"id": "x"}).status_code == 401
@@ -432,12 +429,6 @@ def test_lifespan_starts_and_stops():
     assert ready.json()["ready"] is True
 
 
-
-
-
-
-
-
 def _local_status(monkeypatch, host: str) -> int:
     from backend.main import app
 
@@ -462,11 +453,15 @@ def test_compose_bridge_is_allowed_only_inside_the_container(monkeypatch):
 def test_sync_requests_include_timeout_on_ik_tip():
     from backend.engines.llama_cpp import github_refs as llama_github_refs
 
-    response = type("R", (), {
-        "status_code": 200,
-        "raise_for_status": lambda self: None,
-        "json": lambda self: [],
-    })()
+    response = type(
+        "R",
+        (),
+        {
+            "status_code": 200,
+            "raise_for_status": lambda self: None,
+            "json": lambda self: [],
+        },
+    )()
     with patch.object(llama_github_refs.requests, "get", return_value=response) as get:
         assert llama_github_refs.fetch_ik_llama_main_tip_commit() is None
     assert get.call_args.kwargs["timeout"] == (5, 20)

@@ -108,15 +108,15 @@ def build_request_policy(
     from backend.engines.audio_cpp.spec_fields import iter_spec_options
 
     contract = load_family_contract(source_path, family_key) if source_path and family_key else None
-    keys = list(dict.fromkeys(keys + [
-        key for scope, key, _ in iter_spec_options(contract) if scope == "request"
-    ]))
+    keys = list(
+        dict.fromkeys(
+            keys + [key for scope, key, _ in iter_spec_options(contract) if scope == "request"]
+        )
+    )
 
     family_endpoints, family_policy = _family_capability_fields(active_version, family_key)
     version_descriptor = (
-        (active_version or {}).get("contract")
-        if isinstance(active_version, dict)
-        else None
+        (active_version or {}).get("contract") if isinstance(active_version, dict) else None
     )
     composed = compose_model_contract(
         version_descriptor if isinstance(version_descriptor, dict) else None,
@@ -162,11 +162,7 @@ def validate_instructions_against_policy(
     if not text:
         return []
     policy_key = str(policy or "none").strip().lower()
-    vocab = [
-        str(item).strip()
-        for item in (vocabulary or [])
-        if str(item).strip()
-    ]
+    vocab = [str(item).strip() for item in (vocabulary or []) if str(item).strip()]
 
     if policy_key == "caption_option":
         return [
@@ -183,14 +179,8 @@ def validate_instructions_against_policy(
             allowed = {_normalize_vocab_token(item) for item in vocab}
             parts = [p.strip() for p in text.split(",") if p.strip()]
             if not parts:
-                return [
-                    "Instructions should be a comma-separated list of voice attributes."
-                ]
-            unknown = [
-                part
-                for part in parts
-                if _normalize_vocab_token(part) not in allowed
-            ]
+                return ["Instructions should be a comma-separated list of voice attributes."]
+            unknown = [part for part in parts if _normalize_vocab_token(part) not in allowed]
             if unknown:
                 examples = ", ".join(vocab[:8])
                 return [
@@ -204,9 +194,7 @@ def validate_instructions_against_policy(
             return ["Instructions should be a comma-separated list of voice attributes."]
         return []
     if policy_key in {"none", ""}:
-        return [
-            "This model does not accept an instructions field in request defaults."
-        ]
+        return ["This model does not accept an instructions field in request defaults."]
     return []
 
 

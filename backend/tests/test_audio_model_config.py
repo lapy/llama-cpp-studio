@@ -84,9 +84,7 @@ def _config(**updates):
         "session_options": {"temperature": 0.8},
     }
     audio.update(updates)
-    return normalize_model_config(
-        {"engine": "audio_cpp", "engines": {"audio_cpp": audio}}
-    )
+    return normalize_model_config({"engine": "audio_cpp", "engines": {"audio_cpp": audio}})
 
 
 def test_sanitize_audio_engine_section_drops_documentation_metavars():
@@ -107,9 +105,7 @@ def test_sanitize_audio_engine_section_drops_documentation_metavars():
     }
 
 
-def test_validates_audio_identity_assets_backend_and_nested_options(
-    tmp_path, monkeypatch
-):
+def test_validates_audio_identity_assets_backend_and_nested_options(tmp_path, monkeypatch):
     model_root = tmp_path / "model"
     model_root.mkdir()
     (model_root / "config.json").write_text("{}", encoding="utf-8")
@@ -125,9 +121,7 @@ def test_validates_audio_identity_assets_backend_and_nested_options(
         lambda *args, **kwargs: _profile(model_root),
     )
 
-    result = validate_audio_model_config(
-        _Store(active), _model(model_root), _config()
-    )
+    result = validate_audio_model_config(_Store(active), _model(model_root), _config())
 
     assert result["errors"] == []
     assert result["profile_fingerprint"] == "profile-1"
@@ -139,8 +133,16 @@ def test_save_forces_ui_off_when_active_build_does_not_enable_it(tmp_path, monke
     model_root.mkdir()
     (model_root / "config.json").write_text("{}")
     (model_root / "model.safetensors").write_bytes(b"weights")
-    active = {"version": "v1", "server_binary_path": "/server", "cli_binary_path": "/cli", "build_config": {"backend": "cuda"}}
-    monkeypatch.setattr("backend.audio.model_config.scan_audio_cpp_model_profile", lambda *a, **k: _profile(model_root))
+    active = {
+        "version": "v1",
+        "server_binary_path": "/server",
+        "cli_binary_path": "/cli",
+        "build_config": {"backend": "cuda"},
+    }
+    monkeypatch.setattr(
+        "backend.audio.model_config.scan_audio_cpp_model_profile",
+        lambda *a, **k: _profile(model_root),
+    )
     config = _config(ui=True, ui_management=True)
     validate_audio_model_config(_Store(active), _model(model_root), config)
     assert config["engines"]["audio_cpp"]["ui"] is False
@@ -164,9 +166,7 @@ def test_coerces_numeric_string_device_and_threads(tmp_path, monkeypatch):
     )
     normalized = _config(device="0", threads="4")
 
-    result = validate_audio_model_config(
-        _Store(active), _model(model_root), normalized
-    )
+    result = validate_audio_model_config(_Store(active), _model(model_root), normalized)
 
     assert result["errors"] == []
     effective = normalized["engines"]["audio_cpp"]
@@ -204,9 +204,7 @@ def test_coerces_string_session_duration_to_float(tmp_path, monkeypatch):
         }
     )
 
-    result = validate_audio_model_config(
-        _Store(active), _model(model_root), normalized
-    )
+    result = validate_audio_model_config(_Store(active), _model(model_root), normalized)
 
     assert result["errors"] == []
     stored = normalized["engines"]["audio_cpp"]["session_options"]
@@ -295,9 +293,7 @@ def test_coerces_string_session_duration_to_float(tmp_path, monkeypatch):
         ),
     ],
 )
-def test_rejects_incompatible_audio_configuration(
-    tmp_path, monkeypatch, updates, message
-):
+def test_rejects_incompatible_audio_configuration(tmp_path, monkeypatch, updates, message):
     model_root = tmp_path / "model"
     model_root.mkdir()
     (model_root / "config.json").write_text("{}", encoding="utf-8")
@@ -314,9 +310,7 @@ def test_rejects_incompatible_audio_configuration(
     )
 
     with pytest.raises(ValueError, match=message):
-        validate_audio_model_config(
-            _Store(active), _model(model_root), _config(**updates)
-        )
+        validate_audio_model_config(_Store(active), _model(model_root), _config(**updates))
 
 
 def test_rejects_invalid_voice_presets(tmp_path, monkeypatch):
@@ -811,6 +805,7 @@ def test_rejects_voxcpm2_instructions_in_speech_defaults(tmp_path, monkeypatch):
                 speech_defaults={"instructions": "calm narrator"},
             ),
         )
+
 
 def test_save_path_rejects_speech_defaults_when_inspect_help_forces_tasks_run(
     tmp_path, monkeypatch

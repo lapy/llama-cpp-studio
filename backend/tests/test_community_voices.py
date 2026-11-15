@@ -77,7 +77,9 @@ async def test_install_refreshes_when_the_checkout_changes(tmp_path):
     root = _checkout(tmp_path)
     await install_community_voices(source_root=str(root))
     updated = b"RIFFxxxxWAVE-new"
-    (tmp_path / "audio.cpp" / "webui" / "native" / "demo_voices" / "demo_1_man.wav").write_bytes(updated)
+    (tmp_path / "audio.cpp" / "webui" / "native" / "demo_voices" / "demo_1_man.wav").write_bytes(
+        updated
+    )
 
     stale = library_status(source_root=str(root))
     assert stale["installed"] is False

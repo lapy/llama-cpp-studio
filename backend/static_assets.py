@@ -86,9 +86,7 @@ def _candidate_paths(full_path: str) -> list[tuple[str, str]]:
     return candidates
 
 
-def negotiated_asset_path(
-    full_path: str, scope: Scope
-) -> Optional[tuple[str, Optional[str]]]:
+def negotiated_asset_path(full_path: str, scope: Scope) -> Optional[tuple[str, Optional[str]]]:
     """Pick the acceptable representation with the highest quality.
 
     Returns ``None`` when every available coding, including identity, is

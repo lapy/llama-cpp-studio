@@ -106,13 +106,12 @@ async def _scan_when_catalog_missing(store, engine: str, version: str, row: dict
 
         await asyncio.to_thread(scan_engine_version, store, engine, row)
     except Exception as exc:
-        logger.warning(
-            "CLI param scan after activating %s:%s: %s", engine, version, exc
-        )
+        logger.warning("CLI param scan after activating %s:%s: %s", engine, version, exc)
 
 
 async def _start_llama_server_proxy(engine: str) -> None:
     from backend.proxy.studio.manager import get_studio_proxy_manager
+
     await get_studio_proxy_manager().start_proxy()
 
 
@@ -120,9 +119,7 @@ async def _start_python_server_proxy(engine: str) -> None:
     await _start_llama_server_proxy(engine)
 
 
-async def _finish_activation(
-    store, engine: str, version: str, row: dict, on_stage=None
-) -> dict:
+async def _finish_activation(store, engine: str, version: str, row: dict, on_stage=None) -> dict:
     from backend.proxy.control import mark_runtime_changed
 
     if engine == "audio_cpp":
@@ -230,8 +227,7 @@ async def activate_engine_version(
     background = (
         covered_by is None
         and _activation_requires_background(engine)
-        and str((payload or {}).get("background", "true")).lower()
-        not in {"0", "false", "no"}
+        and str((payload or {}).get("background", "true")).lower() not in {"0", "false", "no"}
     )
     if not background:
         try:
@@ -271,9 +267,7 @@ async def activate_engine_version(
     )
     store.set_active_engine_version(engine, version)
     try:
-        supervisor.spawn(
-            task_id, _run_activation_task(task_id, store, engine, version, row)
-        )
+        supervisor.spawn(task_id, _run_activation_task(task_id, store, engine, version, row))
     except RuntimeError as exc:
         pm.fail_task(task_id, str(exc))
         raise HTTPException(status_code=409, detail=str(exc)) from exc

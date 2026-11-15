@@ -36,9 +36,17 @@ def _caps_from_loaders(payload: dict) -> dict:
 class TestRegistry:
     def test_registry_schema_and_operation_ids(self):
         ops = {op["id"] for op in registry_descriptor()}
-        assert {"speech", "transcriptions", "transcriptions_details", "alignments",
-                "batch_transcriptions", "voices", "models", "health",
-                "tasks_run"} <= ops
+        assert {
+            "speech",
+            "transcriptions",
+            "transcriptions_details",
+            "alignments",
+            "batch_transcriptions",
+            "voices",
+            "models",
+            "health",
+            "tasks_run",
+        } <= ops
 
     def test_operation_serialization_carries_defaults_key_and_body_shape(self):
         speech = operation_by_id("speech").as_dict()
@@ -52,15 +60,21 @@ class TestRegistry:
         assert generic["body_shape"] == "tasks-run"
 
     def test_resolve_operation_prefers_preferred_then_family_then_task(self):
-        assert resolve_operation(
-            task="tts",
-            preferred_api_endpoint="/v1/audio/transcriptions",
-            family_endpoints=["/v1/audio/speech"],
-        ).id == "transcriptions"
-        assert resolve_operation(
-            task="asr",
-            family_endpoints=["/v1/audio/speech"],
-        ).id == "speech"
+        assert (
+            resolve_operation(
+                task="tts",
+                preferred_api_endpoint="/v1/audio/transcriptions",
+                family_endpoints=["/v1/audio/speech"],
+            ).id
+            == "transcriptions"
+        )
+        assert (
+            resolve_operation(
+                task="asr",
+                family_endpoints=["/v1/audio/speech"],
+            ).id
+            == "speech"
+        )
         assert resolve_operation(task="tts").id == "speech"
         assert resolve_operation(task="vc").id == "tasks_run"
         assert resolve_operation(task="some_future_task").id == "tasks_run"
@@ -124,13 +138,17 @@ class TestComposer:
         assert len(descriptor["descriptor_fingerprint"]) == 64
 
     def test_unknown_family_endpoint_becomes_drift_warning(self):
-        caps = _caps_from_loaders({
-            "loaders": [{
-                "family": "future_family",
-                "tasks": [{"id": "tts"}],
-                "api_endpoints": ["/v1/future/route"],
-            }],
-        })
+        caps = _caps_from_loaders(
+            {
+                "loaders": [
+                    {
+                        "family": "future_family",
+                        "tasks": [{"id": "tts"}],
+                        "api_endpoints": ["/v1/future/route"],
+                    }
+                ],
+            }
+        )
         descriptor = compose_version_contract(caps)
         assert any("/v1/future/route" in warning for warning in descriptor["drift_warnings"])
 
@@ -150,7 +168,10 @@ class TestComposer:
         assert composed["body_shape"] == "tasks-run"
         # Loaders beat the task table.
         composed = compose_model_contract(
-            descriptor, family="omnivoice", task="vc", inspection=None,
+            descriptor,
+            family="omnivoice",
+            task="vc",
+            inspection=None,
         )
         assert composed["operation_id"] == "speech"
         # No observations: deterministic task table.
@@ -158,7 +179,9 @@ class TestComposer:
         assert composed["operation_id"] == "transcriptions"
         assert composed["endpoint_provenance"] == "studio"
         composed = compose_model_contract(
-            descriptor, family="omnivoice", task="tts",
+            descriptor,
+            family="omnivoice",
+            task="tts",
         )
         assert composed["endpoint_provenance"] == "loaders-json"
 
@@ -178,11 +201,13 @@ class TestComposer:
         descriptor = compose_version_contract(
             {},
             upstream={
-                "operations": [{
-                    "id": "speech",
-                    "native_path": "/v1/audio/speech",
-                    "method": "POST",
-                }],
+                "operations": [
+                    {
+                        "id": "speech",
+                        "native_path": "/v1/audio/speech",
+                        "method": "POST",
+                    }
+                ],
             },
         )
         assert descriptor["provenance"]["speech"] == "upstream"

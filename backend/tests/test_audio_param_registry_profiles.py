@@ -42,9 +42,7 @@ def _audio_model(model_id, family, task, **audio_config):
         "tasks": [task],
         "compatible_engines": ["audio_cpp"],
         "artifact": {"path": "/tmp/model"},
-        "config": normalize_model_config(
-            {"engine": "audio_cpp", "engines": {"audio_cpp": config}}
-        ),
+        "config": normalize_model_config({"engine": "audio_cpp", "engines": {"audio_cpp": config}}),
     }
 
 

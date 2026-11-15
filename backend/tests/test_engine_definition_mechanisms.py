@@ -129,8 +129,10 @@ async def test_prepare_fork_scales_parallelism_from_the_host(tmp_path, monkeypat
     async def build(arch_list, options=None, base=None):
         env = {"TORCH_CUDA_ARCH_LIST": arch_list} if arch_list else {}
         return await prepare_fork_build(
-            host, options if options is not None else {"concurrency": concurrency},
-            checkout=str(checkout), base_env={**env, **(base or {})},
+            host,
+            options if options is not None else {"concurrency": concurrency},
+            checkout=str(checkout),
+            base_env={**env, **(base or {})},
         )
 
     single = await build("7.0")

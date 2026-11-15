@@ -28,7 +28,18 @@ from backend.repo_identity import canonical_repository_url
 _MIX_TAG = "b11160-mix-a6922cc"
 
 
-def _artifact(name, *, profile, runtime="", coverage="", sms=(), min_sm=None, max_sm=None, rank=0, kind="linux-cuda"):
+def _artifact(
+    name,
+    *,
+    profile,
+    runtime="",
+    coverage="",
+    sms=(),
+    min_sm=None,
+    max_sm=None,
+    rank=0,
+    kind="linux-cuda",
+):
     return {
         "asset_name": name,
         "bundle_profile": profile,
@@ -186,7 +197,9 @@ def test_host_target_reads_nvidia_compute_caps():
     ],
 )
 def test_manifest_picks_tightest_linux_x64_bundle(sms, cuda_major, flavor):
-    host = HostTarget(cuda_major=cuda_major, sms=sms, has_nvidia=bool(sms) or cuda_major in {12, 13})
+    host = HostTarget(
+        cuda_major=cuda_major, sms=sms, has_nvidia=bool(sms) or cuda_major in {12, 13}
+    )
     picked = select_linux_x64_artifact(_cuda12_manifest(), host)
     assert picked is not None
     artifact, _reason = picked

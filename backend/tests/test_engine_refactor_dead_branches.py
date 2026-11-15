@@ -47,6 +47,7 @@ def test_venv_engine_modules_and_installer_map_are_gone():
     assert not hasattr(adapters, "_INSTALLERS")
     assert not hasattr(adapters, "_NATIVE_HOSTS")
 
+
 def test_compatibility_route_modules_are_thin_delegates():
     for relative in (
         "backend/routes/lmdeploy_versions.py",

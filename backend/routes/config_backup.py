@@ -59,7 +59,9 @@ async def _payload(request: Request) -> dict:
     try:
         value = json.loads(body)
     except (ValueError, UnicodeError, RecursionError) as exc:
-        raise ConfigBackupError("BACKUP_MALFORMED", "The restore request must be valid JSON.") from exc
+        raise ConfigBackupError(
+            "BACKUP_MALFORMED", "The restore request must be valid JSON."
+        ) from exc
     if not isinstance(value, dict):
         raise ConfigBackupError("BACKUP_MALFORMED", "The restore request must be an object.")
     return value

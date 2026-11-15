@@ -81,9 +81,7 @@ def test_connect_test_uses_embeddings_for_embedding_models(client, monkeypatch, 
     assert "max_tokens" not in seen["json"]
 
 
-def test_connect_test_bounds_chat_and_download_is_not_reviewed(
-    client, monkeypatch, tmp_path
-):
+def test_connect_test_bounds_chat_and_download_is_not_reviewed(client, monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
     _seed_model(store)
 
@@ -149,9 +147,7 @@ def _audio_install_record(tmp_path, store):
     )
 
 
-def test_audio_install_record_is_not_reviewed_until_config_save(
-    client, monkeypatch, tmp_path
-):
+def test_audio_install_record_is_not_reviewed_until_config_save(client, monkeypatch, tmp_path):
     from urllib.parse import quote
 
     from backend.models.config import config_was_reviewed

@@ -48,4 +48,8 @@ class BuildTaskManager:
                 "message": "Cancellation was requested. The build has not been verified as stopped.",
                 "task_id": task_id,
             }
-        return {"ok": False, "terminated": False, "message": "No active cancellable build for that task_id."}
+        return {
+            "ok": False,
+            "terminated": False,
+            "message": "No active cancellable build for that task_id.",
+        }

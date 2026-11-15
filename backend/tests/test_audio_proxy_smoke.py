@@ -29,9 +29,7 @@ def test_activate_fixture_persists_capability_delta_shape():
     assert delta["removed_tasks"] == []
 
 
-def test_activate_api_fixture_exposes_delta_and_affected_models(
-    client, monkeypatch, tmp_path
-):
+def test_activate_api_fixture_exposes_delta_and_affected_models(client, monkeypatch, tmp_path):
     store = data_store.DataStore(config_dir=str(tmp_path / "config"))
     monkeypatch.setattr(data_store, "_store", store)
     server_path, cli_path = fake_audio_binaries(tmp_path)

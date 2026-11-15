@@ -44,9 +44,7 @@ def test_delete_cached_model_file_removes_symlink_and_blob(tmp_path, monkeypatch
     assert repo_dir.exists()  # repo folder remains until full purge
 
 
-def test_delete_cached_model_file_uses_explicit_file_path_fallback(
-    tmp_path, monkeypatch
-):
+def test_delete_cached_model_file_uses_explicit_file_path_fallback(tmp_path, monkeypatch):
     huggingface_id = "org/model"
     filename = "weights.safetensors"
     _repo_dir, snapshot_file, blob_path = _make_hub_layout(

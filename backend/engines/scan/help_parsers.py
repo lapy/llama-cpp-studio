@@ -29,12 +29,8 @@ _VALUE_SPEC_PLACEHOLDER_RE = re.compile(
     r"^(?:N\d*|N|L|I|FNAME|TYPE|PATH|SEED|SAMPLERS|SEQUENCE|URL|FILE|HOST|PORT|PREFIX|JSON|SECONDS|INDEX|MODE|DIR|DEVICE|LEVEL|TOKEN|STRING|PROMPT|MESSAGE|MiB\d*)(?:\.\.\.)?$",
     re.IGNORECASE,
 )
-_REMOVED_ARGUMENT_RE = re.compile(
-    r"\b(?:the\s+)?argument\s+has\s+been\s+removed\b", re.IGNORECASE
-)
-_DASH_ENUM_ITEM_RE = re.compile(
-    r"(?:^|\s)-\s*([A-Za-z][A-Za-z0-9_+.-]*)(?:\s*\([^)]*\))?\s*:"
-)
+_REMOVED_ARGUMENT_RE = re.compile(r"\b(?:the\s+)?argument\s+has\s+been\s+removed\b", re.IGNORECASE)
+_DASH_ENUM_ITEM_RE = re.compile(r"(?:^|\s)-\s*([A-Za-z][A-Za-z0-9_+.-]*)(?:\s*\([^)]*\))?\s*:")
 _AVAILABLE_TOOLS_RE = re.compile(r"available\s+tools:\s*", re.IGNORECASE)
 # llama.cpp option lines are column 0; ik_llama / argparse indent ~2–9 spaces.
 # Wrapped descriptions are ~24–40 spaces and may mention other ``--flags``.
@@ -151,9 +147,7 @@ def _split_spec_and_description(line: str) -> Tuple[str, str]:
 
 
 def _unique_flags(flags: List[str]) -> List[str]:
-    return list(
-        dict.fromkeys(f for f in flags if isinstance(f, str) and f.startswith("-"))
-    )
+    return list(dict.fromkeys(f for f in flags if isinstance(f, str) and f.startswith("-")))
 
 
 def _flag_prefix_from_spec(spec: str) -> str:
@@ -241,9 +235,7 @@ def _select_positive_flag(flags: List[str]) -> Optional[str]:
 
 
 def _select_negative_flag(flags: List[str]) -> Optional[str]:
-    negatives = _filter_legacy_alias_flags(
-        [f for f in flags if f.startswith("--no-")]
-    )
+    negatives = _filter_legacy_alias_flags([f for f in flags if f.startswith("--no-")])
     if not negatives:
         return None
     return max(enumerate(negatives), key=lambda pair: (len(pair[1]), pair[0]))[1]
@@ -258,14 +250,13 @@ def _is_prefix_alias_flag(shorter: str, longer: str) -> bool:
 
 def _is_webui_legacy_alias(canonical: str, legacy: str) -> bool:
     """``--webui-config`` is the deprecated spelling of ``--ui-config``."""
+
     def body(flag: str) -> str:
         return flag[2:] if flag.startswith("--") else flag
 
     canonical_body, legacy_body = body(canonical), body(legacy)
     if canonical_body.startswith("no-") and legacy_body.startswith("no-"):
-        return _is_webui_legacy_alias(
-            "--" + canonical_body[3:], "--" + legacy_body[3:]
-        )
+        return _is_webui_legacy_alias("--" + canonical_body[3:], "--" + legacy_body[3:])
     return canonical_body.startswith("ui") and legacy_body == "web" + canonical_body
 
 
@@ -273,29 +264,19 @@ def _filter_legacy_alias_flags(spec_flags: List[str]) -> List[str]:
     return [
         flag
         for flag in spec_flags
-        if not any(
-            _is_webui_legacy_alias(other, flag)
-            for other in spec_flags
-            if other != flag
-        )
+        if not any(_is_webui_legacy_alias(other, flag) for other in spec_flags if other != flag)
     ]
 
 
 def _spec_positive_flags(spec: str) -> List[str]:
-    return [
-        f for f in LONG_FLAG_RE.findall(spec or "") if not f.startswith("--no-")
-    ]
+    return [f for f in LONG_FLAG_RE.findall(spec or "") if not f.startswith("--no-")]
 
 
 def _filter_prefix_alias_flags(spec_flags: List[str]) -> List[str]:
     return [
         flag
         for flag in spec_flags
-        if not any(
-            _is_prefix_alias_flag(flag, other)
-            for other in spec_flags
-            if other != flag
-        )
+        if not any(_is_prefix_alias_flag(flag, other) for other in spec_flags if other != flag)
     ]
 
 
@@ -353,8 +334,7 @@ def _extract_value_spec(spec: str, flags: List[str]) -> str:
 def _is_csv_enum_description(description: str) -> bool:
     desc = (description or "").lower()
     return any(
-        marker in desc
-        for marker in ("comma-separated", "comma separated", "comma separated list")
+        marker in desc for marker in ("comma-separated", "comma separated", "comma separated list")
     )
 
 
@@ -390,7 +370,9 @@ def _extract_inline_flag_options(spec: str, flags: List[str]) -> Optional[List[d
     return [{"value": p, "label": p} for p in parts]
 
 
-def _options_from_delimited_default(raw_default: Optional[str], separator: str) -> Optional[List[dict]]:
+def _options_from_delimited_default(
+    raw_default: Optional[str], separator: str
+) -> Optional[List[dict]]:
     if not raw_default or separator not in raw_default:
         return None
     parts = [p.strip() for p in raw_default.split(separator) if p.strip()]
@@ -611,11 +593,7 @@ def _infer_multiple(value_spec: str, description: str) -> bool:
             "path(s)",
             "paths)",
         )
-    elif (
-        "list of" in hay
-        and "," not in (value_spec or "")
-        and "..." not in (value_spec or "")
-    ):
+    elif "list of" in hay and "," not in (value_spec or "") and "..." not in (value_spec or ""):
         markers = tuple(m for m in markers if m != "list of")
     elif (value_spec or "").strip() and "..." not in (value_spec or ""):
         if _looks_like_single_metavar(value_spec):
@@ -745,10 +723,10 @@ def _ambiguous_conditional_default(value: str) -> bool:
 
 def _raw_default(text: str) -> Optional[str]:
     """
-  Parse defaults from llama-server help.
+    Parse defaults from llama-server help.
 
-  Handles ``(default: f16)``, ``default: 0.80``, and ``default: 'auto'`` without
-  swallowing trailing ``(env: …)`` clauses.
+    Handles ``(default: f16)``, ``default: 0.80``, and ``default: 'auto'`` without
+    swallowing trailing ``(env: …)`` clauses.
     """
     if not text:
         return None
@@ -996,9 +974,7 @@ def _build_param_row(
         inline_options = None
         options = None
         tool_options = None
-    csv_list_spec = bool(
-        CSV_ELLIPSIS_SPEC_RE.fullmatch(re.sub(r"\s+", "", value_spec or ""))
-    )
+    csv_list_spec = bool(CSV_ELLIPSIS_SPEC_RE.fullmatch(re.sub(r"\s+", "", value_spec or "")))
     csv_enum = bool(
         options
         and (
@@ -1074,9 +1050,7 @@ def _build_param_row(
                     default = []
                 else:
                     default = [
-                        part.strip()
-                        for part in raw_default.split(separator)
-                        if part.strip()
+                        part.strip() for part in raw_default.split(separator) if part.strip()
                     ]
         elif multiple:
             parsed = _coerce_scalar_default(raw_default, "string")
@@ -1103,10 +1077,7 @@ def _build_param_row(
         "negative_flag": negative_flag,
         "value_kind": value_kind,
         "scalar_type": scalar_type,
-        "multiple": bool(
-            multiple
-            or value_kind in {"space_list", "csv_enum", "semicolon_enum"}
-        ),
+        "multiple": bool(multiple or value_kind in {"space_list", "csv_enum", "semicolon_enum"}),
         "options": options,
         "default": default,
         "type": _ui_type(value_kind, scalar_type),
@@ -1149,12 +1120,8 @@ def _merge_param_rows(rows: List[dict]) -> List[dict]:
         existing["flags"] = list(
             dict.fromkeys((existing.get("flags") or []) + (row.get("flags") or []))
         )
-        existing["primary_flag"] = existing.get("primary_flag") or row.get(
-            "primary_flag"
-        )
-        existing["negative_flag"] = existing.get("negative_flag") or row.get(
-            "negative_flag"
-        )
+        existing["primary_flag"] = existing.get("primary_flag") or row.get("primary_flag")
+        existing["negative_flag"] = existing.get("negative_flag") or row.get("negative_flag")
         existing["reserved"] = bool(existing.get("reserved") or row.get("reserved"))
         if row.get("value_kind") == "json_object":
             existing["value_kind"] = "json_object"
@@ -1214,9 +1181,7 @@ def _merge_param_rows(rows: List[dict]) -> List[dict]:
     return list(by_key.values())
 
 
-_CACHE_TYPE_KEY_RE = re.compile(
-    r"^(?:cache_type_[kv](?:_draft)?|spec_draft_type_[kv])$"
-)
+_CACHE_TYPE_KEY_RE = re.compile(r"^(?:cache_type_[kv](?:_draft)?|spec_draft_type_[kv])$")
 _KV_CACHE_TYPE_TOKENS = frozenset(
     {"f32", "f16", "bf16", "q8_0", "q4_0", "q4_1", "iq4_nl", "q5_0", "q5_1"}
 )
@@ -1232,9 +1197,9 @@ def _is_cache_type_param(row: dict) -> bool:
 
 def _enrich_cache_type_enum_options(params: List[dict]) -> None:
     """
-    Some builds (e.g. ik_llama) document ``--cache-type-k-draft TYPE`` without an
-    ``allowed values:`` line. Copy options from any sibling that has them, or use
-  the standard KV-cache type set when we see a partial match.
+      Some builds (e.g. ik_llama) document ``--cache-type-k-draft TYPE`` without an
+      ``allowed values:`` line. Copy options from any sibling that has them, or use
+    the standard KV-cache type set when we see a partial match.
     """
     reference: Optional[List[dict]] = None
     for row in params:
@@ -1324,20 +1289,14 @@ def _attach_llama_sections(text: str, params: List[dict]) -> List[dict]:
         sm = SECTION_RULE_LLAMA.match(stripped)
         if sm:
             section_label = sm.group(1).strip()
-            section_id = (
-                re.sub(r"[^a-z0-9]+", "_", section_label.lower()).strip("_")
-                or "general"
-            )
+            section_id = re.sub(r"[^a-z0-9]+", "_", section_label.lower()).strip("_") or "general"
             trace_extract("section", id=section_id, label=section_label, style="dash_banner")
             continue
         # ik_llama.cpp style: ``general:``, ``server:``, ``embedding:`` (no ``-----`` banner).
         sh = LM_SECTION_HEADER.fullmatch(stripped) if use_colon_headers else None
         if sh:
             section_label = sh.group(1).strip()
-            section_id = (
-                re.sub(r"[^a-z0-9]+", "_", section_label.lower()).strip("_")
-                or "general"
-            )
+            section_id = re.sub(r"[^a-z0-9]+", "_", section_label.lower()).strip("_") or "general"
             continue
         if _is_llama_option_line(line):
             spec, _desc = _split_spec_and_description(line)
@@ -1391,9 +1350,7 @@ def parse_llama_help_to_sections(text: str, engine: str) -> List[dict]:
     return group_params_into_sections(params)
 
 
-_AUDIO_OPTION_TRANSPORT_FLAGS = frozenset(
-    {"--load-option", "--session-option", "--request-option"}
-)
+_AUDIO_OPTION_TRANSPORT_FLAGS = frozenset({"--load-option", "--session-option", "--request-option"})
 _AUDIO_DOCUMENTATION_METAVARS = frozenset({"key=value"})
 
 
@@ -1432,9 +1389,7 @@ _AUDIO_BARE_KEYED_OPTION_SECTIONS = {
     "model_load_options": "load_option",
     "model_request_options": "request_option",
 }
-_AUDIO_BARE_OPTION_NAME_RE = re.compile(
-    r"^[A-Za-z_][A-Za-z0-9_.-]*$"
-)
+_AUDIO_BARE_OPTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
 _AUDIO_PROCESS_KEYS = {
     "config",
     "host",
@@ -1492,9 +1447,8 @@ def _split_audio_compact_flag_specs(spec: str) -> List[str]:
 
 
 def _audio_apply_pipe_typing(row: dict, value_spec: str, description: str) -> dict:
-    pipe_options = (
-        _audio_options_from_value_spec(value_spec)
-        or _audio_options_from_description(description)
+    pipe_options = _audio_options_from_value_spec(value_spec) or _audio_options_from_description(
+        description
     )
     if not pipe_options:
         return row
@@ -1557,8 +1511,10 @@ def _normalize_keyed_option_name(raw: str) -> Tuple[str, Optional[str], str]:
     """
     text = str(raw or "").strip()
     default_hint = None
-    if text.startswith("--session-option") or text.startswith("--load-option") or text.startswith(
-        "--request-option"
+    if (
+        text.startswith("--session-option")
+        or text.startswith("--load-option")
+        or text.startswith("--request-option")
     ):
         parts = text.split(None, 1)
         text = parts[1].strip() if len(parts) > 1 else ""
@@ -1581,29 +1537,25 @@ def _audio_apply_keyed_option_typing(
         option_name = normalized
     if extra_spec and not str(option_value_spec or "").strip():
         option_value_spec = extra_spec
-    if default_hint and default_hint.lower() in {"true", "false"} and not str(
-        option_value_spec or ""
-    ).strip():
+    if (
+        default_hint
+        and default_hint.lower() in {"true", "false"}
+        and not str(option_value_spec or "").strip()
+    ):
         option_value_spec = "true|false"
     row["key"] = option_name
     row["option_key"] = option_name
     row["label"] = _human_label(option_name.replace(".", "_"))
     row["value_spec"] = option_value_spec.strip()
-    option_choices = (
-        _audio_options_from_value_spec(option_value_spec)
-        or _audio_options_from_description(description)
-    )
+    option_choices = _audio_options_from_value_spec(
+        option_value_spec
+    ) or _audio_options_from_description(description)
     boolish = (
-        option_value_spec.strip("<>[]{}").lower()
-        in {"bool", "boolean", "true|false", "false|true"}
+        option_value_spec.strip("<>[]{}").lower() in {"bool", "boolean", "true|false", "false|true"}
         or bool(
-            option_choices
-            and {c["value"].lower() for c in option_choices} <= {"true", "false"}
+            option_choices and {c["value"].lower() for c in option_choices} <= {"true", "false"}
         )
-        or (
-            default_hint is not None
-            and default_hint.lower() in {"true", "false"}
-        )
+        or (default_hint is not None and default_hint.lower() in {"true", "false"})
     )
     row["scalar_type"] = (
         "bool"
@@ -1714,9 +1666,7 @@ def _audio_default_from_description(description: str) -> Optional[str]:
         value = match.group("val")
         # "the default comes from ..." describes a derived value; keep
         # looking for a later explicit default in the same help line.
-        if value.lower() in {"come", "comes"} and text[match.end() :].lstrip().startswith(
-            "from"
-        ):
+        if value.lower() in {"come", "comes"} and text[match.end() :].lstrip().startswith("from"):
             continue
         return _normalize_default_fragment(value)
     return None
@@ -1743,11 +1693,7 @@ def _audio_row_metadata(row: dict, section_id: str, source: str) -> dict:
     row["emission"] = {
         "transport": transport,
         "flag": row.get("primary_flag"),
-        **(
-            {"option_key": row.get("option_key")}
-            if row.get("option_key")
-            else {}
-        ),
+        **({"option_key": row.get("option_key")} if row.get("option_key") else {}),
     }
     row["read_only"] = scope == "request_option"
     row["reserved"] = bool(
@@ -1761,9 +1707,7 @@ def _audio_row_metadata(row: dict, section_id: str, source: str) -> dict:
             values = ["cpu", "cuda", "hip", "vulkan", "metal"]
             if source != "server":
                 values.append("best")
-            row["options"] = [
-                {"value": value, "label": value} for value in values
-            ]
+            row["options"] = [{"value": value, "label": value} for value in values]
         row["value_kind"] = "enum"
         row["type"] = "select"
         row["scalar_type"] = "string"
@@ -1773,17 +1717,13 @@ def _audio_row_metadata(row: dict, section_id: str, source: str) -> dict:
         row["value_kind"] = "scalar"
         row["minimum"] = 1 if key == "threads" else 0
     if row.get("default") is None:
-        inline = _audio_default_from_description(
-            str(row.get("description") or "")
-        )
+        inline = _audio_default_from_description(str(row.get("description") or ""))
         if inline is not None:
             if row.get("value_kind") == "flag":
                 coerced = _coerce_flag_default(inline)
                 if coerced is not None:
                     row["default"] = coerced
-            elif row.get("scalar_type") == "int" and re.fullmatch(
-                r"[-+]?\d+", str(inline)
-            ):
+            elif row.get("scalar_type") == "int" and re.fullmatch(r"[-+]?\d+", str(inline)):
                 row["default"] = int(inline)
             elif row.get("scalar_type") == "float" and re.fullmatch(
                 r"[-+]?\d+(?:\.\d+)?", str(inline)
@@ -1815,9 +1755,7 @@ def _audio_value_spec_looks_like_prose(value_spec: str) -> bool:
     return bool(_AUDIO_PROSE_CONTINUATION_RE.match(rest))
 
 
-def parse_audio_cpp_help_to_sections(
-    text: str, *, source: str = "cli"
-) -> List[dict]:
+def parse_audio_cpp_help_to_sections(text: str, *, source: str = "cli") -> List[dict]:
     """Parse audio.cpp CLI/server and model-aware help.
 
     Upstream uses compact two-space-separated rows and model-specific headings
@@ -1843,12 +1781,7 @@ def parse_audio_cpp_help_to_sections(
             continue
 
         bare_transport = _AUDIO_BARE_KEYED_OPTION_SECTIONS.get(section_id)
-        if (
-            bare_transport
-            and stripped
-            and not stripped.startswith("-")
-            and line[:1].isspace()
-        ):
+        if bare_transport and stripped and not stripped.startswith("-") and line[:1].isspace():
             bare_row = _audio_bare_keyed_option_row(
                 line,
                 section_id=section_id,
@@ -1861,9 +1794,7 @@ def parse_audio_cpp_help_to_sections(
                 i += 1
                 continue
 
-        if stripped.startswith("--") or (
-            stripped.startswith("-") and "--" in stripped
-        ):
+        if stripped.startswith("--") or (stripped.startswith("-") and "--" in stripped):
             spec, inline_description = _split_spec_and_description(line)
             description_lines = [inline_description] if inline_description else []
             i += 1
@@ -1885,9 +1816,7 @@ def parse_audio_cpp_help_to_sections(
                     _AUDIO_BARE_KEYED_OPTION_SECTIONS.get(section_id)
                     and next_line[:1].isspace()
                     and not next_stripped.startswith("-")
-                    and _AUDIO_BARE_OPTION_NAME_RE.match(
-                        next_stripped.split(None, 1)[0]
-                    )
+                    and _AUDIO_BARE_OPTION_NAME_RE.match(next_stripped.split(None, 1)[0])
                 ):
                     break
                 description_lines.append(next_stripped)
@@ -1938,8 +1867,8 @@ def parse_audio_cpp_help_to_sections(
                     remaining = value_spec.strip()
                     # Support both ``key <spec>`` and malformed
                     # ``--session-option key[=default]`` packed into value_spec.
-                    option_name, default_hint, option_value_spec = (
-                        _normalize_keyed_option_name(remaining)
+                    option_name, default_hint, option_value_spec = _normalize_keyed_option_name(
+                        remaining
                     )
                     if not option_value_spec and " " in remaining:
                         _, _, option_value_spec = remaining.partition(" ")
@@ -2018,9 +1947,7 @@ def parse_audio_cpp_help_to_sections(
 
     merged = _merge_param_rows(raw)
     if source == "server":
-        merged = [
-            row for row in merged if not _should_skip_audio_server_help_row(row)
-        ]
+        merged = [row for row in merged if not _should_skip_audio_server_help_row(row)]
         advertised = set(LONG_FLAG_RE.findall(text))
         process_specs = {
             "--config": ("<server.json>", "Generated server configuration path"),
@@ -2060,9 +1987,7 @@ def parse_audio_cpp_help_to_sections(
                     row["value_kind"] = "enum"
                     row["type"] = "select"
                     row["multiple"] = False
-                merged.append(
-                    _audio_row_metadata(row, "process_options", "server")
-                )
+                merged.append(_audio_row_metadata(row, "process_options", "server"))
     # ``_merge_param_rows`` keeps custom v2 metadata from the first occurrence;
     # restore it defensively for parsers fed duplicate model help rows.
     for row in merged:
@@ -2153,11 +2078,7 @@ def parse_audio_cpp_loaders_json(payload: Any) -> Dict[str, Any]:
                 task_id = str(
                     task_row.get("id") or task_row.get("task") or task_row.get("name") or ""
                 ).strip()
-                modes = [
-                    str(m).strip()
-                    for m in (task_row.get("modes") or [])
-                    if str(m).strip()
-                ]
+                modes = [str(m).strip() for m in (task_row.get("modes") or []) if str(m).strip()]
             else:
                 continue
             if not task_id:
@@ -2194,11 +2115,7 @@ def parse_audio_cpp_loaders_json(payload: Any) -> Dict[str, Any]:
         "family_policies": family_policies,
         "family_endpoints": family_endpoints,
         "source": "json",
-        "schema_version": (
-            payload.get("schema_version")
-            if isinstance(payload, dict)
-            else None
-        ),
+        "schema_version": (payload.get("schema_version") if isinstance(payload, dict) else None),
     }
 
 
@@ -2250,11 +2167,7 @@ def parse_audio_cpp_inspection_json(payload: Any) -> dict:
             result["tasks"].append(
                 {
                     "task": task_id,
-                    "modes": [
-                        str(m).strip()
-                        for m in (item.get("modes") or [])
-                        if str(m).strip()
-                    ],
+                    "modes": [str(m).strip() for m in (item.get("modes") or []) if str(m).strip()],
                 }
             )
     for key, out_key in (("configs", "configs"), ("weights", "weights")):
@@ -2278,21 +2191,18 @@ def parse_audio_cpp_inspection_json(payload: Any) -> dict:
     if isinstance(voices, list):
         result["voices"] = [str(item).strip() for item in voices if str(item).strip()]
     elif isinstance(voices, str) and voices.strip():
-        result["voices"] = [
-            item.strip() for item in voices.split(",") if item.strip()
-        ]
+        result["voices"] = [item.strip() for item in voices.split(",") if item.strip()]
     caps = payload.get("capabilities")
     if isinstance(caps, dict):
         result["capabilities"] = dict(caps)
     for key, value in payload.items():
         if str(key).startswith("supports_"):
-            result["capabilities"][str(key)] = (
-                value is True
-                or str(value).strip().lower() in {"1", "true", "yes"}
-            )
-    result["task_names"] = [
-        item["task"] for item in result["tasks"] if item.get("task")
-    ]
+            result["capabilities"][str(key)] = value is True or str(value).strip().lower() in {
+                "1",
+                "true",
+                "yes",
+            }
+    result["task_names"] = [item["task"] for item in result["tasks"] if item.get("task")]
     return result
 
 
@@ -2321,24 +2231,16 @@ def parse_audio_cpp_inspection(text: str) -> dict:
             result["tasks"].append(
                 {
                     "task": task_name.strip(),
-                    "modes": [
-                        item.strip()
-                        for item in modes_value.split(",")
-                        if item.strip()
-                    ],
+                    "modes": [item.strip() for item in modes_value.split(",") if item.strip()],
                 }
             )
         elif key in {"config", "weight"}:
             asset_id, _, path = value.partition(":")
             result[f"{key}s"].append({"id": asset_id, "path": path})
         elif key == "languages":
-            result["languages"] = [
-                item.strip() for item in value.split(",") if item.strip()
-            ]
+            result["languages"] = [item.strip() for item in value.split(",") if item.strip()]
         elif key in {"voices", "packaged_voices"}:
-            result["voices"] = [
-                item.strip() for item in value.split(",") if item.strip()
-            ]
+            result["voices"] = [item.strip() for item in value.split(",") if item.strip()]
         elif key.startswith("supports_"):
             result["capabilities"][key] = value.lower() == "true"
         elif key in {"supported_tasks", "configs", "weights"}:
@@ -2348,9 +2250,7 @@ def parse_audio_cpp_inspection(text: str) -> dict:
                 result[f"{key}_count"] = 0
         else:
             result[key] = value
-    result["task_names"] = [
-        item["task"] for item in result["tasks"] if item.get("task")
-    ]
+    result["task_names"] = [item["task"] for item in result["tasks"] if item.get("task")]
     return result
 
 
@@ -2366,10 +2266,7 @@ def parse_lmdeploy_api_server_help(text: str) -> List[dict]:
         sh = LM_SECTION_HEADER.match(line.strip())
         if sh and "arguments" in line.lower():
             section_label = sh.group(1).strip()
-            section_id = (
-                re.sub(r"[^a-z0-9]+", "_", section_label.lower()).strip("_")
-                or "options"
-            )
+            section_id = re.sub(r"[^a-z0-9]+", "_", section_label.lower()).strip("_") or "options"
             i += 1
             continue
         if line.strip() == "options:":
@@ -2490,9 +2387,7 @@ def _trim_vllm_serve_help_prologue(text: str) -> str:
 
 def _vllm_section_from_header(header: str) -> Tuple[str, str]:
     section_label = header.strip()
-    section_id = (
-        re.sub(r"[^a-z0-9]+", "_", section_label.lower()).strip("_") or "options"
-    )
+    section_id = re.sub(r"[^a-z0-9]+", "_", section_label.lower()).strip("_") or "options"
     return section_id, section_label
 
 

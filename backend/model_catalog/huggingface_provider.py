@@ -131,9 +131,7 @@ class HuggingFaceCatalogProvider:
             tasks.append("embeddings")
         compatible = compatible_engines_for_record({"format": model_format})
         variants = cls._install_variants(raw, model_format)
-        total_size = sum(
-            int(variant.get("size_bytes") or 0) for variant in variants
-        ) or None
+        total_size = sum(int(variant.get("size_bytes") or 0) for variant in variants) or None
         return normalized_item(
             provider="huggingface",
             item_id=f"{repository_id}:{model_format}",
@@ -145,9 +143,7 @@ class HuggingFaceCatalogProvider:
                 "revision": raw.get("sha"),
             },
             artifact_format=model_format,
-            package_kind=(
-                "single_file" if model_format == "gguf" else "hf_snapshot"
-            ),
+            package_kind=("single_file" if model_format == "gguf" else "hf_snapshot"),
             tasks=tasks,
             family=raw.get("architecture") or raw.get("model_type") or None,
             languages=raw.get("language") or [],
@@ -201,4 +197,3 @@ class HuggingFaceCatalogProvider:
                 if isinstance(raw, dict):
                     output.append(self._normalize(raw, model_format))
         return output
-

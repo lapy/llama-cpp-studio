@@ -45,10 +45,7 @@ def prune_operation_rows(rows: list, *, now: float | None = None) -> list:
             and not detail.get("confirmation_consumed")
             and (
                 status == "unknown"
-                or (
-                    status == "interrupted"
-                    and detail.get("effect_started") is not False
-                )
+                or (status == "interrupted" and detail.get("effect_started") is not False)
             )
         )
         # These rows are admission fences, not disposable terminal history.

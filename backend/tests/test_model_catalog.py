@@ -14,9 +14,7 @@ def test_package_is_gated_uses_engine_metadata_and_description():
         {"kind": "huggingface_snapshot", "repo_id": "org/open"},
         description="Gated model — accept the license on Hugging Face.",
     )
-    assert not package_is_gated(
-        {"kind": "huggingface_snapshot", "repo_id": "Qwen/Qwen3-TTS"}
-    )
+    assert not package_is_gated({"kind": "huggingface_snapshot", "repo_id": "Qwen/Qwen3-TTS"})
 
 
 def test_audio_catalog_requires_loader_scan_for_verified_compatibility(monkeypatch):
@@ -126,7 +124,8 @@ def test_audio_catalog_exposes_install_method_labels_and_gated(monkeypatch):
                 "install_kind": "snapshot",
                 "source": {
                     "kind": "huggingface_snapshot",
-                    "repo_id": "kyutai/pocket-tts", "gated": True,
+                    "repo_id": "kyutai/pocket-tts",
+                    "gated": True,
                 },
             },
         ],
@@ -371,7 +370,9 @@ def test_catalog_search_ranks_exact_names_ahead_of_downloads():
     ]
     ranked = sort_catalog_items(items, query="Qwen/Qwen2.5-7B-Instruct-GGUF", sort="relevance")
     assert ranked[0]["id"] == "huggingface:qwen:gguf"
-    by_downloads = sort_catalog_items(items, query="Qwen/Qwen2.5-7B-Instruct-GGUF", sort="downloads_desc")
+    by_downloads = sort_catalog_items(
+        items, query="Qwen/Qwen2.5-7B-Instruct-GGUF", sort="downloads_desc"
+    )
     assert by_downloads[0]["id"] == "huggingface:popular:gguf"
 
 
@@ -496,19 +497,33 @@ def test_huggingface_gguf_variants_use_files_field():
 def test_audio_access_metadata_distinguishes_unknown_and_spec_defaults(monkeypatch, tmp_path):
     import json
 
-    monkeypatch.setattr("backend.model_catalog.audio_cpp_provider.get_version_entry", lambda *_a: {})
+    monkeypatch.setattr(
+        "backend.model_catalog.audio_cpp_provider.get_version_entry", lambda *_a: {}
+    )
     specs = tmp_path / "model_specs"
     specs.mkdir()
-    (specs / "future.json").write_text(json.dumps({
-        "family": "future", "tasks": ["tts"],
-        "package_defaults": {"download": {"gated": True}},
-        "packages": [{"id": "known"}, {"id": "public", "download": {"gated": False}}],
-    }))
+    (specs / "future.json").write_text(
+        json.dumps(
+            {
+                "family": "future",
+                "tasks": ["tts"],
+                "package_defaults": {"download": {"gated": True}},
+                "packages": [{"id": "known"}, {"id": "public", "download": {"gated": False}}],
+            }
+        )
+    )
     provider = AudioCppCatalogProvider(object())
-    rows = provider._normalize_packages([
-        {"id": name, "family": "future", "source": {"kind": "huggingface_snapshot", "repo_id": "org/model"}}
-        for name in ("unknown", "known", "public")
-    ], {"version": "test", "source_path": str(tmp_path)})
+    rows = provider._normalize_packages(
+        [
+            {
+                "id": name,
+                "family": "future",
+                "source": {"kind": "huggingface_snapshot", "repo_id": "org/model"},
+            }
+            for name in ("unknown", "known", "public")
+        ],
+        {"version": "test", "source_path": str(tmp_path)},
+    )
     by_id = {row["provider_item_id"]: row for row in rows}
     assert by_id["unknown"]["metadata"]["access_status"] == "unknown"
     assert by_id["known"]["metadata"]["access_status"] == "gated"
