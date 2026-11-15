@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import ModelLibrary from './ModelLibrary.vue'
 import { LIBRARY_PRESETS_KEY } from '@/utils/libraryFilterPresets'
+import { ConnectDialog, FirstModelPanel, SetupChecklist } from '@/components/models/lazyLibraryUi'
 
 const fetchModels = vi.fn().mockResolvedValue(undefined)
 const fetchSafetensorsModels = vi.fn().mockResolvedValue(undefined)
@@ -286,6 +287,12 @@ describe('ModelLibrary running glow', () => {
     expect(cards[0].text()).toContain('bartowski/Qwen_Qwen3-0.6B-GGUF')
     expect(cards[0].text()).toContain('smallest option here')
     wrapper.unmount()
+  })
+
+  it('code-splits first-run guidance and the connect dialog out of the library chunk', () => {
+    for (const component of [FirstModelPanel, SetupChecklist, ConnectDialog]) {
+      expect(typeof component.__asyncLoader).toBe('function')
+    }
   })
 
   it('hides the first-model empty state once the library has a model', async () => {

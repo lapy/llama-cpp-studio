@@ -528,6 +528,7 @@
     <LibraryToast @configure="configureModel" />
 
     <ConnectDialog
+      v-if="connectVisible"
       v-model:visible="connectVisible"
       :model="connectModel"
       :proxy-port="proxyPort"
@@ -593,9 +594,7 @@ import {
 import PageHeader from '@/components/common/PageHeader.vue'
 import LoadingState from '@/components/common/LoadingState.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
-import SetupChecklist from '@/components/common/SetupChecklist.vue'
-import FirstModelPanel from '@/components/models/FirstModelPanel.vue'
-import ConnectDialog from '@/components/common/ConnectDialog.vue'
+import { ConnectDialog, FirstModelPanel, SetupChecklist } from '@/components/models/lazyLibraryUi'
 import { useEnginesStore } from '@/stores/engines'
 
 const router = useRouter()
