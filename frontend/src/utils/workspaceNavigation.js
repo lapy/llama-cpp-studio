@@ -12,6 +12,9 @@ export function installWorkspaceNavigation(router) {
     if (failure || typeof document === 'undefined') return
     document.title = `${workspaceTitle(to)} — Studio`
     if (!from.matched.length || (to.path === from.path && to.hash === from.hash)) return
+    // A same-page hash change is an in-page jump; keep focus where the user
+    // left it (or on the tab they just activated) and let the view scroll.
+    if (to.path === from.path) return
     await nextTick()
     document.getElementById('main-content')?.focus({ preventScroll: true })
   })

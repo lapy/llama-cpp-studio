@@ -33,4 +33,25 @@ describe('workspace navigation', () => {
     expect(document.activeElement).toBe(launcher)
     remove()
   })
+
+  it('preserves focus for in-page hash changes', async () => {
+    document.body.innerHTML =
+      '<button id="launcher">Navigate</button><main id="main-content" tabindex="-1"></main>'
+    const launcher = document.getElementById('launcher')
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/system', meta: { title: 'System' }, component: { template: '<div />' } }],
+    })
+    const remove = installWorkspaceNavigation(router)
+    await router.push('/system')
+    await flushPromises()
+    launcher.focus()
+
+    await router.push('/system#config-backup')
+    await flushPromises()
+
+    expect(document.title).toBe('Backup & restore — Studio')
+    expect(document.activeElement).toBe(launcher)
+    remove()
+  })
 })

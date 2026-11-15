@@ -66,7 +66,17 @@ const router = createRouter({
   history: createWebHistory(),
   routes,
   scrollBehavior(to, from, saved) {
-    return saved || (to.path !== from.path || to.hash !== from.hash ? { top: 0 } : false)
+    if (saved) return saved
+    // ModelConfig scrolls its own tab panels after switching tabs. Let it own
+    // same-page section changes instead of jumping to the top first.
+    if (
+      to.name === 'model-config' &&
+      from.name === 'model-config' &&
+      to.path === from.path &&
+      to.hash
+    )
+      return false
+    return to.path !== from.path || to.hash !== from.hash ? { top: 0 } : false
   },
 })
 

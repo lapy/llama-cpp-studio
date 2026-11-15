@@ -65,6 +65,16 @@
           @click="discardDraftOffer"
         />
       </div>
+      <div v-if="draftRestored" class="state-banner" role="status">
+        <span>Restored unsaved changes from this session.</span>
+        <Button
+          label="Dismiss"
+          size="small"
+          severity="secondary"
+          outlined
+          @click="draftRestored = false"
+        />
+      </div>
 
       <div class="config-card config-workbench">
         <div class="section-label section-label--inline">Engine</div>
@@ -148,7 +158,7 @@
           :aria-selected="pageTab === tab.id"
           :aria-controls="`config-panel-${tab.id}`"
           :tabindex="pageTab === tab.id ? 0 : -1"
-          @click="pageTab = tab.id"
+          @click="selectPageTab(tab)"
           @keydown="onRovingTabKeydown"
         >
           <span class="engine-option-label">
@@ -1199,6 +1209,7 @@ import UnsavedChangesDialog from '@/components/common/UnsavedChangesDialog.vue'
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { clearDraft, readDraft, useDraftGuard, writeDraft } from '@/composables/useDraftGuard'
+import { useModelConfigSections } from '@/composables/useModelConfigSections'
 import { onRovingTabKeydown } from '@/composables/useRovingTabs'
 import { watchDialogFocus } from '@/composables/useFocusReturn'
 import { withheldConfirmation } from '@/composables/actionConfirmation'
@@ -1266,6 +1277,7 @@ const enginesStore = useEnginesStore()
 const loading = ref(true)
 const loadError = ref('')
 const draftOffer = ref(null)
+const draftRestored = ref(false)
 const draftsEnabled = ref(false)
 const applyImpactVisible = ref(false)
 const changeReviewVisible = ref(false)
@@ -1528,6 +1540,19 @@ watch(
     if (!ids.has(pageTab.value)) pageTab.value = tabs[0]?.id || 'runtime'
   },
 )
+const configSectionsReady = computed(
+  () => !loading.value && Boolean(model.value) && Boolean(config.value?.engine),
+)
+function configSectionPanelId(sectionId) {
+  if (sectionId === 'launch') return 'config-panel-launch'
+  return isAudioEngine.value ? `audio-config-panel-${sectionId}` : `config-panel-${sectionId}`
+}
+const { selectTab: selectPageTab } = useModelConfigSections({
+  tabs: pageTabs,
+  activeTab: pageTab,
+  ready: configSectionsReady,
+  panelId: configSectionPanelId,
+})
 function configCapability(name, fallback = true) {
   const value = ENGINE_DESCRIPTORS[config.value.engine]?.configCapabilities?.[name]
   return value === undefined ? fallback : value
@@ -3048,6 +3073,8 @@ async function loadAll() {
   loading.value = true
   loadError.value = ''
   draftsEnabled.value = false
+  draftOffer.value = null
+  draftRestored.value = false
   const gpuListPromise = fetchGpuListForBind()
   const engineDescriptorsPromise = enginesStore.fetchEngineDescriptors().catch((error) => {
     console.error('Failed to fetch engine descriptors:', error)
@@ -3391,6 +3418,7 @@ function applyLoadedConfig(data) {
   savedConfig.value = JSON.parse(JSON.stringify(config.value))
   clearDraft(route.params.id, config.value.engine)
   draftOffer.value = null
+  draftRestored.value = false
 }
 
 async function refreshPersistedConfig() {
@@ -3570,6 +3598,7 @@ function stayOnPage() {
 function discardAndLeave() {
   restoreSavedConfig()
   draftOffer.value = null
+  draftRestored.value = false
   finishLeave(true)
 }
 
@@ -3579,7 +3608,7 @@ async function saveAndLeave() {
 }
 
 function persistDraftNow() {
-  const modelId = String(route.params.id || '')
+  const modelId = String(model.value?.id || route.params.id || '')
   const engine = config.value?.engine
   if (!draftsEnabled.value || loading.value || !modelId) return
   if (!hasUnsavedChanges.value) {
@@ -3622,11 +3651,13 @@ function restoreDraft() {
   setActiveKeysFromSection(sec, catalogParamList.value)
   applyEngineSectionToForm(engine)
   draftOffer.value = null
+  draftRestored.value = true
 }
 
 function discardDraftOffer() {
   clearDraft(route.params.id, config.value?.engine)
   draftOffer.value = null
+  draftRestored.value = false
 }
 
 async function applyModelSettings() {
@@ -3687,6 +3718,7 @@ function restoreSavedConfig() {
   setActiveKeysFromSection(sec, catalogParamList.value)
   applyEngineSectionToForm(engine)
   clearDraft(route.params.id, engine)
+  draftRestored.value = false
 }
 
 function resetConfig() {
