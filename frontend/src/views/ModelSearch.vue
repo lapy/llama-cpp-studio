@@ -5,163 +5,34 @@
       description="Find compatible models and choose a download for your setup."
     />
 
-    <section class="search-controls" aria-label="Catalog search">
-      <!-- Search bar -->
-      <div class="search-bar">
-        <div class="search-input-wrap">
-          <i class="pi pi-search search-icon" />
-          <label class="sr-only" for="catalog-search-query">Search models</label>
-          <InputText
-            id="catalog-search-query"
-            v-model="query"
-            placeholder="Search models and audio packages…"
-            class="search-input"
-            @keyup.enter="runSearch"
-          />
-          <Button
-            v-if="query"
-            icon="pi pi-times"
-            text
-            severity="secondary"
-            class="clear-btn"
-            aria-label="Clear search"
-            @click="clearSearchResults"
-          />
-        </div>
-
-        <Select
-          v-model="taskFilter"
-          :options="taskFilterOptions"
-          optionLabel="label"
-          optionValue="value"
-          placeholder="Any task"
-          showClear
-          class="catalog-filter catalog-filter--task"
-          aria-label="Task"
-          @change="runSearch"
-        />
-        <Button
-          label="Search"
-          icon="pi pi-search"
-          size="small"
-          :loading="searching"
-          @click="runSearch"
-        />
-        <Button
-          :label="
-            filtersOpen
-              ? 'Hide filters'
-              : `Filters${secondaryFilterCount ? ` (${secondaryFilterCount})` : ''}`
-          "
-          icon="pi pi-filter"
-          size="small"
-          severity="secondary"
-          outlined
-          :aria-expanded="filtersOpen ? 'true' : 'false'"
-          aria-controls="catalog-secondary-filters"
-          @click="filtersOpen = !filtersOpen"
-        />
-        <Button
-          v-if="secondaryFilterCount"
-          label="Reset"
-          size="small"
-          severity="secondary"
-          text
-          @click="resetSecondaryFilters"
-        />
-        <Button
-          label="Import audio bundle"
-          icon="pi pi-folder-open"
-          size="small"
-          severity="secondary"
-          text
-          class="catalog-filters__import"
-          @click="showAudioImportDialog = true"
-        />
-      </div>
-
-      <div v-if="activeFilterChips.length" class="search-chips" aria-label="Active filters">
-        <button
-          v-for="chip in activeFilterChips"
-          :key="chip.key"
-          type="button"
-          class="search-chip"
-          @click="chip.clear()"
-        >
-          {{ chip.label }}
-          <span aria-hidden="true">×</span>
-        </button>
-      </div>
-
-      <div
-        v-show="filtersOpen"
-        id="catalog-secondary-filters"
-        class="catalog-filters catalog-filters--secondary"
-      >
-        <Select
-          v-if="showFormatSelect"
-          v-model="searchFormat"
-          :options="formatOptions"
-          optionLabel="label"
-          optionValue="value"
-          class="format-select"
-          aria-label="Format"
-          @change="onFormatChange"
-        />
-        <Select
-          v-model="engineFilter"
-          :options="engineFilterOptions"
-          optionLabel="label"
-          optionValue="value"
-          placeholder="Any engine"
-          showClear
-          class="catalog-filter"
-          aria-label="Engine"
-          @change="onEngineFilterChange"
-        />
-        <Select
-          v-model="inputModalityFilter"
-          :options="inputModalityOptions"
-          placeholder="Any input"
-          showClear
-          class="catalog-filter"
-          aria-label="Input modality"
-          @change="runSearch"
-        />
-        <Select
-          v-model="outputModalityFilter"
-          :options="outputModalityOptions"
-          placeholder="Any output"
-          showClear
-          class="catalog-filter"
-          aria-label="Output modality"
-          @change="runSearch"
-        />
-        <Select
-          v-model="providerFilter"
-          :options="providerOptions"
-          optionLabel="label"
-          optionValue="value"
-          placeholder="Any source"
-          showClear
-          class="catalog-filter"
-          aria-label="Source"
-          @change="runSearch"
-        />
-        <Select
-          v-if="installMethodOptions.length"
-          v-model="installMethodFilter"
-          :options="installMethodOptions"
-          optionLabel="label"
-          optionValue="value"
-          placeholder="Any install method"
-          showClear
-          class="catalog-filter"
-          aria-label="Install method"
-          @change="runSearch"
-        />
-      </div>
-    </section>
+    <ModelSearchControls
+      v-model:query="query"
+      v-model:task-filter="taskFilter"
+      v-model:filters-open="filtersOpen"
+      v-model:search-format="searchFormat"
+      v-model:engine-filter="engineFilter"
+      v-model:input-modality-filter="inputModalityFilter"
+      v-model:output-modality-filter="outputModalityFilter"
+      v-model:provider-filter="providerFilter"
+      v-model:install-method-filter="installMethodFilter"
+      :searching="searching"
+      :secondary-filter-count="secondaryFilterCount"
+      :active-filter-chips="activeFilterChips"
+      :show-format-select="showFormatSelect"
+      :task-filter-options="taskFilterOptions"
+      :format-options="formatOptions"
+      :engine-filter-options="engineFilterOptions"
+      :input-modality-options="inputModalityOptions"
+      :output-modality-options="outputModalityOptions"
+      :provider-options="providerOptions"
+      :install-method-options="installMethodOptions"
+      @search="runSearch"
+      @clear="clearSearchResults"
+      @reset="resetSecondaryFilters"
+      @import-audio="showAudioImportDialog = true"
+      @format-change="onFormatChange"
+      @engine-change="onEngineFilterChange"
+    />
 
     <div v-if="!modelStore.hasHuggingfaceToken && !tokenNoticeDismissed" class="token-warning">
       <i class="pi pi-key" aria-hidden="true" />
@@ -1379,6 +1250,7 @@ import Dialog from 'primevue/dialog'
 import LoadingState from '@/components/common/LoadingState.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import ModelSearchControls from '@/components/models/ModelSearchControls.vue'
 import { useModelStore } from '@/stores/models'
 import { ENGINE_DESCRIPTORS, engineLabel } from '@/engines/registry'
 import { useEnginesStore } from '@/stores/engines'
@@ -4301,66 +4173,12 @@ onUnmounted(() => {
 /* layout: .page-shell */
 
 /* ── Search bar ───────────────────────────────────────── */
-.search-controls {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.search-controls :deep(.p-button) {
-  min-height: 2.25rem;
-}
-
-.search-controls :deep(.p-select),
-.search-controls :deep(.p-inputtext) {
-  min-height: 2.25rem;
-}
-
 .search-hint {
   margin: 0;
   padding-top: 1rem;
   border-top: 1px solid var(--border-primary);
   color: var(--text-secondary);
   font-size: 0.875rem;
-}
-
-.search-bar {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.search-input-wrap {
-  flex: 1;
-  min-width: 200px;
-  position: relative;
-}
-
-.search-icon {
-  position: absolute;
-  left: 0.75rem;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--text-secondary, #9ca3af);
-  pointer-events: none;
-}
-
-.search-input {
-  width: 100%;
-  min-height: 2.25rem;
-  padding-left: 2.25rem !important;
-}
-
-.clear-btn {
-  position: absolute;
-  right: 0.25rem;
-  top: 50%;
-  transform: translateY(-50%);
-}
-
-.format-select {
-  width: 140px;
 }
 
 .token-warning {
@@ -4387,57 +4205,6 @@ onUnmounted(() => {
   align-items: center;
   gap: 0.75rem;
   flex-wrap: wrap;
-}
-
-.catalog-filters {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.catalog-filters--secondary {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
-  gap: 0.35rem;
-  padding-top: 0.35rem;
-  border-top: 1px solid var(--border-primary);
-}
-
-.catalog-filters__import {
-  margin-left: auto;
-  white-space: nowrap;
-}
-
-.search-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-}
-
-.search-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  min-height: 1.75rem;
-  padding: 0.1rem 0.55rem;
-  border: 1px solid var(--border-primary);
-  border-radius: 999px;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  font: inherit;
-  font-size: 0.8rem;
-  cursor: pointer;
-}
-
-.catalog-filter {
-  min-width: 0;
-  width: 100%;
-}
-
-.catalog-filter--task {
-  flex: 0 1 9.5rem;
-  width: 9.5rem;
 }
 
 .catalog-results {
@@ -4980,28 +4747,6 @@ onUnmounted(() => {
     margin-left: 0;
   }
 
-  .format-select {
-    width: 100%;
-  }
-
-  .catalog-filters {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .catalog-filters .catalog-filter {
-    min-width: 0;
-    max-width: none;
-    flex: none;
-    width: 100%;
-  }
-
-  .catalog-filters__import {
-    margin-left: 0;
-    grid-column: 1 / -1;
-    white-space: normal;
-  }
-
   .catalog-card__head {
     flex-direction: column;
     align-items: stretch;
@@ -5058,22 +4803,6 @@ onUnmounted(() => {
   }
 }
 
-@media (max-width: 480px) {
-  .search-bar {
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-  }
-  .search-input-wrap {
-    flex: 1 1 100%;
-    min-width: 0;
-    width: 100%;
-  }
-  .catalog-filter--task {
-    flex: 1 1 8rem;
-    width: auto;
-  }
-}
 .catalog-fit-note {
   margin: 0;
   padding: 0.75rem;
