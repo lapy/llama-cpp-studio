@@ -104,15 +104,18 @@ async def operation_task_logs(task_id: str, limit: int = 0):
     from backend.operations.progress import get_progress_manager
 
     manager = get_progress_manager()
-    lines = manager.get_task_logs(task_id)
-    if manager.get_task(task_id) is None and not lines:
+    task = manager.get_task(task_id)
+    retained = manager.get_task_logs(task_id)
+    if task is None and not retained:
         raise HTTPException(status_code=404, detail="Task is not retained")
-    if limit > 0:
-        lines = lines[-min(limit, 100_000) :]
+    lines = retained[-min(limit, 100_000) :] if limit > 0 else retained
     return {
         "task_id": task_id,
         "lines": lines,
-        "log_count": len(manager.get_task_logs(task_id)),
+        "log_count": len(retained),
+        # The same task detail the SSE payloads carry, including build
+        # provenance (for builds: which CUDA toolkit the build resolved).
+        "metadata": dict((task or {}).get("metadata") or {}),
     }
 
 

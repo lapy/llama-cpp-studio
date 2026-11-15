@@ -1831,6 +1831,17 @@ class CmakeSourceInstaller(GenericNativeInstaller):
                     "install_dir": os.path.join(self.install_root, version_name),
                 },
             )
+        # CUDA provenance is captured before the build spawns anything: it
+        # describes the toolkit this build's environment resolves to (the
+        # CMake configure step binds the Studio-managed root when one exists,
+        # otherwise the inherited CUDA_HOME/CUDA_PATH) and it survives a later
+        # failure, where the task detail is the only remaining record.
+        if (build_config or BuildConfig()).enable_cuda:
+            from backend.engines.cuda_provenance import record_cuda_provenance
+
+            build_env = dict(os.environ)
+            build_env.update(dict(getattr(build_config, "env_vars", None) or {}))
+            record_cuda_provenance(progress_manager, task_id, build_env)
         self._source = state
         try:
             execution = await self.execute_operation(
