@@ -23,7 +23,7 @@ class _OpenModel(BaseModel):
     """Contract mirror: unknown keys pass through so a producer that grows
     a field never breaks a consumer typed against this module."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
 
 
 # --------------------------------------------------------------------------
