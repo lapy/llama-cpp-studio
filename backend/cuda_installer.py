@@ -7,17 +7,16 @@ Handles downloading and installing CUDA Toolkit on Linux systems.
 import asyncio
 import json
 import os
-import platform
 import re
 import shutil
 import subprocess
 import time
-import gzip
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Dict, Optional, Tuple
 import aiohttp
 import aiofiles
 
+from backend import cuda_metadata
 from backend.cuda_errors import (
     CudaInstallFailed,
     CudaInstallIncomplete,
@@ -58,28 +57,9 @@ class CUDAInstaller(CancellableOperationManager):
         "activate": "Activate CUDA",
     }
 
-    # Supported CUDA release lines.  The concrete patch for each line is
-    # resolved from NVIDIA's repository metadata so a new 12.8.x release does
-    # not require a Studio release.  These values are also the offline fallback.
-    SUPPORTED_VERSIONS = [
-        "13.0",
-        "12.9",
-        "12.8",
-        "12.7",
-        "12.6",
-        "12.5",
-        "12.4",
-        "12.3",
-        "12.2",
-        "12.1",
-        "12.0",
-        "11.9",
-        "11.8",
-    ]
-
-    _CUDA_VERSION_PATTERN = re.compile(r"^(\d+)\.(\d+)(?:\.(\d+))?$")
-    _MINIMUM_CUDA_VERSION = (11, 8, 0)
-    _SUPPORTED_CUDA_MAJORS = {"11", "12", "13"}
+    SUPPORTED_VERSIONS = cuda_metadata.SUPPORTED_CUDA_VERSIONS
+    _MINIMUM_CUDA_VERSION = cuda_metadata.MINIMUM_CUDA_VERSION
+    _SUPPORTED_CUDA_MAJORS = cuda_metadata.SUPPORTED_CUDA_MAJORS
 
     # cuDNN version mappings by CUDA major version
     CUDNN_VERSIONS = {
@@ -116,8 +96,7 @@ class CUDAInstaller(CancellableOperationManager):
         self._log_path = os.path.abspath(log_path)
         self._state_path = os.path.abspath(state_path)
         self._download_dir = os.path.abspath(download_dir)
-        self._url_cache: Dict[str, str] = {}  # Cache for dynamically fetched URLs
-        self._repo_cache: Dict[str, list] = {}  # Cache for NVIDIA repo packages
+        self._metadata = cuda_metadata.CudaMetadataSource()
         self._ensure_directories()
 
     def _ensure_directories(self) -> None:
@@ -224,171 +203,32 @@ class CUDAInstaller(CancellableOperationManager):
             logger.warning(f"Failed to update CUDA current symlink: {e}")
 
     def _get_platform(self) -> Tuple[str, str]:
-        """Get platform (os, arch) tuple."""
-        system = platform.system().lower()
-        machine = platform.machine().lower()
-
-        if machine in ("x86_64", "amd64"):
-            arch = "x86_64"
-        else:
-            arch = machine
-
-        return system, arch
+        return cuda_metadata.get_platform()
 
     def _get_ubuntu_version(self) -> str:
-        """Get Ubuntu version for NVIDIA repository URLs."""
-        # Try to detect Ubuntu version from /etc/os-release
-        try:
-            if os.path.exists("/etc/os-release"):
-                with open("/etc/os-release", "r") as f:
-                    for line in f:
-                        if line.startswith("VERSION_ID="):
-                            version = line.split("=")[1].strip().strip('"')
-                            # Extract major.minor (e.g., "24.04" from "24.04.1")
-                            parts = version.split(".")
-                            if len(parts) >= 2:
-                                major_minor = f"{parts[0]}{parts[1]}"
-                                # Check if it's 24.04 or newer
-                                if major_minor >= "2404":
-                                    return "ubuntu2404"
-                                else:
-                                    return "ubuntu2204"
-        except Exception:
-            pass
-
-        # Default to ubuntu2404 for Ubuntu 24.04 base image
-        return "ubuntu2404"
+        return cuda_metadata.get_ubuntu_version()
 
     def _get_archive_target_version(self) -> str:
-        """Get archive target version for CUDA runfile lookups."""
-        ubuntu_version = self._get_ubuntu_version()
-        if ubuntu_version == "ubuntu2404":
-            return "24.04"
-        return "22.04"
+        return cuda_metadata.get_archive_target_version(self._get_ubuntu_version())
 
     async def _get_repo_packages(self, ubuntu_version: str) -> list:
-        """Fetch and cache NVIDIA CUDA repo package metadata."""
-        if ubuntu_version in self._repo_cache:
-            return self._repo_cache[ubuntu_version]
-
-        base_url = (
-            f"https://developer.download.nvidia.com/compute/cuda/repos/{ubuntu_version}/x86_64"
-        )
-        packages_url = f"{base_url}/Packages.gz"
-        packages_plain_url = f"{base_url}/Packages"
-        packages: list = []
-
-        timeout = aiohttp.ClientTimeout(total=15)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            data = None
-            try:
-                async with session.get(packages_url) as response:
-                    if response.status == 200:
-                        compressed = await response.read()
-                        data = gzip.decompress(compressed)
-            except Exception:
-                data = None
-
-            if data is None:
-                try:
-                    async with session.get(packages_plain_url) as response:
-                        if response.status == 200:
-                            data = await response.read()
-                except Exception:
-                    data = None
-
-        if not data:
-            self._repo_cache[ubuntu_version] = []
-            return []
-
-        text = data.decode("utf-8", errors="replace")
-        current = {}
-        for line in text.splitlines():
-            if not line.strip():
-                if current:
-                    packages.append(current)
-                    current = {}
-                continue
-            if line.startswith("Package:"):
-                current["Package"] = line.split(":", 1)[1].strip()
-            elif line.startswith("Version:"):
-                current["Version"] = line.split(":", 1)[1].strip()
-            elif line.startswith("Filename:"):
-                current["Filename"] = line.split(":", 1)[1].strip()
-
-        if current:
-            packages.append(current)
-
-        self._repo_cache[ubuntu_version] = packages
-        return packages
+        return await self._metadata.get_repo_packages(ubuntu_version)
 
     @classmethod
     def _cuda_version_parts(cls, version: str) -> tuple[int, int, int]:
-        """Return a comparable CUDA version, accepting major.minor[.patch]."""
-        match = cls._CUDA_VERSION_PATTERN.fullmatch(str(version).strip())
-        if not match:
-            raise ValueError(
-                f"Invalid CUDA version: {version}. Expected major.minor or major.minor.patch"
-            )
-        major, minor, patch = match.groups()
-        return int(major), int(minor), int(patch or 0)
+        return cuda_metadata.cuda_version_parts(version)
 
     @classmethod
     def _cuda_release_line(cls, version: str) -> str:
-        major, minor, _patch = cls._cuda_version_parts(version)
-        return f"{major}.{minor}"
+        return cuda_metadata.cuda_release_line(version)
 
     async def get_available_versions(self) -> list[str]:
-        """Resolve the latest published patch for each supported release line.
-
-        NVIDIA's apt metadata publishes packages such as
-        ``cuda-toolkit-12-8`` with versions such as ``12.8.2-1``.  Prefer the
-        newest concrete toolkit version from that metadata and retain the
-        major/minor fallback for release lines unavailable for this Ubuntu
-        repository (or when the repository cannot be reached).
-        """
-        packages = await self._get_repo_packages(self._get_ubuntu_version())
-        discovered: dict[str, str] = {}
-
-        for package in packages:
-            name = str(package.get("Package", ""))
-            match = re.fullmatch(r"cuda-toolkit-(\d+)-(\d+)", name)
-            if not match:
-                continue
-            release_line = f"{int(match.group(1))}.{int(match.group(2))}"
-            major = match.group(1)
-            if major not in self._SUPPORTED_CUDA_MAJORS:
-                continue
-
-            raw_version = str(package.get("Version", ""))
-            version_match = re.match(r"^(\d+\.\d+(?:\.\d+)?)", raw_version)
-            if not version_match:
-                continue
-            version = version_match.group(1)
-            if self._cuda_release_line(version) != release_line:
-                continue
-            if self._cuda_version_parts(version) < self._MINIMUM_CUDA_VERSION:
-                continue
-            current = discovered.get(release_line)
-            if current is None or self._cuda_version_parts(version) > self._cuda_version_parts(
-                current
-            ):
-                discovered[release_line] = version
-
-        versions = [discovered.pop(line, line) for line in self.SUPPORTED_VERSIONS]
-        versions.extend(discovered.values())
-        return sorted(versions, key=self._cuda_version_parts, reverse=True)
+        return cuda_metadata.resolve_available_versions(
+            await self._get_repo_packages(self._get_ubuntu_version()), self.SUPPORTED_VERSIONS
+        )
 
     def _version_key(self, version: str) -> tuple:
-        """Create a sortable key for package version strings."""
-        tokens = re.split(r"[^\w]+", version)
-        key = []
-        for token in tokens:
-            if token.isdigit():
-                key.append(int(token))
-            elif token:
-                key.append(token)
-        return tuple(key)
+        return cuda_metadata.version_key(version)
 
     def _select_repo_package(
         self,
@@ -397,17 +237,9 @@ class CUDAInstaller(CancellableOperationManager):
         version_prefix: Optional[str] = None,
         version_contains: Optional[str] = None,
     ) -> Optional[Dict[str, str]]:
-        """Select the best matching package from repo metadata."""
-        candidates = [pkg for pkg in packages if pkg.get("Package") == package_name]
-        if version_prefix:
-            candidates = [
-                pkg for pkg in candidates if pkg.get("Version", "").startswith(version_prefix)
-            ]
-        if version_contains:
-            candidates = [pkg for pkg in candidates if version_contains in pkg.get("Version", "")]
-        if not candidates:
-            return None
-        return max(candidates, key=lambda pkg: self._version_key(pkg.get("Version", "")))
+        return cuda_metadata.select_repo_package(
+            packages, package_name, version_prefix, version_contains, key=self._version_key
+        )
 
     def _load_state(self) -> Dict[str, Any]:
         if not os.path.exists(self._state_path):
@@ -700,96 +532,12 @@ class CUDAInstaller(CancellableOperationManager):
         return env
 
     def _get_archive_url(self, version: str) -> str:
-        """Get NVIDIA download archive URL for a CUDA version."""
-        # Convert version like "12.8" to "12-8-0" for URL
-        major_number, minor_number, patch_number = self._cuda_version_parts(version)
-        major = str(major_number)
-        minor = str(minor_number)
-        patch = str(patch_number)
-        version_slug = f"{major}-{minor}-{patch}"
-        target_version = self._get_archive_target_version()
-
-        return (
-            f"https://developer.nvidia.com/cuda-{version_slug}-download-archive"
-            f"?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version={target_version}&target_type=runfile_local"
-        )
+        return cuda_metadata.get_archive_url(version, self._get_archive_target_version())
 
     async def _fetch_download_url(self, version: str) -> str:
-        """Fetch the actual download URL from NVIDIA's archive page."""
-        # Check cache first
-        cache_key = f"{version}_linux_x86_64"
-        if cache_key in self._url_cache:
-            return self._url_cache[cache_key]
-
-        archive_url = self._get_archive_url(version)
-        logger.info(f"Fetching CUDA {version} download URL from {archive_url}")
-
-        async with aiohttp.ClientSession() as session:
-            try:
-                async with session.get(
-                    archive_url, timeout=aiohttp.ClientTimeout(total=30)
-                ) as response:
-                    if response.status != 200:
-                        raise RuntimeError(f"Failed to fetch archive page: HTTP {response.status}")
-
-                    html = await response.text()
-
-                    # The page contains JSON data with download URLs
-                    # The JSON structure has keys like "Linux/x86_64/Ubuntu/24.04/runfile_local"
-                    # The URL is in the "details" field which contains HTML with href attributes
-                    target_version = self._get_archive_target_version()
-                    json_key = f"Linux/x86_64/Ubuntu/{target_version}/runfile_local"
-
-                    # Pattern 1: Look for href in the details field (HTML may be escaped)
-                    # Match: "Linux/x86_64/Ubuntu/<version>/runfile_local":{..."details":"...href=\"URL\"..."}
-                    pattern1 = rf'"{
-                        re.escape(json_key)
-                    }"[^}}]*"details"[^"]*href[=:][\\"]*([^"\\s<>]+cuda_\d+\.\d+\.\d+_[^"\\s<>]+_linux\.run)'
-                    matches = re.findall(pattern1, html, re.IGNORECASE | re.DOTALL)
-
-                    if not matches:
-                        # Pattern 2: Look for href with escaped quotes (\u0022 or \")
-                        pattern2 = rf'"{
-                            re.escape(json_key)
-                        }"[^}}]*href[\\u0022=:]*([^"\\s<>]+cuda_\d+\.\d+\.\d+_[^"\\s<>]+_linux\.run)'
-                        matches = re.findall(pattern2, html, re.IGNORECASE | re.DOTALL)
-
-                    if not matches:
-                        # Pattern 3: Look for the filename field and construct URL
-                        pattern3 = (
-                            rf'"{re.escape(json_key)}"[^}}]*"filename"[^"]*"([^"]+_linux\.run)"'
-                        )
-                        filename_matches = re.findall(pattern3, html, re.IGNORECASE)
-                        if filename_matches:
-                            filename = filename_matches[0]
-                            version_full = ".".join(
-                                str(part) for part in self._cuda_version_parts(version)
-                            )
-                            url = f"https://developer.download.nvidia.com/compute/cuda/{version_full}/local_installers/{filename}"
-                            matches = [url]
-
-                    if not matches:
-                        # Pattern 4: Fallback - look for any URL matching the pattern
-                        version_full = ".".join(
-                            str(part) for part in self._cuda_version_parts(version)
-                        )
-                        version_escaped = version_full.replace(".", r"\.")
-                        pattern4 = rf'https://developer\.download\.nvidia\.com/compute/cuda/{version_escaped}/local_installers/cuda_{version_escaped}_[^"\'\s<>]+_linux\.run'
-                        matches = re.findall(pattern4, html, re.IGNORECASE)
-
-                    if matches:
-                        url = matches[0]
-                        # Cache it
-                        self._url_cache[cache_key] = url
-                        logger.info(f"Found CUDA {version} download URL: {url}")
-                        return url
-                    else:
-                        raise RuntimeError(
-                            f"Could not find download URL for CUDA {version} on archive page"
-                        )
-
-            except aiohttp.ClientError as e:
-                raise RuntimeError(f"Failed to fetch archive page: {e}")
+        return await self._metadata.fetch_download_url(
+            version, self._get_archive_url(version), self._get_archive_target_version()
+        )
 
     async def _broadcast_log_line(self, line: str) -> None:
         try:
