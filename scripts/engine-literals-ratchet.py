@@ -46,6 +46,9 @@ AREA_CAPS: Dict[str, int] = {
     "backend/routes/": 91,
     "backend/services/": 7,
     "frontend/e2e/": 22,
+    # 2026-11-15: new test-only contract fixtures reference three engine ids
+    # in UI shape descriptors; no production dispatch was added.
+    "frontend/src/api/": 3,
     "frontend/src/components/": 72,
     # 2026-11-15: 58 -> 59. Prettier split one line in
     # engineReadiness.test.js, putting a second id literal on its own line.
