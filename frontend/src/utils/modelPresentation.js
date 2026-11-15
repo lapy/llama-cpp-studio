@@ -1,3 +1,5 @@
+import { isAudioPackage } from './audioModel'
+
 /** One vocabulary for observed model lifecycle state across every workspace. */
 export function modelRuntimeState(model, options = {}) {
   const quality = String(model?.runtime_quality || 'verified').toLowerCase()
@@ -72,6 +74,18 @@ export function modelRuntimeState(model, options = {}) {
     actionable: false,
     detail: 'The model is not running.',
   }
+}
+
+/**
+ * A downloaded model needs its first configuration review until a user save
+ * stamps it. Only a stopped model offers setup: running, starting, failed and
+ * unknown models keep their own state-driven primary. Audio packages use the
+ * audio workspace instead of the text-model setup path.
+ */
+export function modelNeedsSetup(model, runtimeState = null) {
+  if (!model || model.config_reviewed !== false) return false
+  if (isAudioPackage(model)) return false
+  return (runtimeState || modelRuntimeState(model)).key === 'stopped'
 }
 
 export function groupRuntimeState(group) {

@@ -85,6 +85,30 @@ export function groupIsRunning(group) {
   return (group?.quantizations || []).some((quant) => lineIsRunning(quant))
 }
 
+/** Worst runtime observation in a group; a verified group needs every quant verified. */
+export function groupRuntimeQuality(group) {
+  const quants = group?.quantizations || []
+  if (quants.some((quant) => quant?.runtime_quality === 'unreachable')) return 'unreachable'
+  if (quants.some((quant) => quant?.runtime_quality === 'stale')) return 'stale'
+  return 'verified'
+}
+
+export function groupNeedsAttention(group) {
+  if (groupRuntimeQuality(group) !== 'verified') return true
+  return (group?.quantizations || []).some((quant) => {
+    const status = quantStatus(quant)
+    return status === 'failed' || status === 'error' || quant?.last_error
+  })
+}
+
+/** Most recent use/download timestamp in a group, in epoch milliseconds. */
+export function groupRecentStamp(group) {
+  const stamps = (group?.quantizations || []).map(
+    (quant) => Date.parse(quant?.last_used_at || quant?.downloaded_at || '') || 0,
+  )
+  return Math.max(0, ...stamps)
+}
+
 function formatKind(format) {
   if (format === 'gguf') return 'GGUF'
   if (format === 'safetensors') return 'Safetensors'

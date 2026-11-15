@@ -1,6 +1,15 @@
 <template>
   <div class="model-actions" :class="{ 'model-actions--compact': compact }">
     <div class="model-actions__row">
+      <Tag
+        v-if="needsSetup"
+        class="model-actions__setup-tag"
+        value="Needs setup"
+        severity="warn"
+        :title="setupHint"
+        v-tooltip.top="setupHint"
+      />
+
       <Button
         ref="primaryRef"
         class="model-actions__primary"
@@ -44,6 +53,7 @@
       />
 
       <Button
+        v-if="!needsSetup"
         :label="compact ? undefined : 'Configure'"
         icon="pi pi-cog"
         text
@@ -59,6 +69,16 @@
           <i v-if="compact" class="pi pi-ellipsis-v" aria-hidden="true" />
           <template v-else>More</template>
         </summary>
+        <button
+          v-if="needsSetup"
+          type="button"
+          class="model-actions__start-defaults"
+          :aria-label="`Start ${label} with defaults`"
+          title="Start without reviewing settings. The engine and context defaults are used."
+          @click="activate('start', $event)"
+        >
+          Start with defaults
+        </button>
         <ModelWarmupButton
           :model="model"
           :disabled="runtimeState.key === 'starting' || runtimeState.key === 'stopping'"
@@ -84,7 +104,8 @@
 <script setup>
 import { computed, nextTick, ref, useId, watch } from 'vue'
 import Button from 'primevue/button'
-import { modelRuntimeState } from '@/utils/modelPresentation'
+import Tag from 'primevue/tag'
+import { modelNeedsSetup, modelRuntimeState } from '@/utils/modelPresentation'
 import { isAudioPackage } from '@/utils/audioModel'
 import ModelWarmupButton from '@/components/ModelWarmupButton.vue'
 
@@ -137,6 +158,11 @@ const runtimeState = computed(() =>
   }),
 )
 const isAudio = computed(() => isAudioPackage(props.model))
+const needsSetup = computed(() => modelNeedsSetup(props.model, runtimeState.value))
+const setupHint = computed(
+  () =>
+    'This model was downloaded but its engine and context settings have not been reviewed. Set it up before starting.',
+)
 const errorText = computed(() => String(props.model?.last_error || '').trim())
 const showStop = computed(
   () => runtimeState.value.key === 'running' || runtimeState.value.key === 'starting',
@@ -169,7 +195,16 @@ const primary = computed(() => {
       tooltip: 'Stopping the model.',
       ariaLabel: `${label.value} is stopping`,
     }
-  if (state.key === 'stopped')
+  if (state.key === 'stopped') {
+    if (needsSetup.value)
+      return {
+        label: 'Set up',
+        icon: 'pi pi-cog',
+        severity: 'info',
+        action: 'configure',
+        tooltip: setupHint.value,
+        ariaLabel: `Set up ${label.value}`,
+      }
     return {
       label: 'Start',
       icon: 'pi pi-play',
@@ -178,6 +213,7 @@ const primary = computed(() => {
       tooltip: 'Start this model',
       ariaLabel: `Start ${label.value}`,
     }
+  }
   if (state.key === 'running')
     return isAudio.value
       ? {
@@ -283,6 +319,12 @@ watch(
 /* Reserve width so swapping Start/Starting…/Connect/Refresh status never reflows the row. */
 .model-actions__primary {
   min-width: 10rem;
+}
+
+/* Keep the tag beside the primary action without growing the row much. */
+.model-actions__setup-tag {
+  white-space: nowrap;
+  font-size: var(--text-xs, 0.75rem);
 }
 
 .model-actions__primary :deep(.p-button-label) {

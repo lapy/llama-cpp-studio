@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { groupRuntimeState, modelRuntimeState } from './modelPresentation'
+import { AUDIO_PACKAGE } from './audioModel'
+import { groupRuntimeState, modelNeedsSetup, modelRuntimeState } from './modelPresentation'
 
 describe('runtime presentation', () => {
   it.each(['stale', 'unreachable', 'unknown'])(
@@ -56,5 +57,33 @@ describe('runtime presentation', () => {
         detail: 'CUDA out of memory',
       },
     )
+  })
+})
+
+describe('setup presentation', () => {
+  it('only asks for setup on an unreviewed stopped text model', () => {
+    const stopped = { status: 'stopped', is_active: false, config_reviewed: false }
+    expect(modelNeedsSetup(stopped)).toBe(true)
+    expect(modelNeedsSetup({ ...stopped, config_reviewed: true })).toBe(false)
+    // Older payloads and search results without provenance do not claim setup is needed.
+    expect(modelNeedsSetup({ status: 'stopped', is_active: false })).toBe(false)
+  })
+
+  it('leaves running, starting, failed and unknown models to their state primary', () => {
+    const unreviewed = { config_reviewed: false }
+    expect(modelNeedsSetup({ ...unreviewed, status: 'ready', is_active: true })).toBe(false)
+    expect(modelNeedsSetup({ ...unreviewed, status: 'loading' })).toBe(false)
+    expect(modelNeedsSetup({ ...unreviewed, status: 'failed' })).toBe(false)
+    expect(modelNeedsSetup({ ...unreviewed, runtime_quality: 'stale' })).toBe(false)
+  })
+
+  it('keeps audio packages on the audio path', () => {
+    expect(
+      modelNeedsSetup({
+        status: 'stopped',
+        config_reviewed: false,
+        format: AUDIO_PACKAGE,
+      }),
+    ).toBe(false)
   })
 })

@@ -6,6 +6,9 @@ import {
   formatLibraryDate,
   groupEngine,
   groupIsRunning,
+  groupNeedsAttention,
+  groupRecentStamp,
+  groupRuntimeQuality,
   groupTitle,
   groupTotalFileSize,
   isStandaloneGroup,
@@ -84,6 +87,26 @@ describe('library presentation', () => {
       true,
     )
     expect(groupIsRunning({})).toBe(false)
+  })
+
+  it('summarizes a group runtime quality, attention state and recency', () => {
+    expect(groupRuntimeQuality({ quantizations: [{ status: 'stopped' }] })).toBe('verified')
+    expect(groupRuntimeQuality({ quantizations: [{ runtime_quality: 'stale' }] })).toBe('stale')
+    expect(groupRuntimeQuality({ quantizations: [{ runtime_quality: 'unreachable' }] })).toBe(
+      'unreachable',
+    )
+    expect(groupNeedsAttention({ quantizations: [{ runtime_quality: 'stale' }] })).toBe(true)
+    expect(groupNeedsAttention({ quantizations: [{ status: 'failed' }] })).toBe(true)
+    expect(groupNeedsAttention({ quantizations: [{ status: 'stopped' }] })).toBe(false)
+    expect(
+      groupRecentStamp({
+        quantizations: [
+          { downloaded_at: '2026-01-01T00:00:00.000Z' },
+          { last_used_at: '2026-02-01T00:00:00.000Z' },
+        ],
+      }),
+    ).toBe(Date.parse('2026-02-01T00:00:00.000Z'))
+    expect(groupRecentStamp({ quantizations: [{ id: 'no-stamps' }] })).toBe(0)
   })
 
   it('flattens grouped and standalone models into list rows', () => {

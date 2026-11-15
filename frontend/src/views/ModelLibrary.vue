@@ -551,6 +551,9 @@ import {
   formatLibraryDate,
   groupEngine,
   groupIsRunning,
+  groupNeedsAttention,
+  groupRecentStamp,
+  groupRuntimeQuality,
   groupTitle,
   isStandaloneGroup,
   primaryQuant,
@@ -560,6 +563,7 @@ import {
 } from '@/utils/libraryPresentation'
 import { formatAxiosDetail } from '@/utils/apiErrors'
 import { useLibrarySelection } from '@/composables/useLibrarySelection'
+import { createDownloadSetupAnnouncer } from '@/composables/useDownloadSetupToast'
 import { useQueryState } from '@/composables/useQueryState'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { watchDialogFocus } from '@/composables/useFocusReturn'
@@ -603,6 +607,7 @@ const toast = useToast()
 const modelStore = useModelStore()
 const progressStore = useProgressStore()
 const enginesStore = useEnginesStore()
+const announceDownloadedSetup = createDownloadSetupAnnouncer({ modelStore, toast })
 const connectVisible = ref(false)
 const connectModel = ref(null)
 const proxyPort = computed(() => enginesStore.systemStatus?.proxy_status?.port || 2000)
@@ -808,28 +813,6 @@ function groupDisplayState(group) {
     .map((quant) => quantRuntimeState(quant))
     .find((state) => state.key === 'starting' || state.key === 'stopping')
   return transition || groupRuntimeState(group)
-}
-
-function groupRuntimeQuality(group) {
-  const quants = group?.quantizations || []
-  if (quants.some((quant) => quant?.runtime_quality === 'unreachable')) return 'unreachable'
-  if (quants.some((quant) => quant?.runtime_quality === 'stale')) return 'stale'
-  return 'verified'
-}
-
-function groupNeedsAttention(group) {
-  if (groupRuntimeQuality(group) !== 'verified') return true
-  return (group?.quantizations || []).some((quant) => {
-    const status = quantStatus(quant)
-    return status === 'failed' || status === 'error' || quant?.last_error
-  })
-}
-
-function groupRecentStamp(group) {
-  const stamps = (group?.quantizations || []).map(
-    (quant) => Date.parse(quant?.last_used_at || quant?.downloaded_at || '') || 0,
-  )
-  return Math.max(0, ...stamps)
 }
 
 const engineChoices = computed(() => {
@@ -1324,8 +1307,9 @@ onMounted(() => {
   } catch {
     /* ignore */
   }
-  unsubscribeDownloadComplete = progressStore.subscribeToDownloadComplete(() => {
-    refreshCatalogs()
+  unsubscribeDownloadComplete = progressStore.subscribeToDownloadComplete(async (payload) => {
+    await refreshCatalogs()
+    announceDownloadedSetup(payload)
   })
   catalogDisposed = false
   document.addEventListener('visibilitychange', onLibraryVisibility)

@@ -535,7 +535,8 @@ test('install, configure, apply, start, and connect under fixture control', asyn
 
   await page.goto('/models')
   await expect(page.getByRole('heading', { name: 'Review configuration' })).toBeVisible()
-  await page.getByRole('button', { name: 'Configure Demo' }).click()
+  await expect(page.getByText('Needs setup')).toBeVisible()
+  await page.getByRole('button', { name: 'Set up Demo' }).click()
   await openRuntimeTab(page)
   const input = contextInput(page).first()
   await expect(input).toBeVisible()

@@ -46,6 +46,80 @@ describe('ModelCardActions state matrix', () => {
     wrapper.unmount()
   })
 
+  it('unreviewed downloaded model: Set up is primary with a text Needs setup tag', async () => {
+    const wrapper = mountActions({ config_reviewed: false })
+    const setup = button(wrapper, 'Set up Q4_K_M')
+    expect(setup.text()).toBe('Set up')
+    expect(wrapper.get('.model-actions__setup-tag').text()).toBe('Needs setup')
+    expect(wrapper.findAll('button[aria-label="Start Q4_K_M"]')).toHaveLength(0)
+    // The primary Set up replaces the separate Configure shortcut.
+    expect(wrapper.findAll('button[aria-label="Configure Q4_K_M"]')).toHaveLength(0)
+
+    await setup.trigger('click')
+    expect(wrapper.emitted('configure')?.[0]).toEqual(['m1'])
+    wrapper.unmount()
+  })
+
+  it('unreviewed downloaded model keeps Start with defaults in the More menu', async () => {
+    const wrapper = mountActions({ config_reviewed: false })
+    const startDefaults = wrapper.get('button[aria-label="Start Q4_K_M with defaults"]')
+    expect(startDefaults.text()).toBe('Start with defaults')
+
+    await startDefaults.trigger('click')
+    expect(wrapper.emitted('start')?.[0]).toEqual(['m1'])
+    wrapper.unmount()
+  })
+
+  it('reviewed model: the normal Start primary returns and no setup tag renders', async () => {
+    const wrapper = mountActions({ config_reviewed: true })
+    const start = button(wrapper, 'Start Q4_K_M')
+    expect(start.text()).toBe('Start')
+    expect(wrapper.find('.model-actions__setup-tag').exists()).toBe(false)
+    expect(button(wrapper, 'Configure Q4_K_M')).toBeTruthy()
+
+    await start.trigger('click')
+    expect(wrapper.emitted('start')?.[0]).toEqual(['m1'])
+    wrapper.unmount()
+  })
+
+  it('unreviewed running model: Connect stays primary with no setup tag', async () => {
+    const wrapper = mountActions({
+      config_reviewed: false,
+      is_active: true,
+      status: 'ready',
+    })
+    expect(button(wrapper, 'Connect Q4_K_M').text()).toBe('Connect')
+    expect(wrapper.find('.model-actions__setup-tag').exists()).toBe(false)
+    expect(wrapper.find('button[aria-label="Set up Q4_K_M"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('unreviewed loading model: Starting… stays primary with no setup tag', async () => {
+    const wrapper = mountActions({
+      config_reviewed: false,
+      is_active: true,
+      status: 'loading',
+    })
+    expect(button(wrapper, 'Q4_K_M is starting').text()).toContain('Starting…')
+    expect(wrapper.find('.model-actions__setup-tag').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('unreviewed audio package keeps its audio path instead of Set up', async () => {
+    const wrapper = mountActions({ config_reviewed: false, format: AUDIO_PACKAGE })
+    expect(button(wrapper, 'Start Q4_K_M')).toBeTruthy()
+    expect(button(wrapper, 'Open audio for Q4_K_M')).toBeTruthy()
+    expect(wrapper.find('.model-actions__setup-tag').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('unreviewed failed start keeps Retry start and the inline error', async () => {
+    const wrapper = mountActions({ config_reviewed: false, status: 'failed', last_error: 'OOM' })
+    expect(button(wrapper, 'Retry start for Q4_K_M')).toBeTruthy()
+    expect(wrapper.find('.model-actions__setup-tag').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('starting from a request: disabled Starting… with a cancel Stop', async () => {
     const wrapper = mountActions({}, { isStarting: true })
     const primary = button(wrapper, 'Q4_K_M is starting')
