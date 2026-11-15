@@ -67,10 +67,7 @@ def launch_hold_detail(path: str | None, *, confirmed: bool) -> dict | None:
         names = ", ".join(live)
         return {
             "code": "LAUNCH_REFERENCE_RUNNING",
-            "message": (
-                f"Stop {names} before deleting this path. "
-                "A running launch still uses it."
-            ),
+            "message": (f"Stop {names} before deleting this path. A running launch still uses it."),
         }
     if not confirmed:
         return {
@@ -123,9 +120,7 @@ def robust_rmtree(path: str, max_retries: int = 3, *, retire_references: bool = 
                 )
                 time.sleep(0.5)
             else:
-                logger.error(
-                    "Failed to delete %s after %s attempts: %s", path, max_retries, e
-                )
+                logger.error("Failed to delete %s after %s attempts: %s", path, max_retries, e)
                 raise
         except OSError as e:
             if attempt < max_retries - 1:
@@ -138,7 +133,5 @@ def robust_rmtree(path: str, max_retries: int = 3, *, retire_references: bool = 
                 )
                 time.sleep(0.5)
             else:
-                logger.error(
-                    "Failed to delete %s after %s attempts: %s", path, max_retries, e
-                )
+                logger.error("Failed to delete %s after %s attempts: %s", path, max_retries, e)
                 raise

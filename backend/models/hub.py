@@ -72,9 +72,7 @@ def _paths_info_to_meta(paths_info: Any) -> Dict[str, Dict[str, Any]]:
     return result
 
 
-def _resolve_repo_path_alias(
-    requested: str, repo_files: List[str]
-) -> Optional[str]:
+def _resolve_repo_path_alias(requested: str, repo_files: List[str]) -> Optional[str]:
     """Map a stored path to an actual repo-relative path when folders differ.
 
     Common case: ledger/companion field kept ``mtp-….gguf`` while Hugging Face
@@ -92,17 +90,11 @@ def _resolve_repo_path_alias(
     req_base = _path_basename(req)
     if not req_base:
         return None
-    candidates = [
-        f.replace("\\", "/")
-        for f in repo_files
-        if _path_basename(f) == req_base
-    ]
+    candidates = [f.replace("\\", "/") for f in repo_files if _path_basename(f) == req_base]
     if not candidates:
         req_base_l = req_base.lower()
         candidates = [
-            f.replace("\\", "/")
-            for f in repo_files
-            if _path_basename(f).lower() == req_base_l
+            f.replace("\\", "/") for f in repo_files if _path_basename(f).lower() == req_base_l
         ]
     if not candidates:
         return None
@@ -140,9 +132,7 @@ def _resolve_repo_path_alias(
     return candidates[0] if len(candidates) == 1 else None
 
 
-def get_remote_file_info(
-    repo_id: str, paths: List[str]
-) -> Dict[str, Dict[str, Any]]:
+def get_remote_file_info(repo_id: str, paths: List[str]) -> Dict[str, Dict[str, Any]]:
     """Fetch remote size/etag (and sha when available) via get_paths_info.
 
     Keys are the *requested* paths. When a file only exists under a different
@@ -230,9 +220,7 @@ def get_remote_file_info(
         meta = dict(remote_meta)
         meta["resolved_path"] = alias
         result[req] = meta
-        logger.debug(
-            "Resolved HF path alias for %s: %s -> %s", repo_id, req, alias
-        )
+        logger.debug("Resolved HF path alias for %s: %s -> %s", repo_id, req, alias)
     return result
 
 
@@ -431,9 +419,7 @@ def list_repo_companion_files(huggingface_id: str) -> Dict[str, List[Dict[str, A
     }
 
 
-def _list_remote_gguf_weight_files(
-    huggingface_id: str, quantization: Optional[str]
-) -> List[str]:
+def _list_remote_gguf_weight_files(huggingface_id: str, quantization: Optional[str]) -> List[str]:
     """Return remote GGUF weight filenames matching a library quantization."""
     if not huggingface_id or not quantization:
         return []
@@ -1134,9 +1120,7 @@ def resolve_gguf_model_path(model: Dict[str, Any]) -> Optional[str]:
     huggingface_id = model.get("huggingface_id")
     if not huggingface_id:
         return None
-    entries = sorted(
-        iter_model_files(model, roles={"weight", "shard"}), key=shard_sort_key
-    )
+    entries = sorted(iter_model_files(model, roles={"weight", "shard"}), key=shard_sort_key)
     for entry in entries:
         filename = entry.get("filename")
         if not filename:
@@ -1165,11 +1149,7 @@ def _sanitize_filename(filename: str) -> str:
     if not filename or filename.strip() == "":
         raise ValueError("filename is required")
     normalized = os.path.normpath(filename).replace("\\", "/")
-    if (
-        normalized.startswith("../")
-        or normalized.startswith("..\\")
-        or normalized.startswith("/")
-    ):
+    if normalized.startswith("../") or normalized.startswith("..\\") or normalized.startswith("/"):
         raise ValueError("invalid filename")
     parts = normalized.split("/")
     if any(part in ("", ".", "..") for part in parts):
@@ -1238,9 +1218,7 @@ async def _rate_limit():
     _last_request_time = time.time()
 
 
-async def search_models(
-    query: str, limit: int = 20, model_format: str = "gguf"
-) -> List[Dict]:
+async def search_models(query: str, limit: int = 20, model_format: str = "gguf") -> List[Dict]:
     """Search HuggingFace for GGUF or safetensors models."""
     try:
         model_format = (model_format or "gguf").lower()
@@ -1312,7 +1290,11 @@ def _apply_remote_sizes(row: Dict, sizes: Dict[str, Optional[int]]) -> None:
         for item in quant.get("files") or []:
             if isinstance(item, dict):
                 apply(item)
-        total = sum(int(item.get("size") or 0) for item in quant.get("files") or [] if isinstance(item, dict))
+        total = sum(
+            int(item.get("size") or 0)
+            for item in quant.get("files") or []
+            if isinstance(item, dict)
+        )
         quant["total_size"] = total
         quant["size_mb"] = round(total / (1024 * 1024), 2) if total else 0.0
     for key in (
@@ -1346,13 +1328,13 @@ async def _fill_missing_file_sizes(results: List[Dict]) -> None:
         for group in (row.get("quantizations") or {}).values():
             file_lists.append(group.get("files") or [])
         for key in (
-        "mmproj_files",
-        "mtp_files",
-        "dflash_files",
-        "dspark_files",
-        "engram_files",
-        "safetensors_files",
-    ):
+            "mmproj_files",
+            "mtp_files",
+            "dflash_files",
+            "dspark_files",
+            "engram_files",
+            "safetensors_files",
+        ):
             file_lists.append(row.get(key) or [])
         for files in file_lists:
             for item in files:
@@ -1475,9 +1457,7 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
                     if isinstance(getattr(s, "rfilename", None), str)
                     and re.search(r"\.gguf(\.|$)", s.rfilename)
                 ]
-                logger.debug(
-                    "HF model %s has %s GGUF files", model.id, len(gguf_siblings)
-                )
+                logger.debug("HF model %s has %s GGUF files", model.id, len(gguf_siblings))
                 if not gguf_siblings:
                     return None
 
@@ -1523,9 +1503,7 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
                     #   -00001-of-00002.gguf (TheBloke-style)
                     #   .gguf.part1of2 (Hugging Face-style multi-part)
                     base_for_quant = re.sub(r"-\d{5}-of-\d{5}(?=\.gguf$)", "", filename)
-                    base_for_quant = re.sub(
-                        r"\.gguf\.part\d+of\d+$", ".gguf", base_for_quant
-                    )
+                    base_for_quant = re.sub(r"\.gguf\.part\d+of\d+$", ".gguf", base_for_quant)
                     quantization = _extract_quantization(base_for_quant)
                     if quantization == "unknown":
                         continue
@@ -1548,9 +1526,7 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
                     # Use full variant-aware key so that different variants (e.g. "i1-Q4_K_M"
                     # vs "Q4_K_M") are treated as distinct quantizations everywhere.
                     quant_key = (
-                        f"{variant_prefix}-{quantization}"
-                        if variant_prefix
-                        else quantization
+                        f"{variant_prefix}-{quantization}" if variant_prefix else quantization
                     )
 
                     entry = quantizations.setdefault(
@@ -1620,9 +1596,7 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
                     )
                     if not filename.endswith(".safetensors"):
                         continue
-                    safetensors_files.append(
-                        {"filename": filename, "size": size_bytes}
-                    )
+                    safetensors_files.append({"filename": filename, "size": size_bytes})
 
                 logger.debug(
                     "HF model %s has %s safetensors files",
@@ -1639,9 +1613,7 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
 
         result = {
             "id": model.id,
-            "name": getattr(
-                model, "modelId", model.id
-            ),  # Use modelId if available, fallback to id
+            "name": getattr(model, "modelId", model.id),  # Use modelId if available, fallback to id
             "author": getattr(model, "author", None) or "",
             "downloads": _hf_int_metric(model, "downloads", 0),
             "likes": _hf_int_metric(model, "likes", 0),
@@ -1654,9 +1626,7 @@ async def _process_single_model(model, model_format: str) -> Optional[Dict]:
             "dflash_files": dflash_files if model_format == "gguf" else [],
             "dspark_files": dspark_files if model_format == "gguf" else [],
             "engram_files": engram_files if model_format == "gguf" else [],
-            "safetensors_files": (
-                safetensors_files if model_format == "safetensors" else []
-            ),
+            "safetensors_files": (safetensors_files if model_format == "safetensors" else []),
             "repo_files": repo_files if model_format == "safetensors" else [],
             **metadata,  # Include all extracted metadata
         }
@@ -1847,9 +1817,7 @@ async def get_safetensors_metadata_summary(model_id: str) -> Dict:
         if current_time - cached_time < _safetensors_metadata_ttl:
             return cached_data
 
-    if not hf_get_safetensors_metadata and not hasattr(
-        hf_api, "get_safetensors_metadata"
-    ):
+    if not hf_get_safetensors_metadata and not hasattr(hf_api, "get_safetensors_metadata"):
         raise RuntimeError(
             "Safetensors metadata is not supported by the installed huggingface_hub version"
         )
@@ -1867,10 +1835,7 @@ async def get_safetensors_metadata_summary(model_id: str) -> Dict:
     except Exception as err:
         error_msg = str(err)
         # Handle hf_transfer missing error gracefully
-        if (
-            "hf_transfer" in error_msg.lower()
-            or "HF_HUB_ENABLE_HF_TRANSFER" in error_msg
-        ):
+        if "hf_transfer" in error_msg.lower() or "HF_HUB_ENABLE_HF_TRANSFER" in error_msg:
             logger.debug(
                 "hf_transfer unavailable for %s; using standard download: %s",
                 model_id,
@@ -1891,9 +1856,7 @@ async def get_safetensors_metadata_summary(model_id: str) -> Dict:
                 logger.error(
                     f"Failed to fetch safetensors metadata for {model_id} even after disabling hf_transfer: {retry_err}"
                 )
-                raise RuntimeError(
-                    f"Safetensors metadata is not available: {retry_err}"
-                )
+                raise RuntimeError(f"Safetensors metadata is not available: {retry_err}")
         else:
             logger.error(f"Failed to fetch safetensors metadata for {model_id}: {err}")
             raise
@@ -1916,9 +1879,7 @@ async def get_safetensors_metadata_summary(model_id: str) -> Dict:
         if isinstance(metadata, dict):
             files_metadata = metadata
         else:
-            logger.warning(
-                f"No files_metadata found in safetensors metadata for {model_id}"
-            )
+            logger.warning(f"No files_metadata found in safetensors metadata for {model_id}")
             return {
                 "repo_id": model_id,
                 "total_files": 0,
@@ -2006,9 +1967,7 @@ def _get_model_details_blocking(model_id: str) -> Dict:
 
         # Try to get config.json for architecture details
         try:
-            config_files = [
-                s for s in model_info.siblings if s.rfilename == "config.json"
-            ]
+            config_files = [s for s in model_info.siblings if s.rfilename == "config.json"]
             if config_files:
                 # Download and parse config.json
                 config_path = hf_hub_download(
@@ -2349,8 +2308,7 @@ async def download_model_with_progress(
         size_hint = ""
         if known_total > 0:
             size_hint = (
-                f" ({bytes_downloaded / (1024 * 1024):.1f}/"
-                f"{known_total / (1024 * 1024):.1f} MB"
+                f" ({bytes_downloaded / (1024 * 1024):.1f}/{known_total / (1024 * 1024):.1f} MB"
             )
             if speed_mbps > 0.01:
                 size_hint += f", {speed_mbps:.1f} MB/s"
@@ -2422,9 +2380,7 @@ def _quantization_sizes_from_hf_blocking(
             files = quant_data.get("files")
             if isinstance(files, list) and files:
                 paths = [
-                    f.get("filename")
-                    for f in files
-                    if isinstance(f, dict) and f.get("filename")
+                    f.get("filename") for f in files if isinstance(f, dict) and f.get("filename")
                 ]
             else:
                 single = quant_data.get("filename")
@@ -2443,9 +2399,7 @@ def _quantization_sizes_from_hf_blocking(
             if not file_sizes:
                 # Fallback: fetch full metadata once
                 try:
-                    model_info = hf_api.model_info(
-                        repo_id=huggingface_id, files_metadata=True
-                    )
+                    model_info = hf_api.model_info(repo_id=huggingface_id, files_metadata=True)
                     if hasattr(model_info, "siblings") and model_info.siblings:
                         for sibling in model_info.siblings:
                             key = getattr(sibling, "path", getattr(sibling, "rfilename", ""))
@@ -2464,9 +2418,7 @@ def _quantization_sizes_from_hf_blocking(
                     actual_size = file_sizes.get(filename)
                     if not actual_size or actual_size <= 0:
                         try:
-                            file_info = hf_api.repo_file_info(
-                                repo_id=huggingface_id, path=filename
-                            )
+                            file_info = hf_api.repo_file_info(repo_id=huggingface_id, path=filename)
                             actual_size = getattr(file_info, "size", None)
                         except Exception as file_err:
                             logger.warning(
@@ -2477,9 +2429,7 @@ def _quantization_sizes_from_hf_blocking(
                         total_size += actual_size
                         size_value = actual_size
                     else:
-                        logger.warning(
-                            f"Unable to determine size for {huggingface_id}/{filename}"
-                        )
+                        logger.warning(f"Unable to determine size for {huggingface_id}/{filename}")
                         size_value = 0
                     files_with_sizes.append(
                         {
@@ -2492,9 +2442,7 @@ def _quantization_sizes_from_hf_blocking(
                     updated[quant_name] = {
                         "files": files_with_sizes,
                         "total_size": total_size,
-                        "size_mb": (
-                            round(total_size / (1024 * 1024), 2) if total_size else 0.0
-                        ),
+                        "size_mb": (round(total_size / (1024 * 1024), 2) if total_size else 0.0),
                     }
 
         return updated

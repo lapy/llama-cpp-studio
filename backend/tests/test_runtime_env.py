@@ -95,9 +95,7 @@ def test_audio_runtime_env_includes_cuda_for_cuda_build(tmp_path, monkeypatch):
         "threads": 4,
     }
 
-    runtime = audio_runtime.build_audio_cpp_runtime(
-        store, model, config, "audio-demo"
-    )
+    runtime = audio_runtime.build_audio_cpp_runtime(store, model, config, "audio-demo")
     env_text = "\n".join(runtime["env"])
     assert "CUDA_HOME=" in env_text
     assert str(cuda_lib) in env_text

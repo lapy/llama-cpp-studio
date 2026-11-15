@@ -141,9 +141,7 @@ def ollama_show(row: Mapping[str, Any]) -> dict:
     }
 
 
-def lmstudio_models(
-    rows: Iterable[Mapping[str, Any]], running_ids: Iterable[str] = ()
-) -> dict:
+def lmstudio_models(rows: Iterable[Mapping[str, Any]], running_ids: Iterable[str] = ()) -> dict:
     loaded = {str(item) for item in running_ids}
     models = []
     for row in rows:
@@ -212,9 +210,7 @@ def llama_props(row: Optional[Mapping[str, Any]]) -> dict:
         },
         "total_slots": 1,
         "model_path": str(
-            (row or {}).get("model_path")
-            or (row or {}).get("studio_model_id")
-            or model
+            (row or {}).get("model_path") or (row or {}).get("studio_model_id") or model
         ),
         "model_alias": model,
         "chat_template": "",

@@ -1,6 +1,9 @@
 """Per-build frozen CMake config: listing, PUT, and sync/retry consumption."""
 
-from backend.engines.llama_cpp.build_options import default_build_settings, stored_config_to_settings
+from backend.engines.llama_cpp.build_options import (
+    default_build_settings,
+    stored_config_to_settings,
+)
 from backend.routes.llama_versions import _build_config_for_source_sync
 
 
@@ -62,7 +65,13 @@ def test_source_sync_prefers_frozen_version_config(monkeypatch, tmp_path):
     )
     cfg = _build_config_for_source_sync(
         "llama_cpp",
-        {"build_config": {"enable_cuda": True, "enable_flash_attention": True, "build_type": "Debug"}},
+        {
+            "build_config": {
+                "enable_cuda": True,
+                "enable_flash_attention": True,
+                "build_type": "Debug",
+            }
+        },
         store,
     )
     assert cfg.enable_cuda is True
@@ -72,9 +81,7 @@ def test_source_sync_prefers_frozen_version_config(monkeypatch, tmp_path):
 
 def test_source_sync_falls_back_to_global_when_unfrozen(monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
-    store.replace_engine_build_settings(
-        "llama_cpp", {"cuda": True, "build_type": "RelWithDebInfo"}
-    )
+    store.replace_engine_build_settings("llama_cpp", {"cuda": True, "build_type": "RelWithDebInfo"})
     cfg = _build_config_for_source_sync("llama_cpp", {}, store)
     assert cfg.enable_cuda is True
     assert cfg.build_type == "RelWithDebInfo"
@@ -91,9 +98,7 @@ def test_source_sync_ik_forces_examples(monkeypatch, tmp_path):
     assert cfg.build_examples is True
 
 
-def test_list_exposes_cmake_editable_and_ui_shaped_config(
-    client, monkeypatch, tmp_path
-):
+def test_list_exposes_cmake_editable_and_ui_shaped_config(client, monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
     store.add_engine_version("llama_cpp", _llama_source_row())
     store.add_engine_version(
@@ -202,9 +207,7 @@ def test_put_build_config_validation(client, monkeypatch, tmp_path):
     assert missing_version.status_code == 404
 
 
-def test_put_ik_llama_build_config_preserves_repo_and_examples(
-    client, monkeypatch, tmp_path
-):
+def test_put_ik_llama_build_config_preserves_repo_and_examples(client, monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
     store.add_engine_version(
         "ik_llama",

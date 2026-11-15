@@ -100,9 +100,7 @@ class GGUFReader:
         self.kv_count = 0
         self.metadata: Dict[str, Any] = {}
         self.tensors: Dict[str, Dict[str, Any]] = {}
-        self.tensor_data_start_offset: int = (
-            0  # Track where tensor data begins (after alignment)
-        )
+        self.tensor_data_start_offset: int = 0  # Track where tensor data begins (after alignment)
 
     def __enter__(self):
         """
@@ -162,9 +160,7 @@ class GGUFReader:
         try:
             return struct.unpack(fmt, data)
         except struct.error as e:
-            raise ValueError(
-                f"Struct unpack failed at offset {self._offset - size}: {e}"
-            )
+            raise ValueError(f"Struct unpack failed at offset {self._offset - size}: {e}")
 
     def _parse_header(self):
         """
@@ -202,9 +198,7 @@ class GGUFReader:
 
         # SECURITY: Max string length sanity check (e.g., 10MB)
         if length > 10 * 1024 * 1024:
-            raise ValueError(
-                f"Security Alert: String length {length} exceeds safety limit (10MB)."
-            )
+            raise ValueError(f"Security Alert: String length {length} exceeds safety limit (10MB).")
 
         b_str = self._read_bytes(length)
         return b_str.decode("utf-8")
@@ -272,9 +266,7 @@ class GGUFReader:
             try:
                 total_bytes = count * size
             except OverflowError:
-                raise ValueError(
-                    f"Array size calculation overflow: count={count}, size={size}"
-                )
+                raise ValueError(f"Array size calculation overflow: count={count}, size={size}")
 
             # Additional sanity check
             if total_bytes > len(self._mm):
@@ -284,9 +276,7 @@ class GGUFReader:
 
             # Security: Pre-check file bounds
             if self._offset + total_bytes > len(self._mm):
-                raise EOFError(
-                    f"Array claims {total_bytes} bytes, but file is too short."
-                )
+                raise EOFError(f"Array claims {total_bytes} bytes, but file is too short.")
 
             # Optimization: Read all bytes at once
             data_block = self._read_bytes(total_bytes)
@@ -304,9 +294,7 @@ class GGUFReader:
                 return list(struct.unpack(full_fmt, data_block))
             except struct.error:
                 # Fallback if format string is too long for python
-                logger.debug(
-                    "Struct unpack failed for large array, using iterative method"
-                )
+                logger.debug("Struct unpack failed for large array, using iterative method")
                 # Rewind offset (we already advanced it in _read_bytes)
                 self._offset -= total_bytes
                 return self._read_array_iterative(item_type_id, count, depth)
@@ -314,9 +302,7 @@ class GGUFReader:
         # 2. Handle Variable-Width (Strings/Arrays) or Fallback
         return self._read_array_iterative(item_type_id, count, depth)
 
-    def _read_array_iterative(
-        self, item_type_id: int, count: int, depth: int = 0
-    ) -> List[Any]:
+    def _read_array_iterative(self, item_type_id: int, count: int, depth: int = 0) -> List[Any]:
         """
         Iterative reader for complex types or massive arrays.
 
@@ -627,9 +613,7 @@ def _extract_moe_info(metadata: Dict[str, Any]) -> Dict[str, Any]:
                     # Take the maximum if multiple keys found
                     experts_used_count = max(experts_used_count, int(value))
                 is_moe = True
-                logger.debug(
-                    f"Found experts_used_count from key '{key}': {experts_used_count}"
-                )
+                logger.debug(f"Found experts_used_count from key '{key}': {experts_used_count}")
                 break
 
     # Final expert_count (prefer non-ffn, but use ffn if that's all we have)
@@ -752,9 +736,7 @@ def read_gguf_metadata(file_path: str) -> Optional[Dict[str, Any]]:
                 or metadata.get("m2.attention_head_count_kv")
                 or metadata.get("glm4moe.attention.head_count_kv")
                 or metadata.get("glm4.attention.head_count_kv")  # GLM4 models (non-MoE)
-                or metadata.get(
-                    "glm4.attention_head_count_kv"
-                )  # Alternative GLM4 format
+                or metadata.get("glm4.attention_head_count_kv")  # Alternative GLM4 format
                 or metadata.get("glm.attention.head_count_kv")  # GLM models (non-MoE)
                 or metadata.get("glm.attention_head_count_kv")  # Alternative GLM format
                 or metadata.get("llama.attention_head_count_kv")
@@ -769,17 +751,13 @@ def read_gguf_metadata(file_path: str) -> Optional[Dict[str, Any]]:
             parameter_count = _extract_parameter_count(metadata)
 
             return {
-                "layer_count": (
-                    int(effective_layer_count) if effective_layer_count else 0
-                ),
+                "layer_count": (int(effective_layer_count) if effective_layer_count else 0),
                 "architecture": metadata.get("general.architecture", ""),
                 "context_length": context_length,
                 "parameter_count": parameter_count,  # Formatted as "32B", "36B", etc.
                 "vocab_size": 0,  # Not extracted from metadata
                 "embedding_length": int(embedding_length) if embedding_length else 0,
-                "attention_head_count": (
-                    int(attention_head_count) if attention_head_count else 0
-                ),
+                "attention_head_count": (int(attention_head_count) if attention_head_count else 0),
                 "attention_head_count_kv": (
                     int(attention_head_count_kv) if attention_head_count_kv else 0
                 ),
@@ -791,9 +769,7 @@ def read_gguf_metadata(file_path: str) -> Optional[Dict[str, Any]]:
             }
 
     except Exception as e:
-        logger.error(
-            f"Failed to read GGUF metadata from {file_path}: {e}", exc_info=True
-        )
+        logger.error(f"Failed to read GGUF metadata from {file_path}: {e}", exc_info=True)
         return None
 
 
@@ -909,9 +885,7 @@ def _extract_context_length(metadata: Dict[str, Any]) -> int:
                         f"Unreasonably large context length detected from key '{key}': {ctx_len}, skipping"
                     )
                     continue
-                logger.info(
-                    f"Found context length candidate: {ctx_len} from key: {key}"
-                )
+                logger.info(f"Found context length candidate: {ctx_len} from key: {key}")
                 detected_contexts.append(ctx_int)
 
     if detected_contexts:
@@ -989,9 +963,7 @@ def _extract_parameter_count(metadata: Dict[str, Any]) -> Optional[str]:
         if key in metadata:
             param_count = metadata[key]
             if isinstance(param_count, (int, float)) and param_count > 0:
-                logger.info(
-                    f"Found parameter count candidate: {param_count} from key: {key}"
-                )
+                logger.info(f"Found parameter count candidate: {param_count} from key: {key}")
                 detected_params.append(int(param_count))
             elif isinstance(param_count, str):
                 param_str = param_count.strip()
@@ -1005,11 +977,7 @@ def _extract_parameter_count(metadata: Dict[str, Any]) -> Optional[str]:
                                 f"Found pre-formatted parameter count: {param_str} from key: {key}"
                             )
                             # Return directly if already formatted (but normalize case)
-                            return (
-                                param_str.upper()
-                                if param_str[-1].isupper()
-                                else param_str
-                            )
+                            return param_str.upper() if param_str[-1].isupper() else param_str
                     except (ValueError, AttributeError):
                         pass
 
@@ -1068,9 +1036,7 @@ def _extract_parameter_count(metadata: Dict[str, Any]) -> Optional[str]:
     # Log available keys for debugging
     architecture = metadata.get("general.architecture", "unknown")
     available_keys = [
-        k
-        for k in metadata.keys()
-        if any(term in k.lower() for term in ["param", "parameter"])
+        k for k in metadata.keys() if any(term in k.lower() for term in ["param", "parameter"])
     ]
     if available_keys:
         logger.debug(
@@ -1148,18 +1114,14 @@ def _extract_layer_count(metadata: Dict[str, Any]) -> int:
         if key in metadata:
             layer_count = metadata[key]
             if isinstance(layer_count, (int, float)):
-                logger.info(
-                    f"Found layer count candidate: {layer_count} from key: {key}"
-                )
+                logger.info(f"Found layer count candidate: {layer_count} from key: {key}")
                 detected_layers.append(int(layer_count))
 
     if detected_layers:
         # Return the maximum detected value to avoid off-by-one mismatches between keys
         max_layers = max(detected_layers)
         if len(set(detected_layers)) > 1:
-            logger.info(
-                f"Multiple layer counts detected {detected_layers}, using max={max_layers}"
-            )
+            logger.info(f"Multiple layer counts detected {detected_layers}, using max={max_layers}")
         else:
             logger.info(f"Layer count detected: {max_layers}")
         return max_layers
@@ -1262,9 +1224,7 @@ def get_model_layer_info(model_path: str) -> Optional[Dict[str, Any]]:
             "architecture": metadata.get("general.architecture", ""),
             "context_length": int(info.context_length) if info.context_length else 0,
             "vocab_size": int(info.vocab_size) if info.vocab_size else 0,
-            "embedding_length": int(info.embedding_length)
-            if info.embedding_length
-            else 0,
+            "embedding_length": int(info.embedding_length) if info.embedding_length else 0,
             "attention_head_count": int(info.attention_head_count)
             if info.attention_head_count
             else 0,
@@ -1274,12 +1234,8 @@ def get_model_layer_info(model_path: str) -> Optional[Dict[str, Any]]:
             "block_count": int(info.block_count) if info.block_count else 0,
             "is_moe": bool(info.is_moe),
             "expert_count": int(info.expert_count) if info.expert_count else 0,
-            "experts_used_count": int(info.experts_used_count)
-            if info.experts_used_count
-            else 0,
+            "experts_used_count": int(info.experts_used_count) if info.experts_used_count else 0,
         }
     except Exception as e:
-        logger.error(
-            f"Failed to get model layer info from {model_path}: {e}", exc_info=True
-        )
+        logger.error(f"Failed to get model layer info from {model_path}: {e}", exc_info=True)
         return None

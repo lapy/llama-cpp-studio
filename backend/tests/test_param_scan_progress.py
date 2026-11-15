@@ -149,7 +149,7 @@ def test_flag_coverage_ignores_vllm_footer_and_numactl_mentions():
             "  --port PORT\n"
             "                        Use numactl --physcpubind and --membind.\n"
             "When passing JSON CLI arguments, the following sets of arguments are equivalent:\n"
-            "   --json-arg '{\"key1\": \"value1\"}'\n",
+            '   --json-arg \'{"key1": "value1"}\'\n',
             [{"params": [{"flags": ["--port"]}]}],
         )
         joined = "\n".join(session.lines)
@@ -168,8 +168,7 @@ def test_flag_coverage_ignores_nested_optional_json_flag():
         session = ParamScanSession(engine="audio_cpp", version="v1")
         session.attach()
         session.log_flag_coverage(
-            "    --inspect\n"
-            "    --list-loaders [--json]\n",
+            "    --inspect\n    --list-loaders [--json]\n",
             [
                 {
                     "params": [

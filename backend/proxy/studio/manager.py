@@ -380,11 +380,7 @@ class StudioProxyManager:
             proxy = compiled.proxy
             capabilities = proxy.capabilities if isinstance(proxy.capabilities, dict) else {}
             huggingface_id = str(model.get("huggingface_id") or "")
-            publisher = (
-                huggingface_id.split("/", 1)[0]
-                if "/" in huggingface_id
-                else "studio"
-            )
+            publisher = huggingface_id.split("/", 1)[0] if "/" in huggingface_id else "studio"
             rows.append(
                 {
                     "id": proxy.model_id,
@@ -397,9 +393,7 @@ class StudioProxyManager:
                     "display_name": str(model.get("display_name") or model["id"]),
                     "publisher": publisher or "studio",
                     "quantization": str(model.get("quantization") or ""),
-                    "format": str(
-                        model.get("format") or model.get("model_format") or ""
-                    ),
+                    "format": str(model.get("format") or model.get("model_format") or ""),
                     "model_type": str(model.get("model_type") or ""),
                     "file_size": model.get("file_size") or 0,
                     "downloaded_at": model.get("downloaded_at"),

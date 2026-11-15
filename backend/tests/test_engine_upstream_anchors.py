@@ -48,9 +48,7 @@ def _raw_url(repo_url: str, branch: str, path: str) -> str:
 
 def _fetch(url: str) -> str | None:
     """Return the file text, or None when the path does not exist upstream."""
-    request = urllib.request.Request(
-        url, headers={"User-Agent": "llama-cpp-studio-anchor-audit"}
-    )
+    request = urllib.request.Request(url, headers={"User-Agent": "llama-cpp-studio-anchor-audit"})
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             return response.read().decode("utf-8")

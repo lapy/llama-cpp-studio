@@ -154,7 +154,9 @@ def test_speech_converts_opus_from_wav(client, monkeypatch):
 
 
 def test_speech_passes_engine_errors_through(client, monkeypatch):
-    payload = {"error": {"message": "failed to open embeddings/azelma.safetensors", "type": "server_error"}}
+    payload = {
+        "error": {"message": "failed to open embeddings/azelma.safetensors", "type": "server_error"}
+    }
 
     async def handler(request, _kwargs):
         return _FakeUpstream(500, json_body=payload)
@@ -177,7 +179,9 @@ def test_alignments_rewrites_to_upstream_passthrough(client, monkeypatch):
     def fake_target(model, native_path, store=None):
         assert model == "voice"
         assert native_path == "/v1/audio/alignments"
-        return AudioUpstreamTarget(path="/upstream/audio-demo/v1/audio/alignments", model="audio-demo")
+        return AudioUpstreamTarget(
+            path="/upstream/audio-demo/v1/audio/alignments", model="audio-demo"
+        )
 
     async def handler(request, kwargs):
         seen["url"] = str(request.url)
@@ -255,7 +259,9 @@ def test_batch_transcriptions_rewrite_to_upstream(client, monkeypatch):
     async def handler(request, kwargs):
         seen["url"] = str(request.url)
         seen["files"] = kwargs.get("files")
-        return _FakeUpstream(200, content=b"data: {}\n\n", headers={"content-type": "text/event-stream"})
+        return _FakeUpstream(
+            200, content=b"data: {}\n\n", headers={"content-type": "text/event-stream"}
+        )
 
     monkeypatch.setattr(
         "backend.engines.audio_cpp.proxy_routing.resolve_audio_upstream_target",

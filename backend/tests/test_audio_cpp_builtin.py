@@ -61,7 +61,10 @@ def test_builtin_discovery_ignores_directory_names_the_engine_rejects(tmp_path, 
         "backend.engines.audio_cpp.builtin.subprocess.run",
         lambda *_a, **_k: SimpleNamespace(returncode=1, stdout="", stderr="unknown"),
     )
-    assert discover_builtin_audio_packages(
-        {"source_path": str(source), "cli_binary_path": str(cli)},
-        [BUILTIN_AUDIO_FAMILY],
-    ) == []
+    assert (
+        discover_builtin_audio_packages(
+            {"source_path": str(source), "cli_binary_path": str(cli)},
+            [BUILTIN_AUDIO_FAMILY],
+        )
+        == []
+    )

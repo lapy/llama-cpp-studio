@@ -50,9 +50,7 @@ def test_model_list_marks_an_unreachable_proxy(client, monkeypatch, tmp_path):
     assert quant["runtime_observed_at"] is None
 
 
-def test_model_list_preserves_last_running_state_during_an_outage(
-    client, monkeypatch, tmp_path
-):
+def test_model_list_preserves_last_running_state_during_an_outage(client, monkeypatch, tmp_path):
     store = _install_temp_store(monkeypatch, tmp_path)
     _seed_model(store)
 

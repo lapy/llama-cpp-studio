@@ -43,9 +43,7 @@ def _base_fixture(tmp_path):
         "id": "audio-cpp--demo",
         "artifact": {"package_kind": "prepared_bundle", "path": str(model_root)},
         "compatible_engines": ["audio_cpp"],
-        "config": normalize_model_config(
-            {"engine": "audio_cpp", "engines": {"audio_cpp": config}}
-        ),
+        "config": normalize_model_config({"engine": "audio_cpp", "engines": {"audio_cpp": config}}),
     }
     return _Store(active), model, config
 
@@ -161,15 +159,11 @@ def test_build_audio_runtime_propagates_validation_errors(tmp_path, monkeypatch)
         audio_runtime.build_audio_cpp_runtime(store, model, config, "audio-demo")
 
 
-def test_build_audio_runtime_includes_config_weight_and_model_lazy(
-    tmp_path, monkeypatch
-):
+def test_build_audio_runtime_includes_config_weight_and_model_lazy(tmp_path, monkeypatch):
     store, model, config = _base_fixture(tmp_path)
     config.update({"config": "main", "weight": "default", "model_lazy": True})
     monkeypatch.setattr(audio_runtime, "audio_cpp_enabled", lambda: True)
-    monkeypatch.setattr(
-        audio_runtime, "validate_audio_model_config", lambda *args, **kwargs: {}
-    )
+    monkeypatch.setattr(audio_runtime, "validate_audio_model_config", lambda *args, **kwargs: {})
     monkeypatch.setattr(audio_runtime, "get_version_entry", lambda *args: None)
 
     runtime = audio_runtime.build_audio_cpp_runtime(store, model, config, "audio-demo")

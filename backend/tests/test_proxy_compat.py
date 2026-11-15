@@ -67,9 +67,7 @@ CATALOG = [
 @pytest.mark.asyncio
 async def test_compat_discovery_routes_answer_without_loading_models():
     registry = _Registry()
-    plane = StudioDataPlane(
-        registry, lambda _name: None, catalog=lambda: list(CATALOG)
-    )
+    plane = StudioDataPlane(registry, lambda _name: None, catalog=lambda: list(CATALOG))
     transport = httpx.ASGITransport(app=plane)
     async with httpx.AsyncClient(transport=transport, base_url="http://proxy") as client:
         version = await client.get("/version")
@@ -144,7 +142,9 @@ async def test_compat_routes_scope_the_catalog_to_the_calling_key():
 async def test_props_and_version_prefer_a_running_engine_answer():
     generation = SimpleNamespace(upstream="http://engine.test")
     registry = _Registry(active=generation)
-    plane = StudioDataPlane(registry, lambda name: ResolvedModel(name), catalog=lambda: list(CATALOG))
+    plane = StudioDataPlane(
+        registry, lambda name: ResolvedModel(name), catalog=lambda: list(CATALOG)
+    )
     await plane.client.aclose()
     seen = []
 
@@ -183,7 +183,9 @@ async def test_props_and_version_prefer_a_running_engine_answer():
 async def test_engine_404_falls_back_to_synthesized_compatibility_payload():
     generation = SimpleNamespace(upstream="http://engine.test")
     registry = _Registry(active=generation)
-    plane = StudioDataPlane(registry, lambda name: ResolvedModel(name), catalog=lambda: list(CATALOG))
+    plane = StudioDataPlane(
+        registry, lambda name: ResolvedModel(name), catalog=lambda: list(CATALOG)
+    )
     await plane.client.aclose()
     plane.client = httpx.AsyncClient(
         transport=httpx.MockTransport(

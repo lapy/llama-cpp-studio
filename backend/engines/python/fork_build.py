@@ -159,7 +159,6 @@ def host_nvcc_threads(raw_arch_list: Any = "", budget: Optional[int] = None) -> 
     return nvcc_threads_for(budget_value, cuda_arch_count(raw_arch_list))
 
 
-
 async def prepare_fork_build(
     host,
     options: Mapping[str, Any],

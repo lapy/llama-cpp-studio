@@ -56,7 +56,10 @@ def test_download_task_manager_cancel():
         {"resource_key": resource},
         task_id=task_id,
     )
-    model_downloads.active_downloads[task_id] = {"huggingface_id": "org/model", "filename": "a.gguf"}
+    model_downloads.active_downloads[task_id] = {
+        "huggingface_id": "org/model",
+        "filename": "a.gguf",
+    }
 
     result = DownloadTaskManager.cancel(task_id)
 

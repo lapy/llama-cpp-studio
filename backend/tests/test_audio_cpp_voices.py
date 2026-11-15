@@ -44,9 +44,9 @@ def test_discover_pocket_tts_spec_language_root(tmp_path):
     (other / "clara.safetensors").write_bytes(b"x")
 
     assert discover_packaged_voices(str(pkg), family="pocket_tts") == []
-    assert discover_packaged_voices(
-        str(pkg), family="pocket_tts", source_path=str(source)
-    ) == ["alba"]
+    assert discover_packaged_voices(str(pkg), family="pocket_tts", source_path=str(source)) == [
+        "alba"
+    ]
 
 
 def test_discover_gguf_file_uses_parent_package_root(tmp_path):
@@ -107,9 +107,10 @@ def test_discover_supertonic_spec_ids_when_sidecars_missing(tmp_path):
     pkg.mkdir()
     (pkg / "model.gguf").write_bytes(b"GGUF")
 
-    assert discover_packaged_voices(
-        str(pkg), family="supertonic", source_path=str(source)
-    ) == ["F1", "M1"]
+    assert discover_packaged_voices(str(pkg), family="supertonic", source_path=str(source)) == [
+        "F1",
+        "M1",
+    ]
 
 
 def test_discover_supertonic_prefers_existing_style_files_over_full_spec(tmp_path):
@@ -166,12 +167,15 @@ def test_discover_neutts_samples_and_spec_enum(tmp_path):
     )
     empty = tmp_path / "gguf-pkg"
     empty.mkdir()
-    assert discover_packaged_voices(
-        str(tmp_path), family="neutts", source_path=str(source)
-    ) == ["dave", "emily"]
-    assert discover_packaged_voices(
-        str(empty), family="neutts", source_path=str(source)
-    ) == ["dave", "emily", "greta"]
+    assert discover_packaged_voices(str(tmp_path), family="neutts", source_path=str(source)) == [
+        "dave",
+        "emily",
+    ]
+    assert discover_packaged_voices(str(empty), family="neutts", source_path=str(source)) == [
+        "dave",
+        "emily",
+        "greta",
+    ]
 
 
 def test_discover_qwen3_custom_speakers_from_config(tmp_path):

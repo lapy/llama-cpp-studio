@@ -78,11 +78,7 @@ def build_runtime_process_env(
             env[key] = cuda_env[key]
 
     if cuda_env.get("PATH"):
-        env["PATH"] = (
-            cuda_env["PATH"]
-            if "PATH" not in env
-            else f"{cuda_env['PATH']}:{env['PATH']}"
-        )
+        env["PATH"] = cuda_env["PATH"] if "PATH" not in env else f"{cuda_env['PATH']}:{env['PATH']}"
 
     user_ld = str(env.pop("LD_LIBRARY_PATH", "") or "").strip()
     ld_segments: List[Optional[str]] = []

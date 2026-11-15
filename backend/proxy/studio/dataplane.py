@@ -1406,9 +1406,7 @@ class StudioDataPlane:
             return True
         return False
 
-    async def _compat_model(
-        self, scope: dict[str, Any]
-    ) -> tuple[Optional[dict], list[dict]]:
+    async def _compat_model(self, scope: dict[str, Any]) -> tuple[Optional[dict], list[dict]]:
         """Select the model a model-less discovery route describes.
 
         Explicit ``?model=`` wins, then the routing default, then the single

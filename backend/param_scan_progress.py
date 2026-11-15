@@ -238,9 +238,7 @@ class ParamScanSession:
         body = text or ""
         lines = body.splitlines()
         title = label or _quote_argv(argv)
-        self.log(
-            f"===== HELP OUTPUT: {title} ({len(lines)} lines, {len(body)} chars) ====="
-        )
+        self.log(f"===== HELP OUTPUT: {title} ({len(lines)} lines, {len(body)} chars) =====")
         if error:
             self.log(f"command_warning: {error}")
         if not body.strip():
@@ -254,15 +252,10 @@ class ParamScanSession:
     def log_catalog(self, entry: Optional[dict], *, title: str = "engine catalog") -> None:
         entry = entry or {}
         sections = entry.get("sections") or []
-        params = [
-            param
-            for section in sections
-            for param in (section.get("params") or [])
-        ]
+        params = [param for section in sections for param in (section.get("params") or [])]
         error = entry.get("scan_error")
         self.log(
-            f"===== CATALOG RESULT: {title} "
-            f"({len(params)} params, {len(sections)} sections) ====="
+            f"===== CATALOG RESULT: {title} ({len(params)} params, {len(sections)} sections) ====="
         )
         if error:
             self.log(f"scan_error: {error}")
@@ -300,17 +293,14 @@ class ParamScanSession:
         )
         if reserved_missing:
             self.log(
-                "coverage_reserved_unparsed: "
-                + ",".join(reserved_missing[:_MAX_COVERAGE_FLAGS])
+                "coverage_reserved_unparsed: " + ",".join(reserved_missing[:_MAX_COVERAGE_FLAGS])
             )
         if interesting_missing:
             self.log("coverage_missing_from_catalog (present in help, not parsed):")
             for flag in interesting_missing[:_MAX_COVERAGE_FLAGS]:
                 self.log(f"MISSING {flag}")
             if len(interesting_missing) > _MAX_COVERAGE_FLAGS:
-                self.log(
-                    f"... {len(interesting_missing) - _MAX_COVERAGE_FLAGS} more missing flags"
-                )
+                self.log(f"... {len(interesting_missing) - _MAX_COVERAGE_FLAGS} more missing flags")
         else:
             self.log("coverage_missing_from_catalog: none")
         if extra:

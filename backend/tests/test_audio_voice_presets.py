@@ -92,13 +92,16 @@ def test_audio_request_defaults_to_request_params_ignores_non_tts_tasks():
 
 
 def test_audio_request_defaults_to_request_params_ignores_other_engines():
-    assert audio_request_defaults_to_request_params(
-        {
-            "engine": "llama_cpp",
-            "task": "tts",
-            "speech_defaults": {"instructions": "ignored"},
-        }
-    ) == {}
+    assert (
+        audio_request_defaults_to_request_params(
+            {
+                "engine": "llama_cpp",
+                "task": "tts",
+                "speech_defaults": {"instructions": "ignored"},
+            }
+        )
+        == {}
+    )
 
 
 def test_normalize_voice_preset_requires_at_least_one_field():
@@ -320,11 +323,14 @@ def test_resolve_session_voice_missing_returns_none():
 
 def test_seed_session_voice_uses_spec_default_before_other_ids():
     config = {}
-    assert seed_session_voice_from_ids(
-        config,
-        ["bruno", "leo"],
-        preferred="leo",
-    ) is True
+    assert (
+        seed_session_voice_from_ids(
+            config,
+            ["bruno", "leo"],
+            preferred="leo",
+        )
+        is True
+    )
     assert config["default_voice_preset"] == "leo"
     assert config["voice_presets"]["leo"]["voice_id"] == "leo"
 

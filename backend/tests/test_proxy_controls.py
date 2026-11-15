@@ -76,9 +76,7 @@ def test_runtime_metrics_include_latency_errors_and_traffic():
     registry.record_request(
         generation, status=200, latency_ms=10, input_bytes=100, output_bytes=200
     )
-    registry.record_request(
-        generation, status=500, latency_ms=30, input_bytes=50, output_bytes=10
-    )
+    registry.record_request(generation, status=500, latency_ms=30, input_bytes=50, output_bytes=10)
     row = registry.describe(generation)
     assert row["request_count"] == 2
     assert row["error_count"] == 1
@@ -92,7 +90,9 @@ def test_runtime_metrics_include_latency_errors_and_traffic():
 @pytest.mark.asyncio
 async def test_per_model_queue_is_bounded():
     registry = ProcessRegistry(
-        lambda _: None, per_model_concurrency=1, queue_timeout=0.01  # type: ignore[arg-type]
+        lambda _: None,
+        per_model_concurrency=1,
+        queue_timeout=0.01,  # type: ignore[arg-type]
     )
     await registry.enter_request("demo")
     with pytest.raises(RegistryError, match="queue timed out"):
@@ -249,9 +249,15 @@ def test_request_history_is_bounded_and_stats_reset_preserves_engines(monkeypatc
     generation = _generation("demo")
     registry._generations[123] = generation
     for index in range(105):
-        registry.record_request(generation, status=200, latency_ms=index,
-                                input_bytes=10, output_bytes=20,
-                                method="POST", path="/v1/chat/completions")
+        registry.record_request(
+            generation,
+            status=200,
+            latency_ms=index,
+            input_bytes=10,
+            output_bytes=20,
+            method="POST",
+            path="/v1/chat/completions",
+        )
     assert len(registry.requests.values()) == 100
     assert registry.requests.values()[0]["latency_ms"] == 5
     assert registry.requests.values()[-1]["path"] == "/v1/chat/completions"

@@ -17,15 +17,7 @@ from backend.tests.help_parser_audit import (
 _HERE = Path(__file__).resolve().parent
 _FIXTURES = _HERE / "fixtures"
 _REPO = _HERE.parents[1]
-_LIVE_BIN = (
-    _REPO
-    / "data"
-    / "audio-cpp"
-    / "src"
-    / "build"
-    / "linux-cpu-release"
-    / "bin"
-)
+_LIVE_BIN = _REPO / "data" / "audio-cpp" / "src" / "build" / "linux-cpu-release" / "bin"
 _LIVE_SPECS = _REPO / "data" / "audio-cpp" / "src" / "model_specs"
 
 _HELP_FIXTURES = (
@@ -139,7 +131,10 @@ def _binary(env_name: str, default: Path) -> Path:
 
 def _require_live_help() -> bool:
     return os.environ.get("AUDIOCPP_REQUIRE_LIVE_HELP", "").strip().lower() in {
-        "1", "true", "yes", "on",
+        "1",
+        "true",
+        "yes",
+        "on",
     }
 
 

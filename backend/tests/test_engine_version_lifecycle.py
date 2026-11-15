@@ -27,9 +27,7 @@ def _store(tmp_path):
 
 def test_upsert_inserts_then_merges(tmp_path):
     store = _store(tmp_path)
-    upsert_engine_version(
-        store, "llama_cpp", {"version": "source-main", "binary_path": None}
-    )
+    upsert_engine_version(store, "llama_cpp", {"version": "source-main", "binary_path": None})
     upsert_engine_version(
         store, "llama_cpp", {"version": "source-main", "binary_path": "/bin/llama"}
     )
@@ -229,9 +227,7 @@ def test_delete_active_version_when_no_model_selects_the_engine(client, monkeypa
         "llama_cpp",
         {"version": "v1", "binary_path": "/bin/llama-server", "type": "release"},
     )
-    store.record_install_snapshot(
-        "llama_cpp", definition_digest="sha256:" + "a" * 64, version="v1"
-    )
+    store.record_install_snapshot("llama_cpp", definition_digest="sha256:" + "a" * 64, version="v1")
     store.set_active_engine_version("llama_cpp", "v1")
     store.add_model(
         {

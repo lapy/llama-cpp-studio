@@ -67,9 +67,7 @@ def test_download_safetensors_bundle_route_registers_hyphenated_active_download(
     monkeypatch.setattr(models_routes.time, "time", lambda: 1234.5)
 
     try:
-        result = asyncio.run(
-            models_routes.download_safetensors_bundle(request, background_tasks)
-        )
+        result = asyncio.run(models_routes.download_safetensors_bundle(request, background_tasks))
 
         assert result["message"] == "Safetensors bundle download started"
         assert result["task_id"] in model_downloads.active_downloads
@@ -99,9 +97,7 @@ def test_download_safetensors_bundle_route_rejects_duplicates(monkeypatch):
 
     try:
         with pytest.raises(HTTPException, match="already being downloaded"):
-            asyncio.run(
-                models_routes.download_safetensors_bundle(request, background_tasks)
-            )
+            asyncio.run(models_routes.download_safetensors_bundle(request, background_tasks))
     finally:
         model_downloads.active_downloads.clear()
         model_downloads.active_downloads.update(original_downloads)
@@ -162,16 +158,11 @@ def test_download_gguf_bundle_route_validates_and_schedules(monkeypatch):
     monkeypatch.setattr(models_routes.time, "time", lambda: 4567.8)
 
     try:
-        result = asyncio.run(
-            models_routes.download_gguf_bundle(request, background_tasks)
-        )
+        result = asyncio.run(models_routes.download_gguf_bundle(request, background_tasks))
 
         assert result["message"] == "GGUF bundle download started"
         assert result["task_id"] in model_downloads.active_downloads
-        assert (
-            model_downloads.active_downloads[result["task_id"]]["model_format"]
-            == "gguf-bundle"
-        )
+        assert model_downloads.active_downloads[result["task_id"]]["model_format"] == "gguf-bundle"
         assert len(background_tasks.tasks) == 1
         scheduled = background_tasks.tasks[0]
         assert scheduled.func is models_routes._spawn_background_operation
@@ -308,9 +299,7 @@ def test_update_model_projector_route_handles_clear_cached_duplicate_and_schedul
         "filename": "mmproj-v2.gguf",
         "model_format": "gguf-projector",
     }
-    monkeypatch.setattr(
-        models_routes, "resolve_cached_model_path", lambda hf_id, filename: None
-    )
+    monkeypatch.setattr(models_routes, "resolve_cached_model_path", lambda hf_id, filename: None)
     try:
         with pytest.raises(HTTPException, match="already being applied"):
             asyncio.run(
@@ -360,7 +349,9 @@ def test_update_model_mtp_route_handles_clear_cached_and_schedule(monkeypatch, t
 
     monkeypatch.setattr(models_routes, "get_store", lambda: gguf_store)
     monkeypatch.setattr(
-        models_routes, "_mark_runtime_changed", lambda: marked.__setitem__("stale", marked["stale"] + 1)
+        models_routes,
+        "_mark_runtime_changed",
+        lambda: marked.__setitem__("stale", marked["stale"] + 1),
     )
     monkeypatch.setattr(models_routes, "get_progress_manager", lambda: pm)
     monkeypatch.setattr(models_routes.time, "time", lambda: 8901.2)
@@ -402,9 +393,7 @@ def test_update_model_mtp_route_handles_clear_cached_and_schedule(monkeypatch, t
     assert applied["message"] == "MTP draft applied"
     assert gguf_store.rows["org/repo"]["mtp_filename"] == "MTP/mtp-model-Q8_0.gguf"
 
-    monkeypatch.setattr(
-        models_routes, "resolve_cached_model_path", lambda hf_id, filename: None
-    )
+    monkeypatch.setattr(models_routes, "resolve_cached_model_path", lambda hf_id, filename: None)
     original_downloads = dict(model_downloads.active_downloads)
     model_downloads.active_downloads.clear()
     try:
@@ -430,9 +419,7 @@ def test_download_safetensors_bundle_task_success_and_failure(monkeypatch):
     store = MemoryStore()
     observed = {"saved": [], "stale": 0}
 
-    async def fake_download(
-        hf_id, filename, proxy, task_id, size_hint, model_format, event_hf_id
-    ):
+    async def fake_download(hf_id, filename, proxy, task_id, size_hint, model_format, event_hf_id):
         return (f"/tmp/{filename}", size_hint or 5)
 
     async def fake_save(store_obj, hf_id, filename, file_path, file_size):
@@ -475,9 +462,7 @@ def test_download_safetensors_bundle_task_success_and_failure(monkeypatch):
     async def broken_download(*args, **kwargs):
         raise RuntimeError("network down")
 
-    monkeypatch.setattr(
-        model_downloads, "download_model_with_progress", broken_download
-    )
+    monkeypatch.setattr(model_downloads, "download_model_with_progress", broken_download)
     original_downloads = dict(model_downloads.active_downloads)
     model_downloads.active_downloads.clear()
     model_downloads.active_downloads["task-fail"] = {"filename": "bundle"}
@@ -501,9 +486,7 @@ def test_download_safetensors_bundle_task_success_and_failure(monkeypatch):
     assert pm_fail.broadcasts[-1]["error"] == "network down"
 
 
-def test_download_gguf_bundle_task_and_projector_task_update_store(
-    monkeypatch, tmp_path
-):
+def test_download_gguf_bundle_task_and_projector_task_update_store(monkeypatch, tmp_path):
     model_id = "org--repo--Q4_K_M"
     store = MemoryStore(
         [
@@ -531,9 +514,7 @@ def test_download_gguf_bundle_task_and_projector_task_update_store(
     cached_mtp = tmp_path / "mtp-Q8_0.gguf"
     cached_mtp.write_text("mtp", encoding="utf-8")
 
-    async def fake_download(
-        hf_id, filename, proxy, task_id, size_hint, model_format, event_hf_id
-    ):
+    async def fake_download(hf_id, filename, proxy, task_id, size_hint, model_format, event_hf_id):
         return (f"/tmp/{filename}", size_hint or 5)
 
     async def fake_record(
@@ -618,9 +599,7 @@ def test_download_gguf_bundle_task_and_projector_task_update_store(
         model_downloads.active_downloads.update(original_downloads)
 
     assert store.rows["org/repo"]["mmproj_filename"] == "mmproj-F16.gguf"
-    assert projector_pm.completed == [
-        ("proj-task", "Applied projector mmproj-F16.gguf")
-    ]
+    assert projector_pm.completed == [("proj-task", "Applied projector mmproj-F16.gguf")]
     assert projector_pm.broadcasts[-1]["model_format"] == "gguf-projector"
     assert projector_pm.broadcasts[-1]["status"] == "completed"
 
@@ -686,14 +665,11 @@ def test_refresh_model_route_conflict_and_task_wiring(monkeypatch):
     original = dict(model_downloads.active_downloads)
     model_downloads.active_downloads.clear()
     try:
-        result = asyncio.run(
-            models_routes.refresh_model("org--repo--Q4_K_M", background_tasks)
-        )
+        result = asyncio.run(models_routes.refresh_model("org--repo--Q4_K_M", background_tasks))
         assert result["updated"] is True
         assert result["task_id"] in model_downloads.active_downloads
         assert (
-            model_downloads.active_downloads[result["task_id"]]["model_format"]
-            == "model-refresh"
+            model_downloads.active_downloads[result["task_id"]]["model_format"] == "model-refresh"
         )
         assert len(background_tasks.tasks) == 1
         assert background_tasks.tasks[0].func is models_routes._spawn_background_operation
@@ -701,9 +677,7 @@ def test_refresh_model_route_conflict_and_task_wiring(monkeypatch):
         assert pm.created[0][0] == "download"
 
         with pytest.raises(HTTPException, match="already being refreshed"):
-            asyncio.run(
-                models_routes.refresh_model("org--repo--Q4_K_M", BackgroundTasks())
-            )
+            asyncio.run(models_routes.refresh_model("org--repo--Q4_K_M", BackgroundTasks()))
     finally:
         model_downloads.active_downloads.clear()
         model_downloads.active_downloads.update(original)

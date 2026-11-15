@@ -16,14 +16,10 @@ from typing import Any, Optional
 import requests
 
 # GitHub "Latest" is the newest non-prerelease (a stable ``vX.Y.Z`` tag).
-LLAMA_CPP_LATEST_RELEASE_URL = (
-    "https://api.github.com/repos/ggerganov/llama.cpp/releases/latest"
-)
+LLAMA_CPP_LATEST_RELEASE_URL = "https://api.github.com/repos/ggerganov/llama.cpp/releases/latest"
 # Fallback listing. Nightlies are published far more often than stable tags,
 # so the first page is usually only ``bNNNN`` prereleases.
-LLAMA_CPP_RELEASES_URL = (
-    "https://api.github.com/repos/ggerganov/llama.cpp/releases?per_page=20"
-)
+LLAMA_CPP_RELEASES_URL = "https://api.github.com/repos/ggerganov/llama.cpp/releases?per_page=20"
 _STABLE_TAG_RE = re.compile(r"^v\d+\.\d+\.\d+$")
 _NIGHTLY_TAG_RE = re.compile(r"^b\d+$", re.IGNORECASE)
 IK_LLAMA_MAIN_COMMITS_URL = (
@@ -44,9 +40,7 @@ def parse_ik_llama_commit(raw: Any) -> Optional[dict[str, Any]]:
     html_url = commit.get("html_url")
     if not html_url:
         html_url = f"https://github.com/ikawrakow/ik_llama.cpp/commit/{sha}"
-    commit_body = (
-        (commit.get("commit") or {}) if isinstance(commit.get("commit"), dict) else {}
-    )
+    commit_body = (commit.get("commit") or {}) if isinstance(commit.get("commit"), dict) else {}
     committer = (
         (commit_body.get("committer") or {})
         if isinstance(commit_body.get("committer"), dict)

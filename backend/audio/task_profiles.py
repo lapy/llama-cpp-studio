@@ -62,7 +62,9 @@ def overlay_task_profile_from_spec(
     if result and task:
         from backend.audio.families.tts import is_tts_task
 
-        result["requires_session_voice"] = bool(result.get("requires_session_voice")) and is_tts_task(task)
+        result["requires_session_voice"] = bool(
+            result.get("requires_session_voice")
+        ) and is_tts_task(task)
     return result
 
 
@@ -124,16 +126,19 @@ def request_field_groups_for(
         groups = field_groups_from_contract(contract)
         if profile_sections:
             model_sections = [
-                {**section, "params": [
-                    row for row in section.get("params") or []
-                    if row.get("transport") != "request_only"
-                ]}
+                {
+                    **section,
+                    "params": [
+                        row
+                        for row in section.get("params") or []
+                        if row.get("transport") != "request_only"
+                    ],
+                }
                 for section in profile_sections
             ]
             scanned = scanned_request_field_groups(model_sections)
             scanned_fields = {
-                field["key"]: field
-                for group in scanned for field in group.get("fields") or []
+                field["key"]: field for group in scanned for field in group.get("fields") or []
             }
             for group in groups:
                 for field in group.get("fields") or []:
@@ -142,9 +147,7 @@ def request_field_groups_for(
                         field["options"] = help_field["options"]
             # Specs can omit options still advertised by model-aware help.
             # Keep those gaps while preferring structured spec metadata.
-            groups = merge_request_field_groups(
-                scanned, groups
-            )
+            groups = merge_request_field_groups(scanned, groups)
     else:
         groups: List[Dict[str, Any]] = []
         if profile_sections:
@@ -202,9 +205,7 @@ def family_dependency_fields_for(
     if not dependencies and source_path and family_key:
         from backend.engines.audio_cpp.contracts import load_family_contract
 
-        contract = load_family_contract(
-            source_path, family_key, known_keys=known or None
-        )
+        contract = load_family_contract(source_path, family_key, known_keys=known or None)
         dependencies = list((contract or {}).get("dependencies") or [])
 
     if not dependencies:
@@ -254,9 +255,7 @@ def apply_dependency_field_overlays(
     for section in sections_out:
         params = section.get("params")
         if isinstance(params, list):
-            section["params"] = [
-                dict(param) for param in params if isinstance(param, dict)
-            ]
+            section["params"] = [dict(param) for param in params if isinstance(param, dict)]
 
     index: Dict[str, Dict[str, Any]] = {}
     for section in sections_out:

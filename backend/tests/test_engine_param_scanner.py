@@ -70,9 +70,7 @@ def test_run_help_argv_exit_127_llama_hint(monkeypatch):
         stdout = ""
 
     monkeypatch.setattr(scanner_mod.subprocess, "run", lambda *a, **k: _R())
-    text, err = scanner_mod._run_help_argv(
-        ["/app/llama-server"], scan_engine="llama_cpp"
-    )
+    text, err = scanner_mod._run_help_argv(["/app/llama-server"], scan_engine="llama_cpp")
     assert text == ""
     assert "127" in err
     assert "llama.cpp" in err.lower() or "ggml" in err.lower()
@@ -89,9 +87,7 @@ def test_llama_scan_ld_path_includes_build_bin(tmp_path):
     assert str(build_bin) in parts
 
 
-def test_scan_engine_version_uses_native_proxy_binary_for_active_row(
-    tmp_path, monkeypatch
-):
+def test_scan_engine_version_uses_native_proxy_binary_for_active_row(tmp_path, monkeypatch):
     """Active llama_cpp/ik_llama scan uses ``get_active_native_proxy_binary_path`` when it matches the engine."""
     swap_path = tmp_path / "swap" / "llama-server"
     swap_path.parent.mkdir(parents=True)
@@ -130,15 +126,11 @@ def test_scan_engine_version_uses_native_proxy_binary_for_active_row(
                 return {"version": "v1", "binary_path": str(row_path)}
             return None
 
-    scan_engine_version(
-        FakeStore(), "llama_cpp", {"version": "v1", "binary_path": str(row_path)}
-    )
+    scan_engine_version(FakeStore(), "llama_cpp", {"version": "v1", "binary_path": str(row_path)})
     assert captured["binary_path"] == str(swap_path)
 
 
-def test_scan_engine_version_keeps_row_path_for_non_active_version(
-    tmp_path, monkeypatch
-):
+def test_scan_engine_version_keeps_row_path_for_non_active_version(tmp_path, monkeypatch):
     swap_path = tmp_path / "swap" / "llama-server"
     swap_path.parent.mkdir(parents=True)
     swap_path.write_bytes(b"\0")
@@ -246,13 +238,9 @@ def test_audio_cpp_source_root_prefers_source_path_and_walks_parents(tmp_path):
     cli = build_bin / "audiocpp_cli"
     cli.write_text("x", encoding="utf-8")
 
-    assert scanner_mod._audio_cpp_source_root(
-        {"source_path": str(source)}, str(cli)
-    ) == str(source)
+    assert scanner_mod._audio_cpp_source_root({"source_path": str(source)}, str(cli)) == str(source)
     assert scanner_mod._audio_cpp_source_root({}, str(cli)) == str(source)
-    assert scanner_mod._audio_cpp_model_spec_override({}, str(cli)) == str(
-        source / "model_specs"
-    )
+    assert scanner_mod._audio_cpp_model_spec_override({}, str(cli)) == str(source / "model_specs")
 
 
 def test_audio_scan_records_contract_fingerprint_and_drift(tmp_path, monkeypatch):
@@ -278,8 +266,7 @@ def test_audio_scan_records_contract_fingerprint_and_drift(tmp_path, monkeypatch
                 None,
             )
         return (
-            "Usage: audiocpp_cli [options]\n"
-            "  --model <path>  Model path\n",
+            "Usage: audiocpp_cli [options]\n  --model <path>  Model path\n",
             None,
         )
 
@@ -332,8 +319,7 @@ def test_audio_scan_prefers_list_loaders_json(tmp_path, monkeypatch):
         if "--list-loaders" in argv:
             return ("should_not_use: tts (offline)\n", None)
         return (
-            "Usage: audiocpp_cli [options]\n"
-            "  --model <path>  Model path\n",
+            "Usage: audiocpp_cli [options]\n  --model <path>  Model path\n",
             None,
         )
 
@@ -362,10 +348,7 @@ def test_probe_catalog_resolves_model_manager_from_source_path(tmp_path, monkeyp
 
     class Result:
         returncode = 0
-        stdout = (
-            '[{"id":"demo","family":"demo","target_directory":"demo",'
-            '"repo":"org/demo"}]'
-        )
+        stdout = '[{"id":"demo","family":"demo","target_directory":"demo","repo":"org/demo"}]'
         stderr = ""
 
     monkeypatch.setattr(
@@ -475,17 +458,13 @@ def test_model_profile_retries_when_cached_scan_error(tmp_path, monkeypatch):
     def fake_inspect(argv, cli_path, cwd=None, source_path=""):
         calls["inspect"] += 1
         return (
-            "family=demo_tts\n"
-            "supported_tasks=1\n"
-            "task=tts modes=offline\n",
+            "family=demo_tts\nsupported_tasks=1\ntask=tts modes=offline\n",
             None,
         )
 
     def fake_help(argv, **kwargs):
         return (
-            "Usage: audiocpp_cli\n"
-            "Model session options:\n"
-            "  demo_tts.weight_type <native|f32>\n",
+            "Usage: audiocpp_cli\nModel session options:\n  demo_tts.weight_type <native|f32>\n",
             None,
         )
 
@@ -502,9 +481,7 @@ def test_model_profile_retries_when_cached_scan_error(tmp_path, monkeypatch):
         lambda *a, **k: None,
     )
 
-    profile = scan_audio_cpp_model_profile(
-        _Store(), version_row, model, force=False
-    )
+    profile = scan_audio_cpp_model_profile(_Store(), version_row, model, force=False)
     assert calls["inspect"] == 1
     assert not profile.get("scan_error"), profile.get("scan_error")
     session_keys = {
@@ -555,11 +532,7 @@ def test_audio_model_profile_config_spec_override_wins(tmp_path, monkeypatch):
             "id": "audio-cpp--demo",
             "family": "demo_tts",
             "artifact": {"path": str(model_dir), "package_kind": "prepared_bundle"},
-            "config": {
-                "engines": {
-                    "audio_cpp": {"model_spec_override": str(custom)}
-                }
-            },
+            "config": {"engines": {"audio_cpp": {"model_spec_override": str(custom)}}},
         },
         force=True,
     )

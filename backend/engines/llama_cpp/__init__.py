@@ -8,4 +8,8 @@ def __getattr__(name: str):
         raise AttributeError(name)
     from backend.engines.llama_cpp.manager import BuildConfig, LlamaCppManager, LlamaManager
 
-    return {"BuildConfig": BuildConfig, "LlamaCppManager": LlamaCppManager, "LlamaManager": LlamaManager}[name]
+    return {
+        "BuildConfig": BuildConfig,
+        "LlamaCppManager": LlamaCppManager,
+        "LlamaManager": LlamaManager,
+    }[name]

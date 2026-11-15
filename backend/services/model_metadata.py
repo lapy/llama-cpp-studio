@@ -23,17 +23,13 @@ _gpu_info_cache: Dict[str, Any] = {
 }
 _gpu_info_lock: Optional[asyncio.Lock] = None
 GPU_INFO_CACHE_TTL = 30.0  # seconds — shared by /api/gpu-info and VRAM estimates
-GPU_INFO_INITIAL_WAIT_SECONDS = float(
-    os.environ.get("GPU_INFO_INITIAL_WAIT_SECONDS", "0.25")
-)
+GPU_INFO_INITIAL_WAIT_SECONDS = float(os.environ.get("GPU_INFO_INITIAL_WAIT_SECONDS", "0.25"))
 
 # Startup cache for GET /api/gpu-list (index + name only; no per-request probing)
 _gpu_list_cache: Optional[Dict[str, Any]] = None
 
 
-def _gpu_info_fallback(
-    *, detecting: bool = False, error: Optional[str] = None
-) -> Dict[str, Any]:
+def _gpu_info_fallback(*, detecting: bool = False, error: Optional[str] = None) -> Dict[str, Any]:
     payload: Dict[str, Any] = {
         "vendor": None,
         "cuda_version": "Unknown",
@@ -114,10 +110,7 @@ async def get_cached_gpu_info(
     async with _get_gpu_info_lock():
         now = time.monotonic()
         cached = _gpu_info_cache["data"]
-        if (
-            cached is not None
-            and now - _gpu_info_cache["timestamp"] < GPU_INFO_CACHE_TTL
-        ):
+        if cached is not None and now - _gpu_info_cache["timestamp"] < GPU_INFO_CACHE_TTL:
             return cached
 
         task = _gpu_info_cache.get("refresh_task")
@@ -129,9 +122,7 @@ async def get_cached_gpu_info(
         return cached
 
     try:
-        return await asyncio.wait_for(
-            asyncio.shield(task), timeout=max(0.0, initial_wait_seconds)
-        )
+        return await asyncio.wait_for(asyncio.shield(task), timeout=max(0.0, initial_wait_seconds))
     except asyncio.TimeoutError:
         return _gpu_info_fallback(detecting=True)
 
@@ -157,9 +148,7 @@ EMBEDDING_KEYWORDS = [
 ]
 
 
-def looks_like_embedding_model(
-    pipeline_tag: Optional[str], *name_parts: Optional[str]
-) -> bool:
+def looks_like_embedding_model(pipeline_tag: Optional[str], *name_parts: Optional[str]) -> bool:
     """Detect embedding-capable models based on pipeline metadata or name heuristics."""
     pipeline = (pipeline_tag or "").lower()
     if pipeline in EMBEDDING_PIPELINE_TAGS:
@@ -254,10 +243,7 @@ def refresh_gguf_model_metadata(model: dict, store, gguf_path: str) -> Dict[str,
     normalized_architecture = normalize_architecture(raw_architecture)
     if not normalized_architecture or normalized_architecture == "unknown":
         normalized_architecture = detect_architecture_from_name(
-            model.get("display_name")
-            or model.get("name")
-            or model.get("huggingface_id")
-            or ""
+            model.get("display_name") or model.get("name") or model.get("huggingface_id") or ""
         )
 
     update_fields: Dict[str, Any] = {}

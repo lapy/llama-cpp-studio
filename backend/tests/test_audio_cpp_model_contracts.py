@@ -43,10 +43,7 @@ def _write_spec(root, family, **overrides):
 
 
 def test_public_option_key_uses_declared_name():
-    assert (
-        public_option_key("qwen3_asr", "forced_aligner_path")
-        == "qwen3_asr.forced_aligner_path"
-    )
+    assert public_option_key("qwen3_asr", "forced_aligner_path") == "qwen3_asr.forced_aligner_path"
     assert public_option_key("miotts", "codec_path") == "miotts.codec_path"
 
 
@@ -68,9 +65,7 @@ def test_load_family_contract_requires_versioned_model_spec(tmp_path):
     assert contract is not None
     assert contract["typed"] is True
     assert contract["source"] == "model_specs"
-    assert contract["dependencies"][0]["option_key"] == (
-        "qwen3_asr.forced_aligner_path"
-    )
+    assert contract["dependencies"][0]["option_key"] == ("qwen3_asr.forced_aligner_path")
 
 
 def test_load_family_contract_accepts_unversioned_typed_shaped_spec(tmp_path):
@@ -277,9 +272,7 @@ def test_sidecar_fields_come_from_versioned_dependencies(tmp_path):
             }
         ],
     )
-    fields = sidecar_session_fields_for(
-        "tts", "miotts", source_path=str(tmp_path)
-    )
+    fields = sidecar_session_fields_for("tts", "miotts", source_path=str(tmp_path))
     assert [field["key"] for field in fields] == ["miotts.codec_path"]
     assert fields[0]["dependency"]["family"] == "miocodec"
     assert fields[0]["dependency"]["required"] is True
@@ -306,14 +299,18 @@ def test_dependency_sidecar_dedupes_exact_keys():
 
 
 def test_apply_dependency_overlays_enriches_scanned_params_and_keeps_gaps():
-    sections = [{
-        "id": "session",
-        "params": [{
-            "key": "qwen3_asr.forced_aligner_path",
-            "scope": "session_option",
-            "label": "forced_aligner_path",
-        }],
-    }]
+    sections = [
+        {
+            "id": "session",
+            "params": [
+                {
+                    "key": "qwen3_asr.forced_aligner_path",
+                    "scope": "session_option",
+                    "label": "forced_aligner_path",
+                }
+            ],
+        }
+    ]
     dependency_fields = [
         {
             "key": "qwen3_asr.forced_aligner_path",
@@ -344,9 +341,7 @@ def test_family_dependencies_map_and_fingerprint_cover_seeded_contracts(tmp_path
 
 
 def test_pinned_checkout_loads_live_specs_without_model_specs_v1():
-    source = (
-        Path(__file__).resolve().parents[2] / "data" / "audio-cpp" / "src"
-    )
+    source = Path(__file__).resolve().parents[2] / "data" / "audio-cpp" / "src"
     if not (source / "model_specs").is_dir():
         return
     assert not (source / "model_specs_v1").exists()
@@ -360,13 +355,9 @@ def test_pinned_checkout_loads_live_specs_without_model_specs_v1():
 
     vevo = load_family_contract(str(source), "vevo2")
     assert vevo is not None
-    assert "vevo2.whisper_model_path" not in [
-        row["option_key"] for row in vevo["dependencies"]
-    ]
+    assert "vevo2.whisper_model_path" not in [row["option_key"] for row in vevo["dependencies"]]
 
     oute = load_family_contract(str(source), "outetts")
     assert oute is not None
     assert oute["typed"] is True
-    assert "outetts.aligner_path" not in [
-        row["option_key"] for row in oute["dependencies"]
-    ]
+    assert "outetts.aligner_path" not in [row["option_key"] for row in oute["dependencies"]]

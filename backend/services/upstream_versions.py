@@ -21,9 +21,7 @@ from backend.engines.llama_cpp.github_refs import (
 
 UpstreamAdapter = Callable[[], Awaitable[dict]]
 
-LLAMA_CPP_COMMITS_URL = (
-    "https://api.github.com/repos/ggerganov/llama.cpp/commits?per_page=1"
-)
+LLAMA_CPP_COMMITS_URL = "https://api.github.com/repos/ggerganov/llama.cpp/commits?per_page=1"
 
 
 class UpstreamRequestError(Exception):
@@ -51,9 +49,7 @@ def _commit_summary(tip: Optional[dict]) -> Optional[dict]:
     if not isinstance(tip, dict) or not tip.get("sha"):
         return None
     commit = tip.get("commit") if isinstance(tip.get("commit"), dict) else {}
-    committer = (
-        commit.get("committer") if isinstance(commit.get("committer"), dict) else {}
-    )
+    committer = commit.get("committer") if isinstance(commit.get("committer"), dict) else {}
     return {
         "sha": tip.get("sha"),
         "commit_date": committer.get("date"),
@@ -131,9 +127,7 @@ async def resolve_build_ref(engine: str) -> tuple[str, str]:
         payload = await _get_json(IK_LLAMA_MAIN_COMMITS_URL)
         tip = parse_ik_llama_commit(payload)
         if not tip or not tip.get("sha"):
-            raise UpstreamRequestError(
-                404, "Could not resolve latest commit on ik_llama.cpp main"
-            )
+            raise UpstreamRequestError(404, "Could not resolve latest commit on ik_llama.cpp main")
         return tip["sha"], "ref"
     release = await _llama_cpp_release()
     if not release or not release.get("tag_name"):

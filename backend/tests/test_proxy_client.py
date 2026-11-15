@@ -26,8 +26,6 @@ def test_unload_all_models_prefers_current_admin_api(monkeypatch):
     assert seen == [("POST", "/api/models/unload", 10)]
 
 
-
-
 def test_unload_all_models_does_not_mask_non_route_errors(monkeypatch):
     client = ProxyClient()
 

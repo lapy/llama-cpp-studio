@@ -262,8 +262,7 @@ def speech_streaming_field_groups() -> List[Dict[str, Any]]:
                     "label": "Stream audio deltas",
                     "type": "bool",
                     "description": (
-                        "Respond with audio chunks as they are synthesized "
-                        "instead of one full WAV."
+                        "Respond with audio chunks as they are synthesized instead of one full WAV."
                     ),
                     "hint": "Requires the model to run with mode=streaming.",
                     "discovery_source": "studio",
@@ -464,8 +463,11 @@ def workspace_request_fields(
             continue
         if row.get("name") == "text":
             fields["text"] = {
-                "key": "text", "label": _label("text"), "type": "string",
-                "nested": False, "required": bool(row.get("required")),
+                "key": "text",
+                "label": _label("text"),
+                "type": "string",
+                "nested": False,
+                "required": bool(row.get("required")),
                 "description": row.get("description", ""),
                 **({"default": row["default"]} if "default" in row else {}),
             }
@@ -552,8 +554,7 @@ def scanned_request_field_groups(sections: Optional[Iterable[dict]]) -> List[Dic
             "id": "scanned_request_options",
             "label": "Model request options",
             "description": (
-                "Autodetected from audiocpp_cli --model … --help. "
-                "Stored under request options."
+                "Autodetected from audiocpp_cli --model … --help. Stored under request options."
             ),
             "fields": fields,
         }

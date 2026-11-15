@@ -82,9 +82,9 @@ def _check_openblas() -> bool:
         return result.returncode == 0
     except Exception:
         # Check if library exists
-        return os.path.exists(
-            "/usr/lib/x86_64-linux-gnu/libopenblas.so"
-        ) or os.path.exists("/usr/local/lib/libopenblas.so")
+        return os.path.exists("/usr/lib/x86_64-linux-gnu/libopenblas.so") or os.path.exists(
+            "/usr/local/lib/libopenblas.so"
+        )
 
 
 def _resolve_nvidia_smi() -> Optional[str]:
@@ -101,9 +101,7 @@ def _resolve_nvidia_smi() -> Optional[str]:
         candidates.append(nvidia_smi_in_cuda)
 
     # Check the persistent CUDA installation path directly
-    cuda_current = os.path.join(
-        studio_data_dir(), "cuda", "current", "bin", "nvidia-smi"
-    )
+    cuda_current = os.path.join(studio_data_dir(), "cuda", "current", "bin", "nvidia-smi")
     candidates.append(cuda_current)
 
     candidates.extend(
@@ -167,9 +165,7 @@ def _detect_nvidia_gpu() -> Optional[Dict]:
 
         device_count = pynvml.nvmlDeviceGetCount()
         if device_count == 0:
-            logger.debug(
-                "NVML reported zero NVIDIA devices; falling back to nvidia-smi detection"
-            )
+            logger.debug("NVML reported zero NVIDIA devices; falling back to nvidia-smi detection")
             return _detect_nvidia_via_smi(cuda_version_hint)
 
         gpus = []
@@ -179,11 +175,7 @@ def _detect_nvidia_gpu() -> Optional[Dict]:
 
             # Get basic info
             raw_name = pynvml.nvmlDeviceGetName(handle)
-            name = (
-                raw_name.decode("utf-8")
-                if isinstance(raw_name, bytes)
-                else str(raw_name)
-            )
+            name = raw_name.decode("utf-8") if isinstance(raw_name, bytes) else str(raw_name)
             memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
 
             # Get compute capability
@@ -192,9 +184,7 @@ def _detect_nvidia_gpu() -> Optional[Dict]:
 
             # Get temperature
             try:
-                temperature = pynvml.nvmlDeviceGetTemperature(
-                    handle, pynvml.NVML_TEMPERATURE_GPU
-                )
+                temperature = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
             except Exception:
                 temperature = None
 
@@ -412,9 +402,7 @@ def _detect_amd_via_rocm() -> Optional[Dict]:
                             "total": int(value.get("Total Memory (Not-Formatted)", 0))
                             * 1024
                             * 1024,
-                            "free": int(value.get("Free Memory (Not-Formatted)", 0))
-                            * 1024
-                            * 1024,
+                            "free": int(value.get("Free Memory (Not-Formatted)", 0)) * 1024 * 1024,
                             "used": 0,
                         },
                     }
@@ -439,9 +427,7 @@ def _detect_amd_via_rocm() -> Optional[Dict]:
 def _detect_amd_via_lspci() -> Optional[Dict]:
     """Detect AMD GPUs using lspci"""
     try:
-        result = subprocess.run(
-            ["lspci", "-v"], capture_output=True, text=True, timeout=5
-        )
+        result = subprocess.run(["lspci", "-v"], capture_output=True, text=True, timeout=5)
 
         amd_gpus = []
         lines = result.stdout.split("\n")
@@ -470,12 +456,8 @@ def _detect_amd_via_lspci() -> Optional[Dict]:
                 "vendor": "amd",
                 "device_count": len(amd_gpus),
                 "gpus": amd_gpus,
-                "total_vram": sum(
-                    gpu.get("memory", {}).get("total", 0) for gpu in amd_gpus
-                ),
-                "available_vram": sum(
-                    gpu.get("memory", {}).get("free", 0) for gpu in amd_gpus
-                ),
+                "total_vram": sum(gpu.get("memory", {}).get("total", 0) for gpu in amd_gpus),
+                "available_vram": sum(gpu.get("memory", {}).get("free", 0) for gpu in amd_gpus),
                 "cpu_only_mode": len(amd_gpus) == 0,
             }
 
@@ -517,19 +499,11 @@ def _detect_nvidia_gpu_list() -> Optional[Dict]:
         for i in range(device_count):
             handle = pynvml.nvmlDeviceGetHandleByIndex(i)
             raw_name = pynvml.nvmlDeviceGetName(handle)
-            name = (
-                raw_name.decode("utf-8")
-                if isinstance(raw_name, bytes)
-                else str(raw_name)
-            )
+            name = raw_name.decode("utf-8") if isinstance(raw_name, bytes) else str(raw_name)
             uuid = ""
             try:
                 raw_uuid = pynvml.nvmlDeviceGetUUID(handle)
-                uuid = (
-                    raw_uuid.decode("utf-8")
-                    if isinstance(raw_uuid, bytes)
-                    else str(raw_uuid)
-                )
+                uuid = raw_uuid.decode("utf-8") if isinstance(raw_uuid, bytes) else str(raw_uuid)
             except Exception:
                 uuid = ""
             row = {"index": i, "name": name}
@@ -710,9 +684,7 @@ async def detect_build_capabilities() -> Dict[str, Dict[str, any]]:
             "available": openblas_available,
             "recommended": openblas_available and not cuda_available,
             "reason": (
-                "OpenBLAS library available"
-                if openblas_available
-                else "OpenBLAS not installed"
+                "OpenBLAS library available" if openblas_available else "OpenBLAS not installed"
             ),
         },
     }

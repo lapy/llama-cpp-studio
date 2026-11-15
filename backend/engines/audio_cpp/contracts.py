@@ -55,9 +55,7 @@ def public_option_key(
     local = str(option or "").strip()
     if not local:
         return ""
-    candidate = local if "." in local else (
-        f"{family_key}.{local}" if family_key else local
-    )
+    candidate = local if "." in local else (f"{family_key}.{local}" if family_key else local)
     known = {str(k).strip() for k in (known_keys or set()) if str(k).strip()}
     if known and candidate in known:
         return candidate
@@ -122,24 +120,12 @@ def normalize_contract(
 
     options = payload.get("options") if isinstance(payload.get("options"), dict) else {}
     capabilities = (
-        payload.get("capabilities")
-        if isinstance(payload.get("capabilities"), dict)
-        else {}
+        payload.get("capabilities") if isinstance(payload.get("capabilities"), dict) else {}
     )
-    tasks = [
-        str(task).strip()
-        for task in (payload.get("tasks") or [])
-        if str(task).strip()
-    ]
-    modes = [
-        str(mode).strip()
-        for mode in (payload.get("modes") or [])
-        if str(mode).strip()
-    ]
+    tasks = [str(task).strip() for task in (payload.get("tasks") or []) if str(task).strip()]
+    modes = [str(mode).strip() for mode in (payload.get("modes") or []) if str(mode).strip()]
     languages = [
-        str(lang).strip()
-        for lang in (payload.get("languages") or [])
-        if str(lang).strip()
+        str(lang).strip() for lang in (payload.get("languages") or []) if str(lang).strip()
     ]
     schema_version = payload.get("schema_version")
     return {
@@ -162,12 +148,11 @@ def normalize_contract(
         "instructions_policy": payload.get("instructions_policy"),
         "preferred_api_endpoint": payload.get("preferred_api_endpoint"),
         "package_defaults": payload.get("package_defaults")
-        if isinstance(payload.get("package_defaults"), dict) else {},
+        if isinstance(payload.get("package_defaults"), dict)
+        else {},
         "dependencies": dependencies,
         "ui": payload.get("ui") if isinstance(payload.get("ui"), dict) else {},
-        "packages": payload.get("packages")
-        if isinstance(payload.get("packages"), list)
-        else [],
+        "packages": payload.get("packages") if isinstance(payload.get("packages"), list) else [],
     }
 
 
@@ -186,8 +171,7 @@ def _looks_like_contract_spec(payload: Optional[dict]) -> bool:
         return True
     options = payload.get("options")
     if isinstance(options, dict) and any(
-        isinstance(options.get(scope), list)
-        for scope in ("request", "session", "load")
+        isinstance(options.get(scope), list) for scope in ("request", "session", "load")
     ):
         return True
     dependencies = payload.get("dependencies")
@@ -235,11 +219,7 @@ def load_family_contracts(
     root = Path(str(source_path or ""))
     if not source_path or not root.is_dir():
         return {}
-    family_set = {
-        str(item).strip().lower()
-        for item in (families or [])
-        if str(item).strip()
-    }
+    family_set = {str(item).strip().lower() for item in (families or []) if str(item).strip()}
     if not family_set:
         directory = root / "model_specs"
         if directory.is_dir():
@@ -247,9 +227,7 @@ def load_family_contracts(
                 family_set.add(path.stem.lower())
     out: Dict[str, Dict[str, Any]] = {}
     for family in sorted(family_set):
-        contract = load_family_contract(
-            str(root), family, known_keys=known_keys
-        )
+        contract = load_family_contract(str(root), family, known_keys=known_keys)
         if contract and contract.get("family"):
             out[contract["family"]] = contract
     return out
@@ -296,9 +274,7 @@ def dependency_sidecar_fields(
         if option_key in seen_keys:
             continue
         seen_keys.add(option_key)
-        scope = _SCOPE_TO_STUDIO.get(
-            str(dep.get("scope") or "session").strip(), "session_option"
-        )
+        scope = _SCOPE_TO_STUDIO.get(str(dep.get("scope") or "session").strip(), "session_option")
         peer = str(dep.get("family") or "").strip()
         kind = str(dep.get("kind") or "model").strip()
         label_bits = []
@@ -324,9 +300,7 @@ def dependency_sidecar_fields(
         }
         if isinstance(dep.get("path"), str) and dep["path"].strip():
             base["placeholder"] = dep["path"].strip()
-        overlay = enrichment.get(option_key) or enrichment.get(
-            str(dep.get("option") or "")
-        )
+        overlay = enrichment.get(option_key) or enrichment.get(str(dep.get("option") or ""))
         if isinstance(overlay, dict):
             for key in ("label", "description", "placeholder", "type"):
                 if overlay.get(key):
@@ -394,9 +368,7 @@ def path_leaves_from_spec(payload: dict) -> Set[str]:
             if isinstance(value, str):
                 leaves.update(_basename_set([value]))
         optional = (
-            source.get("optional_files")
-            if isinstance(source.get("optional_files"), dict)
-            else {}
+            source.get("optional_files") if isinstance(source.get("optional_files"), dict) else {}
         )
         for value in optional.values():
             if isinstance(value, str):

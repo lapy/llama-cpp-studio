@@ -109,9 +109,7 @@ def test_concurrent_operation_inserts_all_survive(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_background_finish_keeps_the_row_and_leaves_the_loop_free(
-    tmp_path, monkeypatch
-):
+async def test_background_finish_keeps_the_row_and_leaves_the_loop_free(tmp_path, monkeypatch):
     from backend import data_store
     from backend.operations.supervisor import get_supervisor
     from backend.store_io import StoreIoMiddleware, drain_store_io
@@ -386,11 +384,16 @@ def _fill_store_queue():
     worker.start()
     assert entered.wait(timeout=2)
     for _ in range(store_io.MAX_PENDING_STORE_WRITES - 1):
-        thread = threading.Thread(target=lambda: store_io.run_store(lambda: release.wait(timeout=5)))
+        thread = threading.Thread(
+            target=lambda: store_io.run_store(lambda: release.wait(timeout=5))
+        )
         threads.append(thread)
         thread.start()
     deadline = time.time() + 2
-    while time.time() < deadline and store_io.pending_store_writes() < store_io.MAX_PENDING_STORE_WRITES:
+    while (
+        time.time() < deadline
+        and store_io.pending_store_writes() < store_io.MAX_PENDING_STORE_WRITES
+    ):
         time.sleep(0.01)
     assert store_io.pending_store_writes() == store_io.MAX_PENDING_STORE_WRITES
     return release, threads
@@ -418,6 +421,7 @@ def test_rejected_supervisor_write_can_be_retried_after_the_queue_drains(tmp_pat
     supervisor = OperationSupervisor()
     release, threads = _fill_store_queue()
     try:
+
         async def rejected_start():
             with pytest.raises(store_io.StoreIoBusy):
                 supervisor.start_operation("rejected", "build", "engine:demo")
@@ -436,6 +440,7 @@ def test_rejected_supervisor_write_can_be_retried_after_the_queue_drains(tmp_pat
 
     release, threads = _fill_store_queue()
     try:
+
         async def rejected_finish():
             with pytest.raises(store_io.StoreIoBusy):
                 supervisor.finish_operation("accepted", "failed", "not stored")

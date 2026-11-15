@@ -136,12 +136,11 @@ def test_task_resolution_is_a_deterministic_table():
 
 
 def test_resolve_operation_prefers_engine_observed_endpoints():
-    assert resolve_operation(
-        task="vc", preferred_api_endpoint="/v1/audio/speech"
-    ).id == "speech"
-    assert resolve_operation(
-        task="tts", family_endpoints=["/v1/audio/transcriptions"]
-    ).id == "transcriptions"
+    assert resolve_operation(task="vc", preferred_api_endpoint="/v1/audio/speech").id == "speech"
+    assert (
+        resolve_operation(task="tts", family_endpoints=["/v1/audio/transcriptions"]).id
+        == "transcriptions"
+    )
     assert resolve_operation(preferred_api_endpoint="/v1/tasks/run").id == "tasks_run"
     # GET-only routes never win a request-resolution lookup.
     assert resolve_operation(task="tts", family_endpoints=["/v1/models"]).id == "speech"

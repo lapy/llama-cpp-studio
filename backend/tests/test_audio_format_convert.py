@@ -148,7 +148,10 @@ def test_ensure_wav_bytes_honors_explicit_layout(monkeypatch):
     monkeypatch.setattr(convert.subprocess, "run", fake_run)
 
     out, _name = convert.ensure_wav_bytes(
-        b"not-wav-bytes", filename="asr.mp3", sample_rate=16000, channels=1,
+        b"not-wav-bytes",
+        filename="asr.mp3",
+        sample_rate=16000,
+        channels=1,
     )
     with wave.open(io.BytesIO(out), "rb") as wf:
         assert wf.getframerate() == 16000

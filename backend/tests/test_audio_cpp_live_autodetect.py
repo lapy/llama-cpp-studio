@@ -32,13 +32,7 @@ _DEFAULT_CLI = (
     / "audiocpp_cli"
 )
 _DEFAULT_SOURCE = _REPO_ROOT / "data" / "audio-cpp" / "src"
-_DEFAULT_MODEL = (
-    _REPO_ROOT
-    / "data"
-    / "models"
-    / "audio-cpp"
-    / "nemotron-3.5-asr-streaming-0.6b"
-)
+_DEFAULT_MODEL = _REPO_ROOT / "data" / "models" / "audio-cpp" / "nemotron-3.5-asr-streaming-0.6b"
 _DEFAULT_FAMILY = "nemotron_asr"
 
 
@@ -148,9 +142,7 @@ def test_live_audiocpp_help_advertises_session_options():
 
     sections = parse_audio_cpp_help_to_sections(help_text, source="cli")
     scoped = {
-        (param["scope"], param["key"]): param
-        for section in sections
-        for param in section["params"]
+        (param["scope"], param["key"]): param for section in sections for param in section["params"]
     }
     session_keys = {key for scope, key in scoped if scope == "session_option"}
     assert session_keys, "expected session_option rows from live model help"
@@ -192,9 +184,7 @@ def test_live_scan_fills_qwen3_asr_unadvertised_session_options(tmp_path):
             "family": "qwen3_asr",
             "task": "asr",
             "artifact": {"path": str(model_path), "package_kind": "prepared_bundle"},
-            "config": {
-                "engines": {"audio_cpp": {"family": "qwen3_asr", "task": "asr"}}
-            },
+            "config": {"engines": {"audio_cpp": {"family": "qwen3_asr", "task": "asr"}}},
         },
         force=True,
     )
@@ -231,9 +221,7 @@ def test_live_scan_audio_cpp_model_profile_persists_session_options(tmp_path):
         "artifact": {"path": str(model_path), "package_kind": "prepared_bundle"},
         "config": {"engines": {"audio_cpp": {"family": family, "task": "asr"}}},
     }
-    profile = scan_audio_cpp_model_profile(
-        _Store(tmp_path), version_row, model, force=True
-    )
+    profile = scan_audio_cpp_model_profile(_Store(tmp_path), version_row, model, force=True)
     assert not profile.get("scan_error"), profile.get("scan_error")
     inspection = profile.get("inspection") or {}
     assert inspection.get("family") == family
@@ -270,8 +258,6 @@ def test_live_scan_audio_cpp_model_profile_persists_session_options(tmp_path):
         check=False,
         cwd=source or str(cli.parent),
     )
-    parsed = parse_audio_cpp_inspection(
-        (inspect_proc.stdout or "") + (inspect_proc.stderr or "")
-    )
+    parsed = parse_audio_cpp_inspection((inspect_proc.stdout or "") + (inspect_proc.stderr or ""))
     assert parsed.get("family") == family
     assert "asr" in (parsed.get("task_names") or [])

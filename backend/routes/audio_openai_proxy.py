@@ -45,8 +45,17 @@ tasks_router = APIRouter()
 batches_router = APIRouter()
 
 HOP_BY_HOP = {
-    "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
-    "te", "trailer", "trailers", "transfer-encoding", "upgrade", "host", "content-length",
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailer",
+    "trailers",
+    "transfer-encoding",
+    "upgrade",
+    "host",
+    "content-length",
 }
 PASSTHROUGH_TIMEOUT = httpx.Timeout(30.0, read=300.0)
 MAX_MULTIPART_FILES = 8
@@ -74,7 +83,9 @@ def _native_path(operation_id: str) -> str:
     return _native_operation(operation_id).native_path
 
 
-def _filter_headers(headers: Iterable[tuple[str, str]], *, multipart: bool = False) -> dict[str, str]:
+def _filter_headers(
+    headers: Iterable[tuple[str, str]], *, multipart: bool = False
+) -> dict[str, str]:
     values = list(headers)
     excluded = set(HOP_BY_HOP)
     for key, value in values:
@@ -100,7 +111,9 @@ def _check_content_length(request: Request) -> None:
         raise HTTPException(413, audio_limit_detail("Audio request"))
 
 
-async def _bounded_request_stream(request: Request, *, multipart: bool = False) -> AsyncIterator[bytes]:
+async def _bounded_request_stream(
+    request: Request, *, multipart: bool = False
+) -> AsyncIterator[bytes]:
     _check_content_length(request)
     count = 0
     async for chunk in request.stream():
@@ -127,7 +140,9 @@ async def _close_upstream(client: httpx.AsyncClient, upstream: httpx.Response) -
             await client.aclose()
 
 
-async def _open_upstream(request: Request, upstream_path: str, **kwargs) -> tuple[httpx.AsyncClient, httpx.Response]:
+async def _open_upstream(
+    request: Request, upstream_path: str, **kwargs
+) -> tuple[httpx.AsyncClient, httpx.Response]:
     from backend.inference_auth import internal_service_key
 
     url = f"{_upstream_base()}{upstream_path}"
@@ -168,10 +183,13 @@ def _stream_response(client: httpx.AsyncClient, upstream: httpx.Response) -> Str
     )
 
 
-async def _passthrough(request: Request, upstream_path: str, *, body: bytes | None = None) -> Response:
+async def _passthrough(
+    request: Request, upstream_path: str, *, body: bytes | None = None
+) -> Response:
     _check_content_length(request)
     client, upstream = await _open_upstream(
-        request, upstream_path,
+        request,
+        upstream_path,
         headers=_filter_headers(request.headers.items()),
         content=body if body is not None else _bounded_request_stream(request),
     )
@@ -181,7 +199,9 @@ async def _passthrough(request: Request, upstream_path: str, *, body: bytes | No
 async def _resolve_target(model: str, native_path: str):
     from backend.engines.audio_cpp.proxy_routing import resolve_audio_upstream_target
 
-    return await anyio.to_thread.run_sync(partial(resolve_audio_upstream_target, model, native_path))
+    return await anyio.to_thread.run_sync(
+        partial(resolve_audio_upstream_target, model, native_path)
+    )
 
 
 async def _forward_audio_multipart(
@@ -193,8 +213,10 @@ async def _forward_audio_multipart(
 ) -> Response:
     _check_content_length(request)
     parser = MultiPartParser(
-        request.headers, _bounded_request_stream(request, multipart=True),
-        max_files=max_files, max_fields=MAX_MULTIPART_FIELDS,
+        request.headers,
+        _bounded_request_stream(request, multipart=True),
+        max_files=max_files,
+        max_fields=MAX_MULTIPART_FIELDS,
         max_part_size=MAX_MULTIPART_FIELD_BYTES,
     )
     try:
@@ -221,8 +243,12 @@ async def _forward_audio_multipart(
                 raw = await value.read(MAX_AUDIO_UPLOAD_BYTES + 1)
                 if key == "file":
                     raw, name = await anyio.to_thread.run_sync(
-                        partial(ensure_wav_bytes_http, raw, filename=value.filename,
-                                content_type=value.content_type),
+                        partial(
+                            ensure_wav_bytes_http,
+                            raw,
+                            filename=value.filename,
+                            content_type=value.content_type,
+                        ),
                         limiter=_conversion_limiter,
                     )
                     part = (name, raw, "audio/wav")
@@ -237,8 +263,10 @@ async def _forward_audio_multipart(
                 raise HTTPException(413, audio_limit_detail("Converted audio request"))
             parts.append((key, part))
         client, upstream = await _open_upstream(
-            request, upstream_path,
-            headers=_filter_headers(request.headers.items(), multipart=True), files=parts,
+            request,
+            upstream_path,
+            headers=_filter_headers(request.headers.items(), multipart=True),
+            files=parts,
         )
     finally:
         await form.close()
@@ -255,7 +283,10 @@ async def _audio_upload(
     content_type = request.headers.get("content-type", "").lower()
     if "multipart/form-data" in content_type:
         return await _forward_audio_multipart(
-            request, native_path, generic_route=generic_route, max_files=max_files,
+            request,
+            native_path,
+            generic_route=generic_route,
+            max_files=max_files,
         )
     if not generic_route:
         return await _passthrough(request, native_path)
@@ -278,9 +309,7 @@ async def proxy_transcriptions(request: Request):
 
 @router.post("/transcriptions/details")
 async def proxy_transcription_details(request: Request):
-    return await _audio_upload(
-        request, _native_path("transcriptions_details"), generic_route=True
-    )
+    return await _audio_upload(request, _native_path("transcriptions_details"), generic_route=True)
 
 
 @router.post("/alignments")
@@ -293,13 +322,18 @@ def _speech_format_from_body(body: bytes) -> str:
         payload = json.loads(body)
     except (UnicodeDecodeError, ValueError, TypeError):
         return ""
-    return normalize_speech_response_format(payload.get("response_format")) if isinstance(payload, dict) else ""
+    return (
+        normalize_speech_response_format(payload.get("response_format"))
+        if isinstance(payload, dict)
+        else ""
+    )
 
 
 def _openai_speech_error(status_code: int, message: str) -> Response:
     return Response(
         content=json.dumps({"error": {"message": message, "type": "server_error"}}),
-        status_code=status_code, media_type="application/json",
+        status_code=status_code,
+        media_type="application/json",
     )
 
 
@@ -314,8 +348,11 @@ async def proxy_speech(request: Request):
         content=body,
     )
     media_type = upstream.headers.get("content-type", "").split(";", 1)[0].strip().lower()
-    if (upstream.status_code >= 400 or response_format in SPEECH_PASSTHROUGH_FORMATS
-            or media_type not in {"audio/wav", "audio/wave", "audio/x-wav"}):
+    if (
+        upstream.status_code >= 400
+        or response_format in SPEECH_PASSTHROUGH_FORMATS
+        or media_type not in {"audio/wav", "audio/wave", "audio/x-wav"}
+    ):
         return _stream_response(client, upstream)
     # The engine still returns WAV when it ignores a compressed response_format.
     # A response whose content type is already the requested format is streamed
@@ -324,7 +361,9 @@ async def proxy_speech(request: Request):
         payload = bytearray()
         async for chunk in upstream.aiter_bytes():
             if len(payload) + len(chunk) > MAX_AUDIO_UPLOAD_BYTES:
-                raise AudioConvertError(audio_limit_detail("Speech conversion input"), status_code=413)
+                raise AudioConvertError(
+                    audio_limit_detail("Speech conversion input"), status_code=413
+                )
             payload.extend(chunk)
         encoded = bytes(payload)
         if is_wav_content(encoded):
@@ -342,7 +381,9 @@ async def proxy_speech(request: Request):
     for key in list(headers):
         if key.lower() in {"content-type", "content-encoding", "etag", "content-md5", "digest"}:
             del headers[key]
-    return Response(encoded, status_code=upstream.status_code, headers=headers, media_type=media_type)
+    return Response(
+        encoded, status_code=upstream.status_code, headers=headers, media_type=media_type
+    )
 
 
 @batches_router.post("/batches/transcriptions")

@@ -70,19 +70,14 @@ class PythonVenvInstaller(CancellableOperationManager, ABC):
             self.distribution_names = (engine_id,)
 
         data_root = studio_data_dir()
-        self._root_dir = os.path.abspath(
-            base_dir or os.path.join(data_root, root_name)
-        )
+        self._root_dir = os.path.abspath(base_dir or os.path.join(data_root, root_name))
         self._base_dir = self._root_dir
         self._venv_path = os.path.join(self._base_dir, "venv")
-        self._log_path = os.path.abspath(
-            log_path or os.path.join(data_root, "logs", log_name)
-        )
+        self._log_path = os.path.abspath(log_path or os.path.join(data_root, "logs", log_name))
         self._state_path: Optional[str] = None
         if state_path or state_name:
             self._state_path = os.path.abspath(
-                state_path
-                or os.path.join(data_root, "config", str(state_name))
+                state_path or os.path.join(data_root, "config", str(state_name))
             )
         self._ensure_directories()
         self._unpack_heartbeat_seconds = 4.0
@@ -113,11 +108,7 @@ class PythonVenvInstaller(CancellableOperationManager, ABC):
 
     def _venv_bin(self, executable: str) -> str:
         if os.name == "nt":
-            executable = (
-                executable
-                if executable.lower().endswith(".exe")
-                else f"{executable}.exe"
-            )
+            executable = executable if executable.lower().endswith(".exe") else f"{executable}.exe"
             return os.path.join(self._venv_path, "Scripts", executable)
         return os.path.join(self._venv_path, "bin", executable)
 
@@ -206,9 +197,7 @@ class PythonVenvInstaller(CancellableOperationManager, ABC):
                 timeout=300,
             )
         except subprocess.CalledProcessError as exc:
-            raise RuntimeError(
-                f"Failed to create {self.label} virtual environment: {exc}"
-            ) from exc
+            raise RuntimeError(f"Failed to create {self.label} virtual environment: {exc}") from exc
 
     def _load_state(self) -> Dict[str, Any]:
         if not self._state_path or not os.path.exists(self._state_path):
@@ -229,9 +218,7 @@ class PythonVenvInstaller(CancellableOperationManager, ABC):
             json.dump(state, handle, indent=2)
         os.replace(tmp_path, self._state_path)
 
-    def _update_installed_state(
-        self, installed: bool, version: Optional[str]
-    ) -> None:
+    def _update_installed_state(self, installed: bool, version: Optional[str]) -> None:
         state = self._load_state()
         state["installed_version"] = version if installed else None
         state["installed_at"] = utcnow() if installed else None
@@ -513,9 +500,7 @@ class PythonVenvInstaller(CancellableOperationManager, ABC):
         code = process.returncode or 0
         if code == 0 and self._source_install_operation():
             tracker = self._install_progress_tracker()
-            if getattr(tracker, "phase", "") == "compile" and hasattr(
-                tracker, "complete_compile"
-            ):
+            if getattr(tracker, "phase", "") == "compile" and hasattr(tracker, "complete_compile"):
                 tracker.complete_compile()
                 await self._update_progress_task(
                     tracker.progress,
@@ -572,9 +557,7 @@ class PythonVenvInstaller(CancellableOperationManager, ABC):
             await run_blocking(self._ensure_venv)
         python_exe = self._venv_python()
         if not os.path.exists(python_exe):
-            raise RuntimeError(
-                f"{self.label} virtual environment is missing; cannot run pip."
-            )
+            raise RuntimeError(f"{self.label} virtual environment is missing; cannot run pip.")
         return await self._run_logged(
             [python_exe, "-m", "pip", *args],
             operation,
@@ -696,7 +679,5 @@ class PythonVenvInstaller(CancellableOperationManager, ABC):
         return await self.sync_source_version(version_entry)
 
     @abstractmethod
-    async def sync_source_version(
-        self, version_entry: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    async def sync_source_version(self, version_entry: Dict[str, Any]) -> Dict[str, Any]:
         raise NotImplementedError

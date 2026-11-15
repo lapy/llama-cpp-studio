@@ -342,9 +342,7 @@ def test_upsert_and_get_version_entry_round_trip(tmp_path):
             ],
         },
     )
-    profile = get_model_profile_entry(
-        store, "audio_cpp", "v1", "fingerprint"
-    )
+    profile = get_model_profile_entry(store, "audio_cpp", "v1", "fingerprint")
     assert profile["fingerprint"] == "fingerprint"
     scoped = scoped_param_index_from_entry(profile)
     assert "voice.path" in scoped["load_option"]

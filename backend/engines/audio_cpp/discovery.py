@@ -76,9 +76,7 @@ def build_discovery_index(
         if isinstance(package, dict) and package.get("id")
     }
     resolved_family_tasks = {
-        str(k).strip().lower(): list(v)
-        for k, v in (family_tasks or {}).items()
-        if str(k).strip()
+        str(k).strip().lower(): list(v) for k, v in (family_tasks or {}).items() if str(k).strip()
     }
     for family, contract in contracts.items():
         if not resolved_family_tasks.get(family):
@@ -105,9 +103,10 @@ def build_discovery_index(
         if not package_id:
             continue
 
-        pkg_family = str(
-            package.get("family") or package_families.get(package_id) or ""
-        ).strip().lower() or None
+        pkg_family = (
+            str(package.get("family") or package_families.get(package_id) or "").strip().lower()
+            or None
+        )
         family = pkg_family
         reason = "package_json" if family else "no_declared_family"
 
@@ -121,9 +120,7 @@ def build_discovery_index(
                 or description.startswith("utility only.")
             )
         if not parent and not standalone:
-            parent = _declared_parent_package_id(
-                str(package.get("description") or ""), known_ids
-            )
+            parent = _declared_parent_package_id(str(package.get("description") or ""), known_ids)
 
         pkg_tasks = package.get("tasks") if isinstance(package.get("tasks"), list) else None
         pkg_modes = package.get("modes") if isinstance(package.get("modes"), list) else None

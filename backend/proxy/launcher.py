@@ -47,7 +47,9 @@ def main(argv: list[str] | None = None) -> int:
         executable = str(manifest.get("executable") or "")
         if not executable or not os.path.isfile(executable):
             _fail(3, "manifest executable is missing")
-        argv = _substitute_argv(manifest.get("argv"), port=str(port), generation=generation, root=root)
+        argv = _substitute_argv(
+            manifest.get("argv"), port=str(port), generation=generation, root=root
+        )
         env = _environment(manifest.get("env"), port=str(port))
         cwd = manifest.get("cwd")
         if cwd:

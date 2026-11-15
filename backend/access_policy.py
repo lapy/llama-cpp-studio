@@ -189,11 +189,16 @@ class ManagementAccessMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         if path in PUBLIC_PATHS or (request.method.upper() == "POST" and path == "/api/session"):
             return await call_next(request)
-        protected = path.startswith("/api") or path.startswith("/v1") or path in {
-            "/docs",
-            "/redoc",
-            "/openapi.json",
-        }
+        protected = (
+            path.startswith("/api")
+            or path.startswith("/v1")
+            or path
+            in {
+                "/docs",
+                "/redoc",
+                "/openapi.json",
+            }
+        )
         if not protected:
             return await call_next(request)
         if access_mode() == "local":

@@ -94,16 +94,10 @@ def compose_version_contract(
     }
     family_modes = _string_map_list(caps.get("family_modes"))
     family_tasks = _string_map_list(caps.get("family_tasks"))
-    families = [
-        str(f).strip().lower()
-        for f in (caps.get("families") or [])
-        if str(f).strip()
-    ]
+    families = [str(f).strip().lower() for f in (caps.get("families") or []) if str(f).strip()]
 
     operations = registry_descriptor()
-    provenance_by_id = {
-        str(op["id"]): str(op.get("provenance") or "studio") for op in operations
-    }
+    provenance_by_id = {str(op["id"]): str(op.get("provenance") or "studio") for op in operations}
     drift_warnings: List[str] = []
 
     # Upstream document (audio.cpp#852) overlays the Studio table wholesale.
@@ -172,9 +166,9 @@ def compose_version_contract(
     if source_path:
         descriptor["spec_source"] = str(source_path)
     descriptor["descriptor_fingerprint"] = hashlib.sha256(
-        json.dumps(
-            _fingerprint_input(descriptor), sort_keys=True, separators=(",", ":")
-        ).encode("utf-8")
+        json.dumps(_fingerprint_input(descriptor), sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
     ).hexdigest()
     return descriptor
 
@@ -220,14 +214,11 @@ def compose_model_contract(
     vocabulary: Any = None
     if isinstance(inspection, dict):
         preferred = str(
-            inspection.get("preferred_api_endpoint")
-            or inspection.get("request_surface")
-            or ""
+            inspection.get("preferred_api_endpoint") or inspection.get("request_surface") or ""
         ).strip()
         policy_raw = str(inspection.get("instructions_policy") or "")
-        vocabulary = (
-            inspection.get("instructions_vocabulary")
-            or inspection.get("instructions_vocab")
+        vocabulary = inspection.get("instructions_vocabulary") or inspection.get(
+            "instructions_vocab"
         )
         task_key = str(task or "").strip().lower()
         for row in inspection.get("tasks") or []:
@@ -238,9 +229,7 @@ def compose_model_contract(
                 == task_key
             ):
                 preferred = str(
-                    row.get("preferred_api_endpoint")
-                    or row.get("request_surface")
-                    or preferred
+                    row.get("preferred_api_endpoint") or row.get("request_surface") or preferred
                 ).strip()
                 policy_raw = str(row.get("instructions_policy") or policy_raw)
                 vocabulary = row.get("instructions_vocabulary") or vocabulary
@@ -280,7 +269,13 @@ def compose_model_contract(
         vocab_list = list(dict.fromkeys(collected)) or None
 
     observed_source = (
-        "inspect" if preferred else "loaders-json" if endpoints else "spec" if spec_endpoint else "registry"
+        "inspect"
+        if preferred
+        else "loaders-json"
+        if endpoints
+        else "spec"
+        if spec_endpoint
+        else "registry"
     )
     return {
         "operation_id": op.id,

@@ -343,9 +343,7 @@ def test_onecat_release_log_progression():
     assert "1cat-vllm" in message
     after_primary = progress
 
-    feed(
-        "Downloading torch-2.10.0%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl (916.9 MB)"
-    )
+    feed("Downloading torch-2.10.0%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl (916.9 MB)")
     progress, message = feed(
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 400.0/916.9 MB 105.2 MB/s  0:00:08"
     )
@@ -397,9 +395,7 @@ def test_onecat_release_log_progression():
     assert message == "Dependency resolution is taking longer than usual"
     assert progress > looking
     stalled = progress
-    progress, message = feed(
-        "Downloading cuda_python-12.9.4-py3-none-any.whl.metadata (4.7 kB)"
-    )
+    progress, message = feed("Downloading cuda_python-12.9.4-py3-none-any.whl.metadata (4.7 kB)")
     assert message == "Dependency resolution is taking longer than usual"
     assert progress >= stalled
 
@@ -427,9 +423,7 @@ def test_onecat_release_log_progression():
     assert progress > unpack_start + 15
     assert progress < 94
 
-    progress, message = feed(
-        "Successfully installed 1cat-vllm-1.5.1 torch-2.10.0+cu128"
-    )
+    progress, message = feed("Successfully installed 1cat-vllm-1.5.1 torch-2.10.0+cu128")
     assert message == "Packages installed"
     assert 94 <= progress < 100
     assert seen == sorted(seen)
@@ -483,9 +477,7 @@ async def test_installer_broadcast_uses_pip_phases(tmp_path):
     assert task["message"] == "Dependency resolution is taking longer than usual"
     assert task["metadata"]["stage"] == "backtrack"
 
-    await manager._broadcast_log_line(
-        "Installing collected packages: torch, 1cat-vllm"
-    )
+    await manager._broadcast_log_line("Installing collected packages: torch, 1cat-vllm")
     await manager._broadcast_log_line("Successfully uninstalled setuptools-84.0.0")
     task = get_progress_manager().get_task(task_id)
     assert task["message"] == "Installing packages"
@@ -511,18 +503,14 @@ async def test_source_install_broadcast_leaves_room_for_compile(tmp_path):
     manager._operation = "install_source"
     manager._active_build_window = (4, 16)
 
-    await manager._broadcast_log_line(
-        "$ python -m pip install -r requirements/build/cuda.txt"
-    )
+    await manager._broadcast_log_line("$ python -m pip install -r requirements/build/cuda.txt")
     await manager._broadcast_log_line("Successfully installed torch-2.10.0+cu128")
     task = get_progress_manager().get_task(task_id)
     assert task["message"] == "Build dependencies ready"
     assert task["progress"] <= 16
 
     manager._active_build_window = (36, 92)
-    await manager._broadcast_log_line(
-        "[100/200] Building CUDA object csrc/awq_sm70_gemm.cu.o"
-    )
+    await manager._broadcast_log_line("[100/200] Building CUDA object csrc/awq_sm70_gemm.cu.o")
     task = get_progress_manager().get_task(task_id)
     assert task["metadata"]["stage"] == "compile"
     assert 36 < task["progress"] < 70
@@ -615,9 +603,7 @@ def test_source_build_log_shape_keeps_cuda_ahead_of_packaging():
     window = (16, 92)
 
     def feed(line: str):
-        return tracker.observe(
-            line, current_progress=tracker.progress, log_count=1, window=window
-        )
+        return tracker.observe(line, current_progress=tracker.progress, log_count=1, window=window)
 
     feed("$ python -m build --wheel --no-isolation --outdir dist")
     for _index in range(400):
@@ -646,9 +632,7 @@ def test_source_editable_install_does_not_finish_before_compile():
     tracker = SourceInstallProgressTracker()
 
     def feed(line: str):
-        return tracker.observe(
-            line, current_progress=tracker.progress, log_count=1, window=None
-        )
+        return tracker.observe(line, current_progress=tracker.progress, log_count=1, window=None)
 
     progress, message = feed("$ python -m pip install -v -e .")
     assert message == "Compiling"

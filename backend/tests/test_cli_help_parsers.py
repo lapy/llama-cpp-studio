@@ -44,16 +44,10 @@ def test_parse_audio_cpp_server_and_model_profiles():
         os.path.join(fixtures, "audio_cpp_server_help_sample.txt"),
         encoding="utf-8",
     ) as handle:
-        server_sections = parse_audio_cpp_help_to_sections(
-            handle.read(), source="server"
-        )
-    server_params = [
-        param for section in server_sections for param in section["params"]
-    ]
+        server_sections = parse_audio_cpp_help_to_sections(handle.read(), source="server")
+    server_params = [param for section in server_sections for param in section["params"]]
     server_index = {param["key"]: param for param in server_params}
-    assert {"config", "host", "port", "backend", "device", "threads"} <= set(
-        server_index
-    )
+    assert {"config", "host", "port", "backend", "device", "threads"} <= set(server_index)
     assert server_index["port"]["reserved"] is True
     assert server_index["threads"]["scope"] == "process"
     assert server_index["device"]["type"] == "int"
@@ -68,11 +62,7 @@ audiocpp_server --config <server.json> [--log] [--log-file <path>]
   --log  Enable framework logging
 """
     sections = parse_audio_cpp_help_to_sections(text, source="server")
-    keys = {
-        param["key"]
-        for section in sections
-        for param in section.get("params") or []
-    }
+    keys = {param["key"] for section in sections for param in section.get("params") or []}
     assert "key=value" not in keys
     assert "log" in keys
 
@@ -82,9 +72,7 @@ audiocpp_server --config <server.json> [--log] [--log-file <path>]
         os.path.join(fixtures, "audio_cpp_model_help_sample.txt"),
         encoding="utf-8",
     ) as handle:
-        model_sections = parse_audio_cpp_help_to_sections(
-            handle.read(), source="cli"
-        )
+        model_sections = parse_audio_cpp_help_to_sections(handle.read(), source="cli")
     scoped = {
         (param["scope"], param["key"]): param
         for section in model_sections
@@ -158,12 +146,12 @@ def test_parse_audio_cpp_help_captured_from_live_nemotron():
     ) as handle:
         sections = parse_audio_cpp_help_to_sections(handle.read(), source="cli")
     scoped = {
-        (param["scope"], param["key"]): param
-        for section in sections
-        for param in section["params"]
+        (param["scope"], param["key"]): param for section in sections for param in section["params"]
     }
     assert scoped[("session_option", "nemotron_asr.weight_type")]["type"] == "select"
-    assert [opt["value"] for opt in scoped[("session_option", "nemotron_asr.weight_type")]["options"]] == [
+    assert [
+        opt["value"] for opt in scoped[("session_option", "nemotron_asr.weight_type")]["options"]
+    ] == [
         "native",
         "f32",
         "f16",
@@ -193,9 +181,7 @@ def test_parse_audio_cpp_help_qwen3_asr_has_no_session_options_in_cli():
     }
     assert session_keys == set()
     scoped = {
-        (param["scope"], param["key"]): param
-        for section in sections
-        for param in section["params"]
+        (param["scope"], param["key"]): param for section in sections for param in section["params"]
     }
     assert scoped[("model", "task")]["key"] == "task"
 
@@ -207,11 +193,7 @@ def test_parse_audio_cpp_server_help_live_pin():
         encoding="utf-8",
     ) as handle:
         sections = parse_audio_cpp_help_to_sections(handle.read(), source="server")
-    index = {
-        param["key"]: param
-        for section in sections
-        for param in section["params"]
-    }
+    index = {param["key"]: param for section in sections for param in section["params"]}
     assert index["model_spec_override"]["reserved"] is True
     assert index["model_spec_override"]["primary_flag"] == "--model-spec-override"
     assert [opt["value"] for opt in index["backend"]["options"]] == [
@@ -244,11 +226,7 @@ def test_parse_audio_cpp_cli_help_live_pin():
         encoding="utf-8",
     ) as handle:
         sections = parse_audio_cpp_help_to_sections(handle.read(), source="cli")
-    index = {
-        param["key"]: param
-        for section in sections
-        for param in section["params"]
-    }
+    index = {param["key"]: param for section in sections for param in section["params"]}
     assert "key" not in index
     assert [opt["value"] for opt in index["task"]["options"]] == [
         "vad",
@@ -321,7 +299,9 @@ def test_parse_audio_cpp_streaming_mode_prose_is_not_an_option():
 """
     sections = parse_audio_cpp_help_to_sections(text, source="cli")
     assert [section["id"] for section in sections] == ["global"]
-    mode = next(param for section in sections for param in section["params"] if param["key"] == "mode")
+    mode = next(
+        param for section in sections for param in section["params"] if param["key"] == "mode"
+    )
     assert mode["value_kind"] == "enum"
     assert [opt["value"] for opt in mode["options"]] == ["offline", "streaming"]
     assert mode["default"] == "offline"
@@ -1022,9 +1002,7 @@ def test_parse_llama_fixture_matches_expected_snapshot():
     """Line-by-line parse of llama-server --help matches the checked-in snapshot."""
     here = os.path.dirname(__file__)
     fixtures = os.path.join(here, "fixtures")
-    with open(
-        os.path.join(fixtures, "llama_server_help_excerpt.txt"), encoding="utf-8"
-    ) as handle:
+    with open(os.path.join(fixtures, "llama_server_help_excerpt.txt"), encoding="utf-8") as handle:
         text = handle.read()
     with open(
         os.path.join(fixtures, "llama_server_help_expected.json"), encoding="utf-8"
@@ -1656,9 +1634,10 @@ Frontend:
 
 
 def test_extract_paren_default_keeps_dataclass_and_prose_csv():
-    assert _extract_paren_default(
-        "(default: EPLBConfig(window_size=1000, step_interval=3000))"
-    ) == "EPLBConfig(window_size=1000, step_interval=3000)"
+    assert (
+        _extract_paren_default("(default: EPLBConfig(window_size=1000, step_interval=3000))")
+        == "EPLBConfig(window_size=1000, step_interval=3000)"
+    )
     assert _extract_paren_default("(default: enabled, requires cache-ram)") == "enabled"
     assert (
         _extract_paren_default("(default: GET, POST, DELETE, OPTIONS)")

@@ -266,7 +266,9 @@ def test_permitted_strings_redact_bearer_basic_userinfo_and_assignments():
     ):
         assert secret not in dumped
     assert bundle["runtime_observation"]["quality"] == "stale"
-    assert bundle["runtime_observation"]["detail"] == "Authorization: [redacted] password=[redacted]"
+    assert (
+        bundle["runtime_observation"]["detail"] == "Authorization: [redacted] password=[redacted]"
+    )
     assert "command" not in bundle["runtime_observation"]
     assert "states" not in bundle["runtime_observation"]
     assert "headers" not in bundle["proxy_status"]

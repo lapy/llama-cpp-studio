@@ -180,9 +180,7 @@ class GgufIntrospector:
     ):
         self.metadata = metadata or {}
         self.tensors = tensors or {}
-        self.architecture = str(
-            self.metadata.get("general.architecture", "") or ""
-        ).lower()
+        self.architecture = str(self.metadata.get("general.architecture", "") or "").lower()
         self._config = _load_introspection_config()
 
     # Public orchestration -------------------------------------------------
@@ -429,9 +427,7 @@ class GgufIntrospector:
                 block_count = len(block_indices)
                 layer_count = block_count + 1  # usually add output head
             else:
-                logger.debug(
-                    "No explicit layer/block metadata or tensor block names found"
-                )
+                logger.debug("No explicit layer/block metadata or tensor block names found")
 
         return block_count, layer_count
 
@@ -527,9 +523,7 @@ class GgufIntrospector:
                 expert_candidates.append(parsed)
 
         expert_count = max(expert_candidates) if expert_candidates else None
-        experts_used_count = (
-            max(experts_used_candidates) if experts_used_candidates else None
-        )
+        experts_used_count = max(experts_used_candidates) if experts_used_candidates else None
 
         if expert_count:
             is_moe = True

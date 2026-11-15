@@ -18,9 +18,7 @@ import shutil
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 _VOICE_OPTION_KEYS = frozenset({"voice_id", "speaker"})
-_SPEC_VOICE_KEY_RE = re.compile(
-    r"^(?:voice_style_|speaker_text_)(.+)$"
-)
+_SPEC_VOICE_KEY_RE = re.compile(r"^(?:voice_style_|speaker_text_)(.+)$")
 _GENERIC_VOICE_DIRS = (
     ("voice_styles", ".json"),
     ("samples", ".txt"),
@@ -45,9 +43,7 @@ def merge_voice_ids(*groups: Any) -> List[str]:
                 items = [group]
         for item in items:
             if isinstance(item, dict):
-                value = str(
-                    item.get("value") or item.get("id") or item.get("name") or ""
-                ).strip()
+                value = str(item.get("value") or item.get("id") or item.get("name") or "").strip()
             else:
                 value = str(item or "").strip()
             if not value or value in seen:
@@ -80,9 +76,7 @@ def discover_packaged_voices(
     spec_ids = list(spec_ids)
     spec_ids.extend(_spec_request_enum_ids(spec))
     existing = [
-        voice_id
-        for voice_id, rel in spec_files
-        if os.path.isfile(os.path.join(package_root, rel))
+        voice_id for voice_id, rel in spec_files if os.path.isfile(os.path.join(package_root, rel))
     ]
     disk_ids = existing or _generic_voice_dir_stems(package_root)
     if disk_ids:
@@ -115,9 +109,7 @@ def attach_packaged_voices(
     family_name = str(family or "").strip()
     if not family_name and isinstance(inspection, dict):
         family_name = str(inspection.get("family") or "").strip()
-    voices = discover_packaged_voices(
-        model_path, family=family_name, source_path=source_path
-    )
+    voices = discover_packaged_voices(model_path, family=family_name, source_path=source_path)
     if isinstance(inspection, dict) and voices:
         inspection["packaged_voices"] = voices
     return voices

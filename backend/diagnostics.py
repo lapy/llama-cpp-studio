@@ -97,10 +97,14 @@ def _export_persistence(status: dict | None) -> dict:
         "saturated": bool(body.get("saturated")),
         "latest_failure": latest,
         "recent_failures": [
-            event for event in (_export_event(item) for item in body.get("recent_failures") or []) if event
+            event
+            for event in (_export_event(item) for item in body.get("recent_failures") or [])
+            if event
         ],
         "recent_saturation": [
-            event for event in (_export_event(item) for item in body.get("recent_saturation") or []) if event
+            event
+            for event in (_export_event(item) for item in body.get("recent_saturation") or [])
+            if event
         ],
     }
 

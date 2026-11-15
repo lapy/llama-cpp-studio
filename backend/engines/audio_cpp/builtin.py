@@ -39,9 +39,7 @@ def _cache_key(active: dict, candidates: List[str]) -> str:
         mtime_ns = root.stat().st_mtime_ns
     except OSError:
         mtime_ns = 0
-    return hashlib.sha256(
-        f"{source}\n{commit}\n{mtime_ns}\n{listing}".encode()
-    ).hexdigest()
+    return hashlib.sha256(f"{source}\n{commit}\n{mtime_ns}\n{listing}".encode()).hexdigest()
 
 
 def _read_cache(key: str) -> List[dict] | None:
@@ -95,7 +93,13 @@ def discover_builtin_audio_packages(active: dict, families: Iterable[str]) -> li
     cli = str(active.get("cli_binary_path") or "")
     contract = load_family_contract(source, BUILTIN_AUDIO_FAMILY)
     root = Path(source) / "assets" / "framework" / "audio_utilities"
-    if not contract or contract.get("packages") or not source or not root.is_dir() or not os.path.isfile(cli):
+    if (
+        not contract
+        or contract.get("packages")
+        or not source
+        or not root.is_dir()
+        or not os.path.isfile(cli)
+    ):
         return []
     candidates = _candidate_utility_ids(root)
     if not candidates:
@@ -110,14 +114,20 @@ def discover_builtin_audio_packages(active: dict, families: Iterable[str]) -> li
 
     def _probe(model_id: str) -> dict | None:
         argv = build_audio_cpp_inspect_argv(
-            cli, model_id, family=BUILTIN_AUDIO_FAMILY,
+            cli,
+            model_id,
+            family=BUILTIN_AUDIO_FAMILY,
             model_spec_override=str(Path(source) / "model_specs"),
         )
         try:
             process = subprocess.run(
-                [*argv, "--inspect", "--json"], cwd=source, env=env,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, timeout=_PROBE_TIMEOUT,
+                [*argv, "--inspect", "--json"],
+                cwd=source,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=_PROBE_TIMEOUT,
             )
         except (OSError, subprocess.TimeoutExpired):
             return None
@@ -126,10 +136,11 @@ def discover_builtin_audio_packages(active: dict, families: Iterable[str]) -> li
         _, inspection = select_inspect_payload(process.stdout)
         if inspection.get("family") != BUILTIN_AUDIO_FAMILY or not inspection.get("task_names"):
             return None
-        modes = list(dict.fromkeys(
-            mode for row in inspection.get("tasks") or []
-            for mode in row.get("modes") or []
-        ))
+        modes = list(
+            dict.fromkeys(
+                mode for row in inspection.get("tasks") or [] for mode in row.get("modes") or []
+            )
+        )
         return {
             "id": f"builtin-{model_id}",
             "display_name": f"{model_id} (built-in)",
