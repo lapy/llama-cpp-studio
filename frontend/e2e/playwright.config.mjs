@@ -19,6 +19,10 @@ export default defineConfig({
   // CI: parallelize independent browser journeys; local: keep a single worker
   // unless explicitly overridden while debugging.
   workers: process.env.CI ? 4 : 1,
+  // A few async navigation journeys fail intermittently on CI without a local
+  // repro (the Vite dev server warms its module graph while four workers run).
+  // One retry absorbs that race; local runs stay strict.
+  retries: process.env.CI ? 1 : 0,
   use: {
     baseURL: 'http://127.0.0.1:4179',
     viewport: { width: 390, height: 844 },
