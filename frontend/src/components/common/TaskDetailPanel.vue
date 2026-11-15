@@ -77,6 +77,12 @@
       <small v-if="downloadSummary(task)" class="download-progress-meta">
         {{ downloadSummary(task) }}
       </small>
+      <small v-if="cudaProvenance(task)" class="cuda-provenance">
+        Built with CUDA {{ cudaProvenance(task) }}
+      </small>
+      <small v-else-if="isCudaBuildTask(task)" class="cuda-provenance cuda-provenance--missing">
+        CUDA: not recorded
+      </small>
       <small
         v-if="task.message"
         class="task-message"
@@ -190,6 +196,26 @@ function downloadSummary(task) {
     parts.push(`file ${Math.min(Math.max(fileNumber, 1), fileCount)}/${fileCount}`)
   }
   return parts.join(' · ')
+}
+
+// Native builds record the resolved toolkit in metadata.cuda when they start
+// (backend/engines/cuda_provenance.py). Only build kinds can carry it, so the
+// "not recorded" fallback never appears on downloads, scans or installs.
+const CUDA_BUILD_TASK_TYPES = new Set(['build', 'sync_source', 'update'])
+
+function isCudaBuildTask(task) {
+  return CUDA_BUILD_TASK_TYPES.has(String(task?.type || ''))
+}
+
+function cudaProvenance(task) {
+  const cuda = task?.metadata?.cuda
+  if (!cuda || typeof cuda !== 'object') return ''
+  const version = String(cuda.cuda_version || '').trim()
+  const home = String(cuda.cuda_home || '').trim()
+  if (!version && !home) return ''
+  const source = String(cuda.source || '').trim()
+  const detail = [home, source].filter(Boolean).join(', ')
+  return detail ? `${version || 'unknown version'} (${detail})` : version
 }
 
 function dismissTaskRow(taskId) {
@@ -367,6 +393,12 @@ function toggleLogs(taskId) {
 }
 
 .download-progress-meta {
+  color: var(--text-secondary, #9ca3af);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.cuda-provenance {
   color: var(--text-secondary, #9ca3af);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;

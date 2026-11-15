@@ -161,6 +161,72 @@ describe('TaskDetailPanel', () => {
     )
   })
 
+  it('shows the CUDA toolkit a native build used', async () => {
+    const store = useProgressStore()
+    store.tasks = {
+      build_cuda: {
+        task_id: 'build_cuda',
+        type: 'build',
+        status: 'completed',
+        progress: 100,
+        description: 'Build llama.cpp main',
+        metadata: {
+          cuda: {
+            cuda_home: '/app/data/cuda/cuda-12.8.2',
+            cuda_version: '12.8.2',
+            source: 'studio-managed',
+          },
+        },
+      },
+    }
+
+    const wrapper = mountPanel({ taskId: 'build_cuda' })
+    await flushPromises()
+
+    expect(wrapper.find('.cuda-provenance').text()).toBe(
+      'Built with CUDA 12.8.2 (/app/data/cuda/cuda-12.8.2, studio-managed)',
+    )
+    expect(wrapper.text()).not.toContain('CUDA: not recorded')
+  })
+
+  it('shows CUDA: not recorded for a build without provenance', async () => {
+    const store = useProgressStore()
+    store.tasks = {
+      build_legacy: {
+        task_id: 'build_legacy',
+        type: 'build',
+        status: 'completed',
+        progress: 100,
+        description: 'Build llama.cpp main',
+        metadata: { version_name: 'source-main-1700000000' },
+      },
+    }
+
+    const wrapper = mountPanel({ taskId: 'build_legacy' })
+    await flushPromises()
+
+    expect(wrapper.find('.cuda-provenance--missing').text()).toBe('CUDA: not recorded')
+  })
+
+  it('does not show a CUDA row on non-build tasks', async () => {
+    const store = useProgressStore()
+    store.tasks = {
+      download_1: {
+        task_id: 'download_1',
+        type: 'download',
+        status: 'completed',
+        progress: 100,
+        description: 'Download model',
+      },
+    }
+
+    const wrapper = mountPanel({ taskId: 'download_1' })
+    await flushPromises()
+
+    expect(wrapper.find('.cuda-provenance').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('CUDA')
+  })
+
   it('shows logs when toggled', async () => {
     const store = useProgressStore()
     store.tasks = {
