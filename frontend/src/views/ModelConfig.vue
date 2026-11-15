@@ -226,64 +226,13 @@
             </div>
           </div>
 
-          <div v-if="showNvidiaGpuBind" class="workbench-block gpu-bind">
-            <div class="section-label section-label--inline">
-              GPUs
-              <i
-                class="pi pi-info-circle param-info"
-                tabindex="0"
-                aria-label="About GPU assignment"
-                v-tooltip.top="
-                  'All GPUs follows the deployment. Choose GPUs to pick devices in the order you click them. CPU only hides every CUDA device. The first card you pick becomes device 0.'
-                "
-              />
-            </div>
-            <div
-              id="gpu-mode"
-              class="gpu-mode"
-              role="radiogroup"
-              aria-label="GPU assignment mode"
-              @keydown="onGpuModeKeydown"
-            >
-              <button
-                v-for="mode in gpuModeOptions"
-                :key="mode.value"
-                type="button"
-                class="gpu-mode__option"
-                role="radio"
-                :class="{ selected: (config.gpu_mode || 'inherit') === mode.value }"
-                :aria-checked="(config.gpu_mode || 'inherit') === mode.value ? 'true' : 'false'"
-                :tabindex="(config.gpu_mode || 'inherit') === mode.value ? 0 : -1"
-                @click="setGpuMode(mode.value)"
-              >
-                {{ mode.label }}
-              </button>
-            </div>
-            <div
-              v-if="(config.gpu_mode || 'inherit') === 'selected'"
-              class="gpu-card-grid"
-              role="group"
-              aria-label="Select NVIDIA GPUs for CUDA_VISIBLE_DEVICES"
-            >
-              <button
-                v-for="gpu in nvidiaGpuCards"
-                :key="gpu.value"
-                type="button"
-                class="gpu-card"
-                :class="{ selected: gpu.order != null }"
-                :aria-pressed="gpu.order != null ? 'true' : 'false'"
-                @click="toggleGpuCard(gpu.value)"
-              >
-                <span class="gpu-card__index" aria-hidden="true">{{ gpu.index }}</span>
-                <span class="gpu-card__body">
-                  <span class="gpu-card__name">{{ gpu.name }}</span>
-                  <span class="gpu-card__meta">{{
-                    gpu.order != null ? `Device ${gpu.order}` : 'Not used'
-                  }}</span>
-                </span>
-              </button>
-            </div>
-          </div>
+          <ModelConfigGpuCard
+            v-if="showNvidiaGpuBind"
+            v-model:mode="gpuMode"
+            v-model:selected="cudaVisibleDeviceSelection"
+            :gpus="nvidiaGpuSelectOptions"
+            class="workbench-block"
+          />
 
           <template v-if="!isAudioEngine && catalogSections.length">
             <div class="workbench-block">
@@ -580,67 +529,13 @@
         {{ warning }}
       </Message>
 
-      <div
+      <ModelConfigGpuCard
         v-if="isAudioEngine && pageTab === 'server' && showNvidiaGpuBind"
-        class="config-card gpu-bind"
-      >
-        <div class="section-label section-label--inline">
-          GPUs
-          <i
-            class="pi pi-info-circle param-info"
-            tabindex="0"
-            aria-label="About GPU assignment"
-            v-tooltip.top="
-              'All GPUs follows the deployment. Choose GPUs to pick devices in the order you click them. CPU only hides every CUDA device. The first card you pick becomes device 0.'
-            "
-          />
-        </div>
-        <div
-          id="gpu-mode"
-          class="gpu-mode"
-          role="radiogroup"
-          aria-label="GPU assignment mode"
-          @keydown="onGpuModeKeydown"
-        >
-          <button
-            v-for="mode in gpuModeOptions"
-            :key="mode.value"
-            type="button"
-            class="gpu-mode__option"
-            role="radio"
-            :class="{ selected: (config.gpu_mode || 'inherit') === mode.value }"
-            :aria-checked="(config.gpu_mode || 'inherit') === mode.value ? 'true' : 'false'"
-            :tabindex="(config.gpu_mode || 'inherit') === mode.value ? 0 : -1"
-            @click="setGpuMode(mode.value)"
-          >
-            {{ mode.label }}
-          </button>
-        </div>
-        <div
-          v-if="(config.gpu_mode || 'inherit') === 'selected'"
-          class="gpu-card-grid"
-          role="group"
-          aria-label="Select NVIDIA GPUs for CUDA_VISIBLE_DEVICES"
-        >
-          <button
-            v-for="gpu in nvidiaGpuCards"
-            :key="gpu.value"
-            type="button"
-            class="gpu-card"
-            :class="{ selected: gpu.order != null }"
-            :aria-pressed="gpu.order != null ? 'true' : 'false'"
-            @click="toggleGpuCard(gpu.value)"
-          >
-            <span class="gpu-card__index" aria-hidden="true">{{ gpu.index }}</span>
-            <span class="gpu-card__body">
-              <span class="gpu-card__name">{{ gpu.name }}</span>
-              <span class="gpu-card__meta">{{
-                gpu.order != null ? `Device ${gpu.order}` : 'Not used'
-              }}</span>
-            </span>
-          </button>
-        </div>
-      </div>
+        v-model:mode="gpuMode"
+        v-model:selected="cudaVisibleDeviceSelection"
+        :gpus="nvidiaGpuSelectOptions"
+        class="config-card"
+      />
 
       <AudioModelConfig
         v-if="isAudioEngine"
@@ -1237,6 +1132,7 @@ import LoadingState from '@/components/common/LoadingState.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ModelConfigHeader from '@/components/models/ModelConfigHeader.vue'
 import ModelConfigLaunchSettings from '@/components/models/ModelConfigLaunchSettings.vue'
+import ModelConfigGpuCard from '@/components/models/ModelConfigGpuCard.vue'
 import AudioModelConfig from '@/components/audio/AudioModelConfig.vue'
 import ConfigChangeReview from '@/components/ConfigChangeReview.vue'
 import ParseCommandDialog from '@/components/ParseCommandDialog.vue'
@@ -1606,6 +1502,12 @@ const showNvidiaGpuBind = computed(() => {
   return g.vendor === 'nvidia' && Array.isArray(g.gpus) && g.gpus.length > 0 && !g.cpu_only_mode
 })
 
+/** v-model bridge for the GPU card; selection side effects live in setGpuMode. */
+const gpuMode = computed({
+  get: () => config.value.gpu_mode || 'inherit',
+  set: (mode) => setGpuMode(mode),
+})
+
 const nvidiaGpuSelectOptions = computed(() => {
   if (!showNvidiaGpuBind.value) return []
   return gpuInfo.value.gpus.map((gpu) => {
@@ -1617,14 +1519,6 @@ const nvidiaGpuSelectOptions = computed(() => {
       name,
       index: idx,
     }
-  })
-})
-
-const nvidiaGpuCards = computed(() => {
-  const selected = cudaVisibleDeviceSelection.value || []
-  return nvidiaGpuSelectOptions.value.map((gpu) => {
-    const order = selected.indexOf(gpu.value)
-    return { ...gpu, order: order >= 0 ? order : null }
   })
 })
 
@@ -1800,33 +1694,6 @@ const showApplyRuntime = computed(
     !hasUnsavedChanges.value &&
     ['restart_now', 'publish_next_start'].includes(modelLaunchPlan.value?.action),
 )
-
-const gpuModeOptions = [
-  { label: 'All GPUs', value: 'inherit' },
-  { label: 'Choose GPUs', value: 'selected' },
-  { label: 'CPU only', value: 'cpu' },
-]
-
-function onGpuModeKeydown(event) {
-  const keys = ['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End']
-  if (!keys.includes(event.key)) return
-  event.preventDefault()
-  const index = Math.max(
-    0,
-    gpuModeOptions.findIndex((mode) => mode.value === (config.value.gpu_mode || 'inherit')),
-  )
-  const next =
-    event.key === 'Home'
-      ? 0
-      : event.key === 'End'
-        ? gpuModeOptions.length - 1
-        : (index +
-            (['ArrowRight', 'ArrowDown'].includes(event.key) ? 1 : -1) +
-            gpuModeOptions.length) %
-          gpuModeOptions.length
-  setGpuMode(gpuModeOptions[next].value)
-  event.currentTarget.querySelectorAll('[role="radio"]')[next]?.focus()
-}
 
 const modelLaunchPlan = computed(() => {
   const rows = enginesStore.runtimePlan?.models
@@ -2417,16 +2284,6 @@ function parseCudaDeviceList(raw) {
     .split(',')
     .map((t) => t.trim())
     .filter(Boolean)
-}
-
-function toggleGpuCard(value) {
-  const current = Array.isArray(cudaVisibleDeviceSelection.value)
-    ? [...cudaVisibleDeviceSelection.value]
-    : []
-  const index = current.indexOf(value)
-  if (index >= 0) current.splice(index, 1)
-  else current.push(value)
-  cudaVisibleDeviceSelection.value = current
 }
 
 function setGpuMode(mode) {
@@ -3972,96 +3829,6 @@ onBeforeUnmount(() => {
   margin-top: 0;
   padding-top: 0;
   border-top: none;
-}
-
-.gpu-bind {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.65rem;
-}
-
-.gpu-mode {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.gpu-mode__option {
-  padding: 0.22rem 0.65rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-primary);
-  background: transparent;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.gpu-mode__option.selected {
-  border-color: var(--accent-cyan);
-  background: rgba(34, 211, 238, 0.1);
-  color: var(--accent-cyan);
-}
-
-.gpu-card-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
-  gap: 0.5rem;
-}
-
-.gpu-card {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  min-width: 0;
-  padding: 0.45rem 0.65rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-primary);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.gpu-card.selected {
-  border-color: var(--accent-cyan);
-  background: rgba(34, 211, 238, 0.1);
-}
-
-.gpu-card__index {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 1.5rem;
-  height: 1.5rem;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-primary);
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-  font-weight: 700;
-}
-
-.gpu-card__body {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  gap: 0.1rem;
-}
-
-.gpu-card__name {
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.gpu-card__meta {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
 }
 
 .alias-link {
