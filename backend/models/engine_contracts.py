@@ -167,7 +167,9 @@ class AudioContractResponse(_OpenModel):
     contract_fingerprint: Optional[str] = None
     contract_changed: bool = False
     scanned_at: Optional[Any] = None
-    schema: Optional[str] = None
+    # ``BaseModel.schema`` is a deprecated Pydantic API. Keep the public JSON
+    # contract named ``schema`` without shadowing that inherited attribute.
+    schema_: Optional[str] = Field(default=None, alias="schema")
     operations: List[Dict[str, Any]] = Field(default_factory=list)
     task_routing: Dict[str, str] = Field(default_factory=dict)
     generic_studio_path: Optional[str] = None

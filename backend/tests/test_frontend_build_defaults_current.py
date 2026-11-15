@@ -9,7 +9,10 @@ can never silently show a stale fallback again.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 from backend.engines.llama_cpp import build_options as llama_options
 
@@ -43,3 +46,19 @@ def test_the_export_script_is_current():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     assert module._render() == GENERATED.read_text(encoding="utf-8")
+
+
+def test_export_script_runs_without_an_ambient_pythonpath(tmp_path):
+    """The documented CLI must find ``backend`` from any working directory."""
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "export-build-defaults.py"), "--check"],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "frontend build defaults current" in result.stdout

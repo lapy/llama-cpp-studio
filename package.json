@@ -2,7 +2,9 @@
   "name": "llama-cpp-studio",
   "version": "1.0.0",
   "description": "Studio - Professional AI Model Management Platform",
+  "packageManager": "npm@11.21.0",
   "scripts": {
+    "check:runtime": "node scripts/check-runtime.mjs",
     "dev": "cd frontend && vite",
     "dev:frontend": "cd frontend && vite",
     "dev:backend": "cross-env WATCHFILES_FORCE_POLLING=true watchfiles --filter python --grace-period 0.25 --sigint-timeout 10 \"python -m uvicorn backend.main:app --host 127.0.0.1 --port 8081\" backend",
@@ -48,7 +50,7 @@
     "vue-router": "^5.4.0"
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=24 <25"
   },
   "overrides": {
     "shell-quote": "1.12.0"

@@ -66,6 +66,7 @@ engines you intend to use.
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.lock
+npm run check:runtime
 npm ci
 npm run dev:all
 ```
