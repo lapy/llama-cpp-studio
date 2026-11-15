@@ -2043,6 +2043,18 @@ async def uninstall_cuda(request: dict):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.post("/cuda-cleanup")
+async def cleanup_cuda_installers():
+    """Delete cached CUDA installer downloads (installed toolkits are kept)."""
+    try:
+        installer = get_cuda_installer()
+        return await installer.cleanup_installers()
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 # ── Generic lifecycle registry (native llama family) ──────────────────
 # llama.cpp and ik_llama.cpp share the generic /api/engines/{id} route
 # SPACE through verb overrides that delegate to the route functions above,

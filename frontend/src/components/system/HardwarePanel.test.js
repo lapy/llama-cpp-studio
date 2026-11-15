@@ -2,6 +2,11 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { reactive } from 'vue'
 
+const { toastAdd, confirmRequire } = vi.hoisted(() => ({
+  toastAdd: vi.fn(),
+  confirmRequire: vi.fn(),
+}))
+
 const store = reactive({
   systemStatus: {
     system: {
@@ -16,14 +21,13 @@ const store = reactive({
   fetchSystemStats: vi.fn().mockResolvedValue({}),
   fetchCudaStatus: vi.fn().mockResolvedValue({}),
   activateCuda: vi.fn().mockResolvedValue({}),
+  cleanupCudaInstallers: vi.fn().mockResolvedValue({ freed_bytes: 0, removed: 0 }),
   fetchGpuInfo: vi.fn().mockResolvedValue({}),
 })
 
-const { toastAdd } = vi.hoisted(() => ({ toastAdd: vi.fn() }))
-
 vi.mock('@/stores/engines', () => ({ useEnginesStore: () => store }))
 vi.mock('primevue/usetoast', () => ({ useToast: () => ({ add: toastAdd }) }))
-vi.mock('primevue/useconfirm', () => ({ useConfirm: () => ({ require: vi.fn() }) }))
+vi.mock('primevue/useconfirm', () => ({ useConfirm: () => ({ require: confirmRequire }) }))
 
 import HardwarePanel from './HardwarePanel.vue'
 
@@ -34,9 +38,12 @@ describe('HardwarePanel', () => {
     store.fetchSystemStats.mockClear()
     store.fetchCudaStatus.mockClear()
     store.activateCuda.mockClear()
+    store.cleanupCudaInstallers.mockReset()
+    store.cleanupCudaInstallers.mockResolvedValue({ freed_bytes: 0, removed: 0 })
     store.fetchGpuInfo.mockClear()
-    toastAdd.mockClear()
     store.cudaStatus = {}
+    toastAdd.mockClear()
+    confirmRequire.mockClear()
   })
 
   function mountPanel() {
@@ -120,6 +127,64 @@ describe('HardwarePanel', () => {
     await flushPromises()
 
     expect(store.activateCuda).toHaveBeenCalledWith({ version: '12.8.2' })
+  })
+
+  it('renders installed version sizes and the installer cache size', async () => {
+    store.cudaStatus = {
+      installed: true,
+      version: '12.8',
+      installed_versions: [{ version: '12.8', is_current: true, size_bytes: 1536 }],
+      installer_cache: { bytes: 5 * 1024 * 1024, files: 2, directory: '/tmp/cuda_installers' },
+    }
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.get('.version-size').text()).toBe('1.5 KiB')
+    expect(wrapper.get('.cuda-toolkit-cache__label').text()).toContain(
+      'Installer cache: 5.0 MiB (2 files)',
+    )
+    expect(
+      wrapper.findAll('button').some((button) => button.text() === 'Clean installer cache'),
+    ).toBe(true)
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
+  it('confirms before cleaning the installer cache and refreshes on success', async () => {
+    store.cudaStatus = {
+      installed_versions: [],
+      installer_cache: { bytes: 2048, files: 1, directory: '/tmp/cuda_installers' },
+    }
+    store.cleanupCudaInstallers.mockImplementation(async () => {
+      store.cudaStatus = {
+        ...store.cudaStatus,
+        installer_cache: { bytes: 0, files: 0, directory: '/tmp/cuda_installers' },
+      }
+      return { freed_bytes: 2048, removed: 1 }
+    })
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const clean = wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Clean installer cache')
+    await clean.trigger('click')
+    await flushPromises()
+
+    // Clicking only asks for confirmation; nothing is deleted yet.
+    expect(store.cleanupCudaInstallers).not.toHaveBeenCalled()
+    expect(confirmRequire).toHaveBeenCalledTimes(1)
+
+    const options = confirmRequire.mock.calls[0][0]
+    expect(options.header).toBe('Clean Installer Cache')
+    await options.accept()
+    await flushPromises()
+
+    expect(store.cleanupCudaInstallers).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('.cuda-toolkit-cache').exists()).toBe(false)
+    expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({ severity: 'success' }))
+    wrapper.unmount()
+    vi.useRealTimers()
   })
 
   it('shows the typed CUDA error message instead of the generic request text', async () => {

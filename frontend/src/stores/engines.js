@@ -394,6 +394,12 @@ export const useEnginesStore = defineStore('engines', () => {
     return data
   }
 
+  async function cleanupCudaInstallers() {
+    const { data } = await axios.post('/api/llama-versions/cuda-cleanup')
+    await fetchCudaStatus()
+    return data
+  }
+
   // --- venv lifecycle (registry-driven) -----------------------------------
   // The historical per-engine export names below are thin wrappers over
   // these one-implementation helpers; engines/registry.js decides the URL
@@ -747,6 +753,7 @@ export const useEnginesStore = defineStore('engines', () => {
     installCuda,
     activateCuda,
     uninstallCuda,
+    cleanupCudaInstallers,
 
     fetchLmdeployStatus,
     fetchLmdeployBuildSettings,

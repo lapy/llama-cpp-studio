@@ -3644,6 +3644,26 @@
         ]
       }
     },
+    "/api/llama-versions/cuda-cleanup": {
+      "post": {
+        "description": "Delete cached CUDA installer downloads (installed toolkits are kept).",
+        "operationId": "cleanup_cuda_installers_api_llama_versions_cuda_cleanup_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Cleanup Cuda Installers",
+        "tags": [
+          "llama-versions"
+        ]
+      }
+    },
     "/api/llama-versions/cuda-install": {
       "post": {
         "description": "Install CUDA Toolkit with optional cuDNN and TensorRT",
