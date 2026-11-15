@@ -1030,7 +1030,7 @@ def _git_output(args: Sequence[str], *, cwd: Optional[str] = None) -> str:
 def _library_exists_under(root: str, basename: str) -> bool:
     if not root or not os.path.isdir(root) or not basename:
         return False
-    for dirpath, _, filenames in os.walk(root):
+    for _dirpath, _, filenames in os.walk(root):
         if basename in filenames:
             return True
     return False

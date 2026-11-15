@@ -245,7 +245,7 @@ def _atomic_write(path: str, entry: dict) -> None:
         raise StoreDurabilityError(
             f"Could not preserve configuration history: {exc}",
             phase="history",
-            committed=False if not committed else True,
+            committed=bool(committed),
         ) from exc
 
 

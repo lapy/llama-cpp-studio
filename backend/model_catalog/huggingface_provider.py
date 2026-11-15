@@ -196,7 +196,7 @@ class HuggingFaceCatalogProvider:
             *(search_models(query, limit, model_format=fmt) for fmt in formats)
         )
         output: List[dict] = []
-        for model_format, rows in zip(formats, raw_groups):
+        for model_format, rows in zip(formats, raw_groups, strict=True):
             for raw in rows or []:
                 if isinstance(raw, dict):
                     output.append(self._normalize(raw, model_format))

@@ -129,6 +129,8 @@ async def test_background_finish_keeps_the_row_and_leaves_the_loop_free(
     mini = FastAPI()
     mini.add_middleware(StoreIoMiddleware)
 
+    finish_tasks = set()
+
     @mini.post("/save")
     async def save():
         get_supervisor().start_operation(
@@ -141,7 +143,9 @@ async def test_background_finish_keeps_the_row_and_leaves_the_loop_free(
         async def finish():
             get_supervisor().finish_operation("op-bg", "failed", "disk full")
 
-        asyncio.create_task(finish())
+        finish_task = asyncio.create_task(finish())
+        finish_tasks.add(finish_task)
+        finish_task.add_done_callback(finish_tasks.discard)
         return {"ok": True}
 
     transport = httpx.ASGITransport(app=mini)

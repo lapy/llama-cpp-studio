@@ -314,7 +314,7 @@ async def test_bad_checksum_inside_archive_fails_install(monkeypatch, tmp_path):
         info = tarfile.TarInfo("pack/audiocpp_server")
         info.size = len(data)
         archive.addfile(info, io.BytesIO(data))
-        sums = (f"{_digest(b'wrong')}  audiocpp_server\n").encode("utf-8")
+        sums = (f"{_digest(b'wrong')}  audiocpp_server\n").encode()
         info = tarfile.TarInfo("pack/SHA256SUMS")
         info.size = len(sums)
         archive.addfile(info, io.BytesIO(sums))

@@ -7,7 +7,7 @@ def server_ui_available(active: Optional[dict]) -> bool:
     """UI is opt-in; old/prebuilt installations without build evidence stay off."""
     settings = (active or {}).get("build_config") or {}
     value = settings.get("build_server_frontends")
-    return value is True or isinstance(value, str) and value.strip().lower() in {"on", "true", "1"}
+    return value is True or (isinstance(value, str) and value.strip().lower() in {"on", "true", "1"})
 
 
 def constrain_ui_params(sections: list, active: Optional[dict]) -> list:

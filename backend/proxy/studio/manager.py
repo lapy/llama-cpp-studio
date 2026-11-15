@@ -336,7 +336,7 @@ class StudioProxyManager:
                 self._route_cursor[key] = cursor + 1
             requested = targets[cursor % len(targets)]
         candidates = []
-        for model, compiled in self._compiled_models():
+        for _model, compiled in self._compiled_models():
             names = {compiled.proxy.model_id, compiled.proxy.catalog_id, *compiled.proxy.aliases}
             if requested and requested in names:
                 return ResolvedModel(

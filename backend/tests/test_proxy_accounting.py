@@ -439,8 +439,10 @@ async def test_streaming_ttft_usage_and_partial_failure(accounting):
         stream = Stream(fail)
         app.client = httpx.AsyncClient(
             transport=httpx.MockTransport(
-                lambda req: httpx.Response(
-                    200, headers={"content-type": "text/event-stream"}, stream=stream
+                lambda req, response_stream=stream: httpx.Response(
+                    200,
+                    headers={"content-type": "text/event-stream"},
+                    stream=response_stream,
                 )
             )
         )

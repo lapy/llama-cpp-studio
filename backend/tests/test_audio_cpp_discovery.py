@@ -284,7 +284,6 @@ def test_tracking_settings_envelope_round_trip():
     assert cmake["cuda"] is True
     assert cmake["backend"] == "cuda"
     assert cmake["jobs"] == 8
-    assert "tracking_ref" not in cmake or True  # tracking keys also present in merged
     # cmake extract should not drop backend when tracking keys coexist
     assert set(cmake) >= {"backend", "build_type", "jobs"}
 

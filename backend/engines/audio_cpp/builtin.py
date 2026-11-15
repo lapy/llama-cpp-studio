@@ -40,7 +40,7 @@ def _cache_key(active: dict, candidates: List[str]) -> str:
     except OSError:
         mtime_ns = 0
     return hashlib.sha256(
-        f"{source}\n{commit}\n{mtime_ns}\n{listing}".encode("utf-8")
+        f"{source}\n{commit}\n{mtime_ns}\n{listing}".encode()
     ).hexdigest()
 
 

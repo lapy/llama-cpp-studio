@@ -117,15 +117,15 @@ def _build_wheel(wheelhouse: Path) -> Path:
         "vllm/entrypoints/openai/__init__.py": b"",
         "vllm/entrypoints/openai/api_server.py": FAKE_API_SERVER.encode(),
         "vllm-0.1.0.dist-info/METADATA": (
-            "Metadata-Version: 2.1\nName: vllm\nVersion: 0.1.0\n\n"
-            "Hermetic vLLM stand-in for the shipped-engine journey.\n"
-        ).encode(),
+            b"Metadata-Version: 2.1\nName: vllm\nVersion: 0.1.0\n\n"
+            b"Hermetic vLLM stand-in for the shipped-engine journey.\n"
+        ),
         "vllm-0.1.0.dist-info/WHEEL": (
-            "Wheel-Version: 1.0\nGenerator: handrolled\nRoot-Is-Purelib: true\nTag: py3-none-any\n"
-        ).encode(),
+            b"Wheel-Version: 1.0\nGenerator: handrolled\nRoot-Is-Purelib: true\nTag: py3-none-any\n"
+        ),
         "vllm-0.1.0.dist-info/entry_points.txt": (
-            "[console_scripts]\nvllm = vllm.entrypoints.openai.api_server:main\n"
-        ).encode(),
+            b"[console_scripts]\nvllm = vllm.entrypoints.openai.api_server:main\n"
+        ),
     }
     files["vllm-0.1.0.dist-info/RECORD"] = _record(files)
     path = wheelhouse / WHEEL

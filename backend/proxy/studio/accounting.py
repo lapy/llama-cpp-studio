@@ -259,7 +259,7 @@ class Accounting:
                 results = await loop.run_in_executor(self._executor, self._transact, jobs)
             except Exception as exc:
                 results = [exc] * len(jobs)
-            for (_, _, future), result in zip(jobs, results):
+            for (_, _, future), result in zip(jobs, results, strict=True):
                 if not future.done():
                     if isinstance(result, Exception):
                         future.set_exception(result)

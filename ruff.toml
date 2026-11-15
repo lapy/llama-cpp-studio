@@ -4,4 +4,19 @@ exclude = ["data", ".venv"]
 
 [lint]
 # Begin with correctness rules; formatting can be adopted without a repository-wide rewrite.
-select = ["E9", "F63", "F7", "F82"]
+select = [
+    "E9",
+    "F63",
+    "F7",
+    "F82",
+    "B007",
+    "B023",
+    "B905",
+    "RUF006",
+    "RUF021",
+    "RUF022",
+    "SIM211",
+    "SIM222",
+    "UP012",
+    "UP024",
+]
