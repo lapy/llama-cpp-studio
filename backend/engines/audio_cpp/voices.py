@@ -164,7 +164,7 @@ def colocate_packaged_embeddings(model_path: Optional[str]) -> str:
         return dest
     found: List[str] = []
     dest_real = os.path.realpath(dest)
-    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+    for dirpath, _dirnames, filenames in os.walk(root, followlinks=False):
         if os.path.basename(dirpath) != "embeddings":
             continue
         if os.path.realpath(dirpath) == dest_real:

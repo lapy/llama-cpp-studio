@@ -187,7 +187,7 @@ class ManagementAccessMiddleware(BaseHTTPMiddleware):
         if request.method.upper() == "OPTIONS":
             return await call_next(request)
         path = request.url.path
-        if path in PUBLIC_PATHS or request.method.upper() == "POST" and path == "/api/session":
+        if path in PUBLIC_PATHS or (request.method.upper() == "POST" and path == "/api/session"):
             return await call_next(request)
         protected = path.startswith("/api") or path.startswith("/v1") or path in {
             "/docs",

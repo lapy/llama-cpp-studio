@@ -2227,7 +2227,7 @@ class EngineDefinition:
             if name not in profiles:
                 raise DefinitionError(f"{self.id}: no runtime profile {name!r}")
             return profiles[name]
-        for candidate, spec in profiles.items():
+        for _candidate, spec in profiles.items():
             if spec.get("default"):
                 return spec
         if len(profiles) == 1:

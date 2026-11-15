@@ -817,7 +817,7 @@ class CUDAInstaller(CancellableOperationManager):
                                     }
                                 )
                                 return
-                except (OSError, IOError) as e:
+                except OSError as e:
                     await self._broadcast_log_line(
                         f"Failed to verify existing installer file: {e}, re-downloading..."
                     )
@@ -1008,7 +1008,7 @@ class CUDAInstaller(CancellableOperationManager):
                     content = f.read()
                     if "docker" in content or "containerd" in content:
                         return True
-        except (OSError, IOError):
+        except OSError:
             pass
 
         return False
