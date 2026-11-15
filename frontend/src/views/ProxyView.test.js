@@ -342,7 +342,7 @@ describe('ProxyView', () => {
       .trigger('click')
     await flushPromises()
     await wrapper.find('.request-filters input').setValue('trace')
-    await clickButton(wrapper, 'Apply filters')
+    await clickButton(wrapper, 'Apply')
     expect(axios.get).toHaveBeenCalledWith('/api/proxy/requests', {
       params: { limit: 100, offset: 0, search: 'trace' },
       signal: expect.any(AbortSignal),
@@ -355,6 +355,35 @@ describe('ProxyView', () => {
       params: { limit: 100, offset: 100, search: 'trace' },
       signal: expect.any(AbortSignal),
     })
+    wrapper.unmount()
+  })
+
+  it('submits request filters from the form and resets them to the unfiltered first page', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper
+      .findAll('[role="tab"]')
+      .find((tab) => tab.text() === 'Requests')
+      .trigger('click')
+    await flushPromises()
+
+    const requestReads = () => axios.get.mock.calls.filter(([url]) => url === '/api/proxy/requests')
+    await wrapper.get('#request-filter-search').setValue('trace')
+    await wrapper.get('#request-filter-state').setValue('failed')
+    // Enter in any field submits the form; the request toolbar uses the same path.
+    await wrapper.get('.request-filters').trigger('submit')
+    await flushPromises()
+    expect(requestReads().at(-1)[1].params).toEqual({
+      limit: 100,
+      offset: 0,
+      search: 'trace',
+      state: 'failed',
+    })
+
+    await clickButton(wrapper, 'Reset')
+    expect(requestReads().at(-1)[1].params).toEqual({ limit: 100, offset: 0 })
+    expect(wrapper.get('#request-filter-search').element.value).toBe('')
+    expect(wrapper.get('#request-filter-state').element.value).toBe('')
     wrapper.unmount()
   })
 

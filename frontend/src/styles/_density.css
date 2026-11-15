@@ -1,0 +1,136 @@
+/* ==========================================================================
+   DENSE DATA-SURFACE CONTROLS
+
+   Toolbars wrapped around tables and filter rows read as compact controls,
+   not as full forms. Only elements inside `.compact-*` scopes change; primary
+   forms keep the comfortable global control height. Coarse pointers and narrow
+   screens restore comfortable 44px targets and stack the fields.
+   ========================================================================== */
+
+.compact-fields,
+.compact-toolbar {
+  --compact-control-height: 2.125rem;
+}
+
+.compact-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+  gap: 0.5rem;
+  align-items: end;
+  min-width: 0;
+}
+
+.compact-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.compact-fields > label,
+.compact-toolbar > label,
+.compact-field {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.compact-fields :is(input, select, textarea, .p-inputtext, .p-select, .p-inputnumber, .field),
+.compact-toolbar :is(input, select, textarea, .p-inputtext, .p-select, .p-inputnumber, .field) {
+  min-height: var(--compact-control-height);
+  padding: 0.3rem 0.5rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+  box-sizing: border-box;
+}
+
+.compact-fields .p-select-label,
+.compact-toolbar .p-select-label {
+  padding: 0.3rem 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.compact-toolbar .p-button {
+  min-height: var(--compact-control-height);
+}
+
+.compact-toolbar .compact-field {
+  flex: 1 1 8rem;
+}
+
+.compact-toolbar .compact-field--wide {
+  flex: 2 1 12rem;
+}
+
+.compact-toolbar .compact-field--narrow {
+  flex: 0 1 6.5rem;
+}
+
+/* One-line help under a compact field; the full text stays in the DOM. */
+.compact-help,
+.compact-fields .hint {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* At touch sizes, compact density gives way to accessible 44px targets. */
+@media (max-width: 640px), (pointer: coarse) {
+  .compact-fields,
+  .compact-toolbar {
+    --compact-control-height: 2.75rem;
+
+    grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .compact-toolbar .compact-field,
+  .compact-toolbar .compact-field--wide,
+  .compact-toolbar .compact-field--narrow {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+
+  .compact-fields > label,
+  .compact-toolbar > label,
+  .compact-field {
+    font-size: 0.8125rem;
+  }
+
+  .compact-fields :is(input, select, textarea, .p-inputtext, .p-select, .p-inputnumber, .field),
+  .compact-toolbar :is(input, select, textarea, .p-inputtext, .p-select, .p-inputnumber, .field) {
+    padding: 0.5rem 0.65rem;
+    font-size: 0.9375rem;
+  }
+
+  .compact-toolbar .p-button {
+    min-height: var(--compact-control-height);
+  }
+
+  /* Labels hidden on desktop reappear so stacked compact forms stay labelled. */
+  .compact-fields .compact-label,
+  .compact-toolbar .compact-label {
+    position: static;
+    width: auto;
+    height: auto;
+    padding: 0;
+    margin: 0;
+    overflow: visible;
+    clip: auto;
+    white-space: normal;
+    border: 0;
+  }
+
+  .compact-fields .hint {
+    white-space: normal;
+  }
+}

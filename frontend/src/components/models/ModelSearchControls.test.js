@@ -43,6 +43,7 @@ function mountControls(props = {}) {
 describe('ModelSearchControls', () => {
   it('forwards search intent and controlled filter values', async () => {
     const wrapper = mountControls({ filtersOpen: true, showFormatSelect: true })
+    expect(wrapper.get('.search-bar').classes()).toContain('compact-toolbar')
 
     await wrapper.get('input').setValue('vision')
     await wrapper.get('input').trigger('keyup', { key: 'Enter' })

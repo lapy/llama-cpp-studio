@@ -1,6 +1,6 @@
 <template>
   <section class="search-controls" aria-label="Catalog search">
-    <div class="search-bar">
+    <div class="search-bar compact-toolbar">
       <div class="search-input-wrap">
         <i class="pi pi-search search-icon" />
         <label class="sr-only" for="catalog-search-query">Search models</label>
@@ -91,7 +91,7 @@
     <div
       v-show="filtersOpen"
       id="catalog-secondary-filters"
-      class="catalog-filters catalog-filters--secondary"
+      class="catalog-filters catalog-filters--secondary compact-toolbar"
     >
       <Select
         v-if="showFormatSelect"
@@ -218,11 +218,6 @@ defineEmits([
   flex-direction: column;
   gap: 0.4rem;
 }
-.search-controls :deep(.p-button),
-.search-controls :deep(.p-select),
-.search-controls :deep(.p-inputtext) {
-  min-height: 2.25rem;
-}
 .search-bar {
   display: flex;
   gap: 0.5rem;
@@ -244,7 +239,6 @@ defineEmits([
 }
 .search-input {
   width: 100%;
-  min-height: 2.25rem;
   padding-left: 2.25rem !important;
 }
 .clear-btn {
@@ -319,6 +313,15 @@ defineEmits([
     margin-left: 0;
     grid-column: 1 / -1;
     white-space: normal;
+  }
+}
+
+/* The compact utility stacks fields on touch sizes; the search row keeps its
+   single-line wrap layout because its controls are inline actions. */
+@media (max-width: 640px), (pointer: coarse) {
+  .search-bar {
+    flex-direction: row;
+    align-items: center;
   }
 }
 

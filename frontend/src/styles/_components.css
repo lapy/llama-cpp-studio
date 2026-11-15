@@ -621,6 +621,32 @@
   resize: vertical;
 }
 
+/* Native compact controls used by dense data surfaces (proxy filters/settings). */
+.field {
+  width: 100%;
+  min-height: 2.125rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  box-sizing: border-box;
+}
+
+.field:focus-visible {
+  outline: 2px solid var(--accent-primary, var(--accent-blue));
+  outline-offset: 1px;
+}
+
+@media (max-width: 640px), (pointer: coarse) {
+  .field {
+    min-height: 2.75rem;
+    padding: 0.5rem 0.65rem;
+    font-size: 0.9375rem;
+  }
+}
+
 .p-select .p-select-label {
   padding: calc(var(--spacing-sm) * 0.6) var(--spacing-sm);
   color: var(--text-primary);
