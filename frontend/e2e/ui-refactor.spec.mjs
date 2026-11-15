@@ -69,6 +69,11 @@ test('configuration actions remain reachable above mobile navigation', async ({ 
   await installConfiguration(page)
   await page.setViewportSize({ width: 390, height: 900 })
   await page.goto('/models/demo-model/config')
+  await expect(page.getByRole('tab', { name: 'Overview', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+  await expect(page.getByRole('radiogroup', { name: 'Engine', exact: true })).toBeVisible()
   const save = page.getByRole('button', { name: 'Save changes', exact: true })
   await save.scrollIntoViewIfNeeded()
   const bounds = await save.boundingBox()
@@ -80,6 +85,7 @@ test('configuration actions remain reachable above mobile navigation', async ({ 
       return node.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2))
     }),
   ).toBe(true)
+  await page.getByRole('tab', { name: 'Runtime', exact: true }).click()
   const input = page.getByRole('spinbutton', { name: /Context size/ })
   await expect(input).toHaveAttribute('id', 'basic-ctx_size')
   await expect(input).toHaveAttribute('aria-describedby', 'basic-help-ctx_size')
