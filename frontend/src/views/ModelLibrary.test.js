@@ -288,12 +288,12 @@ describe('ModelLibrary running glow', () => {
     const cards = wrapper.findAll('.first-model__list li .first-model__card')
     expect(cards).toHaveLength(3)
     expect(cards.map((card) => card.attributes('href'))).toEqual([
-      '/search?q=bartowski%2FQwen_Qwen3-0.6B-GGUF',
+      '/search?q=LiquidAI%2FLFM2.5-350M-GGUF',
       '/search?q=LiquidAI%2FLFM2.5-1.2B-Instruct-GGUF',
-      '/search?q=ggml-org%2FSmolLM3-3B-GGUF',
+      '/search?q=ibm-granite%2Fgranite-4.2-3b-GGUF',
     ])
-    expect(cards[0].text()).toContain('Qwen3 0.6B')
-    expect(cards[0].text()).toContain('bartowski/Qwen_Qwen3-0.6B-GGUF')
+    expect(cards[0].text()).toContain('LFM2.5 350M')
+    expect(cards[0].text()).toContain('LiquidAI/LFM2.5-350M-GGUF')
     expect(cards[0].text()).toContain('smallest option here')
     wrapper.unmount()
   })
