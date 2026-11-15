@@ -288,7 +288,7 @@ UNCOMMITTED by design, for review.
   (re-implementation fails the structural pin), plan/handler/context pins
   still hold. Disclosed behavior deltas: retries now use the shared
   snapshot-backed retry, and pre-change installs (old definition digest)
-  refuse a retry with "definition changed â€¦ reinstall". Verified on
+  refuse a retry with "definition changed … reinstall". Verified on
   lanes only: 11 lmdeploy tests, engine slice 318, defcheck 12 engines,
   ratchet no growth, ruff 62, openapi 0.
 - **Upstream vLLM gate (2026-11-03)**: definitions/vllm.yaml now carries
@@ -1244,7 +1244,7 @@ full **1972 passed, 8 skipped**; ruff 69.
 
 Frontend gates run on the HOST from the repo root; backend gates run in
 the dev container (`docker exec --user appuser llama-cpp-studio-dev
-bash -lc 'cd /app && â€¦'`).
+bash -lc 'cd /app && …'`).
 
 | Gate | Command | Expected |
 | --- | --- | --- |
@@ -1263,7 +1263,7 @@ bash -lc 'cd /app && â€¦'`).
 | Lane | Command (container) | Wall time | Notes |
 | --- | --- | --- | --- |
 | Engine slice | `npm run test:backend:engine` (definitions/*, routers, native lifecycle, literal ratchet, removal characterization, model contracts, launch interpreter, lmdeploy+vllm installer parity) | ~35s / 331 tests | The whole YAML-campaign surface + routers + contracts + launch interpreter |
-| Focused files | `python -m pytest -q -p no:cacheprovider backend/tests/<file>.py â€¦` | seconds–20s | Default while editing one suite |
+| Focused files | `python -m pytest -q -p no:cacheprovider backend/tests/<file>.py …` | seconds–20s | Default while editing one suite |
 | Parallel full | `PYTHONPATH=/home/appuser/.pytest-plugins python -m pytest -q -p no:cacheprovider -n 8` (or `npm run test:backend:parallel`) | ~90s | pytest-xdist, verified green + deterministic (2 runs); plugin lives outside the venv (site-packages is read-only there) — after a container rebuild re-install: `python -m pip install --quiet --target /home/appuser/.pytest-plugins pytest-xdist && cd /home/appuser/.pytest-plugins && rm -rf _pytest pytest py.py pluggy* iniconfig* packaging*` (strip the bundled copies so the venv's own pytest is used) |
 | Failed-only | seed once with `-o cache_dir=/tmp/.pytest-cache`, then add `--lf` (repeats failures) or `--ff` (failures first) | varies | Cache lives in /tmp so the container's read-only app dir stays clean |
 | Frontend watch | `cd frontend; npx vitest` | incremental | Existing `npm run test:frontend:watch` |

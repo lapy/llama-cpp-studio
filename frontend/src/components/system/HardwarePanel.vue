@@ -195,7 +195,7 @@
         >
           <i class="pi pi-bolt metric-icon" />
           <div class="metric-data">
-            <div class="metric-label">GPU â€” {{ gpuItem.name }}</div>
+            <div class="metric-label">GPU — {{ gpuItem.name }}</div>
             <div class="metric-value">
               {{ formatBytesIEC(gpuVramUsedBytes(gpuItem)) }} /
               {{ formatBytesIEC(gpuVramTotalBytes(gpuItem)) }} VRAM
@@ -219,7 +219,7 @@
         <Select
           v-model="cudaInstallVersion"
           :options="cudaVersionOptions"
-          placeholder="Select versionâ€¦"
+          placeholder="Select version…"
           class="w-full"
           :aria-describedby="pickerCudaWarnings.length ? 'cuda-install-warnings' : undefined"
         />

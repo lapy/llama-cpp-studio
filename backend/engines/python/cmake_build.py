@@ -628,7 +628,7 @@ class CmakeBuildHost:
                 last_flush[0] = now
 
         async def flush(*, complete_stage: bool = False) -> None:
-            # Intermediate flushes must NOT snap to ceil â€” that used to jump the
+            # Intermediate flushes must NOT snap to ceil — that used to jump the
             # bar to ~92% after git clone finished. Only snap when a stage ends
             # successfully and the caller asks for it (e.g. end of compile).
             if complete_stage:

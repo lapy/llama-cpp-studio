@@ -58,17 +58,17 @@ before legacy routers retire; today they differ per engine.
 
 | Engine | update-check | status | install | contract |
 | --- | --- | --- | --- | --- |
-| `1cat_vllm` | `GET /api/1cat-vllm/check-updates -> object` | `GET /api/1cat-vllm/status -> object` | `POST /api/1cat-vllm/install -> object` | â€” |
+| `1cat_vllm` | `GET /api/1cat-vllm/check-updates -> object` | `GET /api/1cat-vllm/status -> object` | `POST /api/1cat-vllm/install -> object` | — |
 | `audio_cpp` | `GET /api/audio-cpp/check-updates -> unknown` | `GET /api/audio-cpp/status -> unknown` | `POST /api/audio-cpp/community-voices/install -> unknown` | `GET /api/audio-cpp/contract -> unknown` |
-| `ik_llama` | `GET /api/llama-versions/check-updates -> UpdateCheckResponse` | â€” | â€” | â€” |
-| `llama_cpp` | `GET /api/llama-versions/check-updates -> UpdateCheckResponse` | â€” | â€” | â€” |
-| `lmdeploy` | `GET /api/lmdeploy/check-updates -> object` | `GET /api/lmdeploy/status -> object` | `POST /api/lmdeploy/install -> object` | â€” |
-| `sglang` | `GET /api/sglang/check-updates -> object` | `GET /api/sglang/status -> object` | `POST /api/sglang/install -> object` | â€” |
-| `sglang_sm70` | â€” | â€” | â€” | â€” |
-| `sglang_sxm2` | â€” | â€” | â€” | â€” |
-| `sglang_v100` | `GET /api/sglang-v100/check-updates -> object` | `GET /api/sglang-v100/status -> object` | `POST /api/sglang-v100/install -> object` | â€” |
-| `unsloth_llama` | `GET /api/unsloth-llama/check-updates -> object` | â€” | `POST /api/unsloth-llama/install -> object` | â€” |
-| `vllm` | `GET /api/vllm/check-updates -> object` | `GET /api/vllm/status -> object` | `POST /api/vllm/install -> object` | â€” |
+| `ik_llama` | `GET /api/llama-versions/check-updates -> UpdateCheckResponse` | — | — | — |
+| `llama_cpp` | `GET /api/llama-versions/check-updates -> UpdateCheckResponse` | — | — | — |
+| `lmdeploy` | `GET /api/lmdeploy/check-updates -> object` | `GET /api/lmdeploy/status -> object` | `POST /api/lmdeploy/install -> object` | — |
+| `sglang` | `GET /api/sglang/check-updates -> object` | `GET /api/sglang/status -> object` | `POST /api/sglang/install -> object` | — |
+| `sglang_sm70` | — | — | — | — |
+| `sglang_sxm2` | — | — | — | — |
+| `sglang_v100` | `GET /api/sglang-v100/check-updates -> object` | `GET /api/sglang-v100/status -> object` | `POST /api/sglang-v100/install -> object` | — |
+| `unsloth_llama` | `GET /api/unsloth-llama/check-updates -> object` | — | `POST /api/unsloth-llama/install -> object` | — |
+| `vllm` | `GET /api/vllm/check-updates -> object` | `GET /api/vllm/status -> object` | `POST /api/vllm/install -> object` | — |
 
 ## Install/build default surfaces
 
@@ -86,7 +86,7 @@ Persisted defaults each engine must keep producing after migration
 | `sglang_sm70` | `backend/venv_install_settings.py:default_install_settings` | `source_branch`, `source_repo` |
 | `sglang_sxm2` | `backend/venv_install_settings.py:default_install_settings` | `source_branch`, `source_repo` |
 | `sglang_v100` | `backend/venv_install_settings.py:default_install_settings` | `source_branch`, `source_repo` |
-| `unsloth_llama` | `â€”` | prebuilt installs have no persisted settings surface |
+| `unsloth_llama` | `—` | prebuilt installs have no persisted settings surface |
 | `vllm` | `backend/venv_install_settings.py:default_install_settings` | `pip_version`, `source_branch`, `source_repo` |
 
 ## Route inventory
@@ -100,7 +100,7 @@ Persisted defaults each engine must keep producing after migration
 | `/api/1cat-vllm/install-source` | POST â†’ object | 1cat_vllm, vllm |
 | `/api/1cat-vllm/remove` | POST â†’ object | 1cat_vllm, vllm |
 | `/api/1cat-vllm/status` | GET â†’ object | 1cat_vllm, vllm |
-| `/api/access` | GET â†’ unknown | â€” |
+| `/api/access` | GET â†’ unknown | — |
 | `/api/audio-cpp/build-options` | GET â†’ unknown | audio_cpp |
 | `/api/audio-cpp/build-settings` | GET â†’ unknown, PUT â†’ unknown | audio_cpp |
 | `/api/audio-cpp/build-source` | POST â†’ unknown | audio_cpp |
@@ -111,31 +111,31 @@ Persisted defaults each engine must keep producing after migration
 | `/api/audio-cpp/contract` | GET â†’ unknown | audio_cpp |
 | `/api/audio-cpp/status` | GET â†’ unknown | audio_cpp |
 | `/api/audio-cpp/update` | POST â†’ unknown | audio_cpp |
-| `/api/benchmarks/run` | POST â†’ BenchmarkResponse | â€” |
-| `/api/benchmarks/{model_id}` | GET â†’ BenchmarkResponse[] | â€” |
-| `/api/config-backup` | GET â†’ unknown | â€” |
-| `/api/config-backup/apply` | POST â†’ BackupApplyResponse | â€” |
-| `/api/config-backup/preview` | POST â†’ BackupPreviewResponse | â€” |
-| `/api/config-backup/reconcile` | POST â†’ BackupReconcileResponse | â€” |
-| `/api/config-history` | GET â†’ HistoryEntryResponse[] | â€” |
-| `/api/config-history/{entry_id}` | GET â†’ HistoryDiffResponse | â€” |
-| `/api/config-history/{entry_id}/restore` | POST â†’ HistoryRestoreResponse | â€” |
-| `/api/diagnostics/bundle` | GET â†’ unknown | â€” |
-| `/api/engines` | GET â†’ unknown | â€” |
-| `/api/engines/{engine_id}/build-settings` | GET â†’ object, PUT â†’ object | â€” |
-| `/api/engines/{engine_id}/cancel` | POST â†’ CancelAccepted | â€” |
-| `/api/engines/{engine_id}/check-updates` | GET â†’ object | â€” |
-| `/api/engines/{engine_id}/install` | POST â†’ InstallAccepted | â€” |
-| `/api/engines/{engine_id}/install-source` | POST â†’ InstallAccepted | â€” |
-| `/api/engines/{engine_id}/remove` | POST â†’ InstallAccepted | â€” |
-| `/api/engines/{engine_id}/status` | GET â†’ VenvEngineStatus | â€” |
-| `/api/events` | GET â†’ unknown | â€” |
-| `/api/gpu-info` | GET â†’ unknown | â€” |
-| `/api/gpu-list` | GET â†’ unknown | â€” |
-| `/api/inference/keys` | GET â†’ unknown, POST â†’ unknown | â€” |
-| `/api/inference/keys/{key_id}` | DELETE â†’ empty, PATCH â†’ unknown | â€” |
-| `/api/inference/keys/{key_id}/rotate` | POST â†’ unknown | â€” |
-| `/api/live` | GET â†’ unknown | â€” |
+| `/api/benchmarks/run` | POST â†’ BenchmarkResponse | — |
+| `/api/benchmarks/{model_id}` | GET â†’ BenchmarkResponse[] | — |
+| `/api/config-backup` | GET â†’ unknown | — |
+| `/api/config-backup/apply` | POST â†’ BackupApplyResponse | — |
+| `/api/config-backup/preview` | POST â†’ BackupPreviewResponse | — |
+| `/api/config-backup/reconcile` | POST â†’ BackupReconcileResponse | — |
+| `/api/config-history` | GET â†’ HistoryEntryResponse[] | — |
+| `/api/config-history/{entry_id}` | GET â†’ HistoryDiffResponse | — |
+| `/api/config-history/{entry_id}/restore` | POST â†’ HistoryRestoreResponse | — |
+| `/api/diagnostics/bundle` | GET â†’ unknown | — |
+| `/api/engines` | GET â†’ unknown | — |
+| `/api/engines/{engine_id}/build-settings` | GET â†’ object, PUT â†’ object | — |
+| `/api/engines/{engine_id}/cancel` | POST â†’ CancelAccepted | — |
+| `/api/engines/{engine_id}/check-updates` | GET â†’ object | — |
+| `/api/engines/{engine_id}/install` | POST â†’ InstallAccepted | — |
+| `/api/engines/{engine_id}/install-source` | POST â†’ InstallAccepted | — |
+| `/api/engines/{engine_id}/remove` | POST â†’ InstallAccepted | — |
+| `/api/engines/{engine_id}/status` | GET â†’ VenvEngineStatus | — |
+| `/api/events` | GET â†’ unknown | — |
+| `/api/gpu-info` | GET â†’ unknown | — |
+| `/api/gpu-list` | GET â†’ unknown | — |
+| `/api/inference/keys` | GET â†’ unknown, POST â†’ unknown | — |
+| `/api/inference/keys/{key_id}` | DELETE â†’ empty, PATCH â†’ unknown | — |
+| `/api/inference/keys/{key_id}/rotate` | POST â†’ unknown | — |
+| `/api/live` | GET â†’ unknown | — |
 | `/api/llama-versions` | GET â†’ unknown | ik_llama, llama_cpp |
 | `/api/llama-versions/build-cancel` | POST â†’ unknown | ik_llama, llama_cpp |
 | `/api/llama-versions/build-capabilities` | GET â†’ unknown | ik_llama, llama_cpp |
@@ -163,61 +163,61 @@ Persisted defaults each engine must keep producing after migration
 | `/api/lmdeploy/install-source` | POST â†’ object | lmdeploy |
 | `/api/lmdeploy/remove` | POST â†’ object | lmdeploy |
 | `/api/lmdeploy/status` | GET â†’ object | lmdeploy |
-| `/api/model-catalog/import` | POST â†’ unknown | â€” |
-| `/api/model-catalog/install` | POST â†’ unknown | â€” |
-| `/api/model-catalog/search` | POST â†’ unknown | â€” |
-| `/api/model-catalog/tasks/{task_id}/cancel` | POST â†’ unknown | â€” |
-| `/api/model-config-templates` | GET â†’ object[], POST â†’ object | â€” |
-| `/api/model-config-templates/{template_id}` | DELETE â†’ object, PUT â†’ object | â€” |
-| `/api/models` | GET â†’ unknown | â€” |
-| `/api/models/delete-group` | POST â†’ unknown | â€” |
-| `/api/models/download` | POST â†’ unknown | â€” |
-| `/api/models/downloads/cancel` | POST â†’ unknown | â€” |
-| `/api/models/gguf/download-bundle` | POST â†’ unknown | â€” |
-| `/api/models/huggingface-token` | GET â†’ unknown, POST â†’ unknown | â€” |
-| `/api/models/param-registry` | GET â†’ unknown | â€” |
-| `/api/models/quantization-sizes` | POST â†’ unknown | â€” |
-| `/api/models/safetensors` | DELETE â†’ unknown, GET â†’ unknown | â€” |
-| `/api/models/safetensors/download-bundle` | POST â†’ unknown | â€” |
-| `/api/models/search` | POST â†’ unknown | â€” |
-| `/api/models/search/{model_id}/file-sizes` | GET â†’ unknown | â€” |
-| `/api/models/{model_id}` | DELETE â†’ unknown | â€” |
-| `/api/models/{model_id}/companions` | GET â†’ unknown | â€” |
-| `/api/models/{model_id}/config` | GET â†’ unknown, PUT â†’ unknown | â€” |
-| `/api/models/{model_id}/config/apply-template` | POST â†’ unknown | â€” |
-| `/api/models/{model_id}/config/save-template` | POST â†’ unknown | â€” |
-| `/api/models/{model_id}/connect-test` | POST â†’ unknown | â€” |
-| `/api/models/{model_id}/dflash` | POST â†’ unknown | â€” |
-| `/api/models/{model_id}/dspark` | POST â†’ unknown | â€” |
-| `/api/models/{model_id}/mtp` | POST â†’ unknown | â€” |
-| `/api/models/{model_id}/preview-command` | POST â†’ unknown | â€” |
-| `/api/models/{model_id}/projector` | POST â†’ unknown | â€” |
-| `/api/models/{model_id}/reference-audio` | GET â†’ unknown, POST â†’ unknown | â€” |
-| `/api/models/{model_id}/reference-audio/{filename}` | DELETE â†’ unknown | â€” |
-| `/api/models/{model_id}/refresh` | POST â†’ unknown | â€” |
-| `/api/models/{model_id}/runtime/apply` | POST â†’ unknown | â€” |
-| `/api/models/{model_id}/runtime/apply/{operation_id}` | GET â†’ unknown | â€” |
-| `/api/models/{model_id}/runtime/apply/{operation_id}/cancel` | POST â†’ unknown | â€” |
-| `/api/models/{model_id}/saved-command` | GET â†’ unknown | â€” |
-| `/api/models/{model_id}/start` | POST â†’ unknown | â€” |
-| `/api/models/{model_id}/stop` | POST â†’ unknown | â€” |
-| `/api/operations/reconcile` | POST â†’ unknown | â€” |
-| `/api/operations/recovery` | GET â†’ unknown | â€” |
-| `/api/proxy` | GET â†’ unknown | â€” |
-| `/api/proxy/lifecycle/{action}` | POST â†’ unknown | â€” |
-| `/api/proxy/models/{model_id}/logs` | DELETE â†’ empty, GET â†’ unknown | â€” |
-| `/api/proxy/models/{model_id}/preload` | POST â†’ unknown | â€” |
-| `/api/proxy/models/{model_id}/reload` | POST â†’ unknown | â€” |
-| `/api/proxy/models/{model_id}/unload` | POST â†’ unknown | â€” |
-| `/api/proxy/requests` | GET â†’ unknown | â€” |
-| `/api/proxy/settings` | PUT â†’ unknown | â€” |
-| `/api/proxy/stats/reset` | POST â†’ unknown | â€” |
-| `/api/ready` | GET â†’ unknown | â€” |
-| `/api/runtime/apply-launch` | POST â†’ unknown | â€” |
-| `/api/runtime/pending` | GET â†’ unknown | â€” |
-| `/api/runtime/stale` | GET â†’ unknown | â€” |
-| `/api/session` | POST â†’ unknown | â€” |
-| `/api/settings/inference` | GET â†’ unknown, PUT â†’ unknown | â€” |
+| `/api/model-catalog/import` | POST â†’ unknown | — |
+| `/api/model-catalog/install` | POST â†’ unknown | — |
+| `/api/model-catalog/search` | POST â†’ unknown | — |
+| `/api/model-catalog/tasks/{task_id}/cancel` | POST â†’ unknown | — |
+| `/api/model-config-templates` | GET â†’ object[], POST â†’ object | — |
+| `/api/model-config-templates/{template_id}` | DELETE â†’ object, PUT â†’ object | — |
+| `/api/models` | GET â†’ unknown | — |
+| `/api/models/delete-group` | POST â†’ unknown | — |
+| `/api/models/download` | POST â†’ unknown | — |
+| `/api/models/downloads/cancel` | POST â†’ unknown | — |
+| `/api/models/gguf/download-bundle` | POST â†’ unknown | — |
+| `/api/models/huggingface-token` | GET â†’ unknown, POST â†’ unknown | — |
+| `/api/models/param-registry` | GET â†’ unknown | — |
+| `/api/models/quantization-sizes` | POST â†’ unknown | — |
+| `/api/models/safetensors` | DELETE â†’ unknown, GET â†’ unknown | — |
+| `/api/models/safetensors/download-bundle` | POST â†’ unknown | — |
+| `/api/models/search` | POST â†’ unknown | — |
+| `/api/models/search/{model_id}/file-sizes` | GET â†’ unknown | — |
+| `/api/models/{model_id}` | DELETE â†’ unknown | — |
+| `/api/models/{model_id}/companions` | GET â†’ unknown | — |
+| `/api/models/{model_id}/config` | GET â†’ unknown, PUT â†’ unknown | — |
+| `/api/models/{model_id}/config/apply-template` | POST â†’ unknown | — |
+| `/api/models/{model_id}/config/save-template` | POST â†’ unknown | — |
+| `/api/models/{model_id}/connect-test` | POST â†’ unknown | — |
+| `/api/models/{model_id}/dflash` | POST â†’ unknown | — |
+| `/api/models/{model_id}/dspark` | POST â†’ unknown | — |
+| `/api/models/{model_id}/mtp` | POST â†’ unknown | — |
+| `/api/models/{model_id}/preview-command` | POST â†’ unknown | — |
+| `/api/models/{model_id}/projector` | POST â†’ unknown | — |
+| `/api/models/{model_id}/reference-audio` | GET â†’ unknown, POST â†’ unknown | — |
+| `/api/models/{model_id}/reference-audio/{filename}` | DELETE â†’ unknown | — |
+| `/api/models/{model_id}/refresh` | POST â†’ unknown | — |
+| `/api/models/{model_id}/runtime/apply` | POST â†’ unknown | — |
+| `/api/models/{model_id}/runtime/apply/{operation_id}` | GET â†’ unknown | — |
+| `/api/models/{model_id}/runtime/apply/{operation_id}/cancel` | POST â†’ unknown | — |
+| `/api/models/{model_id}/saved-command` | GET â†’ unknown | — |
+| `/api/models/{model_id}/start` | POST â†’ unknown | — |
+| `/api/models/{model_id}/stop` | POST â†’ unknown | — |
+| `/api/operations/reconcile` | POST â†’ unknown | — |
+| `/api/operations/recovery` | GET â†’ unknown | — |
+| `/api/proxy` | GET â†’ unknown | — |
+| `/api/proxy/lifecycle/{action}` | POST â†’ unknown | — |
+| `/api/proxy/models/{model_id}/logs` | DELETE â†’ empty, GET â†’ unknown | — |
+| `/api/proxy/models/{model_id}/preload` | POST â†’ unknown | — |
+| `/api/proxy/models/{model_id}/reload` | POST â†’ unknown | — |
+| `/api/proxy/models/{model_id}/unload` | POST â†’ unknown | — |
+| `/api/proxy/requests` | GET â†’ unknown | — |
+| `/api/proxy/settings` | PUT â†’ unknown | — |
+| `/api/proxy/stats/reset` | POST â†’ unknown | — |
+| `/api/ready` | GET â†’ unknown | — |
+| `/api/runtime/apply-launch` | POST â†’ unknown | — |
+| `/api/runtime/pending` | GET â†’ unknown | — |
+| `/api/runtime/stale` | GET â†’ unknown | — |
+| `/api/session` | POST â†’ unknown | — |
+| `/api/settings/inference` | GET â†’ unknown, PUT â†’ unknown | — |
 | `/api/sglang-sm70/build-settings` | GET â†’ object, PUT â†’ object | sglang |
 | `/api/sglang-sm70/cancel` | POST â†’ object | sglang |
 | `/api/sglang-sm70/check-updates` | GET â†’ object | sglang |
@@ -246,8 +246,8 @@ Persisted defaults each engine must keep producing after migration
 | `/api/sglang/install-source` | POST â†’ object | sglang |
 | `/api/sglang/remove` | POST â†’ object | sglang |
 | `/api/sglang/status` | GET â†’ object | sglang |
-| `/api/status` | GET â†’ unknown | â€” |
-| `/api/tasks/dismiss` | POST â†’ unknown | â€” |
+| `/api/status` | GET â†’ unknown | — |
+| `/api/tasks/dismiss` | POST â†’ unknown | — |
 | `/api/unsloth-llama/cancel` | POST â†’ object | unsloth_llama |
 | `/api/unsloth-llama/check-updates` | GET â†’ object | unsloth_llama |
 | `/api/unsloth-llama/install` | POST â†’ object | unsloth_llama |
@@ -258,10 +258,10 @@ Persisted defaults each engine must keep producing after migration
 | `/api/vllm/install-source` | POST â†’ object | vllm |
 | `/api/vllm/remove` | POST â†’ object | vllm |
 | `/api/vllm/status` | GET â†’ object | vllm |
-| `/v1/audio/alignments` | POST â†’ unknown | â€” |
-| `/v1/audio/speech` | POST â†’ unknown | â€” |
-| `/v1/audio/transcriptions` | POST â†’ unknown | â€” |
-| `/v1/audio/transcriptions/details` | POST â†’ unknown | â€” |
-| `/v1/audio/{rest}` | DELETE â†’ unknown, GET â†’ unknown, HEAD â†’ unknown, OPTIONS â†’ unknown, PATCH â†’ unknown, POST â†’ unknown, PUT â†’ unknown | â€” |
-| `/v1/batches/transcriptions` | POST â†’ unknown | â€” |
-| `/v1/tasks/run` | POST â†’ unknown | â€” |
+| `/v1/audio/alignments` | POST â†’ unknown | — |
+| `/v1/audio/speech` | POST â†’ unknown | — |
+| `/v1/audio/transcriptions` | POST â†’ unknown | — |
+| `/v1/audio/transcriptions/details` | POST â†’ unknown | — |
+| `/v1/audio/{rest}` | DELETE â†’ unknown, GET â†’ unknown, HEAD â†’ unknown, OPTIONS â†’ unknown, PATCH â†’ unknown, POST â†’ unknown, PUT â†’ unknown | — |
+| `/v1/batches/transcriptions` | POST â†’ unknown | — |
+| `/v1/tasks/run` | POST â†’ unknown | — |

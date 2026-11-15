@@ -149,7 +149,7 @@
           <InputText
             v-model="capabilityFilter"
             type="search"
-            placeholder="Filterâ€¦"
+            placeholder="Filter…"
             class="config-search-input"
             aria-label="Filter request parameters"
           />
