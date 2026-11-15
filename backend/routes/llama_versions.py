@@ -1946,8 +1946,10 @@ async def get_cuda_status():
     """Get CUDA installation status"""
     try:
         installer = get_cuda_installer()
+        available_versions = await installer.get_available_versions()
         # Toolkit/library detection runs subprocesses and scans install trees.
         status = await run_blocking(installer.status)
+        status["available_versions"] = available_versions
         return status
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

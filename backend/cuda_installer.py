@@ -49,8 +49,9 @@ class CUDAInstaller(CancellableOperationManager):
         "uninstall": "Uninstall CUDA",
     }
 
-    # Supported CUDA versions - URLs are fetched dynamically from NVIDIA's archive
-    # Format: version -> platform -> architecture (URLs fetched on demand)
+    # Supported CUDA release lines.  The concrete patch for each line is
+    # resolved from NVIDIA's repository metadata so a new 12.8.x release does
+    # not require a Studio release.  These values are also the offline fallback.
     SUPPORTED_VERSIONS = [
         "13.0",
         "12.9",
@@ -66,6 +67,10 @@ class CUDAInstaller(CancellableOperationManager):
         "11.9",
         "11.8",
     ]
+
+    _CUDA_VERSION_PATTERN = re.compile(r"^(\d+)\.(\d+)(?:\.(\d+))?$")
+    _MINIMUM_CUDA_VERSION = (11, 8, 0)
+    _SUPPORTED_CUDA_MAJORS = {"11", "12", "13"}
 
     # cuDNN version mappings by CUDA major version
     CUDNN_VERSIONS = {
@@ -219,7 +224,8 @@ class CUDAInstaller(CancellableOperationManager):
         packages_plain_url = f"{base_url}/Packages"
         packages: list = []
 
-        async with aiohttp.ClientSession() as session:
+        timeout = aiohttp.ClientTimeout(total=15)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             data = None
             try:
                 async with session.get(packages_url) as response:
@@ -261,6 +267,63 @@ class CUDAInstaller(CancellableOperationManager):
 
         self._repo_cache[ubuntu_version] = packages
         return packages
+
+    @classmethod
+    def _cuda_version_parts(cls, version: str) -> tuple[int, int, int]:
+        """Return a comparable CUDA version, accepting major.minor[.patch]."""
+        match = cls._CUDA_VERSION_PATTERN.fullmatch(str(version).strip())
+        if not match:
+            raise ValueError(
+                f"Invalid CUDA version: {version}. Expected major.minor or major.minor.patch"
+            )
+        major, minor, patch = match.groups()
+        return int(major), int(minor), int(patch or 0)
+
+    @classmethod
+    def _cuda_release_line(cls, version: str) -> str:
+        major, minor, _patch = cls._cuda_version_parts(version)
+        return f"{major}.{minor}"
+
+    async def get_available_versions(self) -> list[str]:
+        """Resolve the latest published patch for each supported release line.
+
+        NVIDIA's apt metadata publishes packages such as
+        ``cuda-toolkit-12-8`` with versions such as ``12.8.2-1``.  Prefer the
+        newest concrete toolkit version from that metadata and retain the
+        major/minor fallback for release lines unavailable for this Ubuntu
+        repository (or when the repository cannot be reached).
+        """
+        packages = await self._get_repo_packages(self._get_ubuntu_version())
+        discovered: dict[str, str] = {}
+
+        for package in packages:
+            name = str(package.get("Package", ""))
+            match = re.fullmatch(r"cuda-toolkit-(\d+)-(\d+)", name)
+            if not match:
+                continue
+            release_line = f"{int(match.group(1))}.{int(match.group(2))}"
+            major = match.group(1)
+            if major not in self._SUPPORTED_CUDA_MAJORS:
+                continue
+
+            raw_version = str(package.get("Version", ""))
+            version_match = re.match(r"^(\d+\.\d+(?:\.\d+)?)", raw_version)
+            if not version_match:
+                continue
+            version = version_match.group(1)
+            if self._cuda_release_line(version) != release_line:
+                continue
+            if self._cuda_version_parts(version) < self._MINIMUM_CUDA_VERSION:
+                continue
+            current = discovered.get(release_line)
+            if current is None or self._cuda_version_parts(version) > self._cuda_version_parts(
+                current
+            ):
+                discovered[release_line] = version
+
+        versions = [discovered.pop(line, line) for line in self.SUPPORTED_VERSIONS]
+        versions.extend(discovered.values())
+        return sorted(versions, key=self._cuda_version_parts, reverse=True)
 
     def _version_key(self, version: str) -> tuple:
         """Create a sortable key for package version strings."""
@@ -523,10 +586,10 @@ class CUDAInstaller(CancellableOperationManager):
     def _get_archive_url(self, version: str) -> str:
         """Get NVIDIA download archive URL for a CUDA version."""
         # Convert version like "12.8" to "12-8-0" for URL
-        version_parts = version.split(".")
-        major = version_parts[0]
-        minor = version_parts[1] if len(version_parts) > 1 else "0"
-        patch = version_parts[2] if len(version_parts) > 2 else "0"
+        major_number, minor_number, patch_number = self._cuda_version_parts(version)
+        major = str(major_number)
+        minor = str(minor_number)
+        patch = str(patch_number)
         version_slug = f"{major}-{minor}-{patch}"
         target_version = self._get_archive_target_version()
 
@@ -583,14 +646,19 @@ class CUDAInstaller(CancellableOperationManager):
                         filename_matches = re.findall(pattern3, html, re.IGNORECASE)
                         if filename_matches:
                             filename = filename_matches[0]
-                            version_full = f"{version}.0"
+                            version_full = ".".join(
+                                str(part) for part in self._cuda_version_parts(version)
+                            )
                             url = f"https://developer.download.nvidia.com/compute/cuda/{version_full}/local_installers/{filename}"
                             matches = [url]
 
                     if not matches:
                         # Pattern 4: Fallback - look for any URL matching the pattern
-                        version_escaped = version.replace(".", r"\.")
-                        pattern4 = rf'https://developer\.download\.nvidia\.com/compute/cuda/{version_escaped}\.0/local_installers/cuda_{version_escaped}\.0_[^"\'\s<>]+_linux\.run'
+                        version_full = ".".join(
+                            str(part) for part in self._cuda_version_parts(version)
+                        )
+                        version_escaped = version_full.replace(".", r"\.")
+                        pattern4 = rf'https://developer\.download\.nvidia\.com/compute/cuda/{version_escaped}/local_installers/cuda_{version_escaped}_[^"\'\s<>]+_linux\.run'
                         matches = re.findall(pattern4, html, re.IGNORECASE)
 
                     if matches:
@@ -2131,6 +2199,7 @@ class CUDAInstaller(CancellableOperationManager):
     ) -> Dict[str, Any]:
         """Install CUDA Toolkit with optional cuDNN and TensorRT."""
         async with self._lock:
+            version = str(version).strip()
             if self._operation:
                 raise RuntimeError(
                     "Another CUDA installer operation is already running"
@@ -2143,9 +2212,12 @@ class CUDAInstaller(CancellableOperationManager):
                     f"CUDA installation is only supported on Linux, not {system}"
                 )
 
-            if version not in self.SUPPORTED_VERSIONS:
+            self._cuda_version_parts(version)
+            available_versions = await self.get_available_versions()
+            permitted_versions = {*self.SUPPORTED_VERSIONS, *available_versions}
+            if version not in permitted_versions:
                 raise ValueError(
-                    f"Unsupported CUDA version: {version}. Supported versions: {', '.join(self.SUPPORTED_VERSIONS)}"
+                    f"Unsupported or unavailable CUDA version: {version}. Available versions: {', '.join(available_versions)}"
                 )
 
             # Fetch the download URL dynamically

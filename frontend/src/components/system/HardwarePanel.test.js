@@ -64,4 +64,28 @@ describe('HardwarePanel', () => {
     expect(store.fetchSystemStats).toHaveBeenCalledTimes(2)
     vi.useRealTimers()
   })
+
+  it('uses patch-aware CUDA versions supplied by the backend', async () => {
+    store.cudaStatus = { available_versions: ['13.0.1', '12.8.2', '12.7.1'] }
+    const wrapper = mount(HardwarePanel, {
+      global: {
+        stubs: {
+          Button: { template: '<button><slot /></button>' },
+          Dialog: { template: '<div><slot /></div>' },
+          Select: {
+            props: ['options'],
+            template: '<div class="cuda-options">{{ options.join(",") }}</div>',
+          },
+          Tag: { template: '<span><slot /></span>' },
+          ProgressBar: { template: '<div class="bar" />' },
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('.cuda-options').text()).toBe('13.0.1,12.8.2,12.7.1')
+    wrapper.unmount()
+    store.cudaStatus = {}
+    vi.useRealTimers()
+  })
 })

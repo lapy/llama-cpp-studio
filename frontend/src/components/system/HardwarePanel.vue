@@ -316,21 +316,7 @@ function gpuPercent(g) {
 
 // ── CUDA ───────────────────────────────────────────────────
 const cuda = computed(() => enginesStore.cudaStatus || {})
-const cudaVersionOptions = [
-  '13.0',
-  '12.9',
-  '12.8',
-  '12.7',
-  '12.6',
-  '12.5',
-  '12.4',
-  '12.3',
-  '12.2',
-  '12.1',
-  '12.0',
-  '11.9',
-  '11.8',
-]
+const cudaVersionOptions = computed(() => cuda.value.available_versions || [])
 const cudaInstallVersion = ref(null)
 const cudaInstalling = ref(false)
 const cudaInstallDialogVisible = ref(false)
