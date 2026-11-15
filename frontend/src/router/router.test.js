@@ -19,4 +19,12 @@ describe('Vue router', () => {
     const root = router.getRoutes().find((r) => r.path === '/')
     expect(root?.redirect).toBe('/models')
   })
+
+  it('leaves model-config section scrolling to the view', () => {
+    const scrollBehavior = router.options.scrollBehavior
+    const from = router.resolve('/models/model-1/config#runtime')
+    const to = router.resolve('/models/model-1/config#launch')
+    expect(scrollBehavior(to, from, null)).toBe(false)
+    expect(scrollBehavior(to, router.resolve('/models'), null)).toEqual({ top: 0 })
+  })
 })
