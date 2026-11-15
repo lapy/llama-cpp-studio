@@ -177,6 +177,13 @@ async function settleView(wrapper) {
   await flushPromises()
 }
 
+/** Make the form dirty without changing the assertions under test. */
+async function markDirty(wrapper) {
+  wrapper.vm.config.custom_args = '--audio-test'
+  await wrapper.vm.$nextTick()
+  await flushPromises()
+}
+
 function audioConfigResponse(audioSection = {}) {
   return {
     engine: 'audio_cpp',
@@ -347,6 +354,12 @@ describe('ModelConfig audio profiles', () => {
     const wrapper = mountView()
     await settleView(wrapper)
 
+    await wrapper
+      .findAll('.config-section-tabs [role="tab"]')
+      .find((tab) => tab.text().includes('Runtime'))
+      .trigger('click')
+    await flushPromises()
+
     expect(wrapper.find('#gpu-mode').exists()).toBe(true)
     expect(wrapper.text()).toContain('All GPUs')
     const choose = wrapper
@@ -445,6 +458,7 @@ describe('ModelConfig audio profiles', () => {
     const wrapper = mountView()
     await settleView(wrapper)
 
+    await markDirty(wrapper)
     await wrapper.get('button[data-label="Save changes"]').trigger('click')
     await flushPromises()
 
@@ -494,6 +508,7 @@ describe('ModelConfig audio profiles', () => {
     const wrapper = mountView()
     await settleView(wrapper)
 
+    await markDirty(wrapper)
     await wrapper.get('button[data-label="Save changes"]').trigger('click')
     await flushPromises()
 
@@ -622,6 +637,7 @@ describe('ModelConfig audio profiles', () => {
     const wrapper = mountView()
     await settleView(wrapper)
 
+    await markDirty(wrapper)
     await wrapper.get('button[data-label="Save changes"]').trigger('click')
     await flushPromises()
 
@@ -652,6 +668,7 @@ describe('ModelConfig audio profiles', () => {
     const wrapper = mountView()
     await settleView(wrapper)
 
+    await markDirty(wrapper)
     await wrapper.get('button[data-label="Save changes"]').trigger('click')
     await flushPromises()
 

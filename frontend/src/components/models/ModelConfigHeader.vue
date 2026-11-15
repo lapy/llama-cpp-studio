@@ -55,7 +55,6 @@
         outlined
         @click="$emit('open-audio')"
       />
-      <Tag v-if="hasUnsavedChanges" value="Unsaved changes" severity="warn" class="unsaved-tag" />
     </template>
   </PageHeader>
 </template>
@@ -73,7 +72,6 @@ defineProps({
   canCheckForUpdates: { type: Boolean, default: false },
   refreshingModel: { type: Boolean, default: false },
   isAudioEngine: { type: Boolean, default: false },
-  hasUnsavedChanges: { type: Boolean, default: false },
 })
 
 defineEmits(['back', 'check-for-updates', 'open-audio'])
@@ -107,9 +105,5 @@ defineEmits(['back', 'check-for-updates', 'open-audio'])
 
 .hf-link:hover {
   text-decoration: underline;
-}
-
-.unsaved-tag {
-  font-size: var(--text-xs);
 }
 </style>

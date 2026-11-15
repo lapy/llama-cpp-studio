@@ -29,22 +29,42 @@
         :can-check-for-updates="canCheckForUpdates"
         :refreshing-model="refreshingModel"
         :is-audio-engine="isAudioEngine"
-        :has-unsaved-changes="hasUnsavedChanges"
         @back="requestLeave('/models')"
         @check-for-updates="checkForModelUpdates"
         @open-audio="openAudioWorkspace"
       />
 
-      <div class="config-status" aria-live="polite">
-        <strong class="runtime-state">{{
-          hasUnsavedChanges
-            ? 'Unsaved changes'
-            : pendingApply
-              ? 'Saved · awaiting application'
-              : publishedStepLabel
-        }}</strong>
-        <p class="runtime-state__detail" :title="runtimeStateDetail">{{ runtimeStateDetail }}</p>
-      </div>
+      <ModelConfigActionBar
+        :model-label="modelIdentityLabel"
+        :quantization="model.quantization || ''"
+        :format="modelFormatLabel"
+        :engine-label="currentEngineLabel"
+        :status="configurationStatus"
+        :dirty="hasUnsavedChanges"
+        :can-save="canSaveConfig"
+        :save-hint="saveConfigHint"
+        :saving="saving"
+        :show-apply="showApplyRuntime"
+        :apply-label="applyRuntimeLabel"
+        :applying="applyingRuntime"
+        :apply-disabled="saving || applyingRuntime || configSaveHeld"
+        :apply-hint="applyRuntimeHint"
+        :running="modelIsRunning"
+        :starting="isStartingModel"
+        :can-start="canStartModel"
+        :start-disabled-reason="startModelBlockedReason"
+        :can-review="hasUnsavedChanges"
+        :review-label="reviewChangesLabel"
+        :show-import-command="canImportCommand"
+        @save="saveConfig"
+        @apply="requestApply"
+        @start="startModelFromConfig"
+        @open-library="openModelInLibrary"
+        @review="changeReviewVisible = true"
+        @templates="openTemplatesDialog"
+        @import-command="openParseCommandDialog()"
+        @reset="resetConfig"
+      />
 
       <div v-if="modelLaunchPlan?.action === 'invalid'" class="state-banner" role="alert">
         {{ modelLaunchPlan.reasons.join(' ') }} Fix the configuration before applying settings.
@@ -76,75 +96,16 @@
         />
       </div>
 
-      <div class="config-card config-workbench">
-        <div class="section-label section-label--inline">Engine</div>
-        <div
-          class="engine-selector"
-          role="radiogroup"
-          aria-label="Engine"
-          @keydown="onEngineKeydown"
-        >
-          <button
-            v-for="eng in visibleEngineOptions"
-            :key="eng.value"
-            type="button"
-            class="engine-option"
-            role="radio"
-            :class="{
-              selected: config.engine === eng.value,
-              disabled: eng.disabled,
-            }"
-            :aria-checked="config.engine === eng.value ? 'true' : 'false'"
-            :aria-disabled="eng.disabled ? 'true' : 'false'"
-            :disabled="eng.disabled"
-            :tabindex="engineTabIndex(eng)"
-            v-tooltip.bottom="
-              eng.disabledReason ||
-              (eng.runnable || !eng.descriptor
-                ? ''
-                : 'No active version. Activate one from Engines.')
-            "
-            @click="changeEngine(eng.value)"
-          >
-            <div class="engine-option-label">
-              <template v-if="engineMark(eng.value)">
-                <span
-                  v-if="engineMark(eng.value).text"
-                  :class="['engine-mark', engineMark(eng.value).className]"
-                  aria-hidden="true"
-                  >{{ engineMark(eng.value).text }}</span
-                >
-                <i v-else :class="engineMark(eng.value).icon" aria-hidden="true" />
-              </template>
-              <span class="engine-name">{{ eng.label }}</span>
-            </div>
-            <small v-if="eng.disabledReason" class="engine-disabled-reason">
-              {{ eng.disabledReason }}
-            </small>
-          </button>
-        </div>
-        <p v-if="!visibleEngineOptions.length" class="config-muted-hint">
-          No installed engine is compatible with this model.
-        </p>
-        <p v-else-if="unavailableSavedEngine" class="config-muted-hint">
-          {{ unavailableSavedEngine.label }} is saved for this model. It is hidden because it is not
-          installed or not compatible.
-        </p>
-        <div v-if="isSglangEngine" class="param-field sglang-runtime-selector">
-          <label for="sglang-runtime">SGLang runtime</label>
-          <Select
-            input-id="sglang-runtime"
-            :model-value="sglangRuntime"
-            :options="sglangRuntimeOptions"
-            option-label="label"
-            option-value="value"
-            @update:model-value="changeSglangRuntime"
-          />
-          <small class="config-muted-hint"
-            >Each runtime has its own CLI parameters. Saved values are kept when switching.</small
-          >
-        </div>
-      </div>
+      <p v-if="persistenceNotice" class="persistence-notice" role="status">
+        <strong>{{ persistenceNotice.summary }}.</strong>
+        {{ persistenceNotice.detail }}
+        <button v-if="persistenceNotice.retry" type="button" @click="retryPersistence">
+          Try again
+        </button>
+        <button v-if="persistenceNotice.refresh" type="button" @click="refreshPersistedConfig">
+          Refresh
+        </button>
+      </p>
 
       <div class="config-section-tabs" role="tablist" aria-label="Configuration sections">
         <button
@@ -156,7 +117,7 @@
           class="config-section-tab"
           :class="{ selected: pageTab === tab.id }"
           :aria-selected="pageTab === tab.id"
-          :aria-controls="`config-panel-${tab.id}`"
+          :aria-controls="configSectionPanelId(tab.id)"
           :tabindex="pageTab === tab.id ? 0 : -1"
           @click="selectPageTab(tab)"
           @keydown="onRovingTabKeydown"
@@ -169,6 +130,47 @@
       </div>
 
       <div
+        v-show="pageTab === 'overview'"
+        id="config-panel-overview"
+        role="tabpanel"
+        aria-labelledby="config-tab-overview"
+        tabindex="0"
+        class="config-tab-panel"
+      >
+        <ModelConfigOverview
+          :model="model"
+          :config="config"
+          :status="configurationStatus"
+          :engine-options="visibleEngineOptions"
+          :unavailable-saved-engine="unavailableSavedEngine"
+          :sglang-runtime="sglangRuntime"
+          :sglang-runtime-options="sglangRuntimeOptions"
+          :is-sglang-engine="isSglangEngine"
+          :is-audio-engine="isAudioEngine"
+          :gpu-info="gpuInfo"
+          :model-limits="modelLimits"
+          :api-endpoint="paramRegistry.api_endpoint || ''"
+          :proxy-port="proxyPort"
+          :launch-plan="modelLaunchPlan"
+          :plan-available="enginesStore.runtimePlan?.launch_manifests !== false"
+          :has-unsaved-changes="hasUnsavedChanges"
+          :pending-apply="pendingApply"
+          :config-save-held="configSaveHeld"
+          :model-runtime-quality="modelRuntimeQuality"
+          :running="modelIsRunning"
+          :starting="isStartingModel"
+          :can-start="canStartModel"
+          :start-disabled-reason="startModelBlockedReason"
+          @select-engine="changeEngine"
+          @update:sglang-runtime="changeSglangRuntime"
+          @start="startModelFromConfig"
+          @open-library="openModelInLibrary"
+          @open-engines="requestLeave('/engines')"
+          @go-to-section="goToConfigSection"
+        />
+      </div>
+
+      <div
         v-if="!isAudioEngine"
         v-show="pageTab === 'runtime'"
         id="config-panel-runtime"
@@ -177,6 +179,10 @@
         tabindex="0"
         class="config-tab-panel"
       >
+        <ModelConfigSectionHeading
+          title="Runtime"
+          description="Choose the parameters this engine uses when it starts, then review what is overridden."
+        />
         <div class="config-card">
           <div v-if="basicParams.length" class="workbench-block">
             <div class="section-label section-label--inline">
@@ -539,7 +545,7 @@
 
       <AudioModelConfig
         v-if="isAudioEngine"
-        v-show="pageTab !== 'launch'"
+        v-show="pageTab !== 'launch' && pageTab !== 'overview'"
         hide-tabs
         :active-tab="pageTab"
         :config="config"
@@ -557,6 +563,10 @@
         tabindex="0"
         class="config-tab-panel"
       >
+        <ModelConfigSectionHeading
+          title="Launch"
+          description="Control aliases, environment, and the exact command Studio uses to start this model."
+        />
         <ModelConfigLaunchSettings
           v-model:model-alias="config.model_alias"
           v-model:set-params-by-id="config.set_params_by_id"
@@ -575,73 +585,6 @@
           @remove-env-row="removeRuntimeEnvRow"
           @update-env-row="updateRuntimeEnvRow"
         />
-      </div>
-
-      <p v-if="persistenceNotice" class="persistence-notice" role="status">
-        <strong>{{ persistenceNotice.summary }}.</strong>
-        {{ persistenceNotice.detail }}
-        <button v-if="persistenceNotice.retry" type="button" @click="retryPersistence">
-          Try again
-        </button>
-        <button v-if="persistenceNotice.refresh" type="button" @click="refreshPersistedConfig">
-          Refresh
-        </button>
-      </p>
-      <!-- Actions -->
-      <div class="config-actions">
-        <Button
-          :label="reviewChangesLabel"
-          icon="pi pi-list-check"
-          severity="secondary"
-          outlined
-          :disabled="!hasUnsavedChanges"
-          @click="changeReviewVisible = true"
-        />
-        <Button
-          label="Save changes"
-          icon="pi pi-save"
-          severity="success"
-          :loading="saving"
-          :disabled="configSaveHeld"
-          @click="saveConfig"
-        />
-        <Button
-          v-if="showApplyRuntime"
-          :label="applyRuntimeLabel"
-          icon="pi pi-bolt"
-          severity="warning"
-          :loading="applyingRuntime"
-          :disabled="saving || applyingRuntime || configSaveHeld"
-          v-tooltip.top="applyRuntimeHint"
-          @click="requestApply"
-        />
-        <Button
-          label="Templates"
-          icon="pi pi-bookmark"
-          severity="secondary"
-          outlined
-          @click="openTemplatesDialog"
-        />
-        <details class="config-secondary-actions" @keydown.esc.stop.prevent="closeSecondaryActions">
-          <summary>More actions</summary>
-          <div class="config-secondary-actions__menu" @click="closeSecondaryActionsMenu">
-            <Button
-              v-if="canImportCommand"
-              label="Import command"
-              icon="pi pi-sparkles"
-              severity="secondary"
-              outlined
-              @click="openParseCommandDialog()"
-            />
-            <Button
-              label="Reset to Saved"
-              icon="pi pi-refresh"
-              severity="secondary"
-              outlined
-              @click="resetConfig"
-            />
-          </div>
-        </details>
       </div>
 
       <ConfigChangeReview
@@ -1104,7 +1047,11 @@ import UnsavedChangesDialog from '@/components/common/UnsavedChangesDialog.vue'
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { clearDraft, readDraft, useDraftGuard, writeDraft } from '@/composables/useDraftGuard'
-import { useModelConfigSections } from '@/composables/useModelConfigSections'
+import {
+  MODEL_CONFIG_OVERVIEW_TAB,
+  useModelConfigSections,
+} from '@/composables/useModelConfigSections'
+import { useModelConfigActionBar } from '@/composables/useModelConfigActionBar'
 import { onRovingTabKeydown } from '@/composables/useRovingTabs'
 import { watchDialogFocus } from '@/composables/useFocusReturn'
 import { withheldConfirmation } from '@/composables/actionConfirmation'
@@ -1131,6 +1078,9 @@ import MultiSelect from 'primevue/multiselect'
 import LoadingState from '@/components/common/LoadingState.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ModelConfigHeader from '@/components/models/ModelConfigHeader.vue'
+import ModelConfigActionBar from '@/components/models/ModelConfigActionBar.vue'
+import ModelConfigOverview from '@/components/models/ModelConfigOverview.vue'
+import ModelConfigSectionHeading from '@/components/models/ModelConfigSectionHeading.vue'
 import ModelConfigLaunchSettings from '@/components/models/ModelConfigLaunchSettings.vue'
 import ModelConfigGpuCard from '@/components/models/ModelConfigGpuCard.vue'
 import AudioModelConfig from '@/components/audio/AudioModelConfig.vue'
@@ -1163,9 +1113,6 @@ const audioEngineId = AUDIO_ENGINE_IDS[0] || ''
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
-function engineMark(engineId) {
-  return ENGINE_DESCRIPTORS[engineId]?.card?.mark || null
-}
 const modelStore = useModelStore()
 const enginesStore = useEnginesStore()
 
@@ -1425,21 +1372,23 @@ const DEFAULT_CONFIG_TABS = Object.freeze([
   Object.freeze({ id: 'runtime', label: 'Runtime', icon: 'pi pi-server' }),
   Object.freeze({ id: 'launch', label: 'Launch', icon: 'pi pi-play' }),
 ])
-const pageTab = ref('runtime')
-const pageTabs = computed(
-  () => ENGINE_DESCRIPTORS[config.value.engine]?.configTabs || DEFAULT_CONFIG_TABS,
-)
+const pageTab = ref(MODEL_CONFIG_OVERVIEW_TAB.id)
+const pageTabs = computed(() => [
+  MODEL_CONFIG_OVERVIEW_TAB,
+  ...(ENGINE_DESCRIPTORS[config.value.engine]?.configTabs || DEFAULT_CONFIG_TABS),
+])
 watch(
   () => pageTabs.value,
   (tabs) => {
     const ids = new Set(tabs.map((tab) => tab.id))
-    if (!ids.has(pageTab.value)) pageTab.value = tabs[0]?.id || 'runtime'
+    if (!ids.has(pageTab.value)) pageTab.value = tabs[0]?.id || MODEL_CONFIG_OVERVIEW_TAB.id
   },
 )
 const configSectionsReady = computed(
   () => !loading.value && Boolean(model.value) && Boolean(config.value?.engine),
 )
 function configSectionPanelId(sectionId) {
+  if (sectionId === 'overview') return 'config-panel-overview'
   if (sectionId === 'launch') return 'config-panel-launch'
   return isAudioEngine.value ? `audio-config-panel-${sectionId}` : `config-panel-${sectionId}`
 }
@@ -1449,6 +1398,10 @@ const { selectTab: selectPageTab } = useModelConfigSections({
   ready: configSectionsReady,
   panelId: configSectionPanelId,
 })
+function goToConfigSection(sectionId) {
+  const tab = pageTabs.value.find((item) => item.id === sectionId)
+  if (tab) selectPageTab(tab)
+}
 function configCapability(name, fallback = true) {
   const value = ENGINE_DESCRIPTORS[config.value.engine]?.configCapabilities?.[name]
   return value === undefined ? fallback : value
@@ -1743,16 +1696,16 @@ const publishedStepLabel = computed(() => {
 
 const runtimeStateDetail = computed(() => {
   if (hasUnsavedChanges.value)
-    return 'These edits are only in this form. Save them before they can be applied.'
+    return 'These edits are only in this form. Save changes stores them; then apply them so the model uses them.'
   if (pendingApply.value) {
     const action = modelLaunchPlan.value?.action
     if (action === 'publish_next_start') {
-      return 'Saved changes for this model are not published yet. They apply the next time it starts.'
+      return 'Saved changes for this model are not published yet. They apply the next time it starts. Choose “Use on next start” in the action bar to publish them now.'
     }
     if (action === 'restart_now') {
-      return 'Saved changes for this model are not in use yet. Apply them to restart this model.'
+      return 'Saved changes for this model are not in use yet. Choose “Restart this model” in the action bar to restart it with these settings.'
     }
-    return 'Pending changes for this model are not in use yet. Apply them with the action below. Saving does not restart the model.'
+    return 'Pending changes for this model are not in use yet. Choose the apply action in the action bar to apply them. Saving alone never restarts the model.'
   }
   if (enginesStore.runtimePlan?.launch_manifests === false)
     return 'The native runtime plan is unavailable. Refresh to check whether saved settings are in use.'
@@ -1767,6 +1720,48 @@ const runtimeStateDetail = computed(() => {
   if (modelIsRunning.value)
     return 'These saved settings are published and this model is running them.'
   return 'These settings are published. The model is stopped, so they are used the next time it starts.'
+})
+
+// ── Action bar state ───────────────────────────────────────
+const proxyPort = computed(() => enginesStore.systemStatus?.proxy_status?.port ?? null)
+const hasUsableEngine = computed(() => visibleEngineOptions.value.length > 0)
+const {
+  modelIdentityLabel,
+  modelFormatLabel,
+  currentEngineLabel,
+  isStartingModel,
+  canSaveConfig,
+  saveConfigHint,
+  startModelBlockedReason,
+  canStartModel,
+  configurationStatus,
+  startModelFromConfig,
+  openModelInLibrary,
+} = useModelConfigActionBar({
+  router,
+  toast,
+  modelStore,
+  enginesStore,
+  model,
+  config,
+  saving,
+  hasUnsavedChanges,
+  modelIsRunning,
+  modelRuntimeQuality,
+  showApplyRuntime,
+  publishedStepLabel,
+  runtimeStateDetail,
+  configSaveHeld,
+  requestAliasesValid,
+  persistenceNotice,
+  persistenceAction,
+  unrecognizedSavedKeys,
+  modelLaunchPlan,
+  engineOptions,
+  hasUsableEngine,
+  modelFormat,
+  refreshModelFromStore,
+  formatError: formatAxiosDetail,
 })
 
 watch(
@@ -1817,14 +1812,6 @@ const unavailableSavedEngine = computed(() => {
   return selected
 })
 
-function closeSecondaryActions(event) {
-  event.currentTarget.open = false
-  event.currentTarget.querySelector('summary')?.focus()
-}
-function closeSecondaryActionsMenu(event) {
-  const menu = event.currentTarget
-  menu.closest('details')?.removeAttribute('open')
-}
 function useParameterDefault(param) {
   delete config.value[param.key]
 }
@@ -1841,31 +1828,6 @@ function isExplicitOverride(param) {
   if (value == null || value === '') return false
   if (Array.isArray(value) && value.length === 0) return false
   return true
-}
-
-function engineTabIndex(eng) {
-  if (eng.disabled) return -1
-  return config.value.engine === eng.value ? 0 : -1
-}
-
-function onEngineKeydown(event) {
-  const options = visibleEngineOptions.value.filter((option) => !option.disabled)
-  if (!options.length) return
-  const index = Math.max(
-    0,
-    options.findIndex((option) => option.value === config.value.engine),
-  )
-  let next
-  if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % options.length
-  else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp')
-    next = (index - 1 + options.length) % options.length
-  else if (event.key === 'Home') next = 0
-  else if (event.key === 'End') next = options.length - 1
-  else return
-  event.preventDefault()
-  changeEngine(options[next].value)
-  const buttons = event.currentTarget?.querySelectorAll?.('[role="radio"]:not([disabled])')
-  buttons?.[next]?.focus()
 }
 
 function requestLeave(path) {
@@ -3362,7 +3324,7 @@ async function saveConfig() {
     toast.add({
       severity: 'success',
       summary: 'Saved',
-      detail: 'Saved. Check the runtime plan below for any engine changes to apply.',
+      detail: 'Saved. Use Apply settings when you want the model to use these changes.',
       life: 3000,
     })
     return true
@@ -3869,162 +3831,6 @@ onBeforeUnmount(() => {
   text-underline-offset: 2px;
 }
 
-/* ── Engine selector ──────────────────────────────────── */
-.engine-selector {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.engine-option {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  width: auto;
-  padding: 0.2rem 0.6rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-primary, #2a2f45);
-  cursor: pointer;
-  transition:
-    border-color 0.15s,
-    background 0.15s;
-  font: inherit;
-  font-size: 0.8125rem;
-  user-select: none;
-  box-sizing: border-box;
-  background: transparent;
-  color: inherit;
-  text-align: center;
-}
-
-.engine-option:focus-visible {
-  outline: 2px solid var(--accent-cyan);
-  outline-offset: 2px;
-}
-
-.engine-option:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.config-status {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.35rem 0.75rem;
-  margin: 0;
-  padding: 0.65rem 0.85rem;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-lg);
-  background: var(--bg-card);
-}
-
-.runtime-state {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem 0.5rem;
-  align-items: center;
-  margin: 0;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
-.runtime-state .is-current {
-  color: var(--text-primary);
-}
-
-.runtime-state .is-current::before {
-  content: '';
-  display: inline-block;
-  width: 0.45rem;
-  height: 0.45rem;
-  margin-right: 0.35rem;
-  border-radius: 50%;
-  background: var(--accent-cyan);
-  vertical-align: 0;
-}
-
-.runtime-state__detail {
-  margin: 0;
-  flex: 1 1 16rem;
-  min-width: 0;
-  font-size: 0.875rem;
-  line-height: 1.45;
-  color: var(--text-secondary);
-}
-
-.engine-option:hover {
-  border-color: var(--accent-cyan, #22d3ee);
-  background: rgba(34, 211, 238, 0.05);
-}
-
-.engine-option.selected {
-  border-color: var(--accent-cyan);
-  background: rgba(34, 211, 238, 0.1);
-  color: var(--accent-cyan);
-  font-weight: 600;
-}
-
-.engine-option.disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
-.engine-option.disabled:hover {
-  border-color: var(--border-primary, #2a2f45);
-  background: transparent;
-}
-
-.engine-disabled-reason {
-  flex-basis: 100%;
-  max-width: 100%;
-  margin: 0.2rem 0 0;
-  color: var(--text-secondary, #9ca3af);
-  font-size: var(--text-xs);
-  line-height: 1.3;
-  text-align: center;
-}
-
-.engine-option-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.engine-name {
-  font-size: 0.875rem;
-}
-
-.engine-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 1.5rem;
-  height: 1.5rem;
-  padding: 0 0.45rem;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-xs);
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: 0.04em;
-  color: var(--text-secondary);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-primary);
-  box-shadow: none;
-}
-
-.engine-icon-lmdeploy {
-  font-size: 1.1rem;
-  color: var(--accent-cyan, #22d3ee);
-}
-
-.engine-icon-onecat-vllm {
-  font-size: 1.1rem;
-  color: var(--accent-amber, #f59e0b);
-}
-
 /* ── Params grid ──────────────────────────────────────── */
 .params-grid {
   display: grid;
@@ -4220,25 +4026,6 @@ onBeforeUnmount(() => {
 /* ── Actions (sticky bar) ───────────────────────────────── */
 .config-card:empty {
   display: none;
-}
-
-.config-actions {
-  display: flex;
-  gap: 0.5rem;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  position: sticky;
-  bottom: calc(var(--bottom-nav-height) + 0.75rem);
-  z-index: 10;
-  width: fit-content;
-  max-width: 100%;
-  margin-top: var(--spacing-sm);
-  margin-left: auto;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-lg);
-  background: var(--bg-card);
-  box-shadow: var(--shadow-md);
 }
 
 .param-slider-row {
@@ -4645,15 +4432,6 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 768px) {
-  .config-actions {
-    flex-wrap: wrap;
-    justify-content: stretch;
-  }
-
-  .config-actions .p-button {
-    flex: 1 1 auto;
-  }
-
   .config-templates-list-item {
     flex-direction: column;
     align-items: stretch;
@@ -4669,31 +4447,6 @@ onBeforeUnmount(() => {
   }
 }
 
-.config-secondary-actions {
-  position: relative;
-}
-.config-secondary-actions summary {
-  cursor: pointer;
-  padding: 0.65rem 0.8rem;
-  min-height: 2.75rem;
-  border: 1px solid var(--border-secondary);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-}
-.config-secondary-actions__menu {
-  position: absolute;
-  bottom: calc(100% + 0.5rem);
-  right: 0;
-  min-width: 14rem;
-  max-width: calc(100vw - 4rem);
-  padding: 0.5rem;
-  display: grid;
-  gap: 0.5rem;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-secondary);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
-}
 .param-default-help {
   font-size: var(--text-xs);
   line-height: 1.6;

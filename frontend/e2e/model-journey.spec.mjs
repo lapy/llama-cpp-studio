@@ -432,6 +432,12 @@ function contextInput(page) {
   return page.getByRole('spinbutton', { name: /Context Size/ })
 }
 
+/** The configuration page now lands on Overview; parameter fields live in Runtime. */
+async function openRuntimeTab(page) {
+  await page.getByRole('tab', { name: 'Runtime', exact: true }).click()
+  await expect(page.locator('#config-panel-runtime')).toBeVisible()
+}
+
 async function advanceClockUntil(page, predicate) {
   for (let step = 0; step < 40; step += 1) {
     if (await predicate()) return
@@ -442,6 +448,7 @@ async function advanceClockUntil(page, predicate) {
 
 async function saveDistinctiveContext(page, value = '12321') {
   await page.goto('/models/demo-model/config')
+  await openRuntimeTab(page)
   const input = contextInput(page).first()
   await expect(input).toBeVisible()
   await input.fill(String(value))
@@ -456,6 +463,7 @@ async function saveDistinctiveContext(page, value = '12321') {
   await expect(page.getByText(/Saved changes for this model are/)).toBeVisible()
   await page.goto('/models')
   await page.goto('/models/demo-model/config')
+  await openRuntimeTab(page)
   await expect(contextInput(page).first()).toHaveAttribute('aria-valuenow', String(value))
 }
 
@@ -528,8 +536,13 @@ test('install, configure, apply, start, and connect under fixture control', asyn
   await page.goto('/models')
   await expect(page.getByRole('heading', { name: 'Review configuration' })).toBeVisible()
   await page.getByRole('button', { name: 'Configure Demo' }).click()
+  await openRuntimeTab(page)
+  const input = contextInput(page).first()
+  await expect(input).toBeVisible()
+  await input.fill('12321')
+  await input.press('Tab')
   const save = page.getByRole('button', { name: 'Save changes' })
-  await expect(save).toBeVisible()
+  await expect(save).toBeEnabled()
   await save.click()
   await expect(page.getByText('Save failed')).toBeVisible()
   await save.click()
@@ -569,6 +582,7 @@ test('keeps apply available after a failed publish and preserves the saved conte
   await expect(apply).toBeEnabled()
   await page.goto('/models')
   await page.goto('/models/demo-model/config')
+  await openRuntimeTab(page)
   await expect(contextInput(page).first()).toHaveAttribute('aria-valuenow', '12321')
   await apply.click()
   await dialog.getByRole('button', { name: 'Use on next start' }).click()
@@ -689,6 +703,7 @@ test('reports startup as unconfirmed when no ready observation arrives', async (
   await expect(page.getByText('Model started')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Start Demo' })).toBeEnabled()
   await page.goto('/models/demo-model/config')
+  await openRuntimeTab(page)
   await expect(contextInput(page).first()).toHaveAttribute('aria-valuenow', '22222')
   expect(errors).toEqual([])
 })
@@ -776,6 +791,7 @@ test('retries a rejected configuration save without dropping the edit', async ({
   const state = installedState({ saveFailure: 'queue' })
   await openLibrary(page, state)
   await page.goto('/models/demo-model/config')
+  await openRuntimeTab(page)
   const input = contextInput(page).first()
   await expect(input).toBeVisible()
   await input.fill('12321')
@@ -805,6 +821,7 @@ test('keeps a replaced configuration when acknowledgement fails and does not sav
   const state = installedState({ saveFailure: 'replaced' })
   await openLibrary(page, state)
   await page.goto('/models/demo-model/config')
+  await openRuntimeTab(page)
   const input = contextInput(page).first()
   await expect(input).toBeVisible()
   await input.fill('12321')
@@ -831,6 +848,7 @@ test('keeps the edit when a replaced configuration cannot be refreshed', async (
   })
   await openLibrary(page, state)
   await page.goto('/models/demo-model/config')
+  await openRuntimeTab(page)
   const input = contextInput(page).first()
   await expect(input).toBeVisible()
   await input.fill('12321')

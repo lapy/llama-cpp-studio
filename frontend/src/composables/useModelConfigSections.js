@@ -1,6 +1,16 @@
 import { nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+/**
+ * The identity-first landing section. Every engine adds it ahead of its own
+ * tabs so `#overview` is a stable deep link on text and audio pages alike.
+ */
+export const MODEL_CONFIG_OVERVIEW_TAB = Object.freeze({
+  id: 'overview',
+  label: 'Overview',
+  icon: 'pi pi-th-large',
+})
+
 function normalizeHashSection(hash) {
   const raw = String(hash ?? '')
     .trim()
