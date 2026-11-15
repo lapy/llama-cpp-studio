@@ -61,7 +61,10 @@ AREA_CAPS: Dict[str, int] = {
     # the SM70 panel variant — one identity site; its versionsKey/managerKey
     # derive from the id.
     "frontend/src/engines/": 69,
-    "frontend/src/stores/": 323,
+    # 2026-11-15: 323 -> 325. CUDA activation adds one reviewed API endpoint
+    # call site in engines.js; the ratchet's token set matches the shared
+    # versions URL prefix for two engine ids.
+    "frontend/src/stores/": 325,
     "frontend/src/test-fixtures/": 43,
     # R90 raised this 6 -> 7: the audio-package predicate now lives once in
     # frontend/src/utils/audioModel.js (four duplicated checks across views and

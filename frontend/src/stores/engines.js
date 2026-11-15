@@ -382,6 +382,12 @@ export const useEnginesStore = defineStore('engines', () => {
     return data
   }
 
+  async function activateCuda(params) {
+    const { data } = await axios.post('/api/llama-versions/cuda-activate', params)
+    await fetchCudaStatus()
+    return data
+  }
+
   async function uninstallCuda(params = {}) {
     const { data } = await axios.post('/api/llama-versions/cuda-uninstall', params)
     await fetchCudaStatus()
@@ -739,6 +745,7 @@ export const useEnginesStore = defineStore('engines', () => {
 
     fetchCudaStatus,
     installCuda,
+    activateCuda,
     uninstallCuda,
 
     fetchLmdeployStatus,

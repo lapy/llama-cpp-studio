@@ -15,6 +15,7 @@ const store = reactive({
   fetchSystemStatus: vi.fn().mockResolvedValue({}),
   fetchSystemStats: vi.fn().mockResolvedValue({}),
   fetchCudaStatus: vi.fn().mockResolvedValue({}),
+  activateCuda: vi.fn().mockResolvedValue({}),
   fetchGpuInfo: vi.fn().mockResolvedValue({}),
 })
 
@@ -30,18 +31,27 @@ describe('HardwarePanel', () => {
     store.fetchSystemStatus.mockClear()
     store.fetchSystemStats.mockClear()
     store.fetchCudaStatus.mockClear()
+    store.activateCuda.mockClear()
     store.fetchGpuInfo.mockClear()
+    store.cudaStatus = {}
   })
 
   function mountPanel() {
     return mount(HardwarePanel, {
       global: {
         stubs: {
-          Button: { template: '<button><slot /></button>' },
+          Button: {
+            props: ['label'],
+            emits: ['click'],
+            template: '<button @click="$emit(`click`)"><slot />{{ label }}</button>',
+          },
           Dialog: { template: '<div><slot /></div>' },
-          Select: { template: '<select />' },
+          Select: { inheritAttrs: false, template: '<select />' },
           Tag: { template: '<span><slot /></span>' },
           ProgressBar: { template: '<div class="bar" />' },
+        },
+        directives: {
+          tooltip: () => {},
         },
       },
     })
@@ -87,5 +97,25 @@ describe('HardwarePanel', () => {
     wrapper.unmount()
     store.cudaStatus = {}
     vi.useRealTimers()
+  })
+
+  it('activates an installed CUDA version that is not current', async () => {
+    store.cudaStatus = {
+      installed: true,
+      version: '12.8',
+      installed_versions: [
+        { version: '12.8', is_current: true },
+        { version: '12.8.2', is_current: false },
+      ],
+    }
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const activate = wrapper.findAll('button').find((button) => button.text() === 'Activate')
+    expect(activate).toBeTruthy()
+    await activate.trigger('click')
+    await flushPromises()
+
+    expect(store.activateCuda).toHaveBeenCalledWith({ version: '12.8.2' })
   })
 })

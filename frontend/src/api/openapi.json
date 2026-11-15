@@ -3602,6 +3602,48 @@
         ]
       }
     },
+    "/api/llama-versions/cuda-activate": {
+      "post": {
+        "description": "Activate an already-installed CUDA Toolkit version.",
+        "operationId": "activate_cuda_api_llama_versions_cuda_activate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Request",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Activate Cuda",
+        "tags": [
+          "llama-versions"
+        ]
+      }
+    },
     "/api/llama-versions/cuda-install": {
       "post": {
         "description": "Install CUDA Toolkit with optional cuDNN and TensorRT",

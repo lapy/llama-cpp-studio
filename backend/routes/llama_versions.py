@@ -2003,6 +2003,21 @@ async def get_cuda_logs():
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.post("/cuda-activate")
+async def activate_cuda(request: dict):
+    """Activate an already-installed CUDA Toolkit version."""
+    try:
+        installer = get_cuda_installer()
+        result = await installer.activate(request.get("version", ""))
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.post("/cuda-uninstall")
 async def uninstall_cuda(request: dict):
     """Uninstall CUDA Toolkit"""
