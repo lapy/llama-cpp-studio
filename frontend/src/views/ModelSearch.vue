@@ -855,7 +855,7 @@
       class="dialog-width-md catalog-variant-picker"
       :style="{ width: 'min(40rem, 94vw)' }"
     >
-      <div class="variant-picker-toolbar">
+      <div class="variant-picker-toolbar compact-toolbar">
         <div
           v-if="(variantPickerResult?.install_variants || []).length > 8"
           class="variant-picker-filter"

@@ -84,7 +84,54 @@
               <p>Saved limits and timeouts apply when the proxy restarts.</p>
             </div>
           </div>
-          <div class="settings-grid">
+          <div class="runtime-actions">
+            <span class="save-group">
+              <Button
+                label="Save settings"
+                :disabled="!dirty"
+                :loading="saving"
+                @click="saveSettings"
+              />
+              <Button
+                v-if="dirty"
+                label="Discard changes"
+                size="small"
+                severity="secondary"
+                text
+                @click="resetDraft"
+              />
+            </span>
+            <span class="lifecycle-group">
+              <Button
+                label="Start"
+                icon="pi pi-play"
+                size="small"
+                severity="success"
+                outlined
+                :disabled="Boolean(activeBackend)"
+                @click="lifecycle('start')"
+              />
+              <Button
+                label="Restart &amp; apply"
+                icon="pi pi-replay"
+                size="small"
+                severity="secondary"
+                outlined
+                :loading="lifecycleBusy"
+                @click="confirmRestart"
+              />
+              <Button
+                label="Stop"
+                icon="pi pi-stop-circle"
+                size="small"
+                severity="danger"
+                outlined
+                :disabled="!activeBackend"
+                @click="confirmStop"
+              />
+            </span>
+          </div>
+          <div class="settings-grid compact-fields">
             <label
               >Inference port
               <input
@@ -207,53 +254,6 @@
               >
             </label>
           </div>
-          <div class="runtime-actions">
-            <span class="save-group">
-              <Button
-                label="Save settings"
-                :disabled="!dirty"
-                :loading="saving"
-                @click="saveSettings"
-              />
-              <Button
-                v-if="dirty"
-                label="Discard changes"
-                size="small"
-                severity="secondary"
-                text
-                @click="resetDraft"
-              />
-            </span>
-            <span class="lifecycle-group">
-              <Button
-                label="Start"
-                icon="pi pi-play"
-                size="small"
-                severity="success"
-                outlined
-                :disabled="Boolean(activeBackend)"
-                @click="lifecycle('start')"
-              />
-              <Button
-                label="Restart &amp; apply"
-                icon="pi pi-replay"
-                size="small"
-                severity="secondary"
-                outlined
-                :loading="lifecycleBusy"
-                @click="confirmRestart"
-              />
-              <Button
-                label="Stop"
-                icon="pi pi-stop-circle"
-                size="small"
-                severity="danger"
-                outlined
-                :disabled="!activeBackend"
-                @click="confirmStop"
-              />
-            </span>
-          </div>
         </section>
 
         <section
@@ -271,7 +271,7 @@
               </p>
             </div>
           </div>
-          <div class="settings-grid">
+          <div class="settings-grid compact-fields">
             <label
               >Default model
               <select v-model="draft.default_model" class="field">
@@ -351,7 +351,7 @@
             <Message v-if="keyCreateError" severity="error" :closable="false">{{
               keyCreateError
             }}</Message>
-            <div class="settings-grid key-options">
+            <div class="settings-grid compact-fields key-options">
               <label
                 >Token accounting<select
                   v-model="keyAccounting"
@@ -632,7 +632,7 @@
             :style="{ width: '62rem', maxWidth: '95vw' }"
           >
             <p>Changes affect new requests immediately. The existing secret remains valid.</p>
-            <div class="settings-grid">
+            <div class="settings-grid compact-fields">
               <label
                 >Key name<input v-model="editPolicy.name" class="field" maxlength="120"
               /></label>
@@ -1104,69 +1104,21 @@
           <p v-else class="empty">No proxy activity recorded in this session.</p>
         </section>
         <section v-show="activeTab === 'requests'" class="proxy-card">
-          <div class="section-head">
-            <div>
-              <h2>Requests</h2>
-              <p>
-                Live and retained requests, newest first. Up to 100 per page. Rejections and
-                cancellations are included.
-              </p>
-            </div>
-            <span class="count">{{ requestTotal }} matching</span>
+          <div class="section-head request-head">
+            <h2>Requests</h2>
+            <p class="request-head__meta">
+              Live and retained, newest first · {{ requestTotal }} matching
+            </p>
           </div>
-          <form class="request-filters settings-grid" @submit.prevent="loadRequests(true)">
-            <label
-              >Search<input
-                v-model="requestFilters.search"
-                class="field"
-                placeholder="Request ID, alias, path or key name"
-            /></label>
-            <label
-              >Model<input
-                v-model="requestFilters.model"
-                class="field"
-                placeholder="Resolved model ID"
-            /></label>
-            <label
-              >Client key<select v-model="requestFilters.key_id" class="field">
-                <option value="">All clients</option>
-                <option v-for="key in keys" :key="key.id" :value="key.id">{{ key.name }}</option>
-                <option value="anonymous">Anonymous</option>
-                <option value="internal">Studio</option>
-              </select></label
-            >
-            <label
-              >State<select v-model="requestFilters.state" class="field">
-                <option value="">All states</option>
-                <option v-for="state in requestStates" :key="state" :value="state">
-                  {{ state }}
-                </option>
-              </select></label
-            >
-            <label
-              >Outcome<select v-model="requestFilters.outcome" class="field">
-                <option value="">All outcomes</option>
-                <option value="4xx">HTTP 4xx</option>
-                <option value="5xx">HTTP 5xx</option>
-                <option value="errors">All HTTP 4xx / 5xx</option>
-              </select></label
-            >
-            <label
-              >HTTP status<input
-                v-model="requestFilters.status"
-                class="field"
-                type="number"
-                min="100"
-                max="599"
-                placeholder="Any"
-            /></label>
-            <Button
-              label="Apply filters"
-              size="small"
-              :loading="requestsLoading"
-              @click="loadRequests(true)"
-            />
-          </form>
+          <RequestFiltersBar
+            :filters="requestFilters"
+            :keys="keys"
+            :states="requestStates"
+            :loading="requestsLoading"
+            @update:filter="(key, value) => (requestFilters[key] = value)"
+            @apply="loadRequests(true)"
+            @reset="resetRequestFilters"
+          />
           <Message v-if="requestsError" severity="error" :closable="false">{{
             requestsError
           }}</Message>
@@ -1265,6 +1217,7 @@ import { useDraftGuard } from '@/composables/useDraftGuard'
 import { useQueryState } from '@/composables/useQueryState'
 import UnsavedChangesDialog from '@/components/common/UnsavedChangesDialog.vue'
 import FreshnessStatus from '@/components/common/FreshnessStatus.vue'
+import RequestFiltersBar from '@/components/proxy/RequestFiltersBar.vue'
 import RequestInspectorPanel from '@/components/proxy/RequestInspectorPanel.vue'
 import { copyText } from '@/utils/clipboard'
 import {
@@ -1631,6 +1584,17 @@ function inspectOutcome(outcome) {
     status: '',
   })
   activeTab.value = 'requests'
+  loadRequests(true)
+}
+function resetRequestFilters() {
+  Object.assign(requestFilters, {
+    search: '',
+    model: '',
+    key_id: '',
+    state: '',
+    outcome: '',
+    status: '',
+  })
   loadRequests(true)
 }
 const readyEngines = computed(() => liveRunning.value.filter((item) => item.ready).length)
@@ -2656,8 +2620,17 @@ onUnmounted(() => {
   padding: 0;
   gap: 0.75rem;
 }
-.request-filters {
-  align-items: end;
+.request-head {
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+}
+.request-head h2 {
+  font-size: 1rem;
+}
+.request-head__meta {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
 }
 
 :global(.layout-wrapper:has(.proxy-page)) {
@@ -2822,32 +2795,17 @@ td {
 }
 .settings-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: 0.5rem 0.75rem;
   min-width: 0;
 }
-.settings-grid label {
-  display: grid;
-  gap: 0.45rem;
-  min-width: 0;
-  font-size: 0.82rem;
-  color: var(--text-secondary);
-  overflow-wrap: anywhere;
+.settings-grid .hint {
+  overflow: hidden;
+  font-size: 0.6875rem;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.field {
-  width: 100%;
-  padding: 0.65rem 0.7rem;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  box-sizing: border-box;
-}
-.field:focus-visible {
-  outline: 2px solid var(--accent-primary, var(--accent-blue));
-  outline-offset: 1px;
-}
-.settings-grid small,
 .inline-control small {
   color: var(--text-secondary);
   font-weight: 400;
@@ -3056,16 +3014,6 @@ td {
 @media (max-width: 600px) {
   .proxy-card {
     padding: 0.8rem;
-  }
-  .settings-grid {
-    gap: 0.75rem;
-    grid-template-columns: 1fr;
-  }
-  .request-filters {
-    align-items: stretch;
-  }
-  .request-filters :deep(.p-button) {
-    justify-self: stretch;
   }
   .summary-tile {
     padding: 0.7rem;

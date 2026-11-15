@@ -835,4 +835,21 @@ describe('EnginesView task integration', () => {
       'No versions yet. Install a prebuilt using the option above.',
     )
   })
+
+  it('renders the compact engine filter toolbar and resets both selects', async () => {
+    const wrapper = mountEnginesView()
+    await flushPromises()
+
+    expect(wrapper.get('.engine-filters').classes()).toContain('compact-toolbar')
+    expect(wrapper.get('.engine-filters').findAll('.compact-field')).toHaveLength(2)
+    await wrapper.get('#engine-task-filter').setValue('audio')
+    await wrapper.get('#engine-hardware-filter').setValue('cpu')
+    expect(wrapper.get('#engine-task-filter').element.value).toBe('audio')
+    expect(wrapper.get('#engine-hardware-filter').element.value).toBe('cpu')
+
+    await wrapper.get('.engine-filters__reset').trigger('click')
+    expect(wrapper.get('#engine-task-filter').element.value).toBe('all')
+    expect(wrapper.get('#engine-hardware-filter').element.value).toBe('all')
+    wrapper.unmount()
+  })
 })

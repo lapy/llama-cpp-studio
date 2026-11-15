@@ -41,28 +41,11 @@
       </div>
       <Transition name="ev-collapse">
         <div v-if="enginesExpanded" id="ev-section-engines-body" class="ev-section-body">
-          <div class="engine-filters">
-            <label for="engine-task-filter"
-              >Task
-              <select id="engine-task-filter" v-model="engineTaskFilter">
-                <option value="all">All tasks</option>
-                <option value="text">Text</option>
-                <option value="embeddings">Embeddings</option>
-                <option value="audio">Audio</option>
-              </select>
-            </label>
-            <label for="engine-hardware-filter"
-              >Hardware
-              <select id="engine-hardware-filter" v-model="engineHardwareFilter">
-                <option value="all">Any hardware</option>
-                <option value="cpu">CPU-capable</option>
-                <option value="sm70">SM70 / V100</option>
-              </select>
-            </label>
-            <button type="button" class="engine-filters__reset" @click="resetEngineFilters">
-              Reset filters
-            </button>
-          </div>
+          <EngineFiltersBar
+            v-model:task="engineTaskFilter"
+            v-model:hardware="engineHardwareFilter"
+            @reset="resetEngineFilters"
+          />
           <div class="engine-grid">
             <EngineCard
               v-for="card in engineSummaryCards"
@@ -940,6 +923,7 @@
 
 <script setup>
 import EngineCard from '@/components/engines/EngineCard.vue'
+import EngineFiltersBar from '@/components/engines/EngineFiltersBar.vue'
 import GenericEnginePanel from '@/components/engines/GenericEnginePanel.vue'
 import { useQueryState } from '@/composables/useQueryState'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
@@ -4137,41 +4121,6 @@ onUnmounted(() => {
 }
 
 /* ── Engines overview ───────────────────────────────────── */
-.engine-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  align-items: end;
-  margin-bottom: 1rem;
-  padding: 0.75rem;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--bg-surface) 74%, transparent);
-  font-size: 0.85rem;
-}
-
-.engine-filters select {
-  display: block;
-  margin-top: 0.375rem;
-  min-height: 2.75rem;
-  max-width: 100%;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--border-secondary);
-  border-radius: var(--radius-md);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-}
-
-.engine-filters__reset {
-  min-height: 2.75rem;
-  padding: 0.5rem;
-  border: none;
-  background: transparent;
-  color: var(--accent-cyan);
-  font: inherit;
-  cursor: pointer;
-}
-
 .engine-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
