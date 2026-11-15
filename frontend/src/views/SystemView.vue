@@ -39,10 +39,7 @@
         >
       </div>
       <dl class="health-grid">
-        <div>
-          <dt>Live updates</dt>
-          <dd>{{ progressStore.isConnected ? 'Connected' : 'Reconnecting…' }}</dd>
-        </div>
+        <LiveUpdatesHealth />
         <div>
           <dt>Proxy health</dt>
           <dd>{{ proxyHealthLabel }}</dd>
@@ -83,14 +80,13 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useEnginesStore } from '@/stores/engines'
-import { useProgressStore } from '@/stores/progress'
 import ConfigBackupPanel from '@/components/system/ConfigBackupPanel.vue'
 import ConfigHistoryPanel from '@/components/system/ConfigHistoryPanel.vue'
 import HardwarePanel from '@/components/system/HardwarePanel.vue'
+import LiveUpdatesHealth from '@/components/system/LiveUpdatesHealth.vue'
 import NeedsAttentionPanel from '@/components/system/NeedsAttentionPanel.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 
-const progressStore = useProgressStore()
 const systemStore = useEnginesStore()
 const route = useRoute()
 const clock = ref(Date.now())
