@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import ModelLibrary from './ModelLibrary.vue'
+import { LIBRARY_PRESETS_KEY } from '@/utils/libraryFilterPresets'
 
 const fetchModels = vi.fn().mockResolvedValue(undefined)
 const fetchSafetensorsModels = vi.fn().mockResolvedValue(undefined)
@@ -75,7 +76,12 @@ function mountLibrary() {
     global: {
       directives: { tooltip: () => {} },
       stubs: {
-        Button: true,
+        Button: {
+          props: ['label', 'disabled', 'loading', 'ariaLabel', 'icon', 'text', 'severity', 'size'],
+          emits: ['click'],
+          template:
+            '<button :aria-label="ariaLabel" :disabled="disabled" @click="$emit(`click`)">{{ label }}</button>',
+        },
         Tag: { props: ['value'], template: '<span>{{ value }}</span>' },
         Dialog: true,
         Password: true,
@@ -113,6 +119,10 @@ describe('ModelLibrary running glow', () => {
     modelStore.modelsError = null
     modelStore.modelsStale = false
     modelStore.models = []
+    modelStore.startModel.mockReset()
+    modelStore.stopModel.mockReset()
+    localStorage.removeItem(LIBRARY_PRESETS_KEY)
+    localStorage.removeItem('llama-studio.library.view')
   })
 
   it('marks a group running when a quantization is active', async () => {
@@ -297,6 +307,178 @@ describe('ModelLibrary running glow', () => {
     )
     wrapper.unmount()
     vi.useRealTimers()
+  })
+
+  it('selects visible models, shows the indeterminate state and clears on filter changes', async () => {
+    modelStore.models = [
+      {
+        huggingface_id: 'org/a',
+        base_model_name: 'Alpha',
+        quantizations: [{ id: 'a', quantization: 'Q4', is_active: false, status: 'stopped' }],
+      },
+      {
+        huggingface_id: 'org/b',
+        base_model_name: 'Beta',
+        quantizations: [{ id: 'b', quantization: 'Q4', is_active: false, status: 'stopped' }],
+      },
+    ]
+    const wrapper = mountLibrary()
+    await flushPromises()
+
+    const selectAll = wrapper.get('input[aria-label="Select all visible models"]')
+    await selectAll.setValue(true)
+    await flushPromises()
+    expect(wrapper.get('input[aria-label="Select Alpha"]').element.checked).toBe(true)
+    expect(wrapper.get('input[aria-label="Select Beta"]').element.checked).toBe(true)
+    expect(wrapper.get('.library-bulk').text()).toContain('2 selected')
+
+    await wrapper.get('input[aria-label="Select Beta"]').setValue(false)
+    await flushPromises()
+    expect(wrapper.get('input[aria-label="Select all visible models"]').element.indeterminate).toBe(
+      true,
+    )
+    expect(wrapper.get('.library-bulk').text()).toContain('1 selected')
+
+    await wrapper.get('#library-status').setValue('stopped')
+    await flushPromises()
+    const clearedAll = wrapper.get('input[aria-label="Select all visible models"]')
+    expect(clearedAll.element.checked).toBe(false)
+    expect(clearedAll.element.indeterminate).toBe(false)
+    expect(wrapper.get('input[aria-label="Select Alpha"]').element.checked).toBe(false)
+    expect(wrapper.find('.library-bulk').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('drops selected models that disappear from the visible library', async () => {
+    modelStore.models = [
+      {
+        huggingface_id: 'org/a',
+        base_model_name: 'Alpha',
+        quantizations: [{ id: 'a', quantization: 'Q4', is_active: false, status: 'stopped' }],
+      },
+      {
+        huggingface_id: 'org/b',
+        base_model_name: 'Beta',
+        quantizations: [{ id: 'b', quantization: 'Q4', is_active: false, status: 'stopped' }],
+      },
+    ]
+    const wrapper = mountLibrary()
+    await flushPromises()
+    await wrapper.get('input[aria-label="Select all visible models"]').setValue(true)
+    await flushPromises()
+
+    modelStore.models = modelStore.models.slice(1)
+    await flushPromises()
+
+    expect(wrapper.find('input[aria-label="Select Alpha"]').exists()).toBe(false)
+    expect(wrapper.get('input[aria-label="Select Beta"]').element.checked).toBe(true)
+    expect(wrapper.get('.library-bulk').text()).toContain('1 selected')
+    wrapper.unmount()
+  })
+
+  it('selects visible rows in the list layout', async () => {
+    modelStore.models = [
+      {
+        huggingface_id: 'org/a',
+        base_model_name: 'Alpha',
+        quantizations: [{ id: 'a', quantization: 'Q4', is_active: false, status: 'stopped' }],
+      },
+      {
+        huggingface_id: 'org/b',
+        base_model_name: 'Beta',
+        quantizations: [{ id: 'b', quantization: 'Q4', is_active: false, status: 'stopped' }],
+      },
+    ]
+    const wrapper = mountLibrary()
+    await flushPromises()
+
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'List')
+      .trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('.library-list__row')).toHaveLength(2)
+    await wrapper.get('input[aria-label="Select all visible models"]').setValue(true)
+    await flushPromises()
+    expect(wrapper.get('input[aria-label="Select Alpha"]').element.checked).toBe(true)
+    expect(wrapper.get('input[aria-label="Select Beta"]').element.checked).toBe(true)
+    expect(wrapper.get('.library-bulk').text()).toContain('2 selected')
+    wrapper.unmount()
+  })
+
+  it('runs bulk start through the store and clears selection after the summary', async () => {
+    modelStore.models = [
+      {
+        huggingface_id: 'org/a',
+        base_model_name: 'Alpha',
+        quantizations: [{ id: 'a', quantization: 'Q4', is_active: false, status: 'stopped' }],
+      },
+      {
+        huggingface_id: 'org/b',
+        base_model_name: 'Beta',
+        quantizations: [{ id: 'b', quantization: 'Q4', is_active: false, status: 'stopped' }],
+      },
+    ]
+    modelStore.startModel.mockResolvedValue(undefined)
+    const wrapper = mountLibrary()
+    await flushPromises()
+    await wrapper.get('input[aria-label="Select all visible models"]').setValue(true)
+    await flushPromises()
+
+    const startButton = wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Start selected')
+    expect(startButton).toBeTruthy()
+    await startButton.trigger('click')
+    await flushPromises()
+    await flushPromises()
+
+    expect(modelStore.startModel.mock.calls.map(([modelId]) => modelId)).toEqual(['a', 'b'])
+    expect(wrapper.get('.library-bulk').text()).toContain('Started 2 of 2 selected models')
+    expect(wrapper.get('input[aria-label="Select Alpha"]').element.checked).toBe(false)
+    expect(wrapper.get('input[aria-label="Select Beta"]').element.checked).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('applies a saved preset to the same filters and URL-backed controls', async () => {
+    modelStore.models = [
+      {
+        huggingface_id: 'org/a',
+        base_model_name: 'Alpha',
+        quantizations: [{ id: 'a', quantization: 'Q4', is_active: false, status: 'stopped' }],
+      },
+    ]
+    localStorage.setItem(
+      LIBRARY_PRESETS_KEY,
+      JSON.stringify({
+        version: 1,
+        presets: [
+          {
+            id: 'preset-focused',
+            name: 'Focused',
+            filters: {
+              q: 'alpha',
+              status: 'running',
+              engine: 'all',
+              task: 'all',
+              sort: 'size',
+            },
+            createdAt: '2026-11-15T00:00:00.000Z',
+          },
+        ],
+      }),
+    )
+    const wrapper = mountLibrary()
+    await flushPromises()
+
+    await wrapper.get('button[aria-label="Apply preset Focused"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('#library-search').element.value).toBe('alpha')
+    expect(wrapper.get('#library-status').element.value).toBe('running')
+    expect(wrapper.get('#library-sort').element.value).toBe('size')
+    wrapper.unmount()
   })
 
   it('applies a success glow to running groups and active quants', () => {

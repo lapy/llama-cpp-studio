@@ -123,4 +123,17 @@ describe('ModelRow', () => {
     await audioBtn.trigger('click')
     expect(wrapper.emitted('audio')?.[0]).toEqual(['audio/demo'])
   })
+
+  it('exposes an accessible selection checkbox only when selectable', async () => {
+    const wrapper = mountRow()
+    expect(wrapper.find('input[type="checkbox"]').exists()).toBe(false)
+
+    await wrapper.setProps({ selectable: true, selected: true })
+    const checkbox = wrapper.get('input[type="checkbox"]')
+    expect(checkbox.attributes('aria-label')).toBe('Select Q4_K_M')
+    expect(checkbox.element.checked).toBe(true)
+
+    await checkbox.setValue(false)
+    expect(wrapper.emitted('select')?.[0]).toEqual(['model-1'])
+  })
 })
