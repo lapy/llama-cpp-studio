@@ -1,5 +1,6 @@
 import pytest
 
+from backend.cuda_errors import CudaVersionUnsupported
 from backend.cuda_installer import CUDAInstaller
 
 
@@ -103,7 +104,7 @@ async def test_install_rejects_undiscovered_versions(installer, monkeypatch, ver
     monkeypatch.setattr(installer, "_get_platform", lambda: ("linux", "x86_64"))
     monkeypatch.setattr(installer, "get_available_versions", fake_available_versions)
 
-    with pytest.raises(ValueError, match="Unsupported or unavailable"):
+    with pytest.raises(CudaVersionUnsupported, match="Unsupported or unavailable"):
         await installer.install(version)
 
 

@@ -333,6 +333,15 @@ const cudaInstalling = ref(false)
 const cudaActivating = ref(null)
 const cudaInstallDialogVisible = ref(false)
 
+/** Typed CUDA failures answer `detail = {code, message}`; legacy ones a string. */
+function cudaErrorDetail(e) {
+  const detail = e?.response?.data?.detail
+  if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+    return detail.message || detail.code || e.message
+  }
+  return detail || e.message
+}
+
 async function installCuda() {
   cudaInstalling.value = true
   try {
@@ -346,7 +355,7 @@ async function installCuda() {
     })
     await enginesStore.fetchCudaStatus()
   } catch (e) {
-    toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+    toast.add({ severity: 'error', summary: 'Failed', detail: cudaErrorDetail(e), life: 4000 })
   } finally {
     cudaInstalling.value = false
   }
@@ -358,7 +367,7 @@ async function activateCuda(version) {
     await enginesStore.activateCuda({ version })
     toast.add({ severity: 'success', summary: `CUDA ${version} activated`, life: 3000 })
   } catch (e) {
-    toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+    toast.add({ severity: 'error', summary: 'Failed', detail: cudaErrorDetail(e), life: 4000 })
   } finally {
     cudaActivating.value = null
   }
@@ -375,7 +384,7 @@ function confirmUninstallCuda(version) {
         await enginesStore.uninstallCuda({ version })
         toast.add({ severity: 'info', summary: `CUDA ${version} uninstalled`, life: 3000 })
       } catch (e) {
-        toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
+        toast.add({ severity: 'error', summary: 'Failed', detail: cudaErrorDetail(e), life: 4000 })
       }
     },
   })

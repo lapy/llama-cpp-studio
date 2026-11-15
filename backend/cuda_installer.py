@@ -18,6 +18,14 @@ from typing import Any, Awaitable, Dict, Optional, Tuple
 import aiohttp
 import aiofiles
 
+from backend.cuda_errors import (
+    CudaInstallFailed,
+    CudaInstallIncomplete,
+    CudaOperationBusy,
+    CudaUnsupportedPlatform,
+    CudaVersionNotInstalled,
+    CudaVersionUnsupported,
+)
 from backend.operations.cancellable import CancellableOperationManager
 from backend.logging_config import get_logger
 from backend.operations.progress import get_progress_manager
@@ -454,26 +462,26 @@ class CUDAInstaller(CancellableOperationManager):
         """Select an existing Studio-managed CUDA installation."""
         version = str(version or "").strip()
         if not version:
-            raise ValueError("CUDA version is required")
+            raise CudaVersionUnsupported("CUDA version is required")
 
         async with self._lock:
             if self._operation:
-                raise RuntimeError("Another CUDA installer operation is already running")
+                raise CudaOperationBusy("Another CUDA installer operation is already running")
 
             state = self._load_state()
             install_info = state.get("installations", {}).get(version)
             if not isinstance(install_info, dict):
-                raise RuntimeError(f"CUDA {version} installation not found in state")
+                raise CudaVersionNotInstalled(f"CUDA {version} installation not found in state")
             install_path = str(install_info.get("path") or "").strip()
             if not install_path or not os.path.isfile(os.path.join(install_path, "bin", "nvcc")):
-                raise RuntimeError(f"CUDA {version} installation is missing or incomplete")
+                raise CudaInstallIncomplete(f"CUDA {version} installation is missing or incomplete")
 
             self._update_current_symlink(install_path)
             selected_path = self._get_cuda_path()
             if not selected_path or os.path.normcase(
                 os.path.realpath(selected_path)
             ) != os.path.normcase(os.path.realpath(install_path)):
-                raise RuntimeError(f"Failed to activate CUDA {version}")
+                raise CudaInstallFailed(f"Failed to activate CUDA {version}")
 
             state["installed_version"] = version
             state["cuda_path"] = install_path
@@ -1096,11 +1104,11 @@ class CUDAInstaller(CancellableOperationManager):
 
         # Verify installer file exists and is not corrupted
         if not os.path.exists(installer_path):
-            raise RuntimeError(f"Installer file not found: {installer_path}")
+            raise CudaInstallFailed(f"Installer file not found: {installer_path}")
 
         file_size = os.path.getsize(installer_path)
         if file_size < 100 * 1024 * 1024:  # Less than 100MB is suspicious for CUDA installers
-            raise RuntimeError(
+            raise CudaInstallFailed(
                 f"Installer file appears to be corrupted or incomplete: {installer_path} "
                 f"(size: {file_size / (1024 * 1024):.1f} MB, expected > 100 MB)"
             )
@@ -1110,11 +1118,15 @@ class CUDAInstaller(CancellableOperationManager):
             with open(installer_path, "rb") as f:
                 header = f.read(100)
                 if not header.startswith(b"#!/"):
-                    raise RuntimeError(
+                    raise CudaInstallFailed(
                         f"Installer file does not appear to be a valid shell script: {installer_path}"
                     )
+        except CudaInstallFailed:
+            raise
         except Exception as e:
-            raise RuntimeError(f"Failed to verify installer file: {installer_path}, error: {e}")
+            raise CudaInstallFailed(
+                f"Failed to verify installer file: {installer_path}, error: {e}"
+            ) from e
 
         await self._broadcast_log_line(
             f"Verifying installer file: {installer_path} ({file_size / (1024 * 1024):.1f} MB)"
@@ -1219,7 +1231,7 @@ class CUDAInstaller(CancellableOperationManager):
                     "Please check the installation logs for details."
                 )
 
-            raise RuntimeError(error_msg)
+            raise CudaInstallFailed(error_msg)
 
         # Verify installation and set up environment
         cuda_home = install_path
@@ -2184,18 +2196,23 @@ class CUDAInstaller(CancellableOperationManager):
         async with self._lock:
             version = str(version).strip()
             if self._operation:
-                raise RuntimeError("Another CUDA installer operation is already running")
+                raise CudaOperationBusy("Another CUDA installer operation is already running")
 
             system, arch = self._get_platform()
 
             if system != "linux":
-                raise RuntimeError(f"CUDA installation is only supported on Linux, not {system}")
+                raise CudaUnsupportedPlatform(
+                    f"CUDA installation is only supported on Linux, not {system}"
+                )
 
-            self._cuda_version_parts(version)
+            try:
+                self._cuda_version_parts(version)
+            except ValueError as exc:
+                raise CudaVersionUnsupported(str(exc)) from exc
             available_versions = await self.get_available_versions()
             permitted_versions = {*self.SUPPORTED_VERSIONS, *available_versions}
             if version not in permitted_versions:
-                raise ValueError(
+                raise CudaVersionUnsupported(
                     f"Unsupported or unavailable CUDA version: {version}. Available versions: {', '.join(available_versions)}"
                 )
 
@@ -2382,20 +2399,20 @@ class CUDAInstaller(CancellableOperationManager):
         """Uninstall CUDA Toolkit."""
         async with self._lock:
             if self._operation:
-                raise RuntimeError("Another CUDA installer operation is already running")
+                raise CudaOperationBusy("Another CUDA installer operation is already running")
 
             # Determine which version to uninstall
             if not version:
                 # Uninstall the currently detected version
                 version = self._detect_installed_version()
                 if not version:
-                    raise RuntimeError("No CUDA installation found to uninstall")
+                    raise CudaVersionNotInstalled("No CUDA installation found to uninstall")
 
             state = self._load_state()
             installations = state.get("installations", {})
 
             if version not in installations:
-                raise RuntimeError(f"CUDA {version} installation not found in state")
+                raise CudaVersionNotInstalled(f"CUDA {version} installation not found in state")
 
             install_info = installations[version]
             install_path = install_info.get("path")

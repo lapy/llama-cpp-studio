@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from backend.cuda_errors import CudaVersionNotInstalled
 from backend.cuda_installer import CUDAInstaller
 
 
@@ -63,7 +64,7 @@ async def test_activate_selects_an_existing_installation(tmp_path, monkeypatch):
 async def test_activate_rejects_missing_installation(tmp_path):
     installer = _installer(tmp_path)
 
-    with pytest.raises(RuntimeError, match="installation not found"):
+    with pytest.raises(CudaVersionNotInstalled, match="installation not found"):
         await installer.activate("12.8.2")
 
 
