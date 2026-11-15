@@ -122,13 +122,13 @@ function listMeta(group, quant, includeVariant) {
   return parts.join(' · ')
 }
 
-function notableStatus(quant) {
-  const state = modelRuntimeState(quant)
+function notableStatus(quant, stateFor) {
+  const state = stateFor(quant)
   return state.key === 'stopped' ? null : state
 }
 
 /** Flatten visible model groups into the rows shown by the list layout. */
-export function buildLibraryLines(groups) {
+export function buildLibraryLines(groups, { stateFor = modelRuntimeState } = {}) {
   const lines = []
   for (const group of groups) {
     const quants = group.quantizations || []
@@ -147,7 +147,7 @@ export function buildLibraryLines(groups) {
         quant: null,
       })
       for (const quant of quants) {
-        const status = notableStatus(quant)
+        const status = notableStatus(quant, stateFor)
         lines.push({
           key: quant.id,
           kind: 'variant',
@@ -156,6 +156,7 @@ export function buildLibraryLines(groups) {
           size: quant.file_size ? formatLibraryBytes(quant.file_size) : '',
           status: status?.label || '',
           statusKey: status?.key || '',
+          statusDetail: status?.detail || '',
           running: lineIsRunning(quant),
           quant,
           groupId: group.huggingface_id,
@@ -164,7 +165,7 @@ export function buildLibraryLines(groups) {
       continue
     }
     const quant = quants[0] || null
-    const status = quant ? notableStatus(quant) : null
+    const status = quant ? notableStatus(quant, stateFor) : null
     lines.push({
       key: quant?.id || group.huggingface_id,
       kind: 'single',
@@ -173,6 +174,7 @@ export function buildLibraryLines(groups) {
       size: quant?.file_size ? formatLibraryBytes(quant.file_size) : '',
       status: status?.label || '',
       statusKey: status?.key || '',
+      statusDetail: status?.detail || '',
       running: lineIsRunning(quant),
       quant,
       groupId: group.huggingface_id,
