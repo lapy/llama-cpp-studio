@@ -9,9 +9,10 @@ export function withheldConfirmation(error) {
   return {
     confirm_operation_id: String(operationId),
     confirm_state: String(stateToken),
-    message: typeof detail.message === 'string' && detail.message
-      ? detail.message
-      : 'Prior work may already have happened. Confirm this operation and its current state before trying again.',
+    message:
+      typeof detail.message === 'string' && detail.message
+        ? detail.message
+        : 'Prior work may already have happened. Confirm this operation and its current state before trying again.',
   }
 }
 
@@ -26,8 +27,9 @@ export function versionDeleteRetry(error) {
       params.confirm_state = String(detail.state_token)
     }
     return {
-      message: detail.message
-        || 'This install is still referenced by a published or retained launch generation. Confirm to retire those generations and delete the version.',
+      message:
+        detail.message ||
+        'This install is still referenced by a published or retained launch generation. Confirm to retire those generations and delete the version.',
       params,
     }
   }

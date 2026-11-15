@@ -1,8 +1,6 @@
 export function lmdeployCompatibilityFor(gpuInfo) {
   const gpus = Array.isArray(gpuInfo?.gpus) ? gpuInfo.gpus : []
-  const sm70Devices = gpus.filter((gpu) =>
-    String(gpu?.compute_capability || '').startsWith('7.0'),
-  )
+  const sm70Devices = gpus.filter((gpu) => String(gpu?.compute_capability || '').startsWith('7.0'))
   if (!sm70Devices.length) return { show: false, options: [] }
 
   const names = [...new Set(sm70Devices.map((gpu) => gpu.name).filter(Boolean))]

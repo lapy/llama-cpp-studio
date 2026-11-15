@@ -25,9 +25,7 @@ describe('EngineInstallSettingsDialog compatibility options', () => {
         compatibility: {
           show: true,
           note: 'Detected SM70 hardware.',
-          options: [
-            { key: 'compat_sm70', label: 'Use CUDA 12 PyTorch', hint: 'sm70 kernels' },
-          ],
+          options: [{ key: 'compat_sm70', label: 'Use CUDA 12 PyTorch', hint: 'sm70 kernels' }],
         },
       },
       global: {

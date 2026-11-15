@@ -155,12 +155,13 @@ function mountView() {
         Slider: true,
         LoadingState: { template: '<div>loading</div>' },
         EmptyState: { template: '<div><slot /></div>' },
-        PageHeader: { template: '<div><slot name="start" /><slot name="title" /><slot name="actions" /></div>' },
+        PageHeader: {
+          template: '<div><slot name="start" /><slot name="title" /><slot name="actions" /></div>',
+        },
         Dialog: {
           props: ['visible', 'header'],
           emits: ['update:visible', 'show'],
-          template:
-            '<div v-if="visible" class="dialog-stub"><slot /><slot name="footer" /></div>',
+          template: '<div v-if="visible" class="dialog-stub"><slot /><slot name="footer" /></div>',
         },
       },
     },
@@ -319,7 +320,9 @@ describe('ModelConfig', () => {
     await flushPromises()
     await vi.runAllTimersAsync()
     await flushPromises()
-    const basic = wrapper.findAll('.param-field').find((field) => field.text().includes('Context Size'))
+    const basic = wrapper
+      .findAll('.param-field')
+      .find((field) => field.text().includes('Context Size'))
     await basic.get('input').setValue('8192')
     await basic.get('.param-reset').trigger('click')
     await wrapper.get('button[data-label="Save changes"]').trigger('click')
@@ -371,9 +374,11 @@ describe('ModelConfig', () => {
   })
 
   it('keeps the form and waits for a deliberate retry when the save queue is full', async () => {
-    vi.mocked(axios.put).mockRejectedValue(Object.assign(new Error('busy'), {
-      response: { status: 503, data: { code: 'STORE_QUEUE_FULL', committed: false } },
-    }))
+    vi.mocked(axios.put).mockRejectedValue(
+      Object.assign(new Error('busy'), {
+        response: { status: 503, data: { code: 'STORE_QUEUE_FULL', committed: false } },
+      }),
+    )
     const wrapper = mountView()
     await flushPromises()
     await vi.runAllTimersAsync()
@@ -396,9 +401,11 @@ describe('ModelConfig', () => {
   })
 
   it('refreshes a replaced configuration and does not save it again automatically', async () => {
-    vi.mocked(axios.put).mockRejectedValue(Object.assign(new Error('ack'), {
-      response: { status: 500, data: { code: 'STORE_WRITE_FAILED', committed: true } },
-    }))
+    vi.mocked(axios.put).mockRejectedValue(
+      Object.assign(new Error('ack'), {
+        response: { status: 500, data: { code: 'STORE_WRITE_FAILED', committed: true } },
+      }),
+    )
     const wrapper = mountView()
     await flushPromises()
     await vi.runAllTimersAsync()
@@ -420,9 +427,11 @@ describe('ModelConfig', () => {
     await flushPromises()
 
     vi.mocked(axios.get).mockRejectedValue(new Error('offline'))
-    vi.mocked(axios.put).mockRejectedValue(Object.assign(new Error('ack'), {
-      response: { status: 500, data: { code: 'STORE_WRITE_FAILED', committed: true } },
-    }))
+    vi.mocked(axios.put).mockRejectedValue(
+      Object.assign(new Error('ack'), {
+        response: { status: 500, data: { code: 'STORE_WRITE_FAILED', committed: true } },
+      }),
+    )
     await wrapper.get('button[data-label="Save changes"]').trigger('click')
     await flushPromises()
 
@@ -500,8 +509,12 @@ describe('ModelConfig', () => {
     await vi.runAllTimersAsync()
     await flushPromises()
 
-    const envKeys = wrapper.findAll('input[placeholder="VAR_NAME"]').map((input) => input.element.value)
-    const envValues = wrapper.findAll('input[placeholder="value"]').map((input) => input.element.value)
+    const envKeys = wrapper
+      .findAll('input[placeholder="VAR_NAME"]')
+      .map((input) => input.element.value)
+    const envValues = wrapper
+      .findAll('input[placeholder="value"]')
+      .map((input) => input.element.value)
     expect(envKeys).toEqual(expect.arrayContaining(['FOO', 'EMPTY', 'REMOVED_VAR']))
     expect(envValues).toContain('bar')
     expect(wrapper.text()).not.toContain('2 GPUs selected')
@@ -591,7 +604,9 @@ describe('ModelConfig', () => {
     await vi.runAllTimersAsync()
     await flushPromises()
 
-    const gpuMode = wrapper.findAll('#gpu-mode button').find((button) => button.text() === 'All GPUs')
+    const gpuMode = wrapper
+      .findAll('#gpu-mode button')
+      .find((button) => button.text() === 'All GPUs')
     await gpuMode.trigger('click')
     await flushPromises()
 
@@ -658,9 +673,9 @@ describe('ModelConfig', () => {
 
     await wrapper.get('button[data-label="Import command"]').trigger('click')
     await flushPromises()
-    await wrapper.get('#parse-command-text').setValue(
-      'FLASHINFER_DISABLE_VERSION_CHECK=1 PORT=9 LLAMA_STUDIO_MODEL_PATH=/x sglang serve',
-    )
+    await wrapper
+      .get('#parse-command-text')
+      .setValue('FLASHINFER_DISABLE_VERSION_CHECK=1 PORT=9 LLAMA_STUDIO_MODEL_PATH=/x sglang serve')
     await flushPromises()
 
     expect(wrapper.find('#import-env-FLASHINFER_DISABLE_VERSION_CHECK').exists()).toBe(true)
@@ -669,11 +684,15 @@ describe('ModelConfig', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Unsaved changes')
-    const envKeys = wrapper.findAll('input[placeholder="VAR_NAME"]').map((input) => input.element.value)
+    const envKeys = wrapper
+      .findAll('input[placeholder="VAR_NAME"]')
+      .map((input) => input.element.value)
     expect(envKeys).toContain('FLASHINFER_DISABLE_VERSION_CHECK')
     expect(envKeys).not.toContain('PORT')
     expect(envKeys).not.toContain('LLAMA_STUDIO_MODEL_PATH')
-    const envValues = wrapper.findAll('input[placeholder="value"]').map((input) => input.element.value)
+    const envValues = wrapper
+      .findAll('input[placeholder="value"]')
+      .map((input) => input.element.value)
     expect(envValues).toContain('1')
   })
 
@@ -705,8 +724,20 @@ describe('ModelConfig', () => {
 
   it('hides engines that are not installed', async () => {
     engineDescriptors.push(
-      { id: 'llama_cpp', label: 'llama.cpp', enabled: true, installed_versions: 0, artifact_formats: ['gguf'] },
-      { id: 'ik_llama', label: 'ik_llama.cpp', enabled: true, installed_versions: 1, artifact_formats: ['gguf'] },
+      {
+        id: 'llama_cpp',
+        label: 'llama.cpp',
+        enabled: true,
+        installed_versions: 0,
+        artifact_formats: ['gguf'],
+      },
+      {
+        id: 'ik_llama',
+        label: 'ik_llama.cpp',
+        enabled: true,
+        installed_versions: 1,
+        artifact_formats: ['gguf'],
+      },
     )
     const wrapper = mountView()
     await flushPromises()
@@ -732,7 +763,9 @@ describe('ModelConfig', () => {
     await vi.runAllTimersAsync()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('The model is stopped, so they are used the next time it starts.')
+    expect(wrapper.text()).toContain(
+      'The model is stopped, so they are used the next time it starts.',
+    )
     expect(wrapper.text()).not.toContain('Pending changes for this model')
   })
 

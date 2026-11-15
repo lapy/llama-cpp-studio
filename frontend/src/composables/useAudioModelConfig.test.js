@@ -77,14 +77,14 @@ describe('useAudioModelConfig pure helpers', () => {
   })
 
   it('fieldStorageHint distinguishes preset, nested, path, and proxy storage', () => {
-    expect(fieldStorageHint({ key: 'voice_id', preset_field: true }, { presetField: true }))
-      .toContain('voice presets')
-    expect(fieldStorageHint({ key: 'speaker', nested: true, options_key: 'speaker' }))
-      .toContain('options.speaker')
-    expect(fieldStorageHint({ key: 'voice_ref', type: 'path' }))
-      .toContain('package folder')
-    expect(fieldStorageHint({ key: 'voice' }, { viaProxy: false }))
-      .toBe('')
+    expect(
+      fieldStorageHint({ key: 'voice_id', preset_field: true }, { presetField: true }),
+    ).toContain('voice presets')
+    expect(fieldStorageHint({ key: 'speaker', nested: true, options_key: 'speaker' })).toContain(
+      'options.speaker',
+    )
+    expect(fieldStorageHint({ key: 'voice_ref', type: 'path' })).toContain('package folder')
+    expect(fieldStorageHint({ key: 'voice' }, { viaProxy: false })).toBe('')
   })
 
   it('exports studio known keys used by ModelConfig preservation', () => {
@@ -134,9 +134,7 @@ function makeComposable(overrides = {}) {
     ...overrides.registry,
   })
   const enginesStore = {
-    engineDescriptors: [
-      { id: 'audio_cpp', available_runtime_backends: ['cpu', 'cuda'] },
-    ],
+    engineDescriptors: [{ id: 'audio_cpp', available_runtime_backends: ['cpu', 'cuda'] }],
   }
   const stableModelId = ref('audio-demo')
   return useAudioModelConfig(config, paramRegistry, enginesStore, stableModelId)
@@ -231,14 +229,18 @@ describe('useAudioModelConfig composable', () => {
   it('instructionsPolicyHint describes soft_tags caption and text_prefix policies', () => {
     expect(instructionsPolicyHint('soft_tags')).toContain('comma-separated')
     expect(instructionsPolicyHint('soft_tags')).toContain('Studio fallback')
-    expect(instructionsPolicyHint('soft_tags', {
-      source: 'engine',
-      vocabulary: ['female', 'calm'],
-    })).toContain('from engine')
-    expect(instructionsPolicyHint('soft_tags', {
-      source: 'engine',
-      vocabulary: ['female', 'calm'],
-    })).toContain('female')
+    expect(
+      instructionsPolicyHint('soft_tags', {
+        source: 'engine',
+        vocabulary: ['female', 'calm'],
+      }),
+    ).toContain('from engine')
+    expect(
+      instructionsPolicyHint('soft_tags', {
+        source: 'engine',
+        vocabulary: ['female', 'calm'],
+      }),
+    ).toContain('female')
     expect(instructionsPolicyHint('caption_option')).toContain('options.caption')
     expect(instructionsPolicyHint('text_prefix')).toContain('start of input text')
     expect(instructionsPolicyHint('openai_instruct')).toContain('Natural-language')
@@ -358,9 +360,8 @@ describe('useAudioModelConfig composable', () => {
     expect(keys).toContain('qwen3_asr.forced_aligner_model_path')
     expect(keys).toContain('vevo2.whisper_model_path')
     expect(
-      api.audioEditableParams.value.find(
-        (param) => param.key === 'vevo2.whisper_model_path',
-      )?.scope,
+      api.audioEditableParams.value.find((param) => param.key === 'vevo2.whisper_model_path')
+        ?.scope,
     ).toBe('load_option')
     api.setAudioParamValue(
       { key: 'qwen3_asr.forced_aligner_model_path', scope: 'session_option' },
@@ -463,10 +464,7 @@ describe('useAudioModelConfig composable', () => {
 
     api.setAudioParamValue({ key: 'language', scope: 'load_option' }, '')
     api.setAudioParamValue({ key: 'temperature', scope: 'session_option' }, null)
-    api.setRequestDefaultValue(
-      { key: 'instructions', label: 'Instructions', type: 'textarea' },
-      '',
-    )
+    api.setRequestDefaultValue({ key: 'instructions', label: 'Instructions', type: 'textarea' }, '')
 
     expect(config.value.load_options.language).toBeNull()
     expect(config.value.session_options.temperature).toBeNull()

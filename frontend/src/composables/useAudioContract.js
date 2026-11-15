@@ -73,7 +73,9 @@ function operationsBy() {
 /** The registry operation serving a task (deterministic table from backend). */
 export function audioOperationForTask(task) {
   const contract = audioContract.value
-  const key = String(task || '').trim().toLowerCase()
+  const key = String(task || '')
+    .trim()
+    .toLowerCase()
   const byId = operationsBy()
   const opId = key ? (contract.task_routing || {})[key] : null
   return (opId && byId.get(opId)) || byId.get('tasks_run') || null
@@ -90,9 +92,7 @@ export function audioTaskDefaultsKey(task) {
   const op = audioOperationForTask(task)
   if (op?.request_defaults_key) return op.request_defaults_key
   const contract = audioContract.value
-  return (
-    (contract.defaults_keys || {})[op?.id || 'tasks_run'] || 'task_defaults'
-  )
+  return (contract.defaults_keys || {})[op?.id || 'tasks_run'] || 'task_defaults'
 }
 
 /** True when a task runs through the generic ``tasks/run`` envelope. */
@@ -111,7 +111,7 @@ export function audioEndpointIsGeneric(endpoint) {
   if (!value) return false
   const contract = audioContract.value
   return (
-    value === (contract.generic_studio_path || OFFLINE_AUDIO_CONTRACT.generic_studio_path)
-    || value === (contract.generic_native_path || OFFLINE_AUDIO_CONTRACT.generic_native_path)
+    value === (contract.generic_studio_path || OFFLINE_AUDIO_CONTRACT.generic_studio_path) ||
+    value === (contract.generic_native_path || OFFLINE_AUDIO_CONTRACT.generic_native_path)
   )
 }

@@ -21,7 +21,7 @@ where a specialized id nests in a family id (`sglang_v100` also matches
 | --- | --- | --- | --- |
 | `1cat_vllm` | 72 | 13 | `frontend/src/stores/engines.venv.test.js` (17), `frontend/src/test-fixtures/taskFixtures.js` (12), `frontend/src/stores/engines.js` (8), `frontend/src/views/EnginesView.vue` (8) |
 | `audio_cpp` | 188 | 45 | `frontend/src/views/AudioWorkspace.test.js` (23), `frontend/src/stores/engines.venv.test.js` (13), `frontend/src/views/ModelConfig.audioProfiles.test.js` (11), `backend/routes/llama_versions.py` (10) |
-| `ik_llama` | 182 | 23 | `frontend/src/views/EnginesView.vue` (41), `frontend/src/stores/engines.venv.test.js` (27), `backend/routes/llama_versions.py` (22), `frontend/src/stores/engines.js` (21) |
+| `ik_llama` | 183 | 23 | `frontend/src/views/EnginesView.vue` (41), `frontend/src/stores/engines.venv.test.js` (27), `backend/routes/llama_versions.py` (22), `frontend/src/stores/engines.js` (21) |
 | `llama_cpp` | 246 | 42 | `frontend/src/stores/engines.test.js` (25), `frontend/src/views/EnginesView.vue` (24), `backend/routes/llama_versions.py` (23), `frontend/src/stores/engines.venv.test.js` (22) |
 | `lmdeploy` | 92 | 20 | `frontend/src/views/EnginesView.vue` (15), `frontend/src/stores/engines.venv.test.js` (13), `frontend/src/test-fixtures/taskFixtures.js` (12), `frontend/src/views/EnginesView.tasks.test.js` (11) |
 | `sglang` | 69 | 19 | `frontend/src/stores/engines.venv.test.js` (15), `frontend/src/engines/registry.js` (13), `frontend/src/stores/engines.js` (8), `frontend/src/views/EnginesView.tasks.test.js` (6) |
@@ -29,7 +29,7 @@ where a specialized id nests in a family id (`sglang_v100` also matches
 | `sglang_sxm2` | 0 | 0 |  |
 | `sglang_v100` | 60 | 13 | `frontend/src/stores/engines.venv.test.js` (19), `frontend/src/components/system/SglangEnginePanel.test.js` (7), `frontend/src/engines/registry.js` (5), `frontend/src/views/EnginesView.tasks.test.js` (5) |
 | `unsloth_llama` | 56 | 12 | `frontend/src/stores/engines.venv.test.js` (16), `frontend/src/views/EnginesView.tasks.test.js` (8), `frontend/src/engines/registry.js` (7), `frontend/src/views/EnginesView.vue` (7) |
-| `vllm` | 88 | 20 | `frontend/src/stores/engines.venv.test.js` (19), `frontend/src/engines/registry.js` (12), `frontend/src/composables/engineReadiness.test.js` (9), `frontend/src/views/EnginesView.tasks.test.js` (7) |
+| `vllm` | 89 | 20 | `frontend/src/stores/engines.venv.test.js` (19), `frontend/src/engines/registry.js` (12), `frontend/src/composables/engineReadiness.test.js` (10), `frontend/src/views/EnginesView.tasks.test.js` (7) |
 
 ## Per-engine operation endpoints
 

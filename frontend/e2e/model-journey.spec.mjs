@@ -6,21 +6,25 @@ const INITIAL_CONFIG = {
 }
 
 const PARAM_REGISTRY = {
-  sections: [{
-    id: 'inference',
-    label: 'Inference',
-    params: [{
-      key: 'ctx_size',
-      label: 'Context Size',
-      type: 'int',
-      scalar_type: 'int',
-      value_kind: 'scalar',
-      default: 0,
-      primary_flag: '--ctx-size',
-      flags: ['--ctx-size'],
-      supported: true,
-    }],
-  }],
+  sections: [
+    {
+      id: 'inference',
+      label: 'Inference',
+      params: [
+        {
+          key: 'ctx_size',
+          label: 'Context Size',
+          type: 'int',
+          scalar_type: 'int',
+          value_kind: 'scalar',
+          default: 0,
+          primary_flag: '--ctx-size',
+          flags: ['--ctx-size'],
+          supported: true,
+        },
+      ],
+    },
+  ],
 }
 
 function savedConfig(state) {
@@ -31,26 +35,30 @@ function catalog(state) {
   if (!state.installed) return []
   const phase = state.runPhase ?? (state.running ? 'running' : 'stopped')
   const run_state = phase === 'loading' || phase === 'running' ? phase : null
-  const runtime_quality = state.runtimeQuality
-    || (phase === 'unreachable' || phase === 'stale' ? phase : 'verified')
+  const runtime_quality =
+    state.runtimeQuality || (phase === 'unreachable' || phase === 'stale' ? phase : 'verified')
   const is_active = Object.hasOwn(state, 'isActive') ? state.isActive : run_state != null
-  return [{
-    base_model_name: 'Demo',
-    huggingface_id: 'org/demo',
-    quantizations: [{
-      id: 'demo-model',
-      name: 'Demo',
-      format: 'safetensors',
-      is_active,
-      run_state,
-      status: run_state,
-      runtime_quality,
-      config_reviewed: state.reviewed,
-      config: { engine: 'llama_cpp' },
-      proxy_model_id: 'demo-model',
-      proxy_name: 'demo-model',
-    }],
-  }]
+  return [
+    {
+      base_model_name: 'Demo',
+      huggingface_id: 'org/demo',
+      quantizations: [
+        {
+          id: 'demo-model',
+          name: 'Demo',
+          format: 'safetensors',
+          is_active,
+          run_state,
+          status: run_state,
+          runtime_quality,
+          config_reviewed: state.reviewed,
+          config: { engine: 'llama_cpp' },
+          proxy_model_id: 'demo-model',
+          proxy_name: 'demo-model',
+        },
+      ],
+    },
+  ]
 }
 
 function pendingPlan(state) {
@@ -71,22 +79,26 @@ function pendingPlan(state) {
     requires_proxy_reload: false,
     plan_id: 'plan-1',
     changes: ['Saved settings changed'],
-    models: [{
-      catalog_id: 'demo-model',
-      model_id: 'demo-model',
-      action: state.running ? 'restart_now' : 'publish_next_start',
-      running: Boolean(state.running),
-      desired_revision: 'new',
-      published_revision: 'old',
-      requires_proxy_reload: false,
-      consequence: state.running ? 'Restart this model' : 'Use on next start',
-      differences: [{
-        field: 'ctx_size',
-        saved: String(state.config?.engines?.llama_cpp?.ctx_size ?? 4096),
-        published: '4096',
-        running: state.running ? '4096' : 'unknown',
-      }],
-    }],
+    models: [
+      {
+        catalog_id: 'demo-model',
+        model_id: 'demo-model',
+        action: state.running ? 'restart_now' : 'publish_next_start',
+        running: Boolean(state.running),
+        desired_revision: 'new',
+        published_revision: 'old',
+        requires_proxy_reload: false,
+        consequence: state.running ? 'Restart this model' : 'Use on next start',
+        differences: [
+          {
+            field: 'ctx_size',
+            saved: String(state.config?.engines?.llama_cpp?.ctx_size ?? 4096),
+            published: '4096',
+            running: state.running ? '4096' : 'unknown',
+          },
+        ],
+      },
+    ],
   }
 }
 
@@ -112,7 +124,10 @@ async function installApi(page, state) {
 
     if (path === '/api/engines' && method === 'GET') {
       state.enginesCalls += 1
-      if (state.enginesMode === 'fail' || (state.enginesMode === 'fail-once' && state.enginesCalls === 1)) {
+      if (
+        state.enginesMode === 'fail' ||
+        (state.enginesMode === 'fail-once' && state.enginesCalls === 1)
+      ) {
         await route.fulfill({
           status: 500,
           contentType: 'application/json',
@@ -143,29 +158,36 @@ async function installApi(page, state) {
       return
     }
     if (path === '/api/models/safetensors' && method === 'GET') {
-      await json(route, state.installed
-        ? [{ id: 'demo-model', model_id: 'demo-model', huggingface_id: 'org/demo' }]
-        : [])
+      await json(
+        route,
+        state.installed
+          ? [{ id: 'demo-model', model_id: 'demo-model', huggingface_id: 'org/demo' }]
+          : [],
+      )
       return
     }
     if (path === '/api/model-catalog/search' && method === 'POST') {
       await json(route, {
-        items: [{
-          id: 'org/demo',
-          display_name: 'Demo',
-          provider: 'huggingface',
-          provider_item_id: 'org/demo',
-          source: { id: 'org/demo' },
-          artifact_format: 'safetensors',
-          install_variants: [{
-            id: 'default',
-            label: 'Default',
-            format: 'safetensors',
-            installable: true,
-            size_bytes: 1024,
-            files: [{ filename: 'model.safetensors', size: 1024 }],
-          }],
-        }],
+        items: [
+          {
+            id: 'org/demo',
+            display_name: 'Demo',
+            provider: 'huggingface',
+            provider_item_id: 'org/demo',
+            source: { id: 'org/demo' },
+            artifact_format: 'safetensors',
+            install_variants: [
+              {
+                id: 'default',
+                label: 'Default',
+                format: 'safetensors',
+                installable: true,
+                size_bytes: 1024,
+                files: [{ filename: 'model.safetensors', size: 1024 }],
+              },
+            ],
+          },
+        ],
         total: 1,
         page: 1,
         has_more: false,
@@ -191,20 +213,28 @@ async function installApi(page, state) {
     if (path === '/api/models/demo-model/config' && method === 'PUT') {
       state.saveAttempts = (state.saveAttempts || 0) + 1
       if (state.saveFailure === 'queue' && state.saveAttempts === 1) {
-        await json(route, {
-          code: 'STORE_QUEUE_FULL',
-          committed: false,
-          detail: 'Persistence is busy.',
-        }, 503)
+        await json(
+          route,
+          {
+            code: 'STORE_QUEUE_FULL',
+            committed: false,
+            detail: 'Persistence is busy.',
+          },
+          503,
+        )
         return
       }
       if (state.saveFailure === 'replaced') {
         state.config = JSON.parse(request.postData() || '{}')
-        await json(route, {
-          code: 'STORE_WRITE_FAILED',
-          committed: true,
-          detail: 'The document was replaced, but acknowledgement failed.',
-        }, 500)
+        await json(
+          route,
+          {
+            code: 'STORE_WRITE_FAILED',
+            committed: true,
+            detail: 'The document was replaced, but acknowledgement failed.',
+          },
+          500,
+        )
         return
       }
       if (state.failSaveOnce && state.saveAttempts === 1) {
@@ -229,12 +259,16 @@ async function installApi(page, state) {
     }
     if (path === '/api/operations/reconcile' && method === 'POST') {
       state.reconcilePosts = (state.reconcilePosts || 0) + 1
-      await json(route, {
-        code: 'RECONCILE_UNKNOWN',
-        outcome: 'unknown',
-        committed: 'unknown',
-        detail: 'The recovery outcome could not be established. Refresh before trying again.',
-      }, 500)
+      await json(
+        route,
+        {
+          code: 'RECONCILE_UNKNOWN',
+          outcome: 'unknown',
+          committed: 'unknown',
+          detail: 'The recovery outcome could not be established. Refresh before trying again.',
+        },
+        500,
+      )
       return
     }
     if (path === '/api/models/demo-model/runtime/apply' && method === 'POST') {
@@ -332,10 +366,12 @@ async function openLibrary(page, state) {
     // native network pageerror, even though the store handles onerror/reconnect.
     // Record that fixture event; keep all application exceptions as test failures.
     const description = String(error)
-    if (test.info().project.name === 'webkit'
-      && description.startsWith('EventSource cannot load ')
-      && description.includes('/api/events')
-      && description.includes('access control checks')) {
+    if (
+      test.info().project.name === 'webkit' &&
+      description.startsWith('EventSource cannot load ') &&
+      description.includes('/api/events') &&
+      description.includes('access control checks')
+    ) {
       test.info().annotations.push({ type: 'fixture-sse-eof', description })
       return
     }
@@ -350,9 +386,9 @@ async function openLibrary(page, state) {
 }
 
 async function expectNoHorizontalOverflow(page) {
-  const overflow = await page.evaluate(() => (
-    document.documentElement.scrollWidth - document.documentElement.clientWidth
-  ))
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  )
   expect(overflow).toBeLessThanOrEqual(1)
 }
 
@@ -380,7 +416,9 @@ test('withholds the checklist while descriptors are delayed, then advances', asy
   expect(errors).toEqual([])
 })
 
-test('keeps engine preparation incomplete when descriptors fail, then recovers on reload', async ({ page }) => {
+test('keeps engine preparation incomplete when descriptors fail, then recovers on reload', async ({
+  page,
+}) => {
   const state = { enginesMode: 'fail-once', enginesCalls: 0, installed: false }
   const errors = await openLibrary(page, state)
   await expect(page.getByRole('heading', { name: 'Set up an engine' })).toBeVisible()
@@ -408,10 +446,11 @@ async function saveDistinctiveContext(page, value = '12321') {
   await expect(input).toBeVisible()
   await input.fill(String(value))
   await input.press('Tab')
-  const saved = page.waitForResponse((response) => (
-    response.url().includes('/api/models/demo-model/config')
-    && response.request().method() === 'PUT'
-  ))
+  const saved = page.waitForResponse(
+    (response) =>
+      response.url().includes('/api/models/demo-model/config') &&
+      response.request().method() === 'PUT',
+  )
   await page.getByRole('button', { name: 'Save changes' }).click()
   expect((await saved).status()).toBe(200)
   await expect(page.getByText(/Saved changes for this model are/)).toBeVisible()
@@ -497,7 +536,9 @@ test('install, configure, apply, start, and connect under fixture control', asyn
   await page.getByRole('button', { name: 'Use on next start' }).click()
   const applyDialog = page.getByRole('dialog', { name: 'Review runtime changes' })
   await applyDialog.getByRole('button', { name: 'Use on next start' }).click()
-  await expect(page.getByText('The model is stopped, so they are used the next time it starts.')).toBeVisible()
+  await expect(
+    page.getByText('The model is stopped, so they are used the next time it starts.'),
+  ).toBeVisible()
 
   await page.goto('/models')
   await page.getByRole('button', { name: 'Start Demo' }).click()
@@ -513,7 +554,9 @@ test('install, configure, apply, start, and connect under fixture control', asyn
   expect(errors).toEqual([])
 })
 
-test('keeps apply available after a failed publish and preserves the saved context size', async ({ page }) => {
+test('keeps apply available after a failed publish and preserves the saved context size', async ({
+  page,
+}) => {
   const state = installedState({ pending: true, failApplyOnce: true })
   const errors = await openLibrary(page, state)
   await saveDistinctiveContext(page, '12321')
@@ -529,7 +572,9 @@ test('keeps apply available after a failed publish and preserves the saved conte
   await expect(contextInput(page).first()).toHaveAttribute('aria-valuenow', '12321')
   await apply.click()
   await dialog.getByRole('button', { name: 'Use on next start' }).click()
-  await expect(page.getByText('The model is stopped, so they are used the next time it starts.')).toBeVisible()
+  await expect(
+    page.getByText('The model is stopped, so they are used the next time it starts.'),
+  ).toBeVisible()
   expect(errors).toEqual([])
 })
 
@@ -546,7 +591,10 @@ test('a stopped model says the next start uses the saved context size', async ({
 })
 
 test('a running model says a restart is required for the saved context size', async ({ page }) => {
-  const errors = await openLibrary(page, installedState({ pending: true, running: true, runPhase: 'running' }))
+  const errors = await openLibrary(
+    page,
+    installedState({ pending: true, running: true, runPhase: 'running' }),
+  )
   await saveDistinctiveContext(page, '12321')
   await page.getByRole('button', { name: 'Restart this model' }).click()
   const dialog = page.getByRole('dialog', { name: 'Review runtime changes' })
@@ -561,9 +609,11 @@ test('shows that a loading model has not started', async ({ page }) => {
   await page.clock.install({ time: new Date('2026-10-05T12:00:00Z') })
   const state = installedState({ startMode: 'hold' })
   const errors = await openLibrary(page, state)
-  const started = page.waitForResponse((response) => (
-    response.url().includes('/api/models/demo-model/start') && response.request().method() === 'POST'
-  ))
+  const started = page.waitForResponse(
+    (response) =>
+      response.url().includes('/api/models/demo-model/start') &&
+      response.request().method() === 'POST',
+  )
   await page.getByRole('button', { name: 'Start Demo' }).click()
   await started
   state.runPhase = 'loading'
@@ -588,9 +638,11 @@ test('does not treat a stale or unreachable observation as started', async ({ pa
   await page.clock.install({ time: new Date('2026-10-05T12:00:00Z') })
   const state = installedState({ startMode: 'hold' })
   const errors = await openLibrary(page, state)
-  const started = page.waitForResponse((response) => (
-    response.url().includes('/api/models/demo-model/start') && response.request().method() === 'POST'
-  ))
+  const started = page.waitForResponse(
+    (response) =>
+      response.url().includes('/api/models/demo-model/start') &&
+      response.request().method() === 'POST',
+  )
   await page.getByRole('button', { name: 'Start Demo' }).click()
   await started
   state.runPhase = 'running'
@@ -605,9 +657,11 @@ test('does not treat an unreachable observation as started', async ({ page }) =>
   await page.clock.install({ time: new Date('2026-10-05T12:00:00Z') })
   const state = installedState({ startMode: 'hold' })
   const errors = await openLibrary(page, state)
-  const started = page.waitForResponse((response) => (
-    response.url().includes('/api/models/demo-model/start') && response.request().method() === 'POST'
-  ))
+  const started = page.waitForResponse(
+    (response) =>
+      response.url().includes('/api/models/demo-model/start') &&
+      response.request().method() === 'POST',
+  )
   await page.getByRole('button', { name: 'Start Demo' }).click()
   await started
   state.runPhase = 'stopped'
@@ -624,9 +678,11 @@ test('reports startup as unconfirmed when no ready observation arrives', async (
   const errors = await openLibrary(page, state)
   await saveDistinctiveContext(page, '22222')
   await page.goto('/models')
-  const started = page.waitForResponse((response) => (
-    response.url().includes('/api/models/demo-model/start') && response.request().method() === 'POST'
-  ))
+  const started = page.waitForResponse(
+    (response) =>
+      response.url().includes('/api/models/demo-model/start') &&
+      response.request().method() === 'POST',
+  )
   await page.getByRole('button', { name: 'Start Demo' }).click()
   await started
   await advanceClockUntil(page, () => page.getByText('Startup not confirmed').isVisible())
@@ -640,13 +696,21 @@ test('reports startup as unconfirmed when no ready observation arrives', async (
 test('retries a proxy outage without dropping the saved context size', async ({ page }) => {
   const state = installedState({ runtimeQuality: 'unreachable' })
   const errors = await openLibrary(page, state)
-  await expect(page.getByText('The inference proxy could not be reached. Running models are not shown as stopped.')).toBeVisible()
+  await expect(
+    page.getByText(
+      'The inference proxy could not be reached. Running models are not shown as stopped.',
+    ),
+  ).toBeVisible()
   await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
   await page.goto('/models/demo-model/config')
-  await expect(page.getByText('Saved settings are on this page, but the proxy could not be reached.')).toBeVisible()
+  await expect(
+    page.getByText('Saved settings are on this page, but the proxy could not be reached.'),
+  ).toBeVisible()
   await saveDistinctiveContext(page, '33333')
   await page.goto('/models')
-  const outage = page.getByText('The inference proxy could not be reached. Running models are not shown as stopped.')
+  const outage = page.getByText(
+    'The inference proxy could not be reached. Running models are not shown as stopped.',
+  )
   await expect(outage).toBeVisible()
   state.runtimeQuality = 'verified'
   state.runPhase = 'stopped'
@@ -657,7 +721,9 @@ test('retries a proxy outage without dropping the saved context size', async ({ 
   expect(errors).toEqual([])
 })
 
-test('keeps an in-progress download when a different task fails, then installs after cancellation', async ({ page }) => {
+test('keeps an in-progress download when a different task fails, then installs after cancellation', async ({
+  page,
+}) => {
   await page.clock.install({ time: new Date('2026-10-05T12:00:00Z') })
   const state = installedState({
     installed: false,
@@ -714,24 +780,28 @@ test('retries a rejected configuration save without dropping the edit', async ({
   await expect(input).toBeVisible()
   await input.fill('12321')
   await input.press('Tab')
-  const rejected = page.waitForResponse((response) => (
-    response.url().includes('/api/models/demo-model/config')
-    && response.request().method() === 'PUT'
-  ))
+  const rejected = page.waitForResponse(
+    (response) =>
+      response.url().includes('/api/models/demo-model/config') &&
+      response.request().method() === 'PUT',
+  )
   await page.getByRole('button', { name: 'Save changes' }).click()
   expect((await rejected).status()).toBe(503)
   await expect(input).toHaveAttribute('aria-valuenow', '12321')
   await expect(page.locator('.persistence-notice').getByText('Save paused')).toBeVisible()
-  const accepted = page.waitForResponse((response) => (
-    response.url().includes('/api/models/demo-model/config')
-    && response.request().method() === 'PUT'
-  ))
+  const accepted = page.waitForResponse(
+    (response) =>
+      response.url().includes('/api/models/demo-model/config') &&
+      response.request().method() === 'PUT',
+  )
   await page.getByRole('button', { name: 'Try again' }).click()
   expect((await accepted).status()).toBe(200)
   expect(state.saveAttempts).toBe(2)
 })
 
-test('keeps a replaced configuration when acknowledgement fails and does not save again', async ({ page }) => {
+test('keeps a replaced configuration when acknowledgement fails and does not save again', async ({
+  page,
+}) => {
   const state = installedState({ saveFailure: 'replaced' })
   await openLibrary(page, state)
   await page.goto('/models/demo-model/config')
@@ -739,10 +809,11 @@ test('keeps a replaced configuration when acknowledgement fails and does not sav
   await expect(input).toBeVisible()
   await input.fill('12321')
   await input.press('Tab')
-  const replaced = page.waitForResponse((response) => (
-    response.url().includes('/api/models/demo-model/config')
-    && response.request().method() === 'PUT'
-  ))
+  const replaced = page.waitForResponse(
+    (response) =>
+      response.url().includes('/api/models/demo-model/config') &&
+      response.request().method() === 'PUT',
+  )
   await page.getByRole('button', { name: 'Save changes' }).click()
   expect((await replaced).status()).toBe(500)
   const notice = page.locator('.persistence-notice')
@@ -798,7 +869,9 @@ test('maps a persistence failure code and hides exported exception text', async 
   await tools.click()
   const footer = page.getByRole('region', { name: 'Service health' })
   await expect(footer.getByText('Queue full (32/32)')).toBeVisible()
-  await expect(footer.getByText('The save was not stored. The previous state is unchanged.')).toBeVisible()
+  await expect(
+    footer.getByText('The save was not stored. The previous state is unchanged.'),
+  ).toBeVisible()
   await expect(footer.getByText('No running-model observation')).toBeVisible()
   await expect(page.getByText('hf_BROWSERSECRET')).toHaveCount(0)
   expect(errors).toEqual([])

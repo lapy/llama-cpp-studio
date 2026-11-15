@@ -22,9 +22,7 @@ describe('generic route coverage', () => {
     expect(VENV_ENGINE_IDS.length).toBeGreaterThan(0)
     for (const engineId of VENV_ENGINE_IDS) {
       expect(ENGINE_DESCRIPTORS[engineId].genericApi, engineId).toBe(true)
-      expect(venvApiPath(engineId, 'status'), engineId).toBe(
-        `/api/engines/${engineId}/status`,
-      )
+      expect(venvApiPath(engineId, 'status'), engineId).toBe(`/api/engines/${engineId}/status`)
       expect(VENV_DESCRIPTORS[engineId].apiSegment, engineId).toBeTruthy()
     }
   })

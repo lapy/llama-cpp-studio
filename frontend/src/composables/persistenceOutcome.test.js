@@ -7,10 +7,15 @@ function failed(data, status = 500) {
 
 describe('classifyPersistenceError', () => {
   it('keeps a full queue retryable without calling it a success', () => {
-    const outcome = classifyPersistenceError(failed({
-      code: 'STORE_QUEUE_FULL',
-      committed: false,
-    }, 503))
+    const outcome = classifyPersistenceError(
+      failed(
+        {
+          code: 'STORE_QUEUE_FULL',
+          committed: false,
+        },
+        503,
+      ),
+    )
     expect(outcome.success).toBe(false)
     expect(outcome.preserveEdits).toBe(true)
     expect(outcome.retry).toBe(true)
@@ -19,10 +24,12 @@ describe('classifyPersistenceError', () => {
   })
 
   it('does not show success when the previous document is unchanged', () => {
-    const outcome = classifyPersistenceError(failed({
-      code: 'STORE_WRITE_FAILED',
-      committed: false,
-    }))
+    const outcome = classifyPersistenceError(
+      failed({
+        code: 'STORE_WRITE_FAILED',
+        committed: false,
+      }),
+    )
     expect(outcome.success).toBe(false)
     expect(outcome.committed).toBe(false)
     expect(outcome.preserveEdits).toBe(true)
@@ -32,10 +39,12 @@ describe('classifyPersistenceError', () => {
   })
 
   it('requires a refresh after a known replacement and does not retry by itself', () => {
-    const outcome = classifyPersistenceError(failed({
-      code: 'STORE_WRITE_FAILED',
-      committed: true,
-    }))
+    const outcome = classifyPersistenceError(
+      failed({
+        code: 'STORE_WRITE_FAILED',
+        committed: true,
+      }),
+    )
     expect(outcome.success).toBe(false)
     expect(outcome.committed).toBe(true)
     expect(outcome.retry).toBe(false)
@@ -51,10 +60,12 @@ describe('classifyPersistenceError', () => {
     expect(dropped.retry).toBe(false)
     expect(dropped.refresh).toBe(true)
 
-    const explicit = classifyPersistenceError(failed({
-      code: 'STORE_WRITE_FAILED',
-      committed: 'unknown',
-    }))
+    const explicit = classifyPersistenceError(
+      failed({
+        code: 'STORE_WRITE_FAILED',
+        committed: 'unknown',
+      }),
+    )
     expect(explicit.committed).toBe('unknown')
     expect(explicit.success).toBe(false)
     expect(explicit.retry).toBe(false)

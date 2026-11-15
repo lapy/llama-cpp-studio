@@ -19,7 +19,8 @@ function mountTable(versions, extraProps = {}) {
         Button: {
           props: ['label', 'disabled', 'loading'],
           emits: ['click'],
-          template: '<button :disabled="disabled" :data-loading="loading ? \'true\' : undefined" @click="$emit(\'click\')">{{ label || \'btn\' }}</button>',
+          template:
+            '<button :disabled="disabled" :data-loading="loading ? \'true\' : undefined" @click="$emit(\'click\')">{{ label || \'btn\' }}</button>',
         },
         Tag: {
           props: ['value', 'severity'],

@@ -16,9 +16,12 @@ async function effectiveTimeout(method, options = {}) {
 }
 
 describe('control-plane request deadlines', () => {
-  it.each(['get', 'head'])('bounds default %s requests after Axios merges defaults', async (method) => {
-    expect(await effectiveTimeout(method)).toBe(20_000)
-  })
+  it.each(['get', 'head'])(
+    'bounds default %s requests after Axios merges defaults',
+    async (method) => {
+      expect(await effectiveTimeout(method)).toBe(20_000)
+    },
+  )
 
   it('preserves an explicit read deadline', async () => {
     expect(await effectiveTimeout('get', { timeout: 1234 })).toBe(1234)

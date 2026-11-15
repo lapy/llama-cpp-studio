@@ -1,9 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { curlRequest, connectEndpoint, connectRequest, inferenceOrigin, normalizePublicInferenceUrl } from './connectTarget'
+import {
+  curlRequest,
+  connectEndpoint,
+  connectRequest,
+  inferenceOrigin,
+  normalizePublicInferenceUrl,
+} from './connectTarget'
 
 describe('connect targets', () => {
   it('quotes request examples safely and uses actual shell continuations', () => {
-    const command = curlRequest('https://infer.example/v1/chat/completions', { input: "user's prompt" })
+    const command = curlRequest('https://infer.example/v1/chat/completions', {
+      input: "user's prompt",
+    })
     expect(command).toContain("'Content-Type: application/json'")
     expect(command).toContain('Authorization: Bearer YOUR_ACCESS_KEY')
     expect(command).toContain(`user'"'"'s prompt`)
@@ -16,10 +24,12 @@ describe('connect targets', () => {
   })
 
   it('uses a configured public URL instead of the local default', () => {
-    expect(inferenceOrigin({
-      publicUrl: 'https://infer.example.test/studio/',
-      proxyPort: 2000,
-    })).toBe('https://infer.example.test/studio')
+    expect(
+      inferenceOrigin({
+        publicUrl: 'https://infer.example.test/studio/',
+        proxyPort: 2000,
+      }),
+    ).toBe('https://infer.example.test/studio')
   })
 
   it('rejects credentials and non-http schemes', () => {
@@ -39,8 +49,9 @@ describe('connect targets', () => {
     expect(chat.kind).toBe('chat')
     expect(chat.path).toBe('/v1/chat/completions')
     expect(chat.body.max_tokens).toBe(16)
-    expect(connectEndpoint({ proxy_model_id: 'org-model' }, { proxyPort: 2000 }))
-      .toBe('http://127.0.0.1:2000/v1/chat/completions')
+    expect(connectEndpoint({ proxy_model_id: 'org-model' }, { proxyPort: 2000 })).toBe(
+      'http://127.0.0.1:2000/v1/chat/completions',
+    )
 
     const embedding = connectRequest({
       id: 'org/embed',
@@ -50,9 +61,11 @@ describe('connect targets', () => {
     expect(embedding.kind).toBe('embeddings')
     expect(embedding.path).toBe('/v1/embeddings')
     expect(embedding.body.input).toBe('ping')
-    expect(connectEndpoint(
-      { is_embedding_model: true, proxy_model_id: 'org-embed' },
-      { publicUrl: 'https://infer.example.test' },
-    )).toBe('https://infer.example.test/v1/embeddings')
+    expect(
+      connectEndpoint(
+        { is_embedding_model: true, proxy_model_id: 'org-embed' },
+        { publicUrl: 'https://infer.example.test' },
+      ),
+    ).toBe('https://infer.example.test/v1/embeddings')
   })
 })

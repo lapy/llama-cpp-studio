@@ -157,12 +157,13 @@ function mountView() {
         Slider: true,
         LoadingState: { template: '<div>loading</div>' },
         EmptyState: { template: '<div><slot /></div>' },
-        PageHeader: { template: '<div><slot name="start" /><slot name="title" /><slot name="actions" /></div>' },
+        PageHeader: {
+          template: '<div><slot name="start" /><slot name="title" /><slot name="actions" /></div>',
+        },
         Dialog: {
           props: ['visible', 'header'],
           emits: ['update:visible', 'show'],
-          template:
-            '<div v-if="visible" class="dialog-stub"><slot /><slot name="footer" /></div>',
+          template: '<div v-if="visible" class="dialog-stub"><slot /><slot name="footer" /></div>',
         },
       },
     },
@@ -241,9 +242,7 @@ function paramRegistryResponse(overrides = {}) {
       {
         id: 'voice',
         label: 'Voice & reference',
-        fields: [
-          { key: 'voice_ref', label: 'Reference audio', type: 'path', preset_field: true },
-        ],
+        fields: [{ key: 'voice_ref', label: 'Reference audio', type: 'path', preset_field: true }],
       },
     ],
     request_defaults_key: 'speech_defaults',
@@ -256,8 +255,8 @@ function paramRegistryResponse(overrides = {}) {
     merged.supports_voice_presets = merged.request_defaults_key === 'speech_defaults'
   }
   if (
-    !Object.prototype.hasOwnProperty.call(overrides, 'instructions_policy')
-    && merged.request_defaults_key !== 'speech_defaults'
+    !Object.prototype.hasOwnProperty.call(overrides, 'instructions_policy') &&
+    merged.request_defaults_key !== 'speech_defaults'
   ) {
     merged.instructions_policy = 'none'
   }
@@ -350,7 +349,9 @@ describe('ModelConfig audio profiles', () => {
 
     expect(wrapper.find('#gpu-mode').exists()).toBe(true)
     expect(wrapper.text()).toContain('All GPUs')
-    const choose = wrapper.findAll('#gpu-mode button').find((button) => button.text() === 'Choose GPUs')
+    const choose = wrapper
+      .findAll('#gpu-mode button')
+      .find((button) => button.text() === 'Choose GPUs')
     await choose.trigger('click')
     expect(wrapper.text()).toContain('RTX 4090')
     expect(wrapper.get('.gpu-card').text()).toContain('Not used')
@@ -557,7 +558,9 @@ describe('ModelConfig audio profiles', () => {
 
     expect(wrapper.text()).not.toContain('Speech synthesis defaults')
     expect(wrapper.text()).not.toContain('Transcription defaults')
-    expect(wrapper.text()).toContain('No request defaults profile is available for this audio model')
+    expect(wrapper.text()).toContain(
+      'No request defaults profile is available for this audio model',
+    )
     expect(listReferenceAudio).toHaveBeenCalledWith('audio-model-1')
   })
 
@@ -725,7 +728,9 @@ describe('ModelConfig audio profiles', () => {
     const wrapper = mountView()
     await settleView(wrapper)
 
-    expect(registryCalls.some((call) => call.family === 'omnivoice' && call.task === 'tts')).toBe(true)
+    expect(registryCalls.some((call) => call.family === 'omnivoice' && call.task === 'tts')).toBe(
+      true,
+    )
     expect(wrapper.vm.config.speech_defaults.temperature).toBe(0.7)
 
     // Install fake timers only around the debounced registry refresh — settleView
@@ -737,7 +742,9 @@ describe('ModelConfig audio profiles', () => {
     await vi.advanceTimersByTimeAsync(300)
     await flushPromises()
 
-    expect(registryCalls.some((call) => call.family === 'ace_step' && call.task === 'gen')).toBe(true)
+    expect(registryCalls.some((call) => call.family === 'ace_step' && call.task === 'gen')).toBe(
+      true,
+    )
     expect(wrapper.vm.paramRegistry.request_defaults_key).toBe('task_defaults')
     expect(wrapper.vm.paramRegistry.api_endpoint).toBe('/audioapi/v1/tasks/run')
     expect(wrapper.vm.config.speech_defaults).toEqual({})

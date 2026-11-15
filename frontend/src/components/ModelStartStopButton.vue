@@ -70,8 +70,8 @@ const emit = defineEmits(['start', 'stop'])
 /** Play: busy while the HTTP start is in flight or the proxy slot is still loading weights. */
 const isPlayBusy = computed(() => props.isStarting || props.isProxyLoading)
 
-const startLabel = computed(() => props.name ? `Start ${props.name}` : 'Start')
-const stopLabel = computed(() => props.name ? `Stop ${props.name}` : 'Stop')
+const startLabel = computed(() => (props.name ? `Start ${props.name}` : 'Start'))
+const stopLabel = computed(() => (props.name ? `Stop ${props.name}` : 'Stop'))
 
 const playTooltip = computed(() => {
   if (props.isStarting) return 'Starting…'

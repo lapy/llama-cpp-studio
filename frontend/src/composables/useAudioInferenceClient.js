@@ -41,9 +41,10 @@ export function acceptedSpeechRateKeys(registry) {
  */
 export function speechRateRequestFields(defaults, acceptedKeys) {
   const accepted = new Set(acceptedKeys || [])
-  const options = defaults?.options && typeof defaults.options === 'object' && !Array.isArray(defaults.options)
-    ? defaults.options
-    : {}
+  const options =
+    defaults?.options && typeof defaults.options === 'object' && !Array.isArray(defaults.options)
+      ? defaults.options
+      : {}
   const fields = {}
   for (const key of SPEECH_RATE_KEYS) {
     if (!accepted.has(key)) continue
@@ -58,13 +59,7 @@ export function speechRateRequestFields(defaults, acceptedKeys) {
 
 export function audioInferenceModelId(model, config = null) {
   const cfg = config || model?.config || {}
-  return (
-    cfg.model_alias
-    || model?.proxy_model_id
-    || model?.proxy_name
-    || model?.id
-    || ''
-  )
+  return cfg.model_alias || model?.proxy_model_id || model?.proxy_name || model?.id || ''
 }
 
 export function studioAudioBaseUrl() {
@@ -126,13 +121,7 @@ async function readErrorDetail(response) {
 /**
  * POST /v1/audio/speech — returns { blob, contentType }
  */
-export async function synthesizeSpeech({
-  modelId,
-  input,
-  voice,
-  extras = {},
-  signal,
-} = {}) {
+export async function synthesizeSpeech({ modelId, input, voice, extras = {}, signal } = {}) {
   const body = {
     model: modelId,
     input,
@@ -432,13 +421,7 @@ export function parseBatchTranscriptionPayload(contentType, bodyText) {
  * POST /v1/batches/transcriptions — one multipart request, up to 32 files.
  * Returns { results: [{ name, text }], text? }.
  */
-export async function transcribeAudioBatch({
-  modelId,
-  files,
-  language,
-  prompt,
-  signal,
-} = {}) {
+export async function transcribeAudioBatch({ modelId, files, language, prompt, signal } = {}) {
   const list = Array.from(files || []).filter(Boolean)
   if (!list.length) throw new Error('Choose at least one audio file.')
   if (list.length > 32) throw new Error('Batch transcription accepts at most 32 files.')
@@ -450,7 +433,8 @@ export async function transcribeAudioBatch({
   if (language) form.append('language', language)
   if (prompt) form.append('prompt', prompt)
 
-  const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : ''
+  const origin =
+    typeof window !== 'undefined' && window.location?.origin ? window.location.origin : ''
   const response = await sessionFetch(`${origin}/v1/batches/transcriptions`, {
     method: 'POST',
     headers: { Authorization: 'Bearer local' },
@@ -493,12 +477,7 @@ export async function alignAudio({ modelId, file, text, language, signal } = {})
 /**
  * POST Studio /v1/tasks/run with audio.cpp ``{model, request}``.
  */
-export async function runAudioTask({
-  modelId,
-  input = {},
-  busyTimeoutMs,
-  signal,
-} = {}) {
+export async function runAudioTask({ modelId, input = {}, busyTimeoutMs, signal } = {}) {
   const request = tasksRunRequestObject(input)
   const body = { model: modelId, request }
   if (busyTimeoutMs != null) body.busy_timeout_ms = busyTimeoutMs

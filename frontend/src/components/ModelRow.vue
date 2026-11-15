@@ -1,5 +1,8 @@
 <template>
-  <div class="quant-row" :class="{ 'is-active': quant.is_active && runtimeState.key !== 'unknown' }">
+  <div
+    class="quant-row"
+    :class="{ 'is-active': quant.is_active && runtimeState.key !== 'unknown' }"
+  >
     <div class="quant-info">
       <div class="quant-main">
         <div class="quant-heading">
@@ -67,19 +70,18 @@
         @click="emit('configure', quant.id)"
       />
       <details class="row-menu">
-        <summary :aria-label="`More actions for ${quant.quantization || quant.name || 'model'}`">More</summary>
-      <ModelWarmupButton :model="quant" :disabled="isStarting || isStopping" />
-        <button type="button" class="row-menu__delete" @click="emit('delete', quant.id)">Delete</button>
+        <summary :aria-label="`More actions for ${quant.quantization || quant.name || 'model'}`">
+          More
+        </summary>
+        <ModelWarmupButton :model="quant" :disabled="isStarting || isStopping" />
+        <button type="button" class="row-menu__delete" @click="emit('delete', quant.id)">
+          Delete
+        </button>
       </details>
     </div>
 
-    <div
-      v-if="quant.downloaded_at"
-      class="quant-row__footer"
-    >
-      <span class="downloaded-at">
-        Downloaded {{ props.formatDate(quant.downloaded_at) }}
-      </span>
+    <div v-if="quant.downloaded_at" class="quant-row__footer">
+      <span class="downloaded-at"> Downloaded {{ props.formatDate(quant.downloaded_at) }} </span>
     </div>
   </div>
 </template>
@@ -117,7 +119,9 @@ const props = defineProps({
 })
 
 const { quant, isStarting, isStopping } = toRefs(props)
-const proxyStatus = computed(() => String(quant.value?.status || quant.value?.run_state || '').toLowerCase())
+const proxyStatus = computed(() =>
+  String(quant.value?.status || quant.value?.run_state || '').toLowerCase(),
+)
 const runtimeState = computed(() => modelRuntimeState(quant.value))
 const isAudioModel = computed(() => isAudioPackage(quant.value))
 

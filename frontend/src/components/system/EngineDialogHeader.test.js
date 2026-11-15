@@ -21,7 +21,8 @@ function mountHeader() {
       stubs: {
         Button: {
           props: ['icon', 'ariaLabel'],
-          template: '<button type="button" :aria-label="ariaLabel || \'More actions\'"><slot /></button>',
+          template:
+            '<button type="button" :aria-label="ariaLabel || \'More actions\'"><slot /></button>',
         },
       },
     },

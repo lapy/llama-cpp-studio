@@ -52,10 +52,12 @@ async function installApi(page, state) {
       return
     }
     if (path === '/api/models' && method === 'GET') {
-      await json(route, [{
-        base_model_name: 'Demo',
-        quantizations: [{ id: 'org--model', name: 'Demo' }],
-      }])
+      await json(route, [
+        {
+          base_model_name: 'Demo',
+          quantizations: [{ id: 'org--model', name: 'Demo' }],
+        },
+      ])
       return
     }
     if (path === '/api/config-backup' && method === 'GET') {
@@ -72,7 +74,11 @@ async function installApi(page, state) {
       state.previews += 1
       const body = JSON.parse(request.postData() || '{}')
       if (state.rejectPreview) {
-        await json(route, { code: 'BACKUP_MALFORMED', detail: 'This backup version is not supported.' }, 400)
+        await json(
+          route,
+          { code: 'BACKUP_MALFORMED', detail: 'This backup version is not supported.' },
+          400,
+        )
         return
       }
       const mapped = body.mapping?.['huggingface:org/missing']
@@ -85,13 +91,15 @@ async function installApi(page, state) {
         notice: 'This restores saved settings only. It does not start, stop, or publish a model.',
         revisions: { 'settings.yaml': '1:2:3' },
         items: state.unresolved
-          ? [{
-            kind: 'model',
-            id: 'huggingface:org/missing',
-            action: unresolved ? 'unresolved' : (skipped ? 'skip' : 'keep'),
-            reason: unresolved ? 'no local model' : undefined,
-            local_id: mapped || undefined,
-          }]
+          ? [
+              {
+                kind: 'model',
+                id: 'huggingface:org/missing',
+                action: unresolved ? 'unresolved' : skipped ? 'skip' : 'keep',
+                reason: unresolved ? 'no local model' : undefined,
+                local_id: mapped || undefined,
+              },
+            ]
           : [{ kind: 'preference', id: 'public_inference_url', action: 'replace' }],
         limits: { includes: ['portable preferences'], excludes: ['credentials'] },
       })
@@ -101,17 +109,25 @@ async function installApi(page, state) {
       state.applies += 1
       state.lastApply = JSON.parse(request.postData() || '{}')
       if (state.applyMode === 'stale') {
-        await json(route, {
-          code: 'BACKUP_STALE',
-          detail: 'The configuration changed after the preview. Request a new preview.',
-        }, 409)
+        await json(
+          route,
+          {
+            code: 'BACKUP_STALE',
+            detail: 'The configuration changed after the preview. Request a new preview.',
+          },
+          409,
+        )
         return
       }
       if (state.applyMode === 'uncertain') {
-        await json(route, {
-          code: 'BACKUP_INCOMPLETE',
-          detail: 'The restore outcome could not be established. Restart before trying again.',
-        }, 500)
+        await json(
+          route,
+          {
+            code: 'BACKUP_INCOMPLETE',
+            detail: 'The restore outcome could not be established. Restart before trying again.',
+          },
+          500,
+        )
         return
       }
       await json(route, {

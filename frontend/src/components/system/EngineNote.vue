@@ -49,11 +49,7 @@ const iconClass = computed(() =>
 
 .engine-note--warning {
   color: var(--accent-amber, #f59e0b);
-  border-color: color-mix(
-    in srgb,
-    var(--accent-amber, #f59e0b) 45%,
-    transparent
-  );
+  border-color: color-mix(in srgb, var(--accent-amber, #f59e0b) 45%, transparent);
   background: color-mix(in srgb, var(--accent-amber, #f59e0b) 8%, transparent);
 }
 

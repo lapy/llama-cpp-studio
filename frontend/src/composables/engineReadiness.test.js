@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { engineCardCta, engineCardOrder, engineMatchesFilters, runnableEngineIds } from './engineReadiness'
+import {
+  engineCardCta,
+  engineCardOrder,
+  engineMatchesFilters,
+  runnableEngineIds,
+} from './engineReadiness'
 
 describe('engine readiness', () => {
   it('treats only runnable descriptors as ready, including Unsloth', () => {
@@ -24,13 +29,25 @@ describe('engine readiness', () => {
 
   it('narrows by task and hardware without hiding engines when the filter is open', () => {
     const audio = { id: 'audio_cpp', tasks: ['asr'], artifact_formats: ['gguf'] }
-    const llama = { id: 'llama_cpp', tasks: ['text-generation', 'embeddings'], artifact_formats: ['gguf'], supports_embeddings: true }
-    const vllm = { id: 'vllm', tasks: ['text-generation'], artifact_formats: ['safetensors'], supports_embeddings: true }
+    const llama = {
+      id: 'llama_cpp',
+      tasks: ['text-generation', 'embeddings'],
+      artifact_formats: ['gguf'],
+      supports_embeddings: true,
+    }
+    const vllm = {
+      id: 'vllm',
+      tasks: ['text-generation'],
+      artifact_formats: ['safetensors'],
+      supports_embeddings: true,
+    }
     expect(engineMatchesFilters(vllm, { task: 'all', hardware: 'all' })).toBe(true)
     expect(engineMatchesFilters(audio, { task: 'text' })).toBe(false)
     expect(engineMatchesFilters(llama, { task: 'embeddings' })).toBe(true)
     expect(engineMatchesFilters(vllm, { hardware: 'cpu' })).toBe(false)
-    expect(engineMatchesFilters({ id: 'sglang_v100', gpu_archs: ['sm70'] }, { hardware: 'sm70' })).toBe(true)
+    expect(
+      engineMatchesFilters({ id: 'sglang_v100', gpu_archs: ['sm70'] }, { hardware: 'sm70' }),
+    ).toBe(true)
   })
 
   it('derives audio/text/cpu membership from descriptor data, not engine ids', () => {

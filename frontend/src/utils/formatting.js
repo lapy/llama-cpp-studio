@@ -58,4 +58,3 @@ export const formatNumber = (num) => {
   if (num === null || num === undefined || Number.isNaN(num)) return '0'
   return num.toLocaleString()
 }
-

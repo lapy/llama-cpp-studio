@@ -79,9 +79,11 @@ describe('models store', () => {
     const store = useModelStore()
     await store.fetchModels()
 
-    vi.mocked(axios.get).mockRejectedValueOnce(Object.assign(new Error('unavailable'), {
-      response: { data: { detail: 'unavailable' } },
-    }))
+    vi.mocked(axios.get).mockRejectedValueOnce(
+      Object.assign(new Error('unavailable'), {
+        response: { data: { detail: 'unavailable' } },
+      }),
+    )
     await expect(store.fetchModels()).rejects.toThrow('unavailable')
 
     expect(store.models).toHaveLength(1)
@@ -131,14 +133,15 @@ describe('models store', () => {
   it('searchCatalog ignores stale responses from superseded searches', async () => {
     let resolveSlow
     const slowPromise = new Promise((resolve) => {
-      resolveSlow = () => resolve({
-        data: {
-          items: [{ id: 'stale' }],
-          total: 1,
-          page: 1,
-          has_more: false,
-        },
-      })
+      resolveSlow = () =>
+        resolve({
+          data: {
+            items: [{ id: 'stale' }],
+            total: 1,
+            page: 1,
+            has_more: false,
+          },
+        })
     })
     const freshData = {
       items: [{ id: 'fresh' }],
@@ -240,16 +243,16 @@ describe('models store', () => {
         used_by: [],
       },
     ])
-    expect(uploaded.path).toBe('/app/data/models/audio-cpp/reference-audio/audio-model/refs/voice.wav')
+    expect(uploaded.path).toBe(
+      '/app/data/models/audio-cpp/reference-audio/audio-model/refs/voice.wav',
+    )
     expect(axios.get).toHaveBeenCalledWith('/api/models/audio%2Fmodel/reference-audio')
     expect(axios.post).toHaveBeenCalledWith(
       '/api/models/audio%2Fmodel/reference-audio',
       expect.any(FormData),
       { headers: { 'Content-Type': 'multipart/form-data' } },
     )
-    expect(axios.delete).toHaveBeenCalledWith(
-      '/api/models/audio%2Fmodel/reference-audio/voice.wav',
-    )
+    expect(axios.delete).toHaveBeenCalledWith('/api/models/audio%2Fmodel/reference-audio/voice.wav')
     expect(invalidateRuntimePlan).toHaveBeenCalled()
   })
 
@@ -334,7 +337,11 @@ describe('models store', () => {
     const store = useModelStore()
     const projector = await store.updateModelProjector('org--model--Q4_K_M', 'mmproj-F32.gguf', 90)
     const mtp = await store.updateModelMtp('org--model--Q4_K_M', 'MTP/mtp-model-Q4_0.gguf', 40)
-    const dflash = await store.updateModelDflash('org--model--Q4_K_M', 'laguna-s-2.1-DFlash-BF16.gguf', 2200)
+    const dflash = await store.updateModelDflash(
+      'org--model--Q4_K_M',
+      'laguna-s-2.1-DFlash-BF16.gguf',
+      2200,
+    )
 
     expect(projector).toEqual({ applied: true, mmproj_filename: 'mmproj-F32.gguf' })
     expect(mtp).toEqual({ applied: true, mtp_filename: 'MTP/mtp-model-Q4_0.gguf' })

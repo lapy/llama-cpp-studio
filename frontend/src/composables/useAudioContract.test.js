@@ -14,11 +14,14 @@ import {
 } from './useAudioContract'
 
 function mockContractResponse(payload, ok = true, status = 200) {
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-    ok,
-    status,
-    json: async () => payload,
-  }))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue({
+      ok,
+      status,
+      json: async () => payload,
+    }),
+  )
 }
 
 describe('useAudioContract', () => {
@@ -45,8 +48,18 @@ describe('useAudioContract', () => {
       defaults_keys: { tasks_run: 'task_defaults', speech: 'speech_defaults' },
       task_routing: { tts: 'speech', vc: 'tasks_run' },
       operations: [
-        { id: 'speech', studio_path: '/v1/audio/speech', request_defaults_key: 'speech_defaults', body_shape: 'openai-json' },
-        { id: 'tasks_run', studio_path: '/audioapi/v1/tasks/run', request_defaults_key: 'task_defaults', body_shape: 'tasks-run' },
+        {
+          id: 'speech',
+          studio_path: '/v1/audio/speech',
+          request_defaults_key: 'speech_defaults',
+          body_shape: 'openai-json',
+        },
+        {
+          id: 'tasks_run',
+          studio_path: '/audioapi/v1/tasks/run',
+          request_defaults_key: 'task_defaults',
+          body_shape: 'tasks-run',
+        },
       ],
       drift_warnings: [],
     })

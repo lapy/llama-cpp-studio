@@ -148,11 +148,18 @@ describe('tokenizeCli', () => {
       `--temp 0.7 --ctx-size=8192 --chat-template-kwargs '{"a":1}'`,
     )
     expect(parseError).toBeNull()
-    expect(tokens).toEqual(['--temp', '0.7', '--ctx-size=8192', '--chat-template-kwargs', '{"a":1}'])
+    expect(tokens).toEqual([
+      '--temp',
+      '0.7',
+      '--ctx-size=8192',
+      '--chat-template-kwargs',
+      '{"a":1}',
+    ])
   })
 
   it('keeps JSON object quotes when the value is unquoted', () => {
-    const json = '{"method":"dflash","model":"incoai/Qwen3.8-27B-DFlash2","revision":"dedf8df68adfb1afeaf7b7480c0a0243108177b4","kv_cache_dtype":"auto"}'
+    const json =
+      '{"method":"dflash","model":"incoai/Qwen3.8-27B-DFlash2","revision":"dedf8df68adfb1afeaf7b7480c0a0243108177b4","kv_cache_dtype":"auto"}'
     const { tokens, parseError } = tokenizeCli(`--speculative-config ${json}`)
     expect(parseError).toBeNull()
     expect(tokens).toEqual(['--speculative-config', json])
@@ -178,7 +185,12 @@ describe('parseCliCommand', () => {
       '${LLAMA_CPP_BIN} --model ${MODEL} --port ${PORT} --host 127.0.0.1 --ctx-size 8192 --n-gpu-layers -1 --temp=0.6 --jinja',
       catalog,
     )
-    expect(keysOf(parsed.params).sort()).toEqual(['ctx_size', 'jinja', 'n_gpu_layers', 'temperature'])
+    expect(keysOf(parsed.params).sort()).toEqual([
+      'ctx_size',
+      'jinja',
+      'n_gpu_layers',
+      'temperature',
+    ])
     expect(parsed.params.find((row) => row.key === 'temperature').value).toBe(0.6)
     expect(parsed.params.find((row) => row.key === 'ctx_size').value).toBe(8192)
     expect(parsed.params.find((row) => row.key === 'n_gpu_layers').value).toBe(-1)
@@ -204,7 +216,11 @@ describe('parseCliCommand', () => {
       catalog,
     )
     expect(keysOf(parsed.params)).toEqual(['ctx_size'])
-    expect(parsed.reserved.map((row) => row.flag).sort()).toEqual(['--alias', '--mmproj', '--model'])
+    expect(parsed.reserved.map((row) => row.flag).sort()).toEqual([
+      '--alias',
+      '--mmproj',
+      '--model',
+    ])
   })
 
   it('does not import unknown or removed catalog flags', () => {
@@ -261,10 +277,7 @@ describe('parseCliCommand', () => {
   })
 
   it('consumes a space-separated list after one flag', () => {
-    const parsed = parseCliCommand(
-      '--cuda-graph-bs-decode 1 2 3 --temperature 0.4',
-      catalog,
-    )
+    const parsed = parseCliCommand('--cuda-graph-bs-decode 1 2 3 --temperature 0.4', catalog)
     expect(parsed.params.find((row) => row.key === 'cuda_graph_bs_decode').value).toEqual([1, 2, 3])
     expect(parsed.params.find((row) => row.key === 'temperature').value).toBe(0.4)
     expect(parsed.unknown).toEqual([])
@@ -312,8 +325,12 @@ describe('parseCliCommand', () => {
     expect(parsed.reserved.some((row) => row.key === 'PORT')).toBe(true)
     expect(parsed.reserved.some((row) => row.key === 'HOST')).toBe(true)
     expect(parsed.reserved.some((row) => row.key === 'LLAMA_STUDIO_MODEL_PATH')).toBe(true)
-    expect(parsed.reserved.find((row) => row.key === 'PORT').reason).toMatch(/listen address and port/i)
-    expect(parsed.reserved.find((row) => row.key === 'LLAMA_STUDIO_MODEL_PATH').reason).toMatch(/LLAMA_STUDIO_/i)
+    expect(parsed.reserved.find((row) => row.key === 'PORT').reason).toMatch(
+      /listen address and port/i,
+    )
+    expect(parsed.reserved.find((row) => row.key === 'LLAMA_STUDIO_MODEL_PATH').reason).toMatch(
+      /LLAMA_STUDIO_/i,
+    )
   })
 })
 
@@ -335,7 +352,13 @@ describe('valuesEqual', () => {
 })
 
 describe('multi-value command imports', () => {
-  const list = { key: 'cuda_graph_bs_decode', type: 'list', scalar_type: 'int', primary_flag: '--cuda-graph-bs-decode', supported: true }
+  const list = {
+    key: 'cuda_graph_bs_decode',
+    type: 'list',
+    scalar_type: 'int',
+    primary_flag: '--cuda-graph-bs-decode',
+    supported: true,
+  }
   const scalar = { key: 'threads', type: 'int', primary_flag: '--threads', supported: true }
   it.each([
     '--cuda-graph-bs-decode 1 2 3 --threads 8',

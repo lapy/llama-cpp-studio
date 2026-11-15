@@ -45,5 +45,5 @@ export function taskLabel(value) {
 }
 
 export function formatLabel(value) {
-  return ({ gguf: 'GGUF', safetensors: 'Safetensors', audio_cpp: 'Audio package' })[value] || value
+  return { gguf: 'GGUF', safetensors: 'Safetensors', audio_cpp: 'Audio package' }[value] || value
 }

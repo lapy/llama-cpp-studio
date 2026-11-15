@@ -55,7 +55,8 @@ function mountPanel() {
         Button: {
           props: ['label'],
           emits: ['click'],
-          template: '<button :data-label="label" @click="$emit(\'click\')"><slot>{{ label }}</slot></button>',
+          template:
+            '<button :data-label="label" @click="$emit(\'click\')"><slot>{{ label }}</slot></button>',
         },
         Dialog: { template: '<div><slot /><slot name="footer" /></div>' },
         InputText: true,
@@ -98,12 +99,14 @@ describe('SglangEnginePanel version actions', () => {
     store.saveSglangBuildSettings.mockResolvedValue({})
     store.installSglangFromSource.mockReset()
     store.installSglangFromSource.mockResolvedValue({})
-    store.sglangV100Versions = [{
-      id: 'sglang_v100:20260918-165120-source',
-      version: '20260918-165120-source',
-      build_status: 'failed',
-      retryable: true,
-    }]
+    store.sglangV100Versions = [
+      {
+        id: 'sglang_v100:20260918-165120-source',
+        version: '20260918-165120-source',
+        build_status: 'failed',
+        retryable: true,
+      },
+    ]
   })
 
   it('passes the emitted failed-version id through retry and delete', async () => {
@@ -117,15 +120,19 @@ describe('SglangEnginePanel version actions', () => {
     expect(confirmRequire.mock.calls[0][0].message).toContain('20260918-165120-source')
 
     await confirmRequire.mock.calls[0][0].accept()
-    expect(store.deleteVersion).toHaveBeenCalledWith('sglang_v100:20260918-165120-source', undefined)
+    expect(store.deleteVersion).toHaveBeenCalledWith(
+      'sglang_v100:20260918-165120-source',
+      undefined,
+    )
   })
 
   it('marks delete as in-flight until the API finishes', async () => {
     let resolveDelete
     store.deleteVersion.mockImplementation(
-      () => new Promise((resolve) => {
-        resolveDelete = resolve
-      }),
+      () =>
+        new Promise((resolve) => {
+          resolveDelete = resolve
+        }),
     )
     const wrapper = mountPanel()
 
@@ -143,11 +150,13 @@ describe('SglangEnginePanel version actions', () => {
   })
 
   it('falls back to the version name when a failed row has no id', async () => {
-    store.sglangV100Versions = [{
-      version: '20260918-165120-source',
-      build_status: 'failed',
-      retryable: true,
-    }]
+    store.sglangV100Versions = [
+      {
+        version: '20260918-165120-source',
+        build_status: 'failed',
+        retryable: true,
+      },
+    ]
     const wrapper = mountPanel()
 
     await wrapper.get('[data-testid="retry"]').trigger('click')

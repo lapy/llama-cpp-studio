@@ -82,10 +82,14 @@ function mountLibrary() {
         ConfirmDialog: true,
         PageHeader: { template: '<div><slot name="meta" /><slot name="actions" /></div>' },
         LoadingState: true,
-        EmptyState: { props: ['title'], template: '<div class="empty-stub">{{ title }}<slot /></div>' },
+        EmptyState: {
+          props: ['title'],
+          template: '<div class="empty-stub">{{ title }}<slot /></div>',
+        },
         ModelRow: {
           props: ['quant'],
-          template: '<div class="quant-row" :class="{ \'is-active\': quant.is_active }">{{ quant.quantization }}</div>',
+          template:
+            '<div class="quant-row" :class="{ \'is-active\': quant.is_active }">{{ quant.quantization }}</div>',
         },
         ModelStartStopButton: {
           props: ['name'],
@@ -168,9 +172,12 @@ describe('ModelLibrary running glow', () => {
     expect(fetchSafetensorsModels).not.toHaveBeenCalled()
 
     let release
-    fetchModels.mockImplementation(() => new Promise((resolve) => {
-      release = resolve
-    }))
+    fetchModels.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve
+        }),
+    )
     await vi.advanceTimersByTimeAsync(5000)
     expect(fetchModels).toHaveBeenCalledTimes(2)
     wrapper.unmount()
@@ -210,13 +217,15 @@ describe('ModelLibrary running glow', () => {
     modelStore.models = [
       {
         huggingface_id: 'org/live',
-        quantizations: [{
-          id: 'q4',
-          quantization: 'Q4_K_M',
-          is_active: false,
-          status: null,
-          runtime_quality: 'unreachable',
-        }],
+        quantizations: [
+          {
+            id: 'q4',
+            quantization: 'Q4_K_M',
+            is_active: false,
+            status: null,
+            runtime_quality: 'unreachable',
+          },
+        ],
       },
     ]
     const wrapper = mountLibrary()
@@ -242,16 +251,19 @@ describe('ModelLibrary running glow', () => {
     modelStore.models = [
       {
         huggingface_id: 'org/live',
-        quantizations: [{
-          id: 'q4',
-          quantization: 'Q4_K_M',
-          format: 'safetensors',
-          is_active: false,
-          status: 'stopped',
-        }],
+        quantizations: [
+          {
+            id: 'q4',
+            quantization: 'Q4_K_M',
+            format: 'safetensors',
+            is_active: false,
+            status: 'stopped',
+          },
+        ],
       },
     ]
-    modelStore.startModel.mockReset()
+    modelStore.startModel
+      .mockReset()
       .mockRejectedValueOnce({
         response: {
           data: {
@@ -281,7 +293,7 @@ describe('ModelLibrary running glow', () => {
       confirm_state: 'tok-1',
     })
     expect(confirmRequire).toHaveBeenCalledWith(
-      expect.objectContaining({ header: 'Confirm model start' })
+      expect.objectContaining({ header: 'Confirm model start' }),
     )
     wrapper.unmount()
     vi.useRealTimers()

@@ -190,9 +190,11 @@ describe('EnginesView per-build CMake editor', () => {
     await wrapper.get('[data-testid="edit-config-btn"]').trigger('click')
     await flushPromises()
 
-    const cmakeDialog = wrapper.findAll('.dialog-stub').find((node) =>
-      String(node.attributes('data-header') || '').includes('CMake settings — llama.cpp'),
-    )
+    const cmakeDialog = wrapper
+      .findAll('.dialog-stub')
+      .find((node) =>
+        String(node.attributes('data-header') || '').includes('CMake settings — llama.cpp'),
+      )
     expect(cmakeDialog).toBeTruthy()
     expect(cmakeDialog.text()).toContain('source-main')
     expect(cmakeDialog.text()).toContain('frozen to')
@@ -211,9 +213,9 @@ describe('EnginesView per-build CMake editor', () => {
     await wrapper.get('[data-testid="edit-config-btn"]').trigger('click')
     await flushPromises()
 
-    const cmakeDialog = wrapper.findAll('.dialog-stub').find((node) =>
-      String(node.attributes('data-header') || '').includes('CMake settings'),
-    )
+    const cmakeDialog = wrapper
+      .findAll('.dialog-stub')
+      .find((node) => String(node.attributes('data-header') || '').includes('CMake settings'))
     const save = cmakeDialog.findAll('button').find((btn) => btn.text() === 'Save')
     await save.trigger('click')
     await flushPromises()
@@ -235,9 +237,9 @@ describe('EnginesView per-build CMake editor', () => {
     await wrapper.get('[data-testid="edit-config-btn"]').trigger('click')
     await flushPromises()
 
-    const cmakeDialog = wrapper.findAll('.dialog-stub').find((node) =>
-      String(node.attributes('data-header') || '').includes('CMake settings'),
-    )
+    const cmakeDialog = wrapper
+      .findAll('.dialog-stub')
+      .find((node) => String(node.attributes('data-header') || '').includes('CMake settings'))
     const rebuild = cmakeDialog.findAll('button').find((btn) => btn.text() === 'Save & rebuild')
     await rebuild.trigger('click')
     await flushPromises()
@@ -268,9 +270,9 @@ describe('EnginesView per-build CMake editor', () => {
     await wrapper.get('[data-testid="edit-config-btn"]').trigger('click')
     await flushPromises()
 
-    const cmakeDialog = wrapper.findAll('.dialog-stub').find((node) =>
-      String(node.attributes('data-header') || '').includes('CMake settings'),
-    )
+    const cmakeDialog = wrapper
+      .findAll('.dialog-stub')
+      .find((node) => String(node.attributes('data-header') || '').includes('CMake settings'))
     const labels = cmakeDialog.findAll('button').map((btn) => btn.text())
     expect(labels).toContain('Save & retry')
     expect(labels).not.toContain('Save & rebuild')
@@ -278,10 +280,7 @@ describe('EnginesView per-build CMake editor', () => {
     await retry.trigger('click')
     await flushPromises()
 
-    expect(saveVersionBuildConfig).toHaveBeenCalledWith(
-      'llama_cpp:source-fail',
-      expect.any(Object),
-    )
+    expect(saveVersionBuildConfig).toHaveBeenCalledWith('llama_cpp:source-fail', expect.any(Object))
     expect(retryVersion).toHaveBeenCalledWith('llama_cpp:source-fail')
     expect(syncVersion).not.toHaveBeenCalled()
   })
@@ -289,15 +288,19 @@ describe('EnginesView per-build CMake editor', () => {
   it('opens frozen audio.cpp cmake settings from the audio engine modal', async () => {
     const wrapper = mountEnginesView()
     await flushPromises()
-    const audioCard = wrapper.findAll('.engine-card').find((card) => card.text().includes('audio.cpp'))
+    const audioCard = wrapper
+      .findAll('.engine-card')
+      .find((card) => card.text().includes('audio.cpp'))
     await audioCard.trigger('click')
     await flushPromises()
     await wrapper.get('[data-testid="edit-config-btn"]').trigger('click')
     await flushPromises()
 
-    const cmakeDialog = wrapper.findAll('.dialog-stub').find((node) =>
-      String(node.attributes('data-header') || '').includes('CMake settings — audio.cpp'),
-    )
+    const cmakeDialog = wrapper
+      .findAll('.dialog-stub')
+      .find((node) =>
+        String(node.attributes('data-header') || '').includes('CMake settings — audio.cpp'),
+      )
     expect(cmakeDialog).toBeTruthy()
     expect(cmakeDialog.text()).not.toContain('Repo URL')
     expect(cmakeDialog.text()).not.toContain('Build Name Suffix')

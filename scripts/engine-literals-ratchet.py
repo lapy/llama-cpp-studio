@@ -47,7 +47,9 @@ AREA_CAPS: Dict[str, int] = {
     "backend/services/": 7,
     "frontend/e2e/": 22,
     "frontend/src/components/": 72,
-    "frontend/src/composables/": 58,
+    # 2026-11-15: 58 -> 59. Prettier split one line in
+    # engineReadiness.test.js, putting a second id literal on its own line.
+    "frontend/src/composables/": 59,
     # R95 raised this 42 -> 44: the frontend descriptors now declare the
     # build-options catalog endpoint (one per catalog-bearing engine) instead of
     # the views branching on engine ids — reviewed diff.
@@ -76,7 +78,9 @@ AREA_CAPS: Dict[str, int] = {
     # R104 tightened this 376 -> 351: R90/R91/R101 moved the audio/text family
     # dispatch into descriptor data and the R88 stub fix removed dead reads, so
     # the measured total dropped; the cap now has NO slack.
-    "frontend/src/views/": 265,
+    # 2026-11-15: 265 -> 266. Prettier split one line in ModelConfig.test.js,
+    # putting a second id literal on its own line.
+    "frontend/src/views/": 266,
     # Every engine conversion tightened this as recipes/constants moved out of
     # the exporter into authoritative definitions; deleting the exporter after
     # the final conversion took it to 40.

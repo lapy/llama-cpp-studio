@@ -3,7 +3,11 @@
     <PageHeader title="Audio">
       <template #meta>
         <Tag v-if="selectedConfig?.family" :value="selectedConfig.family" severity="secondary" />
-        <Tag v-if="selectedConfig?.task" :value="taskDisplayLabel(selectedConfig.task)" severity="info" />
+        <Tag
+          v-if="selectedConfig?.task"
+          :value="taskDisplayLabel(selectedConfig.task)"
+          severity="info"
+        />
         <Tag
           v-if="selectedModel"
           :value="selectedRuntimeState.label"
@@ -43,7 +47,12 @@
 
     <LoadingState v-if="bootLoading" message="Loading audio models…" />
 
-    <EmptyState v-else-if="workspaceError && !audioModels.length" icon="pi pi-exclamation-circle" title="Could not load audio models" :description="workspaceError">
+    <EmptyState
+      v-else-if="workspaceError && !audioModels.length"
+      icon="pi pi-exclamation-circle"
+      title="Could not load audio models"
+      :description="workspaceError"
+    >
       <Button label="Retry" icon="pi pi-refresh" @click="refreshWorkspace" />
     </EmptyState>
     <EmptyState
@@ -63,10 +72,25 @@
     </EmptyState>
 
     <template v-else>
-      <div v-if="workspaceError" class="state-banner" role="alert">{{ workspaceError }}<Button label="Retry" size="small" @click="refreshWorkspace" /></div>
-      <div v-if="configError" class="state-banner" role="alert">{{ configError }}<Button label="Retry configuration" size="small" @click="refreshWorkspace" /></div>
-      <div v-if="contractError" class="state-banner" role="alert">{{ contractError }}<Button label="Retry capabilities" size="small" @click="loadWorkspaceData(true)" /></div>
-      <div v-if="referenceAudioError" class="state-banner" role="alert">{{ referenceAudioError }}<Button label="Retry reference audio" size="small" @click="loadReferenceAudio(selectedModelId)" /></div>
+      <div v-if="workspaceError" class="state-banner" role="alert">
+        {{ workspaceError }}<Button label="Retry" size="small" @click="refreshWorkspace" />
+      </div>
+      <div v-if="configError" class="state-banner" role="alert">
+        {{ configError
+        }}<Button label="Retry configuration" size="small" @click="refreshWorkspace" />
+      </div>
+      <div v-if="contractError" class="state-banner" role="alert">
+        {{ contractError
+        }}<Button label="Retry capabilities" size="small" @click="loadWorkspaceData(true)" />
+      </div>
+      <div v-if="referenceAudioError" class="state-banner" role="alert">
+        {{ referenceAudioError
+        }}<Button
+          label="Retry reference audio"
+          size="small"
+          @click="loadReferenceAudio(selectedModelId)"
+        />
+      </div>
       <div class="config-card config-card--compact">
         <div class="section-label">Model</div>
         <div class="audio-model-bar">
@@ -139,7 +163,11 @@
         :closable="false"
         class="config-scan-message"
       >
-        {{ selectedRuntimeState.actionable ? '' : 'Start this model and wait for a verified running state before inference.' }}
+        {{
+          selectedRuntimeState.actionable
+            ? ''
+            : 'Start this model and wait for a verified running state before inference.'
+        }}
       </Message>
 
       <!-- Speech -->
@@ -167,7 +195,8 @@
             <div class="param-field">
               <span class="param-field__label" id="audio-speech-voice-label">Voice preset</span>
               <Select
-                input-id="audio-speech-voice" aria-labelledby="audio-speech-voice-label"
+                input-id="audio-speech-voice"
+                aria-labelledby="audio-speech-voice-label"
                 v-model="speechVoice"
                 :options="voicePresetOptions"
                 optionLabel="label"
@@ -178,9 +207,12 @@
               />
             </div>
             <div class="param-field">
-              <span class="param-field__label" id="audio-speech-reference-label">Reference audio</span>
+              <span class="param-field__label" id="audio-speech-reference-label"
+                >Reference audio</span
+              >
               <Select
-                input-id="audio-speech-reference" aria-labelledby="audio-speech-reference-label"
+                input-id="audio-speech-reference"
+                aria-labelledby="audio-speech-reference-label"
                 v-model="speechVoiceRef"
                 :options="referenceAudioOptions"
                 optionLabel="label"
@@ -193,13 +225,19 @@
             </div>
             <div class="param-field">
               <label class="param-field__label" for="audio-speech-language">Language</label>
-              <InputText id="audio-speech-language" v-model="speechLanguage" class="param-input" placeholder="optional" />
+              <InputText
+                id="audio-speech-language"
+                v-model="speechLanguage"
+                class="param-input"
+                placeholder="optional"
+              />
             </div>
             <div v-if="speechStreamingAvailable" class="param-field">
               <label class="param-field__label" for="audio-stream-pcm">Play while generating</label>
               <ToggleSwitch
                 v-model="speechStream"
-                input-id="audio-stream-pcm" aria-label="Stream PCM"
+                input-id="audio-stream-pcm"
+                aria-label="Stream PCM"
               />
             </div>
           </div>
@@ -250,7 +288,8 @@
           <div class="param-field section-params">
             <label class="param-field__label" for="audio-asr-file">Audio</label>
             <input
-              ref="asrFileInput" id="audio-asr-file"
+              ref="asrFileInput"
+              id="audio-asr-file"
               type="file"
               multiple
               accept="audio/*,.wav,.ogg,.opus,.mp3,.webm,.m4a"
@@ -285,11 +324,21 @@
           <div class="params-grid section-params">
             <div class="param-field">
               <label class="param-field__label" for="audio-asr-language">Language</label>
-              <InputText id="audio-asr-language" v-model="asrLanguage" class="param-input" placeholder="en" />
+              <InputText
+                id="audio-asr-language"
+                v-model="asrLanguage"
+                class="param-input"
+                placeholder="en"
+              />
             </div>
             <div class="param-field">
               <label class="param-field__label" for="audio-asr-prompt">Prompt</label>
-              <InputText id="audio-asr-prompt" v-model="asrPrompt" class="param-input" placeholder="optional context" />
+              <InputText
+                id="audio-asr-prompt"
+                v-model="asrPrompt"
+                class="param-input"
+                placeholder="optional context"
+              />
             </div>
           </div>
           <div class="audio-actions">
@@ -336,8 +385,8 @@
         <div class="config-card">
           <div class="section-label">{{ taskLabel }}</div>
           <Message v-if="!workspaceFields.length" severity="info" :closable="false">
-            The active engine has not provided request fields for this model. Scan the model
-            in Configure to discover its inputs.
+            The active engine has not provided request fields for this model. Scan the model in
+            Configure to discover its inputs.
           </Message>
           <div v-for="field in workspaceFields" :key="field.key" class="param-field">
             <label class="param-field__label" :for="`audio-task-${field.key}`">
@@ -350,7 +399,9 @@
               :options="field.options || []"
               :disabled="taskLoading"
             />
-            <small v-if="field.description" class="config-muted-hint">{{ field.description }}</small>
+            <small v-if="field.description" class="config-muted-hint">{{
+              field.description
+            }}</small>
           </div>
           <div class="audio-actions">
             <Button
@@ -362,11 +413,7 @@
             />
           </div>
         </div>
-        <AudioResultPanel
-          :error="taskError"
-          :clips="resultAudioClips"
-          @download="onDownloadClip"
-        />
+        <AudioResultPanel :error="taskError" :clips="resultAudioClips" @download="onDownloadClip" />
         <pre v-if="taskResult" class="audio-transcript">{{ taskResult }}</pre>
       </div>
     </template>
@@ -411,7 +458,11 @@ import {
   transcribeAudioBatch,
   runAudioTask,
 } from '@/composables/useAudioInferenceClient'
-import { audioTaskDefaultsKey, audioContractError, fetchAudioContract } from '@/composables/useAudioContract'
+import {
+  audioTaskDefaultsKey,
+  audioContractError,
+  fetchAudioContract,
+} from '@/composables/useAudioContract'
 
 const route = useRoute()
 const router = useRouter()
@@ -481,20 +532,27 @@ const modelRegistry = ref(null)
 const requestValues = ref({})
 const workspaceFields = computed(() => modelRegistry.value?.workspace_request_fields || [])
 const taskLabel = computed(() => visibleTabs.value[0]?.label || 'Run task')
-const taskAction = computed(() => ({ music: 'Generate', design: 'Generate' })[activeTab.value] || taskLabel.value)
-const canRunTask = computed(() => canRun.value && workspaceFields.value.length > 0 &&
-  workspaceFields.value.every((field) => !field.required || (
-    requestValues.value[field.key] != null && String(requestValues.value[field.key]).trim() !== ''
-  )))
+const taskAction = computed(
+  () => ({ music: 'Generate', design: 'Generate' })[activeTab.value] || taskLabel.value,
+)
+const canRunTask = computed(
+  () =>
+    canRun.value &&
+    workspaceFields.value.length > 0 &&
+    workspaceFields.value.every(
+      (field) =>
+        !field.required ||
+        (requestValues.value[field.key] != null &&
+          String(requestValues.value[field.key]).trim() !== ''),
+    ),
+)
 const taskLoading = ref(false)
 const taskError = ref('')
 const taskResult = ref('')
 /** Shared playable outputs for speech, music, VC, separation, design, etc. */
 const resultAudioClips = ref([])
 
-const audioModels = computed(() =>
-  modelStore.allQuantizations.filter((m) => isAudioPackage(m)),
-)
+const audioModels = computed(() => modelStore.allQuantizations.filter((m) => isAudioPackage(m)))
 
 const modelOptions = computed(() =>
   audioModels.value.map((m) => ({
@@ -523,8 +581,14 @@ const proxyStatusSeverity = computed(() => {
   return proxyHealthy.value ? 'success' : 'danger'
 })
 
-const canRun = computed(() => Boolean(selectedRuntimeState.value.actionable && inferenceModelId.value && !contractError.value && !configError.value))
-
+const canRun = computed(() =>
+  Boolean(
+    selectedRuntimeState.value.actionable &&
+    inferenceModelId.value &&
+    !contractError.value &&
+    !configError.value,
+  ),
+)
 
 const communityVoiceIds = computed(() =>
   (referenceAudioItems.value || [])
@@ -537,10 +601,12 @@ const communityVoicesReady = computed(() => communityVoiceIds.value.length > 0)
 const voicePresetOptions = computed(() => {
   const presets = selectedConfig.value?.voice_presets
   const names = presets && typeof presets === 'object' ? Object.keys(presets) : []
-  return [...new Set([...engineVoices.value, ...names, ...communityVoiceIds.value])].map((name) => ({
-    label: name,
-    value: name,
-  }))
+  return [...new Set([...engineVoices.value, ...names, ...communityVoiceIds.value])].map(
+    (name) => ({
+      label: name,
+      value: name,
+    }),
+  )
 })
 
 watch([inferenceModelId, canRun], async ([modelId, running]) => {
@@ -636,7 +702,8 @@ async function installCommunityVoices() {
     toast.add({
       severity: 'success',
       summary: 'Community preset voices installed',
-      detail: 'Apply the proxy config and restart the model, then pick a voice name or a community clip.',
+      detail:
+        'Apply the proxy config and restart the model, then pick a voice name or a community clip.',
       life: 5000,
     })
   } catch (error) {
@@ -658,9 +725,12 @@ async function loadReferenceAudio(modelId) {
   referenceAudioLoading.value = true
   try {
     const items = await modelStore.listReferenceAudio(modelId)
-    if (selectedModelId.value === modelId) referenceAudioItems.value = Array.isArray(items) ? items : []
+    if (selectedModelId.value === modelId)
+      referenceAudioItems.value = Array.isArray(items) ? items : []
   } catch {
-    if (selectedModelId.value === modelId) referenceAudioError.value = 'Could not refresh reference audio. Previously loaded choices are retained.'
+    if (selectedModelId.value === modelId)
+      referenceAudioError.value =
+        'Could not refresh reference audio. Previously loaded choices are retained.'
   } finally {
     if (selectedModelId.value === modelId) referenceAudioLoading.value = false
   }
@@ -690,8 +760,14 @@ async function loadWorkspaceData(force = false) {
     enginesStore.fetchSystemStatus(),
     fetchAudioContract({ force }),
   ])
-  workspaceError.value = results[0].status === 'rejected' ? 'Could not refresh audio models. Check the connection and try again.' : ''
-  contractError.value = results[2].status === 'rejected' || audioContractError.value ? 'Audio capabilities could not be loaded. Retry before running inference.' : ''
+  workspaceError.value =
+    results[0].status === 'rejected'
+      ? 'Could not refresh audio models. Check the connection and try again.'
+      : ''
+  contractError.value =
+    results[2].status === 'rejected' || audioContractError.value
+      ? 'Audio capabilities could not be loaded. Retry before running inference.'
+      : ''
 }
 
 async function refreshWorkspace() {
@@ -709,7 +785,11 @@ async function refreshWorkspace() {
               configError.value = ''
             }
           })
-          .catch(() => { if (selectedModelId.value === modelId) configError.value = 'Could not load the model configuration. Retry before running inference.' }),
+          .catch(() => {
+            if (selectedModelId.value === modelId)
+              configError.value =
+                'Could not load the model configuration. Retry before running inference.'
+          }),
         loadReferenceAudio(modelId),
         loadAcceptedSpeechRates(modelId),
       ])
@@ -943,9 +1023,7 @@ async function startSelected(confirmation = null) {
   }
 }
 
-const speechStreamingAvailable = computed(
-  () => selectedConfig.value?.mode === 'streaming',
-)
+const speechStreamingAvailable = computed(() => selectedConfig.value?.mode === 'streaming')
 
 /** Gapless queue for SSE PCM deltas: one AudioContext, scheduled by sample index. */
 function createPcmPlayer(sampleRate) {
@@ -956,7 +1034,9 @@ function createPcmPlayer(sampleRate) {
   return {
     push(pcmBytes) {
       const samples = new Int16Array(
-        pcmBytes.buffer, pcmBytes.byteOffset, Math.floor(pcmBytes.byteLength / 2),
+        pcmBytes.buffer,
+        pcmBytes.byteOffset,
+        Math.floor(pcmBytes.byteLength / 2),
       )
       if (!samples.length) return
       // Declared-rate buffers are resampled by the context, so playback pitch
@@ -1001,7 +1081,9 @@ async function runSpeech() {
   Object.assign(extras, speechRateRequestFields(defaults, acceptedSpeechRates.value))
   if (speechVoiceRef.value) {
     extras.voice_ref = speechVoiceRef.value
-    const match = (referenceAudioItems.value || []).find((item) => item.path === speechVoiceRef.value)
+    const match = (referenceAudioItems.value || []).find(
+      (item) => item.path === speechVoiceRef.value,
+    )
     if (match?.reference_text && !extras.reference_text) {
       extras.reference_text = match.reference_text
     }
@@ -1162,13 +1244,15 @@ async function runTask(task, input, { defaultFilename = 'audio.wav' } = {}) {
 }
 
 function initializeRequestValues(config) {
-  const defaultsKey = modelRegistry.value?.request_defaults_key
-    || audioTaskDefaultsKey(selectedConfig.value?.task)
+  const defaultsKey =
+    modelRegistry.value?.request_defaults_key || audioTaskDefaultsKey(selectedConfig.value?.task)
   const defaults = config?.[defaultsKey] || {}
-  requestValues.value = Object.fromEntries(workspaceFields.value.map((field) => [
-    field.key,
-    (field.nested ? defaults.options?.[field.key] : defaults[field.key]) ?? field.default ?? null,
-  ]))
+  requestValues.value = Object.fromEntries(
+    workspaceFields.value.map((field) => [
+      field.key,
+      (field.nested ? defaults.options?.[field.key] : defaults[field.key]) ?? field.default ?? null,
+    ]),
+  )
 }
 
 function runSchemaTask() {

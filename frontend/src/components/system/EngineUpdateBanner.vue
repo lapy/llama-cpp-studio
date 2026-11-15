@@ -12,7 +12,8 @@
         target="_blank"
         rel="noopener noreferrer"
         class="engine-update-banner__link"
-      >{{ linkLabel }}</a>
+        >{{ linkLabel }}</a
+      >
     </span>
     <Button
       v-if="showUpdateAction"

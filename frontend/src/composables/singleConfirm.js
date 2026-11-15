@@ -38,4 +38,3 @@ export function requireSingleConfirmation(confirm, options) {
     throw error
   }
 }
-

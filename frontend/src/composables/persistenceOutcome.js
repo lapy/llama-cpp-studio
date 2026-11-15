@@ -13,7 +13,8 @@ export function classifyPersistenceError(error) {
       code: null,
       committed: 'unknown',
       summary: 'Save outcome unknown',
-      detail: 'The save outcome could not be established. Your edits are still here. Refresh before trying again.',
+      detail:
+        'The save outcome could not be established. Your edits are still here. Refresh before trying again.',
       preserveEdits: true,
       refresh: true,
       retry: false,
@@ -26,7 +27,8 @@ export function classifyPersistenceError(error) {
       code: 'STORE_QUEUE_FULL',
       committed: false,
       summary: 'Save paused',
-      detail: 'Persistence is busy, so this save was not stored. Your edits are still here. Try again when you are ready.',
+      detail:
+        'Persistence is busy, so this save was not stored. Your edits are still here. Try again when you are ready.',
       preserveEdits: true,
       refresh: false,
       retry: true,
@@ -52,20 +54,27 @@ export function classifyPersistenceError(error) {
       code: 'STORE_WRITE_FAILED',
       committed: false,
       summary: 'Not saved',
-      detail: 'The save was not stored. The previous state is unchanged. If this was the first save, no document was written. Your edits are still here.',
+      detail:
+        'The save was not stored. The previous state is unchanged. If this was the first save, no document was written. Your edits are still here.',
       preserveEdits: true,
       refresh: false,
       retry: true,
       success: false,
     }
   }
-  if (data.code === 'STORE_WRITE_FAILED' || data.code === 'RECONCILE_UNKNOWN' || data.committed === 'unknown' || data.outcome === 'unknown') {
+  if (
+    data.code === 'STORE_WRITE_FAILED' ||
+    data.code === 'RECONCILE_UNKNOWN' ||
+    data.committed === 'unknown' ||
+    data.outcome === 'unknown'
+  ) {
     return {
       outcome: 'unknown',
       code: data.code || null,
       committed: 'unknown',
       summary: 'Outcome unknown',
-      detail: 'The outcome could not be established. Your edits are still here. Refresh before trying again.',
+      detail:
+        'The outcome could not be established. Your edits are still here. Refresh before trying again.',
       preserveEdits: true,
       refresh: true,
       retry: false,

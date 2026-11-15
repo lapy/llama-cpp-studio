@@ -19,7 +19,7 @@ function apiModelSegment(modelId) {
 }
 
 export const useModelStore = defineStore('models', () => {
-  const models = ref([])        // array of groups: { huggingface_id, base_model_name, quantizations[] }
+  const models = ref([]) // array of groups: { huggingface_id, base_model_name, quantizations[] }
   const loading = ref(false)
   const searchQuery = ref('')
   const searchLastQuery = ref('')
@@ -50,15 +50,17 @@ export const useModelStore = defineStore('models', () => {
   let fetchModelsSeq = 0
 
   function isAbortError(error) {
-    return error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError' || axios.isCancel?.(error)
+    return (
+      error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError' || axios.isCancel?.(error)
+    )
   }
 
   // ── Computed ──────────────────────────────────────────────
 
   const allQuantizations = computed(() => {
     const result = []
-    models.value.forEach(group => {
-      ;(group.quantizations || []).forEach(q => {
+    models.value.forEach((group) => {
+      ;(group.quantizations || []).forEach((q) => {
         result.push({
           ...q,
           base_model_name: group.base_model_name,
@@ -72,9 +74,9 @@ export const useModelStore = defineStore('models', () => {
     return result
   })
 
-  const downloadedModels = computed(() => allQuantizations.value.filter(m => m.downloaded_at))
-  const runningModels    = computed(() => allQuantizations.value.filter(m => m.is_active))
-  const modelGroups      = computed(() => models.value)
+  const downloadedModels = computed(() => allQuantizations.value.filter((m) => m.downloaded_at))
+  const runningModels = computed(() => allQuantizations.value.filter((m) => m.is_active))
+  const modelGroups = computed(() => models.value)
 
   // ── Models CRUD ───────────────────────────────────────────
 
@@ -107,7 +109,8 @@ export const useModelStore = defineStore('models', () => {
       const { data } = await axios.get('/api/models/safetensors')
       safetensorsModels.value = Array.isArray(data) ? data : []
     } catch (e) {
-      safetensorsError.value = e?.response?.data?.detail || e?.message || 'Could not load safetensors models'
+      safetensorsError.value =
+        e?.response?.data?.detail || e?.message || 'Could not load safetensors models'
       console.error('Failed to fetch safetensors models:', e)
       throw e
     } finally {
@@ -143,7 +146,11 @@ export const useModelStore = defineStore('models', () => {
   async function searchModels(query, limit = 20, modelFormat = searchFormat.value) {
     searchLoading.value = true
     try {
-      const { data } = await axios.post('/api/models/search', { query, limit, model_format: modelFormat })
+      const { data } = await axios.post('/api/models/search', {
+        query,
+        limit,
+        model_format: modelFormat,
+      })
       searchQuery.value = query
       searchLastQuery.value = query
       searchHasSearched.value = true
@@ -166,9 +173,10 @@ export const useModelStore = defineStore('models', () => {
       const rawPage = Number(options.page)
       const page = Number.isFinite(rawPage) && rawPage >= 1 ? Math.floor(rawPage) : 1
       const rawPageSize = Number(options.page_size ?? options.limit)
-      const pageSize = Number.isFinite(rawPageSize) && rawPageSize >= 1
-        ? Math.min(100, Math.floor(rawPageSize))
-        : 20
+      const pageSize =
+        Number.isFinite(rawPageSize) && rawPageSize >= 1
+          ? Math.min(100, Math.floor(rawPageSize))
+          : 20
       const request = {
         query,
         page,
@@ -245,7 +253,13 @@ export const useModelStore = defineStore('models', () => {
 
   // ── Download ──────────────────────────────────────────────
 
-  async function downloadModel(huggingfaceId, filename, totalBytes = 0, modelFormat = 'gguf', pipelineTag = null) {
+  async function downloadModel(
+    huggingfaceId,
+    filename,
+    totalBytes = 0,
+    modelFormat = 'gguf',
+    pipelineTag = null,
+  ) {
     const { data } = await axios.post('/api/models/download', {
       huggingface_id: huggingfaceId,
       filename,
@@ -308,10 +322,7 @@ export const useModelStore = defineStore('models', () => {
   }
 
   async function stopModel(modelId, confirmation = null) {
-    await axios.post(
-      `/api/models/${apiModelSegment(modelId)}/stop`,
-      confirmation || {},
-    )
+    await axios.post(`/api/models/${apiModelSegment(modelId)}/stop`, confirmation || {})
     await fetchModels()
   }
 

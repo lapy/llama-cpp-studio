@@ -40,7 +40,12 @@ function mountDialog() {
     },
     global: {
       stubs: {
-        Dialog: { name: 'Dialog', props: ['visible'], emits: ['update:visible'], template: '<div><slot /></div>' },
+        Dialog: {
+          name: 'Dialog',
+          props: ['visible'],
+          emits: ['update:visible'],
+          template: '<div><slot /></div>',
+        },
         Button: { props: ['label'], template: '<button>{{ label }}<slot /></button>' },
       },
     },
@@ -50,7 +55,10 @@ function mountDialog() {
 async function editUrl(wrapper, value) {
   const input = wrapper.get('#connect-public-url')
   await input.setValue(value)
-  await wrapper.findAll('button').find((button) => button.text() === 'Save public URL').trigger('click')
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === 'Save public URL')
+    .trigger('click')
   await flushPromises()
 }
 
@@ -64,9 +72,11 @@ describe('ConnectDialog persistence', () => {
   })
 
   it('keeps key loading failures distinct from an empty list and access policy', async () => {
-    axios.get.mockImplementation((path) => path === '/api/proxy'
-      ? Promise.resolve({ data: { settings: { allow_anonymous: false } } })
-      : Promise.reject(new Error('offline')))
+    axios.get.mockImplementation((path) =>
+      path === '/api/proxy'
+        ? Promise.resolve({ data: { settings: { allow_anonymous: false } } })
+        : Promise.reject(new Error('offline')),
+    )
     const wrapper = mountDialog()
     await flushPromises()
     expect(wrapper.text()).toContain('Could not load access keys')
@@ -81,21 +91,30 @@ describe('ConnectDialog persistence', () => {
     axios.post.mockResolvedValue({ data: { key: 'sk-once' } })
     const wrapper = mountDialog()
     await flushPromises()
-    await wrapper.findAll('button').find((button) => button.text() === 'Revoke').trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Revoke')
+      .trigger('click')
     expect(axios.delete).not.toHaveBeenCalled()
     const revocation = confirmRequire.mock.calls.at(-1)[0]
     expect(revocation.header).toContain('Desktop')
     await revocation.accept()
     expect(axios.delete).toHaveBeenCalledWith('/api/inference/keys/desktop')
     await wrapper.get('input[aria-label="New access key name"]').setValue('New desktop')
-    await wrapper.findAll('button').find((button) => button.text() === 'Create key').trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Create key')
+      .trigger('click')
     await flushPromises()
     wrapper.findComponent({ name: 'Dialog' }).vm.$emit('update:visible', false)
     expect(wrapper.emitted('update:visible')).toBeUndefined()
     const closure = confirmRequire.mock.calls.at(-1)[0]
     expect(closure.header).toContain('Close without saving')
     closure.reject()
-    await wrapper.findAll('button').find((button) => button.text() === 'I saved this key').trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'I saved this key')
+      .trigger('click')
     wrapper.findComponent({ name: 'Dialog' }).vm.$emit('update:visible', false)
     expect(wrapper.emitted('update:visible')).toEqual([[false]])
     wrapper.unmount()
@@ -110,10 +129,15 @@ describe('ConnectDialog persistence', () => {
   })
 
   it('keeps the typed URL and waits for a deliberate retry when the queue is full', async () => {
-    vi.mocked(axios.put).mockRejectedValue(failure({
-      code: 'STORE_QUEUE_FULL',
-      committed: false,
-    }, 503))
+    vi.mocked(axios.put).mockRejectedValue(
+      failure(
+        {
+          code: 'STORE_QUEUE_FULL',
+          committed: false,
+        },
+        503,
+      ),
+    )
     const wrapper = mountDialog()
     await editUrl(wrapper, 'http://new.example/path')
     expect(wrapper.get('#connect-public-url').element.value).toBe('http://new.example/path')
@@ -121,7 +145,9 @@ describe('ConnectDialog persistence', () => {
     expect(toastAdd).not.toHaveBeenCalledWith(expect.objectContaining({ severity: 'success' }))
     expect(axios.put).toHaveBeenCalledTimes(1)
 
-    vi.mocked(axios.put).mockResolvedValue({ data: { public_inference_url: 'http://new.example/path' } })
+    vi.mocked(axios.put).mockResolvedValue({
+      data: { public_inference_url: 'http://new.example/path' },
+    })
     const retry = wrapper.findAll('button').find((button) => button.text() === 'Try again')
     await retry.trigger('click')
     await flushPromises()
@@ -129,10 +155,12 @@ describe('ConnectDialog persistence', () => {
   })
 
   it('does not show a saved URL when the write was not stored', async () => {
-    vi.mocked(axios.put).mockRejectedValue(failure({
-      code: 'STORE_WRITE_FAILED',
-      committed: false,
-    }))
+    vi.mocked(axios.put).mockRejectedValue(
+      failure({
+        code: 'STORE_WRITE_FAILED',
+        committed: false,
+      }),
+    )
     const wrapper = mountDialog()
     await editUrl(wrapper, 'http://new.example')
     expect(wrapper.text()).toContain('Not saved')
@@ -141,10 +169,12 @@ describe('ConnectDialog persistence', () => {
   })
 
   it('refreshes after a known replacement and does not save again until asked', async () => {
-    vi.mocked(axios.put).mockRejectedValue(failure({
-      code: 'STORE_WRITE_FAILED',
-      committed: true,
-    }))
+    vi.mocked(axios.put).mockRejectedValue(
+      failure({
+        code: 'STORE_WRITE_FAILED',
+        committed: true,
+      }),
+    )
     vi.mocked(axios.get).mockResolvedValue({
       data: { public_inference_url: 'http://stored.example' },
     })
@@ -158,10 +188,12 @@ describe('ConnectDialog persistence', () => {
   })
 
   it('keeps the typed URL when reloading a replaced document fails', async () => {
-    vi.mocked(axios.put).mockRejectedValue(failure({
-      code: 'STORE_WRITE_FAILED',
-      committed: true,
-    }))
+    vi.mocked(axios.put).mockRejectedValue(
+      failure({
+        code: 'STORE_WRITE_FAILED',
+        committed: true,
+      }),
+    )
     vi.mocked(axios.get).mockRejectedValue(new Error('offline'))
     const wrapper = mountDialog()
     await editUrl(wrapper, 'http://new.example')

@@ -8,7 +8,8 @@
       <span
         class="engine-active-status__label"
         :class="{ 'engine-active-status__label--error': row.error }"
-      >{{ row.label }}</span>
+        >{{ row.label }}</span
+      >
       <Tag
         v-if="row.tag"
         :value="row.tag"
@@ -45,9 +46,7 @@ const visibleRows = computed(() =>
   }),
 )
 
-const hasContent = computed(
-  () => visibleRows.value.length > 0 || Boolean(slots.default),
-)
+const hasContent = computed(() => visibleRows.value.length > 0 || Boolean(slots.default))
 </script>
 
 <style scoped>

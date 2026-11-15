@@ -5,33 +5,39 @@ import AudioParamField from './AudioParamField.vue'
 
 const dropdownStub = {
   props: ['modelValue', 'options', 'disabled'],
-  template: '<select class="dropdown-stub" :disabled="disabled" @change="$emit(`update:modelValue`, $event.target.value)"><option /></select>',
+  template:
+    '<select class="dropdown-stub" :disabled="disabled" @change="$emit(`update:modelValue`, $event.target.value)"><option /></select>',
 }
 
 const inputNumberStub = {
   props: ['modelValue', 'disabled', 'minFractionDigits', 'maxFractionDigits'],
-  template: '<input type="number" class="number-stub" :disabled="disabled" :value="modelValue" @input="$emit(`update:modelValue`, Number($event.target.value))" />',
+  template:
+    '<input type="number" class="number-stub" :disabled="disabled" :value="modelValue" @input="$emit(`update:modelValue`, Number($event.target.value))" />',
 }
 
 const inputSwitchStub = {
   props: ['modelValue', 'disabled'],
-  template: '<input type="checkbox" class="switch-stub" :disabled="disabled" :checked="modelValue" @change="$emit(`update:modelValue`, $event.target.checked)" />',
+  template:
+    '<input type="checkbox" class="switch-stub" :disabled="disabled" :checked="modelValue" @change="$emit(`update:modelValue`, $event.target.checked)" />',
 }
 
 const chipsStub = {
   props: ['modelValue', 'disabled'],
-  template: '<input class="chips-stub" :disabled="disabled" :value="(modelValue || []).join(`,`) " @input="$emit(`update:modelValue`, $event.target.value.split(`,`))" />',
+  template:
+    '<input class="chips-stub" :disabled="disabled" :value="(modelValue || []).join(`,`) " @input="$emit(`update:modelValue`, $event.target.value.split(`,`))" />',
 }
 
 const textareaStub = {
   props: ['modelValue', 'disabled'],
   emits: ['update:modelValue'],
-  template: '<textarea class="textarea-stub" :disabled="disabled" :value="modelValue" @input="$emit(`update:modelValue`, $event.target.value)" />',
+  template:
+    '<textarea class="textarea-stub" :disabled="disabled" :value="modelValue" @input="$emit(`update:modelValue`, $event.target.value)" />',
 }
 
 const inputTextStub = {
   props: ['modelValue', 'placeholder', 'disabled'],
-  template: '<input class="text-stub" :disabled="disabled" :placeholder="placeholder" :value="modelValue" @input="$emit(`update:modelValue`, $event.target.value)" />',
+  template:
+    '<input class="text-stub" :disabled="disabled" :placeholder="placeholder" :value="modelValue" @input="$emit(`update:modelValue`, $event.target.value)" />',
 }
 
 function mountField(param, props = {}) {
@@ -87,10 +93,7 @@ describe('AudioParamField', () => {
   })
 
   it('renders Textarea for json type and emits update:json', async () => {
-    const wrapper = mountField(
-      { key: 'payload', type: 'json' },
-      { modelValue: { a: 1 } },
-    )
+    const wrapper = mountField({ key: 'payload', type: 'json' }, { modelValue: { a: 1 } })
     const textarea = wrapper.find('.textarea-stub')
     expect(textarea.exists()).toBe(true)
     expect(textarea.element.value).toContain('"a": 1')

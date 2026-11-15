@@ -30,7 +30,15 @@
             <i class="pi pi-code" aria-hidden="true" />
             {{ sourceBranch(v) }}
           </small>
-          <small v-if="v.build_config?.cuda || v.build_config?.enable_cuda || v.build_config?.backend === 'cuda'" class="cuda-badge">CUDA</small>
+          <small
+            v-if="
+              v.build_config?.cuda ||
+              v.build_config?.enable_cuda ||
+              v.build_config?.backend === 'cuda'
+            "
+            class="cuda-badge"
+            >CUDA</small
+          >
         </div>
         <div class="version-actions">
           <Button
@@ -162,7 +170,9 @@ function sourceBranch(version) {
   const branch = String(version?.source_branch || '').trim()
   if (branch) return branch
   const ref = String(version?.source_ref || '').trim()
-  const refType = String(version?.source_ref_type || '').trim().toLowerCase()
+  const refType = String(version?.source_ref_type || '')
+    .trim()
+    .toLowerCase()
   if (refType === 'branch' && ref) return ref
   if (refType === 'commit' || refType === 'release') return ''
   if (ref && !looksLikeCommitRef(ref) && !looksLikeReleaseTag(ref)) return ref
@@ -183,19 +193,21 @@ function versionTypeSeverity(version) {
 function forkTooltip(version) {
   if (!(version?.is_fork || versionTypeLabel(version) === 'fork')) return undefined
   const repo = String(version?.source_repo || '').trim()
-  return repo
-    ? `Built from fork: ${repo}`
-    : 'Built from a non-default GitHub owner (fork)'
+  return repo ? `Built from fork: ${repo}` : 'Built from a non-default GitHub owner (fork)'
 }
 
 function canSyncSourceVersion(version) {
   if (!canActivateVersion(version)) return false
   const installType = String(version?.install_type || version?.type || '').toLowerCase()
-  return ['source', 'fork', 'patched', 'local'].includes(installType) && Boolean(sourceBranch(version))
+  return (
+    ['source', 'fork', 'patched', 'local'].includes(installType) && Boolean(sourceBranch(version))
+  )
 }
 
 function buildStatus(version) {
-  const status = String(version?.build_status || '').trim().toLowerCase()
+  const status = String(version?.build_status || '')
+    .trim()
+    .toLowerCase()
   if (['building', 'failed', 'cancelled', 'broken'].includes(status)) return status
   return ''
 }
@@ -243,8 +255,9 @@ function versionEngine(version) {
   if (CMAKE_ENGINES.has(prefix)) return prefix
   const repo = String(version?.repository_source || '')
   return (
-    Object.entries(ENGINE_DESCRIPTORS).find(([, descriptor]) => descriptor.repoSource === repo)?.[0] ||
-    ''
+    Object.entries(ENGINE_DESCRIPTORS).find(
+      ([, descriptor]) => descriptor.repoSource === repo,
+    )?.[0] || ''
   )
 }
 
