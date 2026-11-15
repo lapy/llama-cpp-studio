@@ -93,7 +93,11 @@ jobs:
           python -m pytest backend/tests -q --tb=short \
             --ignore=backend/tests/test_performance_budgets.py \
             --cov=backend --cov=devcontrol --cov-config=.coveragerc --cov-append \
-            --cov-report=term-missing --cov-report=xml:test-results/backend-coverage.xml
+            --cov-report=term-missing --cov-report=xml:test-results/backend-coverage.xml \
+            --cov-report=json:test-results/backend-coverage.json
+
+      - name: Enforce per-module coverage floors
+        run: python scripts/check_module_coverage.py
 
       # Instrumentation makes wall-clock budgets meaningless, so retain these
       # tests in the same job but execute them outside the coverage process.
