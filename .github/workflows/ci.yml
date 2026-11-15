@@ -80,12 +80,25 @@ jobs:
           python scripts/export-openapi.py --check
 
       - name: Development control-plane tests
-        run: python -m pytest devcontrol/tests -q -p no:cacheprovider
+        run: >-
+          python -m pytest devcontrol/tests -q -p no:cacheprovider
+          --cov=backend --cov=devcontrol --cov-config=.coveragerc --cov-report=
+          --cov-fail-under=0
 
-      - name: Run pytest
+      - name: Run pytest with production coverage
         env:
           PROXY_CONFORMANCE_REPORT: test-results/proxy-conformance.json
-        run: python -m pytest backend/tests -q --tb=short
+        run: |
+          mkdir -p test-results
+          python -m pytest backend/tests -q --tb=short \
+            --ignore=backend/tests/test_performance_budgets.py \
+            --cov=backend --cov=devcontrol --cov-config=.coveragerc --cov-append \
+            --cov-report=term-missing --cov-report=xml:test-results/backend-coverage.xml
+
+      # Instrumentation makes wall-clock budgets meaningless, so retain these
+      # tests in the same job but execute them outside the coverage process.
+      - name: Performance budget tests
+        run: python -m pytest backend/tests/test_performance_budgets.py -q --tb=short
 
       - name: Upload proxy conformance report
         if: always()
@@ -94,6 +107,14 @@ jobs:
           name: proxy-conformance
           path: test-results/proxy-conformance.json
           if-no-files-found: warn
+
+      - name: Upload backend coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-coverage
+          path: test-results/backend-coverage.xml
+          if-no-files-found: error
 
       - name: audio.cpp live help fixtures
         run: |
@@ -129,7 +150,15 @@ jobs:
           npm run typecheck:api
           npm run style:check
           npm run format:check
-          npm run test:frontend
+          npm run test:frontend:coverage
+
+      - name: Upload frontend coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-coverage
+          path: test-results/frontend-coverage/coverage-summary.json
+          if-no-files-found: error
 
       # Secrets (including VITE_PRIMEUI_LICENSE) are unavailable to fork PRs
       # and to Dependabot-authored PRs. Dependabot PRs report

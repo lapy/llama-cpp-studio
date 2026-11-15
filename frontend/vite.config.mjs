@@ -35,7 +35,7 @@ export default defineConfig(({ command, mode }) => {
   } else if (command === 'build') {
     throw new Error(
       'VITE_PRIMEUI_LICENSE is required for production builds. ' +
-        'Add it to frontend/.env.local or pass --build-arg VITE_PRIMEUI_LICENSE=...'
+        'Add it to frontend/.env.local or pass --build-arg VITE_PRIMEUI_LICENSE=...',
     )
   }
 
@@ -56,6 +56,19 @@ export default defineConfig(({ command, mode }) => {
       include: ['src/**/*.test.js'],
       setupFiles: ['./vitest.setup.js'],
       restoreMocks: true,
+      coverage: {
+        provider: 'v8',
+        include: ['src/**/*.{js,ts,vue}'],
+        exclude: ['src/**/*.test.js', 'src/test-fixtures/**'],
+        reporter: ['text', 'json-summary'],
+        reportsDirectory: '../test-results/frontend-coverage',
+        thresholds: {
+          statements: 67,
+          branches: 60,
+          functions: 63,
+          lines: 70,
+        },
+      },
       // Vue + happy-dom integration tests share timer-heavy module state.
       // Serialize files to prevent intermittent timeouts and missed DOM events.
       pool: 'forks',
