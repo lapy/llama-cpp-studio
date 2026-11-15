@@ -862,6 +862,136 @@
         "title": "LaunchApplyEntry",
         "type": "object"
       },
+      "OperationAttentionItem": {
+        "properties": {
+          "actions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "evidence": {
+            "title": "Evidence",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "needs_confirmation": {
+            "title": "Needs Confirmation",
+            "type": "boolean"
+          },
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "recovery": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OperationRecoveryDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resource_key": {
+            "title": "Resource Key",
+            "type": "string"
+          },
+          "retry": {
+            "title": "Retry",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "number"
+          }
+        },
+        "required": [
+          "operation_id",
+          "task_id",
+          "kind",
+          "status",
+          "description",
+          "message",
+          "resource_key",
+          "evidence",
+          "retry",
+          "needs_confirmation",
+          "updated_at"
+        ],
+        "title": "OperationAttentionItem",
+        "type": "object"
+      },
+      "OperationAttentionResponse": {
+        "properties": {
+          "count": {
+            "default": 0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "operations": {
+            "items": {
+              "$ref": "#/components/schemas/OperationAttentionItem"
+            },
+            "title": "Operations",
+            "type": "array"
+          }
+        },
+        "title": "OperationAttentionResponse",
+        "type": "object"
+      },
+      "OperationRecoveryDetail": {
+        "description": "The decision restart reconciliation stored on the row, when present.",
+        "properties": {
+          "evidence": {
+            "default": "",
+            "title": "Evidence",
+            "type": "string"
+          },
+          "message": {
+            "default": "",
+            "title": "Message",
+            "type": "string"
+          },
+          "replayed": {
+            "default": 0,
+            "title": "Replayed",
+            "type": "integer"
+          },
+          "retry": {
+            "default": "",
+            "title": "Retry",
+            "type": "string"
+          },
+          "status": {
+            "default": "",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "OperationRecoveryDetail",
+        "type": "object"
+      },
       "ProxySettingsBody": {
         "properties": {
           "allow_anonymous": {
@@ -6498,6 +6628,28 @@
         "summary": "Stop Model",
         "tags": [
           "models"
+        ]
+      }
+    },
+    "/api/operations/attention": {
+      "get": {
+        "description": "List interrupted and unknown operations and only their supported actions.\n\nRead-only: it reads the durable rows, never replays, confirms, or dismisses\nwork, and leaves the admission fences exactly as reconciliation stored them.",
+        "operationId": "operation_attention_api_operations_attention_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationAttentionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Operation Attention",
+        "tags": [
+          "status"
         ]
       }
     },

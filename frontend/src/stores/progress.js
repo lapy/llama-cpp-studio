@@ -52,6 +52,13 @@ export const useProgressStore = defineStore('progress', () => {
   const hydratedTaskLogs = ref({})
   const eventSource = ref(null)
   const connected = ref(false)
+  // Durable interrupted/unknown operations from GET /api/operations/attention.
+  // Unlike `tasks`, this is a server-read list, not the SSE activity snapshot:
+  // it carries the recovery classification and the actions the API supports.
+  const attentionOperations = ref([])
+  const attentionLoading = ref(false)
+  const attentionError = ref('')
+  let attentionFetchSeq = 0
   let reconnectTimer = null
   let closedByUser = false
   const subscribers = ref(new Map()) // eventType -> Set<callback>
@@ -425,6 +432,44 @@ export const useProgressStore = defineStore('progress', () => {
     }
   }
 
+  /**
+   * Load interrupted/unknown operations with their recovery classification.
+   * The endpoint is read-only; retry/confirm still belongs to the page that
+   * owns the original action and the confirmation the supervisor requires.
+   */
+  async function fetchAttentionOperations() {
+    const seq = ++attentionFetchSeq
+    attentionLoading.value = true
+    attentionError.value = ''
+    try {
+      const { data } = await axios.get('/api/operations/attention')
+      if (seq !== attentionFetchSeq) return attentionOperations.value
+      const rows = Array.isArray(data?.operations) ? data.operations : []
+      attentionOperations.value = rows
+      return rows
+    } catch (error) {
+      if (seq === attentionFetchSeq) {
+        const detail = error?.response?.data?.detail
+        attentionError.value =
+          (typeof detail === 'string' && detail) ||
+          error?.message ||
+          'Could not check for interrupted operations.'
+      }
+      throw error
+    } finally {
+      if (seq === attentionFetchSeq) attentionLoading.value = false
+    }
+  }
+
+  /** Drop one acknowledged row locally; the server already forgot the task. */
+  function forgetAttentionOperation(operationId) {
+    const id = String(operationId || '')
+    if (!id) return
+    attentionOperations.value = attentionOperations.value.filter(
+      (operation) => operation?.operation_id !== id,
+    )
+  }
+
   function forgetTaskLogs(taskId) {
     const nextHydrated = { ...hydratedTaskLogs.value }
     delete nextHydrated[taskId]
@@ -524,5 +569,10 @@ export const useProgressStore = defineStore('progress', () => {
     subscribeToDownloadComplete,
     waitForTask,
     handleEvent,
+    attentionOperations,
+    attentionLoading,
+    attentionError,
+    fetchAttentionOperations,
+    forgetAttentionOperation,
   }
 })
