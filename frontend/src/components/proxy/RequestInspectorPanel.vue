@@ -12,6 +12,68 @@
       <label class="inspector-field-toggle"
         ><input v-model="allRequestFields" type="checkbox" />Show unavailable fields</label
       >
+      <div ref="exportRoot" class="request-export" @focusout="onExportFocusOut">
+        <button
+          ref="exportToggle"
+          type="button"
+          class="request-export-toggle"
+          aria-haspopup="menu"
+          :aria-expanded="exportOpen ? 'true' : 'false'"
+          aria-controls="request-export-menu"
+          @click="toggleExportMenu"
+        >
+          <i class="pi pi-download" aria-hidden="true" />Export
+        </button>
+        <div v-if="exportOpen" class="request-export-popover">
+          <div
+            id="request-export-menu"
+            ref="exportMenu"
+            class="request-export-menu"
+            role="menu"
+            aria-label="Export captured request"
+            @keydown="onExportMenuKeydown"
+          >
+            <button
+              type="button"
+              role="menuitem"
+              class="request-export-item"
+              data-export-action="curl"
+              :title="
+                capturedPayload
+                  ? 'Copy a cURL command including the captured headers and body'
+                  : 'Copy a cURL command with the captured method and URL; headers and body were not captured'
+              "
+              @click="copyAsCurl"
+            >
+              <i class="pi pi-copy" aria-hidden="true" />Copy as cURL
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              class="request-export-item"
+              data-export-action="json"
+              title="Download the raw captured request as pretty-printed JSON"
+              @click="downloadJson"
+            >
+              <i class="pi pi-file" aria-hidden="true" />Download JSON
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              class="request-export-item"
+              data-export-action="har"
+              title="Download a single-entry HAR 1.2 archive"
+              @click="downloadHar"
+            >
+              <i class="pi pi-download" aria-hidden="true" />Download HAR
+            </button>
+          </div>
+          <p v-if="!capturedPayload" class="request-export-note" role="note">
+            Headers and bodies are not retained, so the cURL command contains the method and URL
+            only.
+          </p>
+        </div>
+      </div>
     </div>
     <div class="request-inspector">
       <section
@@ -30,15 +92,26 @@
     </div>
     <p class="hint">
       Usage marked “reservation” is a conservative charge retained because the engine did not report
-      final usage. Unknown token counts remain blank. Request and response bodies are not retained.
+      final usage. Unknown token counts remain blank. Request and response headers and bodies are
+      not retained.
     </p>
   </Dialog>
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import Dialog from 'primevue/dialog'
 import Tag from 'primevue/tag'
+import { useToast } from 'primevue/usetoast'
+import { copyText } from '@/utils/clipboard'
+import {
+  buildCurlCommand,
+  buildHarExport,
+  buildJsonExport,
+  downloadTextFile,
+  exportFilename,
+  hasCapturedPayload,
+} from '@/utils/proxyRequestExport'
 import {
   formatBuildIdentity,
   formatTime,
@@ -62,6 +135,132 @@ const dialogVisible = computed({
   get: () => props.visible,
   set: (value) => emit('update:visible', value),
 })
+
+const toast = useToast()
+const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'
+const capturedPayload = computed(() => hasCapturedPayload(props.request))
+const exportOpen = ref(false)
+const exportRoot = ref(null)
+const exportToggle = ref(null)
+const exportMenu = ref(null)
+
+function currentOrigin() {
+  return typeof window === 'undefined' ? '' : window.location?.origin || ''
+}
+
+async function toggleExportMenu() {
+  if (exportOpen.value) {
+    closeExportMenu()
+    return
+  }
+  exportOpen.value = true
+  await nextTick()
+  exportMenu.value?.querySelector('[role="menuitem"]')?.focus()
+}
+
+function closeExportMenu({ restoreFocus = false } = {}) {
+  if (!exportOpen.value) return
+  exportOpen.value = false
+  if (restoreFocus) nextTick(() => exportToggle.value?.focus())
+}
+
+function onExportFocusOut(event) {
+  const next = event.relatedTarget
+  if (next && exportRoot.value?.contains(next)) return
+  closeExportMenu()
+}
+
+function exportMenuItems() {
+  return Array.from(exportMenu.value?.querySelectorAll('[role="menuitem"]') || [])
+}
+
+function onExportMenuKeydown(event) {
+  const items = exportMenuItems()
+  if (!items.length) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeExportMenu({ restoreFocus: true })
+    return
+  }
+  const current = items.indexOf(document.activeElement)
+  let next = null
+  if (event.key === 'ArrowDown') next = current < 0 ? 0 : (current + 1) % items.length
+  else if (event.key === 'ArrowUp') next = current <= 0 ? items.length - 1 : current - 1
+  else if (event.key === 'Home') next = 0
+  else if (event.key === 'End') next = items.length - 1
+  if (next === null) return
+  event.preventDefault()
+  items[next].focus()
+}
+
+async function copyAsCurl() {
+  closeExportMenu({ restoreFocus: true })
+  try {
+    await copyText(buildCurlCommand(props.request, { origin: currentOrigin() }))
+    toast.add({
+      severity: 'success',
+      summary: 'cURL command copied',
+      detail: capturedPayload.value
+        ? 'Includes the captured headers and body.'
+        : 'Headers and body were not captured; the command contains the method and URL.',
+      life: 3000,
+    })
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: 'Could not copy the cURL command',
+      detail: error?.message || 'Clipboard access is unavailable.',
+      life: 4000,
+    })
+  }
+}
+
+function downloadJson() {
+  closeExportMenu({ restoreFocus: true })
+  const filename = exportFilename(props.request?.id, 'json')
+  try {
+    downloadTextFile(buildJsonExport(props.request), filename, 'application/json')
+    toast.add({
+      severity: 'success',
+      summary: 'JSON downloaded',
+      detail: filename,
+      life: 3000,
+    })
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: 'Could not download the JSON',
+      detail: error?.message || 'The browser could not save the file.',
+      life: 4000,
+    })
+  }
+}
+
+function downloadHar() {
+  closeExportMenu({ restoreFocus: true })
+  const filename = exportFilename(props.request?.id, 'har')
+  try {
+    const content = JSON.stringify(
+      buildHarExport(props.request, { origin: currentOrigin(), appVersion }),
+      null,
+      2,
+    )
+    downloadTextFile(content, filename, 'application/json')
+    toast.add({
+      severity: 'success',
+      summary: 'HAR downloaded',
+      detail: filename,
+      life: 3000,
+    })
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: 'Could not download the HAR',
+      detail: error?.message || 'The browser could not save the file.',
+      life: 4000,
+    })
+  }
+}
 
 const requestDetailFields = [
   ['id', 'Request ID'],
@@ -144,6 +343,13 @@ watch(
   () => props.request?.id,
   () => {
     allRequestFields.value = false
+    closeExportMenu()
+  },
+)
+watch(
+  () => props.visible,
+  (visible) => {
+    if (!visible) closeExportMenu()
   },
 )
 
@@ -335,6 +541,67 @@ function requestDetail(name) {
 }
 .inspector-field-toggle input {
   accent-color: var(--accent-primary);
+}
+.request-export {
+  position: relative;
+}
+.request-export-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.request-export-toggle:hover {
+  background: var(--hover-bg);
+  border-color: var(--border-secondary);
+}
+.request-export-toggle:focus-visible,
+.request-export-item:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+.request-export-popover {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 20;
+  min-width: 14rem;
+  padding: 0.3rem;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-md);
+}
+.request-export-menu {
+  display: grid;
+}
+.request-export-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  text-align: left;
+  cursor: pointer;
+}
+.request-export-item:hover {
+  background: var(--hover-bg);
+}
+.request-export-note {
+  max-width: 17rem;
+  margin: 0.35rem 0.6rem 0.25rem;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
 }
 
 @media (max-width: 600px) {
