@@ -12,6 +12,9 @@ const store = reactive({
 })
 vi.mock('@/stores/engines', () => ({ useEnginesStore: () => store }))
 vi.mock('@/stores/progress', () => ({ useProgressStore: () => ({ isConnected: true }) }))
+vi.mock('@/components/system/NeedsAttentionPanel.vue', () => ({
+  default: { template: '<div class="needs-attention-stub">Needs attention panel</div>' },
+}))
 import SystemView from './SystemView.vue'
 it('separates diagnostics, backup and history and keeps persistence details redacted', async () => {
   const wrapper = mount(SystemView, {
@@ -25,11 +28,13 @@ it('separates diagnostics, backup and history and keeps persistence details reda
   })
   expect(wrapper.text()).toContain('The save was not stored')
   expect(wrapper.text()).not.toContain('SECRET')
+  expect(wrapper.text()).toContain('Needs attention panel')
   expect(wrapper.text()).not.toContain('Backup panel')
   route.hash = '#config-backup'
   await flushPromises()
   expect(wrapper.text()).toContain('Backup panel')
   expect(wrapper.text()).not.toContain('History panel')
+  expect(wrapper.text()).not.toContain('Needs attention panel')
   route.hash = '#history'
   await flushPromises()
   expect(wrapper.text()).toContain('History panel')

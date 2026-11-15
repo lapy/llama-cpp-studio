@@ -24,6 +24,9 @@
         >Change history</RouterLink
       >
     </nav>
+    <div v-if="activeSection === 'diagnostics'" class="system-card">
+      <NeedsAttentionPanel />
+    </div>
     <section
       v-if="activeSection === 'diagnostics'"
       class="system-card"
@@ -84,6 +87,7 @@ import { useProgressStore } from '@/stores/progress'
 import ConfigBackupPanel from '@/components/system/ConfigBackupPanel.vue'
 import ConfigHistoryPanel from '@/components/system/ConfigHistoryPanel.vue'
 import HardwarePanel from '@/components/system/HardwarePanel.vue'
+import NeedsAttentionPanel from '@/components/system/NeedsAttentionPanel.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 
 const progressStore = useProgressStore()
