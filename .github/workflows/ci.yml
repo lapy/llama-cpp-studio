@@ -204,12 +204,12 @@ jobs:
 
   browser:
     # A prebuilt image avoids flaky hosted-runner browser installation.
-    # Clipboard and accessibility journeys also gate pull requests.
-    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    # Clipboard and accessibility journeys gate pull requests and main pushes.
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
-        browser: ${{ fromJSON(github.event_name == 'pull_request' && '["chromium","firefox"]' || '["chromium","firefox","webkit"]') }}
+        browser: ${{ fromJSON((github.event_name == 'pull_request' || github.ref == 'refs/heads/main') && '["chromium","firefox"]' || '["chromium","firefox","webkit"]') }}
     name: browser (${{ matrix.browser }})
     runs-on: ubuntu-24.04
     timeout-minutes: 20
