@@ -2,8 +2,14 @@
  * SSE-based progress and events store. Subscribes to GET /api/events.
  */
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, shallowRef } from 'vue'
 import axios from 'axios'
+import {
+  OFFLINE_AFTER_ATTEMPTS,
+  STALE_CHECK_INTERVAL_MS,
+  STALE_CONNECTION_MS,
+  reconnectDelay,
+} from '@/utils/liveUpdates'
 
 export const eventSourceFactory = {
   open(url) {
@@ -50,8 +56,15 @@ export const useProgressStore = defineStore('progress', () => {
   const taskLogs = ref({})
   const hydratingTaskLogs = ref({})
   const hydratedTaskLogs = ref({})
-  const eventSource = ref(null)
+  // The EventSource is an opaque browser handle: shallowRef keeps Vue from
+  // deep-proxying it (and lets identity checks protect against stale handlers).
+  const eventSource = shallowRef(null)
   const connected = ref(false)
+  const reconnectAttempt = ref(0)
+  const lastConnectedAt = ref(null)
+  const lastEventAt = ref(null)
+  const disconnectedSince = ref(null)
+  const manuallyDisconnected = ref(false)
   // Durable interrupted/unknown operations from GET /api/operations/attention.
   // Unlike `tasks`, this is a server-read list, not the SSE activity snapshot:
   // it carries the recovery classification and the actions the API supports.
@@ -60,7 +73,12 @@ export const useProgressStore = defineStore('progress', () => {
   const attentionError = ref('')
   let attentionFetchSeq = 0
   let reconnectTimer = null
+  let staleTimer = null
   let closedByUser = false
+  // Only true once this connection has delivered a named `heartbeat` event.
+  // The current backend sends comment heartbeats instead, so the watchdog
+  // normally needs active tasks before it may call a quiet stream stale.
+  let namedHeartbeatSeen = false
   const subscribers = ref(new Map()) // eventType -> Set<callback>
   const dismissedTaskIds = new Set(readDismissedTaskIds())
 
@@ -95,8 +113,21 @@ export const useProgressStore = defineStore('progress', () => {
     return Object.values(tasks.value).filter((t) => t.status === 'running')
   })
 
+  // In-flight work of any kind, including tasks queued behind another task or
+  // already being cancelled. The paused banner uses this rather than
+  // `activeTasks`, which deliberately keeps its running-only meaning.
+  const hasActiveTasks = computed(() =>
+    Object.values(tasks.value).some((task) => ACTIVE_TASK_STATUSES.has(task?.status)),
+  )
+
   const connectionStatus = computed(() => (connected.value ? 'connected' : 'disconnected'))
   const isConnected = computed(() => connected.value && eventSource.value?.readyState === 1)
+  const connectionState = computed(() => {
+    if (isConnected.value) return 'live'
+    if (manuallyDisconnected.value) return 'offline'
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return 'offline'
+    return reconnectAttempt.value >= OFFLINE_AFTER_ATTEMPTS ? 'offline' : 'connecting'
+  })
 
   function notifySubscribers(eventType, data) {
     const callbacks = subscribers.value.get(eventType)
@@ -232,6 +263,10 @@ export const useProgressStore = defineStore('progress', () => {
   }
 
   function handleEvent(eventType, rawData) {
+    // Any framed event (including the snapshot the server sends on connect)
+    // proves the stream is alive. Comment heartbeats are invisible to
+    // EventSource; the named `heartbeat` listener below covers a future server.
+    lastEventAt.value = Date.now()
     let data = rawData
     try {
       if (typeof rawData === 'string') data = JSON.parse(rawData)
@@ -345,47 +380,162 @@ export const useProgressStore = defineStore('progress', () => {
     if (payload?.type && payload.type !== eventType) notifySubscribers(payload.type, payload)
   }
 
-  function connect() {
-    closedByUser = false
+  function clearReconnectTimer() {
     if (reconnectTimer) {
       clearTimeout(reconnectTimer)
       reconnectTimer = null
     }
-    if (eventSource.value?.readyState === 1) return
+  }
+
+  function stopStaleWatch() {
+    if (staleTimer) {
+      clearInterval(staleTimer)
+      staleTimer = null
+    }
+  }
+
+  function markDisconnected() {
+    if (disconnectedSince.value == null) disconnectedSince.value = Date.now()
+  }
+
+  /** Close the active source without letting its handlers schedule more work. */
+  function closeSource() {
+    const es = eventSource.value
+    eventSource.value = null
+    if (!es) return
+    es.onopen = null
+    es.onerror = null
+    es.onmessage = null
+    try {
+      es.close()
+    } catch (_) {}
+  }
+
+  /**
+   * Stale-stream watchdog.
+   *
+   * The backend writes comment heartbeats (`: heartbeat`) every 15s. The SSE
+   * spec discards comments, so EventSource never exposes them to JavaScript:
+   * an idle healthy stream and a half-open stream both look silent. We only
+   * declare the stream stale while the store knows about in-flight work, which
+   * should keep producing task events; 45s of silence then means the channel
+   * is wedged. Idle sessions are left alone so a healthy quiet stream is not
+   * torn down every 45s. If the server ever emits a named `heartbeat` event
+   * (tracked in `openSource`), silence is meaningful even while idle and the
+   * watchdog runs without active tasks.
+   */
+  function startStaleWatch() {
+    stopStaleWatch()
+    staleTimer = setInterval(() => {
+      if (!isConnected.value) {
+        stopStaleWatch()
+        return
+      }
+      const baseline = lastEventAt.value ?? lastConnectedAt.value
+      if (!baseline) return
+      if (!hasActiveTasks.value && !namedHeartbeatSeen) return
+      if (Date.now() - baseline < STALE_CONNECTION_MS) return
+      reconnectAttempt.value += 1
+      markDisconnected()
+      closeSource()
+      connected.value = false
+      stopStaleWatch()
+      if (closedByUser) return
+      scheduleReconnect()
+    }, STALE_CHECK_INTERVAL_MS)
+  }
+
+  function scheduleReconnect() {
+    clearReconnectTimer()
+    if (closedByUser) return
+    const delay = reconnectDelay(reconnectAttempt.value)
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null
+      if (closedByUser || eventSource.value) return
+      openSource()
+    }, delay)
+  }
+
+  function openSource() {
+    // Never keep two streams open: an EventSource in CONNECTING is already a
+    // duplicate if connect() is called again by a component or retry.
+    if (eventSource.value) return
     // Use the same origin in development and production so HTTPS and session
     // cookies also work through a reverse proxy and the Vite API proxy.
     const isDev = typeof import.meta !== 'undefined' && import.meta.env?.DEV
     const url = '/api/events'
     const es = eventSourceFactory.open(url)
+    eventSource.value = es
+    namedHeartbeatSeen = false
     es.onopen = () => {
+      if (eventSource.value !== es) return
       if (isDev) console.log('[SSE] onopen, readyState=', es.readyState)
       connected.value = true
+      reconnectAttempt.value = 0
+      lastConnectedAt.value = Date.now()
+      // The server sends a snapshot immediately; use open as the watchdog's
+      // starting point in case the first frame is delayed.
+      lastEventAt.value = lastConnectedAt.value
+      disconnectedSince.value = null
+      startStaleWatch()
     }
     es.onerror = (e) => {
+      if (eventSource.value !== es) return
       if (isDev) console.warn('[SSE] onerror, readyState=', es.readyState, 'event=', e)
-      es.close()
-      eventSource.value = null
+      closeSource()
       connected.value = false
+      stopStaleWatch()
+      markDisconnected()
       if (closedByUser) return
-      reconnectTimer = setTimeout(() => connect(), 3000)
+      reconnectAttempt.value += 1
+      scheduleReconnect()
     }
-    es.onmessage = (e) => handleEvent('message', e.data)
+    es.onmessage = (e) => {
+      if (eventSource.value !== es) return
+      handleEvent('message', e.data)
+    }
     SSE_EVENT_TYPES.forEach((type) => {
-      es.addEventListener(type, (e) => handleEvent(type, e.data))
+      es.addEventListener(type, (e) => {
+        if (eventSource.value !== es) return
+        handleEvent(type, e.data)
+      })
     })
-    eventSource.value = es
+    es.addEventListener('heartbeat', () => {
+      if (eventSource.value !== es) return
+      namedHeartbeatSeen = true
+      lastEventAt.value = Date.now()
+    })
+  }
+
+  function connect() {
+    closedByUser = false
+    manuallyDisconnected.value = false
+    clearReconnectTimer()
+    openSource()
+  }
+
+  /**
+   * User-initiated retry: cancel the pending backoff and open a fresh stream
+   * now. Resetting the attempt count makes the next automatic retry start at
+   * the short end of the backoff again.
+   */
+  function retryConnection() {
+    closedByUser = false
+    manuallyDisconnected.value = false
+    clearReconnectTimer()
+    closeSource()
+    stopStaleWatch()
+    connected.value = false
+    reconnectAttempt.value = 0
+    openSource()
   }
 
   function disconnect() {
     closedByUser = true
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer)
-      reconnectTimer = null
-    }
-    if (eventSource.value) {
-      eventSource.value.close()
-      eventSource.value = null
-    }
+    manuallyDisconnected.value = true
+    clearReconnectTimer()
+    stopStaleWatch()
+    closeSource()
     connected.value = false
   }
 
@@ -554,11 +704,18 @@ export const useProgressStore = defineStore('progress', () => {
     tasks,
     taskLogs,
     activeTasks,
+    hasActiveTasks,
     connected,
     connectionStatus,
+    connectionState,
+    reconnectAttempt,
+    lastConnectedAt,
+    lastEventAt,
+    disconnectedSince,
     isConnected,
     connect,
     disconnect,
+    retryConnection,
     getTask,
     getTaskLogs,
     hydrateTaskLogs,

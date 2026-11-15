@@ -20,6 +20,12 @@ const systemStore = reactive({
 
 const progressStore = reactive({
   isConnected: true,
+  connectionState: 'live',
+  reconnectAttempt: 0,
+  lastEventAt: Date.now(),
+  disconnectedSince: null,
+  hasActiveTasks: false,
+  retryConnection: vi.fn(),
   connect,
   disconnect,
   subscribe,
