@@ -23,69 +23,17 @@
     </EmptyState>
 
     <template v-else>
-      <PageHeader>
-        <template #start>
-          <Button
-            icon="pi pi-arrow-left"
-            text
-            severity="secondary"
-            aria-label="Back to Models"
-            @click="requestLeave('/models')"
-          />
-        </template>
-        <template #title>
-          <div class="config-page-title">
-            <h1 class="page-title">{{ model.display_name || model.base_model_name }}</h1>
-            <div class="header-meta">
-              <Tag :value="formatLabel(model.format || 'gguf')" severity="info" />
-              <Tag v-if="model.quantization" :value="model.quantization" severity="secondary" />
-              <Tag v-if="model.family" :value="model.family" severity="secondary" />
-              <Tag
-                v-for="task in model.tasks || []"
-                :key="task"
-                :value="taskLabel(task)"
-                severity="success"
-              />
-              <a
-                v-if="model.huggingface_id"
-                :href="`https://huggingface.co/${model.huggingface_id}`"
-                target="_blank"
-                class="hf-link"
-              >
-                <i class="pi pi-external-link" /> {{ model.huggingface_id }}
-              </a>
-            </div>
-          </div>
-        </template>
-        <template v-if="!loading && model" #actions>
-          <Button
-            v-if="canCheckForUpdates"
-            label="Check for updates"
-            icon="pi pi-refresh"
-            size="small"
-            severity="secondary"
-            outlined
-            :loading="refreshingModel"
-            :disabled="refreshingModel"
-            @click="checkForModelUpdates"
-          />
-          <Button
-            v-if="isAudioEngine"
-            label="Open Audio"
-            icon="pi pi-volume-up"
-            size="small"
-            severity="secondary"
-            outlined
-            @click="openAudioWorkspace"
-          />
-          <Tag
-            v-if="hasUnsavedChanges"
-            value="Unsaved changes"
-            severity="warn"
-            class="unsaved-tag"
-          />
-        </template>
-      </PageHeader>
+      <ModelConfigHeader
+        :model="model"
+        :loading="loading"
+        :can-check-for-updates="canCheckForUpdates"
+        :refreshing-model="refreshingModel"
+        :is-audio-engine="isAudioEngine"
+        :has-unsaved-changes="hasUnsavedChanges"
+        @back="requestLeave('/models')"
+        @check-for-updates="checkForModelUpdates"
+        @open-audio="openAudioWorkspace"
+      />
 
       <div class="config-status" aria-live="polite">
         <strong class="runtime-state">{{
@@ -1535,7 +1483,7 @@
 </template>
 
 <script setup>
-import { formatLabel, taskLabel } from '@/utils/modelPresentation'
+import { formatLabel } from '@/utils/modelPresentation'
 import UnsavedChangesDialog from '@/components/common/UnsavedChangesDialog.vue'
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -1565,7 +1513,7 @@ import Slider from 'primevue/slider'
 import MultiSelect from 'primevue/multiselect'
 import LoadingState from '@/components/common/LoadingState.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
-import PageHeader from '@/components/common/PageHeader.vue'
+import ModelConfigHeader from '@/components/models/ModelConfigHeader.vue'
 import AudioModelConfig from '@/components/audio/AudioModelConfig.vue'
 import RequestAliasesEditor from '@/components/RequestAliasesEditor.vue'
 import ConfigChangeReview from '@/components/ConfigChangeReview.vue'
@@ -4411,22 +4359,6 @@ onBeforeUnmount(() => {
   margin: 0;
 }
 
-.config-page-title {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem 0.75rem;
-  min-width: 0;
-}
-
-.header-meta {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
 .textarea-cli {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.875rem;
@@ -4510,19 +4442,6 @@ onBeforeUnmount(() => {
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.45;
-}
-
-.hf-link {
-  font-size: 0.875rem;
-  color: var(--accent-cyan, #22d3ee);
-  text-decoration: none;
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-}
-
-.hf-link:hover {
-  text-decoration: underline;
 }
 
 .param-field--unsupported {
@@ -5164,10 +5083,6 @@ onBeforeUnmount(() => {
 }
 
 /* ── Unsaved indicator ─────────────────────────────────── */
-.unsaved-tag {
-  font-size: var(--text-xs);
-}
-
 /* ── Catalog toolbar (search, toggles, jump nav) ───────── */
 .config-toolbar {
   margin-bottom: 1rem;
