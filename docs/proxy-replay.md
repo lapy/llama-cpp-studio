@@ -17,8 +17,9 @@ because prompts and completions can contain sensitive data.
 
 ## Redaction
 
-`authorization`, `proxy-authorization`, `cookie`, `set-cookie`, `x-api-key` and
-`api-key` are removed from the captured header map and listed in
+Headers whose name is a known credential header, or that has an `auth`, `key`,
+`token`, `secret`, `cookie` or `password` token (`x-api-key`, `x-goog-api-key`,
+`x-custom-api-key`, …), are removed from the captured map and listed in
 `captured_redacted_headers`. Hop-by-hop headers (`host`, `content-length`,
 `connection`, `transfer-encoding`, `accept-encoding`) are dropped because the replay
 client must compute them again.
@@ -34,3 +35,15 @@ body directly to the still-loaded engine. It is an operator action:
 - quota accounting is not applied to the replay itself.
 
 The inspector shows the replay control only for requests that have a captured payload.
+
+## Authorization and audit
+
+`/api/proxy` is behind the management access middleware: local loopback sessions or an
+authenticated remote session with CSRF protection. Replay is therefore an operator
+action, not an inference-key action.
+
+Each successful or failed replay appends a bounded proxy-activity record with
+`type: replay`/`replay_failed`, model, source request ID, path, status and error name.
+The captured body is never copied into activity or logs. Replay intentionally bypasses
+quota accounting because it is a debugging operation; the audit record is the control
+that makes that bypass observable.

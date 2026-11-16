@@ -37,11 +37,34 @@ class RegistryError(RuntimeError):
 CAPTURE_MAX_REQUESTS = 200
 CAPTURE_MAX_BODY_BYTES = 256 * 1024
 _SENSITIVE_CAPTURE_HEADERS = frozenset(
-    {"authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key", "api-key"}
+    {
+        "authorization",
+        "proxy-authorization",
+        "cookie",
+        "set-cookie",
+        "x-api-key",
+        "api-key",
+        "x-goog-api-key",
+        "anthropic-api-key",
+        "openai-api-key",
+        "x-auth-token",
+        "x-access-token",
+    }
+)
+_SENSITIVE_HEADER_TOKENS = frozenset(
+    {"authorization", "auth", "key", "token", "secret", "cookie", "password"}
 )
 _SKIP_CAPTURE_HEADERS = frozenset(
     {"host", "content-length", "connection", "transfer-encoding", "accept-encoding"}
 )
+
+
+def _is_sensitive_capture_header(name: str) -> bool:
+    if name in _SENSITIVE_CAPTURE_HEADERS:
+        return True
+    # Vendor keys use names such as x-custom-api-key or x-goog-api-key.
+    tokens = [part for part in re.split(r"[-_]+", name) if part]
+    return any(token in _SENSITIVE_HEADER_TOKENS for token in tokens)
 
 
 def _sanitize_captured_headers(headers: Any) -> tuple[dict[str, str], list[str]]:
@@ -53,7 +76,7 @@ def _sanitize_captured_headers(headers: Any) -> tuple[dict[str, str], list[str]]
         lower = str(name).strip().lower()
         if not lower:
             continue
-        if lower in _SENSITIVE_CAPTURE_HEADERS:
+        if _is_sensitive_capture_header(lower):
             redacted.append(lower)
             continue
         if lower in _SKIP_CAPTURE_HEADERS:

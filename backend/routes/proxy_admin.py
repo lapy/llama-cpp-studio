@@ -3,6 +3,7 @@
 import json
 import os
 import asyncio
+import time
 
 import httpx
 from typing import Any
@@ -436,6 +437,33 @@ async def get_proxy_requests(
     return result
 
 
+def _record_replay_activity(
+    registry: Any,
+    payload: dict[str, Any],
+    *,
+    status: int | None = None,
+    error: str = "",
+) -> None:
+    """Leave an audit trail without ever storing the payload itself."""
+    activities = getattr(registry, "activities", None)
+    if activities is None:
+        return
+    try:
+        activities.append(
+            {
+                "type": "replay" if status is not None and status < 400 else "replay_failed",
+                "model": payload.get("model"),
+                "request_id": payload.get("id"),
+                "path": payload.get("path"),
+                "status": status,
+                "error": error,
+                "timestamp": time.time(),
+            }
+        )
+    except Exception:  # noqa: BLE001 - auditing must never fail the replay
+        pass
+
+
 @router.post("/requests/{request_id}/replay")
 async def replay_proxy_request(request_id: str):
     """Re-send a captured request to the still-loaded engine.
@@ -458,6 +486,7 @@ async def replay_proxy_request(request_id: str):
         )
     generation = registry.active(payload.get("model") or "") if registry is not None else None
     if generation is None:
+        _record_replay_activity(registry, payload, error="model_not_loaded")
         raise HTTPException(
             status_code=409,
             detail={
@@ -483,6 +512,7 @@ async def replay_proxy_request(request_id: str):
                 content=content,
             )
     except httpx.HTTPError as exc:
+        _record_replay_activity(registry, payload, error=type(exc).__name__)
         raise HTTPException(
             status_code=502,
             detail={
@@ -490,6 +520,7 @@ async def replay_proxy_request(request_id: str):
                 "message": f"Replay request failed: {type(exc).__name__}",
             },
         ) from exc
+    _record_replay_activity(registry, payload, status=response.status_code)
     limit = 512 * 1024
     raw = response.content or b""
     truncated = len(raw) > limit

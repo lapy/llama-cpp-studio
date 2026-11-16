@@ -12,6 +12,14 @@
           ]
         },
         {
+          "count": 2,
+          "file": "backend/engines/metrics_flags.py",
+          "lines": [
+            24,
+            71
+          ]
+        },
+        {
           "count": 1,
           "file": "backend/engines/activation.py",
           "lines": [
@@ -23,13 +31,6 @@
           "file": "backend/engines/lifecycle.py",
           "lines": [
             54
-          ]
-        },
-        {
-          "count": 1,
-          "file": "backend/engines/metrics_flags.py",
-          "lines": [
-            22
           ]
         }
       ],
@@ -81,26 +82,26 @@
           "lines": [
             156,
             305,
-            513,
-            517,
-            521,
             525,
             529,
-            533
+            533,
+            537,
+            541,
+            545
           ]
         },
         {
           "count": 8,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            996,
-            1128,
-            1146,
-            1279,
-            3442,
-            3829,
-            3848,
-            3986
+            800,
+            932,
+            950,
+            1083,
+            3236,
+            3623,
+            3642,
+            3780
           ]
         },
         {
@@ -150,38 +151,38 @@
           "count": 2,
           "file": "backend/routes/llama_versions.py",
           "lines": [
-            233,
-            278
+            234,
+            279
           ]
         },
         {
           "count": 2,
           "file": "frontend/src/components/system/VersionTable.test.js",
           "lines": [
-            110,
-            314
+            111,
+            315
           ]
         },
         {
           "count": 2,
           "file": "frontend/src/composables/engineReadiness.test.js",
           "lines": [
-            66,
-            70
+            112,
+            116
           ]
         },
         {
           "count": 1,
           "file": "backend/main.py",
           "lines": [
-            464
+            481
           ]
         },
         {
           "count": 1,
           "file": "frontend/src/views/ModelConfig.test.js",
           "lines": [
-            683
+            711
           ]
         }
       ]
@@ -239,8 +240,8 @@
           "file": "backend/engines/activation.py",
           "lines": [
             29,
-            128,
-            149
+            125,
+            146
           ]
         },
         {
@@ -267,6 +268,14 @@
           "lines": [
             170,
             171
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/engines/metrics_flags.py",
+          "lines": [
+            60,
+            77
           ]
         },
         {
@@ -332,14 +341,14 @@
             69,
             70,
             72,
-            217,
-            243,
-            287,
-            330,
-            374,
-            429,
-            474,
-            493
+            231,
+            259,
+            303,
+            346,
+            392,
+            452,
+            500,
+            519
           ]
         },
         {
@@ -367,31 +376,31 @@
           "lines": [
             53,
             73,
-            176,
-            178,
-            318,
-            448,
-            450,
-            498,
-            562,
-            624,
-            654
+            189,
+            191,
+            329,
+            468,
+            470,
+            519,
+            585,
+            648,
+            679
           ]
         },
         {
           "count": 10,
           "file": "backend/routes/llama_versions.py",
           "lines": [
-            170,
-            248,
-            250,
+            171,
+            249,
             251,
-            255,
-            284,
-            483,
-            837,
-            847,
-            1583
+            252,
+            256,
+            285,
+            484,
+            838,
+            848,
+            1584
           ]
         },
         {
@@ -414,15 +423,15 @@
           "count": 9,
           "file": "frontend/src/components/audio/AudioModelConfig.test.js",
           "lines": [
-            79,
-            144,
-            253,
-            262,
-            368,
-            416,
-            486,
-            562,
-            600
+            83,
+            148,
+            257,
+            266,
+            372,
+            420,
+            490,
+            566,
+            604
           ]
         },
         {
@@ -441,56 +450,41 @@
           ]
         },
         {
-          "count": 9,
-          "file": "frontend/src/views/ModelSearch.vue",
-          "lines": [
-            276,
-            1571,
-            1964,
-            2023,
-            2123,
-            2150,
-            2181,
-            2198,
-            4195
-          ]
-        },
-        {
           "count": 7,
           "file": "frontend/src/composables/useAudioModelConfig.test.js",
           "lines": [
-            138,
-            354,
-            410,
-            460,
-            498,
-            549,
-            576
+            137,
+            356,
+            411,
+            461,
+            496,
+            547,
+            574
           ]
         },
         {
           "count": 7,
           "file": "frontend/src/stores/models.test.js",
           "lines": [
-            204,
-            216,
-            235,
-            243,
-            270,
-            271,
-            283
+            207,
+            219,
+            238,
+            247,
+            273,
+            274,
+            286
           ]
         },
         {
           "count": 6,
           "file": "frontend/src/components/system/VersionTable.test.js",
           "lines": [
-            77,
-            89,
-            95,
-            210,
-            220,
-            248
+            78,
+            90,
+            96,
+            211,
+            221,
+            249
           ]
         },
         {
@@ -511,7 +505,7 @@
             81,
             130,
             159,
-            193
+            195
           ]
         },
         {
@@ -521,7 +515,7 @@
             60,
             66,
             173,
-            308
+            311
           ]
         },
         {
@@ -531,27 +525,17 @@
             96,
             97,
             104,
-            685
+            703
           ]
         },
         {
           "count": 4,
-          "file": "frontend/e2e/fixtures/workspace.mjs",
+          "file": "frontend/src/views/ModelSearch.vue",
           "lines": [
-            103,
-            104,
-            107,
-            117
-          ]
-        },
-        {
-          "count": 4,
-          "file": "scripts/parity-inventory.py",
-          "lines": [
-            55,
-            63,
-            183,
-            185
+            960,
+            1336,
+            1365,
+            3096
           ]
         },
         {
@@ -565,12 +549,22 @@
           ]
         },
         {
+          "count": 4,
+          "file": "scripts/parity-inventory.py",
+          "lines": [
+            55,
+            63,
+            183,
+            185
+          ]
+        },
+        {
           "count": 3,
           "file": "backend/proxy/launch_spec.py",
           "lines": [
             334,
             357,
-            677
+            690
           ]
         },
         {
@@ -586,9 +580,9 @@
           "count": 3,
           "file": "frontend/src/composables/useTaskCancelEndpoint.test.js",
           "lines": [
-            22,
-            25,
-            26
+            19,
+            21,
+            22
           ]
         },
         {
@@ -604,9 +598,9 @@
           "count": 3,
           "file": "frontend/src/stores/models.js",
           "lines": [
-            355,
-            360,
-            366
+            366,
+            371,
+            377
           ]
         },
         {
@@ -637,8 +631,8 @@
           "count": 2,
           "file": "backend/operations/supervisor.py",
           "lines": [
-            362,
-            364
+            397,
+            399
           ]
         },
         {
@@ -661,16 +655,16 @@
           "count": 2,
           "file": "backend/routes/model_catalog.py",
           "lines": [
-            121,
-            171
+            117,
+            161
           ]
         },
         {
           "count": 2,
           "file": "frontend/src/components/ModelRow.test.js",
           "lines": [
-            112,
-            113
+            210,
+            211
           ]
         },
         {
@@ -685,8 +679,8 @@
           "count": 2,
           "file": "frontend/src/composables/engineReadiness.test.js",
           "lines": [
-            26,
-            39
+            60,
+            85
           ]
         },
         {
@@ -729,14 +723,14 @@
           "count": 1,
           "file": "frontend/src/composables/connectTarget.test.js",
           "lines": [
-            31
+            41
           ]
         },
         {
           "count": 1,
           "file": "frontend/src/composables/useAudioContract.test.js",
           "lines": [
-            41
+            44
           ]
         },
         {
@@ -750,35 +744,35 @@
           "count": 1,
           "file": "frontend/src/utils/modelPresentation.js",
           "lines": [
-            48
+            120
           ]
         },
         {
           "count": 1,
           "file": "frontend/src/views/AudioWorkspace.vue",
           "lines": [
-            675
+            745
           ]
         },
         {
           "count": 1,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            1311
+            1115
           ]
         },
         {
           "count": 1,
           "file": "frontend/src/views/ModelConfig.vue",
           "lines": [
-            1733
+            1057
           ]
         },
         {
           "count": 1,
           "file": "frontend/e2e/ui-refactor.spec.mjs",
           "lines": [
-            95
+            101
           ]
         }
       ]
@@ -809,11 +803,11 @@
             4,
             55,
             578,
-            1186,
-            1494,
-            1501,
-            1554,
-            1559
+            1188,
+            1496,
+            1503,
+            1556,
+            1561
           ]
         },
         {
@@ -825,8 +819,8 @@
             46,
             94,
             95,
-            286,
-            292
+            291,
+            297
           ]
         },
         {
@@ -834,23 +828,23 @@
           "file": "backend/engines/python/cmake_build.py",
           "lines": [
             47,
-            182,
-            188,
-            191,
+            184,
+            190,
             193,
-            194,
-            927
+            195,
+            196,
+            957
           ]
         },
         {
           "count": 5,
           "file": "backend/engines/scan/help_parsers.py",
           "lines": [
-            39,
-            902,
-            1235,
-            1316,
-            1333
+            35,
+            880,
+            1200,
+            1281,
+            1295
           ]
         },
         {
@@ -858,9 +852,9 @@
           "file": "backend/engines/llama_cpp/github_refs.py",
           "lines": [
             1,
-            30,
-            46,
-            131
+            26,
+            42,
+            125
           ]
         },
         {
@@ -879,6 +873,14 @@
           "lines": [
             88,
             89
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/engines/metrics_flags.py",
+          "lines": [
+            22,
+            68
           ]
         },
         {
@@ -906,16 +908,9 @@
         },
         {
           "count": 1,
-          "file": "backend/engines/metrics_flags.py",
-          "lines": [
-            20
-          ]
-        },
-        {
-          "count": 1,
           "file": "backend/engines/python/generic.py",
           "lines": [
-            1322
+            1347
           ]
         },
         {
@@ -931,47 +926,47 @@
           "count": 41,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            749,
-            752,
-            761,
-            771,
-            1112,
-            1276,
-            1307,
-            1744,
-            1802,
-            1819,
-            1892,
-            1909,
-            1925,
-            1930,
-            1984,
-            2077,
-            2244,
-            2384,
-            2385,
-            2399,
-            2400,
-            2404,
+            636,
+            641,
+            642,
+            645,
+            916,
+            1080,
+            1111,
+            1543,
+            1601,
+            1618,
+            1691,
+            1708,
+            1724,
+            1729,
+            1783,
+            1876,
+            2045,
+            2178,
+            2179,
+            2193,
+            2194,
+            2198,
+            2202,
+            2250,
+            2262,
+            2265,
+            2344,
+            2345,
+            2351,
+            2357,
+            2375,
+            2398,
             2408,
-            2456,
-            2468,
-            2471,
-            2550,
-            2551,
-            2557,
-            2563,
-            2581,
-            2604,
-            2614,
-            3617,
-            3668,
-            3671,
-            3675,
-            3682,
-            3685,
-            3708,
-            3709
+            3411,
+            3462,
+            3465,
+            3469,
+            3476,
+            3479,
+            3502,
+            3503
           ]
         },
         {
@@ -1011,28 +1006,28 @@
           "count": 22,
           "file": "backend/routes/llama_versions.py",
           "lines": [
-            224,
-            275,
-            459,
-            482,
-            520,
-            533,
-            576,
-            578,
-            591,
-            593,
-            622,
-            663,
-            717,
+            225,
+            276,
+            460,
+            483,
+            521,
+            534,
+            577,
+            579,
+            592,
+            594,
+            623,
+            664,
             718,
-            763,
-            896,
-            942,
-            993,
-            1024,
-            1246,
-            2035,
-            2127
+            719,
+            764,
+            897,
+            943,
+            994,
+            1025,
+            1247,
+            2059,
+            2151
           ]
         },
         {
@@ -1149,10 +1144,10 @@
           "count": 4,
           "file": "backend/services/upstream_versions.py",
           "lines": [
-            112,
-            121,
-            130,
-            135
+            108,
+            117,
+            126,
+            130
           ]
         },
         {
@@ -1174,19 +1169,28 @@
           ]
         },
         {
+          "count": 3,
+          "file": "frontend/src/views/ModelConfig.test.js",
+          "lines": [
+            744,
+            745,
+            757
+          ]
+        },
+        {
           "count": 2,
           "file": "backend/main.py",
           "lines": [
-            419,
-            457
+            436,
+            474
           ]
         },
         {
           "count": 2,
           "file": "frontend/src/components/system/VersionTable.test.js",
           "lines": [
-            190,
-            203
+            191,
+            204
           ]
         },
         {
@@ -1201,17 +1205,8 @@
           "count": 2,
           "file": "frontend/src/composables/useTaskCancelEndpoint.test.js",
           "lines": [
-            31,
-            34
-          ]
-        },
-        {
-          "count": 3,
-          "file": "frontend/src/views/ModelConfig.test.js",
-          "lines": [
-            735,
-            736,
-            748
+            27,
+            30
           ]
         },
         {
@@ -1237,6 +1232,13 @@
         },
         {
           "count": 1,
+          "file": "frontend/src/api/contractFixtures.test.js",
+          "lines": [
+            312
+          ]
+        },
+        {
+          "count": 1,
           "file": "frontend/src/composables/useDraftGuard.test.js",
           "lines": [
             15
@@ -1246,14 +1248,7 @@
           "count": 1,
           "file": "frontend/src/views/ModelSearch.catalog.test.js",
           "lines": [
-            173
-          ]
-        },
-        {
-          "count": 1,
-          "file": "frontend/src/api/contractFixtures.test.js",
-          "lines": [
-            312
+            170
           ]
         }
       ]
@@ -1270,29 +1265,29 @@
             55,
             72,
             83,
-            1213,
-            1219,
-            1226,
-            1242,
-            1293,
-            1352,
-            1377,
-            1385,
-            1464,
-            1490,
-            1531,
-            1547,
-            1550,
-            1568,
-            1571,
+            1215,
+            1221,
+            1228,
+            1244,
+            1295,
+            1354,
+            1379,
+            1387,
+            1466,
+            1492,
+            1533,
+            1549,
+            1552,
+            1570,
             1573,
             1575,
-            1578,
-            1591,
-            1620,
-            1643,
-            1709,
-            1753
+            1577,
+            1580,
+            1593,
+            1622,
+            1645,
+            1711,
+            1755
           ]
         },
         {
@@ -1320,7 +1315,7 @@
             48,
             93,
             95,
-            267
+            272
           ]
         },
         {
@@ -1341,25 +1336,25 @@
           "count": 7,
           "file": "backend/engines/python/cmake_build.py",
           "lines": [
-            927,
-            1005,
-            1007,
-            1008,
-            1033,
+            957,
+            1035,
+            1037,
             1038,
-            1054
+            1063,
+            1068,
+            1084
           ]
         },
         {
           "count": 6,
           "file": "backend/engines/scan/help_parsers.py",
           "lines": [
-            497,
-            637,
-            748,
-            1264,
-            1315,
-            1379
+            479,
+            615,
+            726,
+            1229,
+            1280,
+            1338
           ]
         },
         {
@@ -1380,10 +1375,18 @@
         },
         {
           "count": 2,
+          "file": "backend/engines/metrics_flags.py",
+          "lines": [
+            21,
+            67
+          ]
+        },
+        {
+          "count": 2,
           "file": "backend/engines/python/release_host.py",
           "lines": [
-            126,
-            127
+            127,
+            128
           ]
         },
         {
@@ -1402,16 +1405,9 @@
         },
         {
           "count": 1,
-          "file": "backend/engines/metrics_flags.py",
-          "lines": [
-            19
-          ]
-        },
-        {
-          "count": 1,
           "file": "backend/engines/python/generic.py",
           "lines": [
-            1322
+            1347
           ]
         },
         {
@@ -1465,59 +1461,59 @@
           "count": 24,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            653,
-            1066,
-            1275,
-            1306,
-            1784,
-            1828,
-            1845,
+            572,
+            870,
+            1079,
+            1110,
+            1583,
+            1627,
+            1644,
+            1660,
+            1843,
             1861,
-            2044,
-            2062,
-            2244,
-            2384,
-            2456,
-            2468,
-            2551,
-            2581,
-            2614,
-            3626,
-            3633,
-            3639,
-            3665,
-            3666,
-            3721,
-            3727
+            2045,
+            2178,
+            2250,
+            2262,
+            2345,
+            2375,
+            2408,
+            3420,
+            3427,
+            3433,
+            3459,
+            3460,
+            3515,
+            3521
           ]
         },
         {
           "count": 23,
           "file": "backend/routes/llama_versions.py",
           "lines": [
-            223,
-            274,
-            482,
-            520,
-            575,
+            224,
+            275,
+            483,
+            521,
             576,
-            578,
-            590,
+            577,
+            579,
             591,
-            593,
-            623,
-            720,
-            942,
-            993,
-            1024,
-            1154,
-            1246,
-            1607,
-            1624,
-            1626,
-            1841,
-            2100,
-            2127
+            592,
+            594,
+            624,
+            721,
+            943,
+            994,
+            1025,
+            1155,
+            1247,
+            1608,
+            1625,
+            1627,
+            1842,
+            2124,
+            2151
           ]
         },
         {
@@ -1552,27 +1548,27 @@
           "count": 21,
           "file": "frontend/src/components/system/VersionTable.test.js",
           "lines": [
-            37,
-            57,
-            71,
-            127,
-            144,
-            150,
-            162,
-            168,
-            182,
-            184,
-            226,
-            237,
-            261,
-            291,
-            297,
-            303,
-            330,
-            339,
-            345,
-            356,
-            365
+            38,
+            58,
+            72,
+            128,
+            145,
+            151,
+            163,
+            169,
+            183,
+            185,
+            227,
+            238,
+            262,
+            292,
+            298,
+            304,
+            331,
+            340,
+            346,
+            357,
+            366
           ]
         },
         {
@@ -1606,21 +1602,21 @@
           "count": 15,
           "file": "frontend/src/views/ModelConfig.test.js",
           "lines": [
-            196,
-            198,
-            287,
-            303,
-            305,
-            347,
-            349,
-            362,
-            364,
-            390,
-            439,
-            441,
-            531,
-            533,
-            708
+            205,
+            207,
+            296,
+            312,
+            314,
+            358,
+            360,
+            373,
+            375,
+            403,
+            456,
+            458,
+            553,
+            555,
+            737
           ]
         },
         {
@@ -1667,11 +1663,11 @@
           "file": "frontend/src/views/EnginesView.buildConfig.test.js",
           "lines": [
             158,
-            222,
-            246,
-            253,
-            282,
-            285
+            224,
+            248,
+            255,
+            283,
+            284
           ]
         },
         {
@@ -1680,10 +1676,10 @@
           "lines": [
             55,
             57,
-            235,
-            250,
-            264,
-            272
+            241,
+            256,
+            270,
+            278
           ]
         },
         {
@@ -1725,26 +1721,26 @@
           "lines": [
             4,
             5,
-            49,
-            128
+            55,
+            143
           ]
         },
         {
           "count": 3,
           "file": "frontend/src/composables/engineReadiness.test.js",
           "lines": [
-            7,
-            27,
-            68
+            13,
+            62,
+            114
           ]
         },
         {
           "count": 3,
           "file": "frontend/src/composables/useTaskActions.test.js",
           "lines": [
-            81,
             82,
-            91
+            84,
+            96
           ]
         },
         {
@@ -1760,18 +1756,9 @@
           "count": 3,
           "file": "frontend/src/views/ModelConfig.vue",
           "lines": [
-            2921,
-            3482,
-            3486
-          ]
-        },
-        {
-          "count": 3,
-          "file": "frontend/e2e/fixtures/workspace.mjs",
-          "lines": [
-            90,
-            124,
-            133
+            2127,
+            2541,
+            2545
           ]
         },
         {
@@ -1787,32 +1774,32 @@
           "count": 2,
           "file": "backend/main.py",
           "lines": [
-            419,
-            457
+            436,
+            474
           ]
         },
         {
           "count": 2,
           "file": "backend/services/upstream_versions.py",
           "lines": [
-            111,
-            121
+            107,
+            117
           ]
         },
         {
           "count": 2,
-          "file": "frontend/src/components/common/SetupChecklist.test.js",
+          "file": "frontend/src/api/contractFixtures.test.js",
           "lines": [
-            34,
-            64
+            242,
+            312
           ]
         },
         {
           "count": 2,
           "file": "frontend/src/composables/useTaskCancelEndpoint.test.js",
           "lines": [
-            31,
-            34
+            27,
+            30
           ]
         },
         {
@@ -1827,16 +1814,16 @@
           "count": 2,
           "file": "frontend/src/stores/models.test.js",
           "lines": [
-            98,
-            101
+            100,
+            103
           ]
         },
         {
           "count": 2,
           "file": "frontend/e2e/accessibility.spec.mjs",
           "lines": [
-            55,
-            65
+            57,
+            69
           ]
         },
         {
@@ -1845,14 +1832,6 @@
           "lines": [
             65,
             85
-          ]
-        },
-        {
-          "count": 2,
-          "file": "frontend/src/api/contractFixtures.test.js",
-          "lines": [
-            242,
-            312
           ]
         },
         {
@@ -1866,7 +1845,7 @@
           "count": 1,
           "file": "backend/models/introspection.py",
           "lines": [
-            415
+            413
           ]
         },
         {
@@ -1887,42 +1866,49 @@
           "count": 1,
           "file": "backend/routes/models.py",
           "lines": [
-            661
+            662
           ]
         },
         {
           "count": 1,
           "file": "backend/routes/status.py",
           "lines": [
-            123
+            207
+          ]
+        },
+        {
+          "count": 1,
+          "file": "frontend/src/components/models/ModelConfigLaunchSettings.test.js",
+          "lines": [
+            67
           ]
         },
         {
           "count": 1,
           "file": "frontend/src/components/ParseCommandDialog.test.js",
           "lines": [
-            110
+            112
           ]
         },
         {
           "count": 1,
           "file": "frontend/src/components/system/VersionTable.vue",
           "lines": [
-            73
+            81
           ]
         },
         {
           "count": 1,
           "file": "frontend/src/stores/progress.test.js",
           "lines": [
-            161
+            242
           ]
         },
         {
           "count": 1,
           "file": "frontend/src/utils/parseCliCommand.js",
           "lines": [
-            282
+            277
           ]
         },
         {
@@ -1936,7 +1922,7 @@
           "count": 1,
           "file": "frontend/src/views/ModelSearch.catalog.test.js",
           "lines": [
-            173
+            170
           ]
         },
         {
@@ -1944,13 +1930,6 @@
           "file": "scripts/export-build-defaults.py",
           "lines": [
             7
-          ]
-        },
-        {
-          "count": 1,
-          "file": "frontend/src/components/models/ModelConfigLaunchSettings.test.js",
-          "lines": [
-            67
           ]
         }
       ]
@@ -1992,9 +1971,16 @@
         },
         {
           "count": 1,
+          "file": "backend/engines/metrics_flags.py",
+          "lines": [
+            76
+          ]
+        },
+        {
+          "count": 1,
           "file": "backend/engines/scan/help_parsers.py",
           "lines": [
-            2358
+            2258
           ]
         }
       ],
@@ -2003,21 +1989,21 @@
           "count": 15,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            543,
-            832,
-            995,
-            1127,
-            1145,
-            1278,
-            1309,
-            3184,
-            3194,
-            3205,
-            3227,
-            3788,
-            3805,
-            3809,
-            3824
+            493,
+            683,
+            799,
+            931,
+            949,
+            1082,
+            1113,
+            2978,
+            2988,
+            2999,
+            3021,
+            3582,
+            3599,
+            3603,
+            3618
           ]
         },
         {
@@ -2081,12 +2067,12 @@
             152,
             296,
             304,
-            487,
-            491,
-            495,
             499,
             503,
-            507
+            507,
+            511,
+            515,
+            519
           ]
         },
         {
@@ -2126,8 +2112,8 @@
           "count": 2,
           "file": "backend/routes/llama_versions.py",
           "lines": [
-            232,
-            277
+            233,
+            278
           ]
         },
         {
@@ -2142,8 +2128,8 @@
           "count": 2,
           "file": "backend/routes/status.py",
           "lines": [
-            122,
-            123
+            206,
+            207
           ]
         },
         {
@@ -2166,7 +2152,7 @@
           "count": 1,
           "file": "backend/main.py",
           "lines": [
-            463
+            480
           ]
         },
         {
@@ -2180,35 +2166,35 @@
           "count": 1,
           "file": "backend/proxy/studio/registry.py",
           "lines": [
-            35
+            101
           ]
         },
         {
           "count": 1,
           "file": "frontend/src/components/system/VersionTable.test.js",
           "lines": [
-            276
+            277
           ]
         },
         {
           "count": 1,
           "file": "frontend/src/composables/useTaskFilter.test.js",
           "lines": [
-            41
+            59
           ]
         },
         {
           "count": 1,
           "file": "frontend/src/utils/parseCliCommand.js",
           "lines": [
-            54
+            49
           ]
         },
         {
           "count": 1,
           "file": "frontend/src/views/ModelConfig.test.js",
           "lines": [
-            683
+            711
           ]
         }
       ]
@@ -2226,10 +2212,18 @@
         },
         {
           "count": 2,
+          "file": "backend/engines/metrics_flags.py",
+          "lines": [
+            34,
+            72
+          ]
+        },
+        {
+          "count": 2,
           "file": "backend/engines/scan/help_parsers.py",
           "lines": [
-            2441,
-            2446
+            2338,
+            2343
           ]
         },
         {
@@ -2241,6 +2235,13 @@
         },
         {
           "count": 1,
+          "file": "backend/engines/caches.py",
+          "lines": [
+            67
+          ]
+        },
+        {
+          "count": 1,
           "file": "backend/engines/lifecycle.py",
           "lines": [
             55
@@ -2248,16 +2249,9 @@
         },
         {
           "count": 1,
-          "file": "backend/engines/metrics_flags.py",
-          "lines": [
-            31
-          ]
-        },
-        {
-          "count": 1,
           "file": "backend/engines/params.py",
           "lines": [
-            406
+            400
           ]
         }
       ],
@@ -2308,12 +2302,12 @@
           "lines": [
             298,
             311,
-            538,
-            542,
-            546,
             550,
             554,
-            558
+            558,
+            562,
+            566,
+            570
           ]
         },
         {
@@ -2332,12 +2326,12 @@
           "count": 6,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            1077,
-            1129,
-            1147,
-            1174,
-            1280,
-            3853
+            881,
+            933,
+            951,
+            978,
+            1084,
+            3647
           ]
         },
         {
@@ -2364,15 +2358,15 @@
           "count": 2,
           "file": "backend/routes/llama_versions.py",
           "lines": [
-            234,
-            279
+            235,
+            280
           ]
         },
         {
           "count": 1,
           "file": "backend/main.py",
           "lines": [
-            466
+            483
           ]
         },
         {
@@ -2386,7 +2380,7 @@
           "count": 1,
           "file": "backend/proxy/studio/registry.py",
           "lines": [
-            35
+            101
           ]
         },
         {
@@ -2398,9 +2392,16 @@
         },
         {
           "count": 1,
+          "file": "frontend/src/components/layout/WorkspaceNavigator.vue",
+          "lines": [
+            98
+          ]
+        },
+        {
+          "count": 1,
           "file": "frontend/src/components/ParseCommandDialog.test.js",
           "lines": [
-            157
+            160
           ]
         },
         {
@@ -2408,13 +2409,6 @@
           "file": "frontend/src/components/ParseCommandDialog.vue",
           "lines": [
             23
-          ]
-        },
-        {
-          "count": 1,
-          "file": "frontend/src/components/layout/WorkspaceNavigator.vue",
-          "lines": [
-            98
           ]
         },
         {
@@ -2428,21 +2422,21 @@
           "count": 1,
           "file": "frontend/src/utils/parseCliCommand.js",
           "lines": [
-            51
+            46
           ]
         },
         {
           "count": 1,
           "file": "frontend/src/utils/parseCliCommand.test.js",
           "lines": [
-            296
+            309
           ]
         },
         {
           "count": 1,
           "file": "frontend/src/views/ModelConfig.test.js",
           "lines": [
-            662
+            687
           ]
         }
       ]
@@ -2455,6 +2449,14 @@
           "lines": [
             132,
             133
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/engines/metrics_flags.py",
+          "lines": [
+            39,
+            73
           ]
         },
         {
@@ -2473,16 +2475,9 @@
         },
         {
           "count": 1,
-          "file": "backend/engines/metrics_flags.py",
-          "lines": [
-            36
-          ]
-        },
-        {
-          "count": 1,
           "file": "backend/engines/params.py",
           "lines": [
-            406
+            400
           ]
         }
       ],
@@ -2518,11 +2513,11 @@
           "lines": [
             30,
             51,
-            102,
-            113,
-            120,
-            136,
-            187
+            104,
+            116,
+            124,
+            143,
+            196
           ]
         },
         {
@@ -2551,11 +2546,11 @@
           "count": 5,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            1175,
-            1229,
-            1240,
-            1281,
-            3858
+            979,
+            1033,
+            1044,
+            1085,
+            3652
           ]
         },
         {
@@ -2583,17 +2578,17 @@
           "count": 3,
           "file": "frontend/src/composables/engineReadiness.test.js",
           "lines": [
-            33,
-            65,
-            69
+            78,
+            111,
+            115
           ]
         },
         {
           "count": 2,
           "file": "backend/routes/llama_versions.py",
           "lines": [
-            235,
-            280
+            236,
+            281
           ]
         },
         {
@@ -2659,10 +2654,18 @@
         },
         {
           "count": 2,
+          "file": "backend/engines/metrics_flags.py",
+          "lines": [
+            23,
+            69
+          ]
+        },
+        {
+          "count": 2,
           "file": "backend/engines/python/release_host.py",
           "lines": [
-            456,
-            477
+            457,
+            478
           ]
         },
         {
@@ -2678,13 +2681,6 @@
           "file": "backend/engines/activation.py",
           "lines": [
             25
-          ]
-        },
-        {
-          "count": 1,
-          "file": "backend/engines/metrics_flags.py",
-          "lines": [
-            21
           ]
         },
         {
@@ -2749,23 +2745,23 @@
           "count": 7,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            1126,
-            1277,
-            1308,
-            3620,
-            3711,
-            3714,
-            3993
+            930,
+            1081,
+            1112,
+            3414,
+            3505,
+            3508,
+            3787
           ]
         },
         {
           "count": 4,
           "file": "backend/routes/llama_versions.py",
           "lines": [
-            225,
-            276,
-            483,
-            1555
+            226,
+            277,
+            484,
+            1556
           ]
         },
         {
@@ -2788,18 +2784,10 @@
         },
         {
           "count": 2,
-          "file": "frontend/src/components/common/SetupChecklist.test.js",
-          "lines": [
-            35,
-            51
-          ]
-        },
-        {
-          "count": 2,
           "file": "frontend/src/composables/engineReadiness.test.js",
           "lines": [
-            8,
-            10
+            14,
+            16
           ]
         },
         {
@@ -2840,10 +2828,26 @@
         },
         {
           "count": 2,
+          "file": "backend/engines/caches.py",
+          "lines": [
+            87,
+            97
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/engines/metrics_flags.py",
+          "lines": [
+            29,
+            70
+          ]
+        },
+        {
+          "count": 2,
           "file": "backend/engines/scan/help_parsers.py",
           "lines": [
-            186,
-            2514
+            180,
+            2409
           ]
         },
         {
@@ -2858,13 +2862,6 @@
           "file": "backend/engines/lifecycle.py",
           "lines": [
             59
-          ]
-        },
-        {
-          "count": 1,
-          "file": "backend/engines/metrics_flags.py",
-          "lines": [
-            27
           ]
         },
         {
@@ -2923,16 +2920,16 @@
           "count": 10,
           "file": "frontend/src/composables/engineReadiness.test.js",
           "lines": [
-            38,
-            39,
-            44,
-            47,
-            61,
-            62,
-            63,
+            67,
+            68,
+            73,
             76,
-            84,
-            88
+            90,
+            91,
+            92,
+            105,
+            113,
+            117
           ]
         },
         {
@@ -2964,12 +2961,12 @@
           "count": 6,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            1176,
-            1235,
-            1246,
-            1284,
-            3839,
-            3873
+            980,
+            1039,
+            1050,
+            1088,
+            3633,
+            3667
           ]
         },
         {
@@ -3001,7 +2998,7 @@
             300,
             301,
             312,
-            536
+            548
           ]
         },
         {
@@ -3025,15 +3022,15 @@
           "count": 2,
           "file": "backend/routes/llama_versions.py",
           "lines": [
-            238,
-            283
+            239,
+            284
           ]
         },
         {
           "count": 1,
           "file": "backend/main.py",
           "lines": [
-            465
+            482
           ]
         },
         {
@@ -3054,7 +3051,7 @@
           "count": 1,
           "file": "backend/proxy/studio/registry.py",
           "lines": [
-            35
+            101
           ]
         },
         {
@@ -3075,14 +3072,14 @@
           "count": 1,
           "file": "frontend/src/utils/parseCliCommand.js",
           "lines": [
-            53
+            48
           ]
         },
         {
           "count": 1,
           "file": "frontend/src/views/ModelConfig.test.js",
           "lines": [
-            680
+            708
           ]
         }
       ]
@@ -3188,6 +3185,7 @@
         "cuda_no_peer_copy": false,
         "cuda_no_vmm": false,
         "cuda_peer_max_batch_size": "128",
+        "cuda_toolkit": "",
         "custom_cmake_args": "",
         "cxxflags": "",
         "expert_chunking": true,
@@ -3290,6 +3288,7 @@
         "cuda_no_peer_copy": false,
         "cuda_no_vmm": false,
         "cuda_peer_max_batch_size": "128",
+        "cuda_toolkit": "",
         "custom_cmake_args": "",
         "cxxflags": "",
         "expert_chunking": true,
@@ -4733,6 +4732,32 @@
       "methods": [
         "POST"
       ],
+      "path": "/api/llama-versions/cuda-activate",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "ik_llama",
+        "llama_cpp"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/llama-versions/cuda-cleanup",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [
+        "ik_llama",
+        "llama_cpp"
+      ],
+      "methods": [
+        "POST"
+      ],
       "path": "/api/llama-versions/cuda-install",
       "responses": {
         "POST": "unknown"
@@ -5375,6 +5400,16 @@
     {
       "engines": [],
       "methods": [
+        "GET"
+      ],
+      "path": "/api/operations/attention",
+      "responses": {
+        "GET": "OperationAttentionResponse"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
         "POST"
       ],
       "path": "/api/operations/reconcile",
@@ -5388,6 +5423,16 @@
         "GET"
       ],
       "path": "/api/operations/recovery",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/operations/tasks/{task_id}/logs",
       "responses": {
         "GET": "unknown"
       }
@@ -5415,12 +5460,32 @@
     {
       "engines": [],
       "methods": [
+        "DELETE"
+      ],
+      "path": "/api/proxy/models/{model_id}/instance",
+      "responses": {
+        "DELETE": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
         "DELETE",
         "GET"
       ],
       "path": "/api/proxy/models/{model_id}/logs",
       "responses": {
         "DELETE": "empty",
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/proxy/models/{model_id}/logs/stream",
+      "responses": {
         "GET": "unknown"
       }
     },
@@ -5462,6 +5527,16 @@
       "path": "/api/proxy/requests",
       "responses": {
         "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/proxy/requests/{request_id}/replay",
+      "responses": {
+        "POST": "unknown"
       }
     },
     {
@@ -5903,6 +5978,16 @@
         "GET"
       ],
       "path": "/api/status",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/system-stats",
       "responses": {
         "GET": "unknown"
       }
