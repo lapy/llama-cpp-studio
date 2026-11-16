@@ -7,7 +7,7 @@ import { buildAutoFitState } from '@/utils/modelAutoFit'
  *
  * Detection is capability-based: the engine advertises `fit` in its scanned
  * parameter list, so no engine ids appear here. Restoration only touches the
- * draft and only the three settings that defeat auto-fit; persistence stays with
+ * draft and only the three settings that override auto-fit; persistence stays with
  * the action bar.
  */
 export function useModelAutoFit({
@@ -27,9 +27,9 @@ export function useModelAutoFit({
 
   /**
    * Restore the engine's auto-fit defaults on the draft:
+   * - fit -> "on" when the control offers it, otherwise clear the override
    * - ctx_size -> 0 (explicitly "loaded/fitted by the engine")
    * - n_gpu_layers -> clear the override (the numeric control cannot hold "auto")
-   * - flash_attn -> "auto" when the select offers it, otherwise clear the override
    *
    * Returns the number of settings restored.
    */

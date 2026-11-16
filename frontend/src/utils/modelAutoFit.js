@@ -5,13 +5,14 @@
  * Current llama.cpp enables `--fit` by default: it measures the real model,
  * context, and compute buffers, then chooses context and per-device GPU layer
  * counts (including partial MoE tensor offload) to fit the available memory.
- * Setting an explicit `--ctx-size`, a numeric `--n-gpu-layers`, or an explicit
- * `--flash-attn on|off` turns that fitting off, which is usually less accurate
- * than letting the engine size the model itself.
+ * An explicit `--ctx-size` prevents the fitter from choosing the context, and a
+ * numeric `--n-gpu-layers` prevents it from choosing the layer count; `--fit
+ * off` disables both. Flash attention is NOT part of the fitter: its own
+ * default is `auto`, independent of `--fit`.
  *
  * Canonical llama.cpp server flags/defaults (2026-11-15):
  *   -fit,   --fit [on|off]      default 'on'
- *   -fitc,  --fit-ctx N         default 4096 (minimum context auto-fit may choose)
+ *   --fit-ctx N                 default 4096 (minimum context auto-fit may choose)
  *   -fitt,  --fit-target MiB    default 1024 (target margin per device)
  *   -c,     --ctx-size N        default 0 (0 = loaded from model)
  *   -ngl,   --gpu-layers N      default 'auto' (exact number, 'auto', or 'all')
@@ -30,11 +31,11 @@
 export const AUTO_FIT_FLAG = '--fit'
 
 /**
- * The only parameters this module restores. Everything else (threads, batch,
- * parallel, sampling values) is deliberately left alone: auto-fit does not own
- * those decisions.
+ * The only parameters this module restores. Everything else (flash attention,
+ * threads, batch, parallel, sampling values) is deliberately left alone:
+ * auto-fit does not own those decisions.
  */
-export const AUTO_FIT_OVERRIDE_KEYS = Object.freeze(['ctx_size', 'n_gpu_layers', 'flash_attn'])
+export const AUTO_FIT_OVERRIDE_KEYS = Object.freeze(['fit', 'ctx_size', 'n_gpu_layers'])
 
 function positiveNumber(value) {
   const number = Number(value)
@@ -93,9 +94,10 @@ function isContextOverride(value) {
   return isNumericOverride(value) && Number(value) !== 0
 }
 
-function isFlashOverride(value) {
+function isFitDisabled(value) {
   if (value == null || value === '') return false
-  return String(value).trim().toLowerCase() !== 'auto'
+  if (value === false) return true
+  return ['off', 'false', '0'].includes(String(value).trim().toLowerCase())
 }
 
 /** The control only accepts text when it is a select/string, not an int input. */
@@ -115,7 +117,7 @@ function contextRow(param, current) {
     autoLabel: 'Auto (0)',
     restore: { mode: 'set', value: 0 },
     reason:
-      'An explicit --ctx-size turns auto-fit off. Setting 0 makes the engine load the model context and fit it to memory instead.',
+      'An explicit --ctx-size prevents auto-fit from choosing the context. Setting 0 makes the engine load the model context and fit it to memory instead.',
   }
 }
 
@@ -128,20 +130,24 @@ function layerRow(param, current) {
     autoLabel: 'Auto',
     restore,
     reason:
-      'An explicit layer count turns auto-fit off. Clearing it lets the engine choose per-device layers, including partial MoE offload.',
+      'A numeric layer count prevents auto-fit from choosing layers. Clearing it lets the engine choose per-device layers, including partial MoE offload.',
   }
 }
 
-function flashRow(param, current) {
-  const restore = acceptsAutoString(param) ? { mode: 'set', value: 'auto' } : { mode: 'clear' }
+function fitRow(param, current) {
+  const offersOn = optionValues(param).includes('on')
+  const restore =
+    offersOn || param.type === 'string' || (param.type === 'select' && !optionValues(param).length)
+      ? { mode: 'set', value: 'on' }
+      : { mode: 'clear' }
   return {
-    key: 'flash_attn',
-    label: param.label || 'Flash attention',
-    current,
-    autoLabel: 'Auto',
+    key: 'fit',
+    label: param.label || 'Auto-fit',
+    current: current === false ? 'off' : current,
+    autoLabel: 'On',
     restore,
     reason:
-      'An explicit on/off turns auto-fit’s backend-aware choice off. Auto lets the engine pick the mode that works with the selected device.',
+      'Auto-fit is explicitly off, so the engine keeps fixed context and layer settings instead of sizing them to memory. Turning it on lets the engine measure the model at load time.',
   }
 }
 
@@ -160,6 +166,9 @@ export function detectAutoFitOverrides({ parameters, config } = {}) {
   const values = config && typeof config === 'object' ? config : {}
   const rows = []
 
+  const fit = byKey.get('fit')
+  if (fit && isFitDisabled(values.fit)) rows.push(fitRow(fit, values.fit))
+
   const ctx = byKey.get('ctx_size')
   if (ctx && isContextOverride(values.ctx_size)) rows.push(contextRow(ctx, values.ctx_size))
 
@@ -167,9 +176,6 @@ export function detectAutoFitOverrides({ parameters, config } = {}) {
   if (layers && isNumericOverride(values.n_gpu_layers)) {
     rows.push(layerRow(layers, values.n_gpu_layers))
   }
-
-  const flash = byKey.get('flash_attn')
-  if (flash && isFlashOverride(values.flash_attn)) rows.push(flashRow(flash, values.flash_attn))
 
   return rows
 }

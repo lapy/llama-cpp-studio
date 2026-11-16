@@ -170,27 +170,17 @@ describe('detectAutoFitOverrides', () => {
     }
   })
 
-  it('detects explicit flash attention, but not auto', () => {
-    for (const value of ['on', 'off', true]) {
-      expect(overrides({ flash_attn: value })).toEqual([
-        expect.objectContaining({
-          key: 'flash_attn',
-          current: value,
-          autoLabel: 'Auto',
-          restore: { mode: 'set', value: 'auto' },
-        }),
-      ])
-    }
-    for (const value of ['auto', 'AUTO', null, '']) {
+  it('ignores flash attention because --fit does not own it', () => {
+    for (const value of ['on', 'off', true, 'auto', 'AUTO', null, '']) {
       expect(overrides({ flash_attn: value })).toEqual([])
     }
   })
 
   it('reports exactly the three auto-fit keys in a stable order', () => {
-    const rows = overrides({ ctx_size: 8192, n_gpu_layers: 32, flash_attn: 'off' })
+    const rows = overrides({ fit: 'off', ctx_size: 8192, n_gpu_layers: 32 })
 
     expect(rows.map((row) => row.key)).toEqual([...AUTO_FIT_OVERRIDE_KEYS])
-    expect(rows.map((row) => row.key)).toEqual(['ctx_size', 'n_gpu_layers', 'flash_attn'])
+    expect(rows.map((row) => row.key)).toEqual(['fit', 'ctx_size', 'n_gpu_layers'])
   })
 
   it('never proposes thread, batch, or parallel changes', () => {
@@ -200,11 +190,9 @@ describe('detectAutoFitOverrides', () => {
 
   it('only considers parameters the engine actually exposes', () => {
     const parameters = canonicalParams.filter(
-      (param) => !['ctx_size', 'n_gpu_layers', 'flash_attn'].includes(param.key),
+      (param) => !['fit', 'ctx_size', 'n_gpu_layers'].includes(param.key),
     )
-    expect(overrides({ ctx_size: 8192, n_gpu_layers: 32, flash_attn: 'on' }, parameters)).toEqual(
-      [],
-    )
+    expect(overrides({ fit: 'off', ctx_size: 8192, n_gpu_layers: 32 }, parameters)).toEqual([])
   })
 
   it('uses auto strings only when the control accepts them', () => {
@@ -234,23 +222,12 @@ describe('detectAutoFitOverrides', () => {
     })
   })
 
-  it('clears flash attention when the build does not offer auto', () => {
-    const parameters = canonicalParams.map((param) =>
-      param.key === 'flash_attn'
-        ? {
-            ...param,
-            options: [
-              { value: 'on', label: 'on' },
-              { value: 'off', label: 'off' },
-            ],
-          }
-        : param,
-    )
-    expect(overrides({ flash_attn: 'on' }, parameters)[0].restore).toEqual({ mode: 'clear' })
+  it('restores fit to on when the control offers it', () => {
+    expect(overrides({ fit: 'off' })[0].restore).toEqual({ mode: 'set', value: 'on' })
   })
 
   it('explains why each override defeats auto-fit without inventing numbers', () => {
-    for (const row of overrides({ ctx_size: 8192, n_gpu_layers: 32, flash_attn: 'on' })) {
+    for (const row of overrides({ fit: 'off', ctx_size: 8192, n_gpu_layers: 32 })) {
       expect(row.reason.length).toBeGreaterThan(30)
       expect(row.reason).toMatch(/auto-fit/i)
       expect(row.reason).not.toMatch(/GiB|VRAM|estimate|recommend/i)

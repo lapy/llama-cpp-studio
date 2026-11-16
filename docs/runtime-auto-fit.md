@@ -15,33 +15,35 @@ overridden the inputs the fitter owns.
 | -------------------------------- | ---------------------------------------------- | ------- |
 | `-fit`, `--fit [on\|off]`        | Fit unset arguments to device memory           | `on`    |
 | `-fitt`, `--fit-target MiB0,...` | Target margin per device                       | `1024`  |
-| `-fitc`, `--fit-ctx N`           | Minimum context auto-fit may choose            | `4096`  |
+| `--fit-ctx N`                    | Minimum context auto-fit may choose            | `4096`  |
 | `-c`, `--ctx-size N`             | Prompt context size; `0` = loaded from model   | `0`     |
 | `-ngl`, `--gpu-layers N`         | Layers in VRAM; exact number, `auto`, or `all` | `auto`  |
 | `-fa`, `--flash-attn`            | Flash attention: `on`, `off`, or `auto`        | `auto`  |
 
 ## Rationale
 
-An explicit `--ctx-size`, a numeric `--n-gpu-layers`, or an explicit
-`--flash-attn on|off` disables the corresponding auto-fit decision. A fixed 4K
-or 8K context chosen without measurement can waste VRAM (too small) or fail to
-start (too large); a blanket KV-cache estimate is less accurate than the
-fitter's own measurement, especially for MoE models and multi-GPU setups.
-Therefore Studio does not recommend numeric context sizes, layer counts, thread
-counts, batch sizes, or memory estimates.
+An explicit `--ctx-size` prevents the fitter from choosing the context, and a
+numeric `--n-gpu-layers` prevents it from choosing the layer count; `--fit off`
+disables both. A fixed 4K or 8K context chosen without measurement can waste
+VRAM (too small) or fail to start (too large); a blanket KV-cache estimate is
+less accurate than the fitter's own measurement, especially for MoE models and
+multi-GPU setups. Flash attention is independent of `--fit` and keeps its own
+`auto` default, so Studio does not touch it here. Studio does not recommend
+numeric context sizes, layer counts, thread counts, batch sizes, or memory
+estimates.
 
 Instead, the model configuration page identifies exactly the settings that
-defeat auto-fit when explicitly overridden:
+override auto-fit:
 
+- `fit = off`
 - `ctx_size != 0`
 - a numeric `n_gpu_layers` (not `auto`/`all`)
-- `flash_attn` other than `auto`
 
 and offers one action that restores the engine defaults:
 
+- `fit = on`
 - `ctx_size = 0`
 - clear the `n_gpu_layers` override (the numeric control cannot hold `auto`)
-- `flash_attn = auto` when the select offers it, otherwise clear the override
 
 The action only edits the draft. Saving and applying remain the action bar's job.
 

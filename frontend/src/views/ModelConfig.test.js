@@ -1057,9 +1057,9 @@ describe('ModelConfig', () => {
             engine: engineId,
             engines: {
               [engineId]: {
+                fit: 'off',
                 ctx_size: 8192,
                 n_gpu_layers: 32,
-                flash_attn: 'on',
                 threads: 8,
                 batch_size: 512,
                 parallel: 2,
@@ -1081,9 +1081,9 @@ describe('ModelConfig', () => {
 
     expect(wrapper.vm.autoFitState.supported).toBe(true)
     expect(wrapper.vm.autoFitState.overrides.map((row) => row.key)).toEqual([
+      'fit',
       'ctx_size',
       'n_gpu_layers',
-      'flash_attn',
     ])
     const card = wrapper.get('[data-auto-fit]')
     expect(card.text()).toContain('Auto-fit is overridden')
@@ -1098,9 +1098,9 @@ describe('ModelConfig', () => {
     await card.get('[data-auto-fit-restore]').trigger('click')
     await flushPromises()
 
+    expect(wrapper.vm.config.fit).toBe('on')
     expect(wrapper.vm.config.ctx_size).toBe(0)
     expect(wrapper.vm.config).not.toHaveProperty('n_gpu_layers')
-    expect(wrapper.vm.config.flash_attn).toBe('auto')
     // Auto-fit restoration must not touch unrelated parameters.
     expect(wrapper.vm.config.threads).toBe(8)
     expect(wrapper.vm.config.batch_size).toBe(512)
@@ -1117,7 +1117,7 @@ describe('ModelConfig', () => {
     const paramRows = wrapper.vm.configChangeGroups
       .find((group) => group.id === 'params')
       .rows.map((row) => row.key)
-    expect(paramRows.sort()).toEqual(['ctx_size', 'flash_attn', 'n_gpu_layers'])
+    expect(paramRows.sort()).toEqual(['ctx_size', 'fit', 'n_gpu_layers'])
   })
 
   it('explains a missing engine parameter catalog and keeps saved values visible', async () => {

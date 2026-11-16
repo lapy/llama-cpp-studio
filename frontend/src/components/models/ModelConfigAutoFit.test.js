@@ -7,13 +7,22 @@ const defaults = { fit: 'on', fitCtx: 4096, fitTarget: 1024 }
 
 const overrides = [
   {
+    key: 'fit',
+    label: 'Auto-fit',
+    current: 'off',
+    autoLabel: 'On',
+    restore: { mode: 'set', value: 'on' },
+    reason:
+      'Auto-fit is explicitly off, so the engine keeps fixed context and layer settings instead of sizing them to memory.',
+  },
+  {
     key: 'ctx_size',
     label: 'Context size',
     current: 8192,
     autoLabel: 'Auto (0)',
     restore: { mode: 'set', value: 0 },
     reason:
-      'An explicit --ctx-size turns auto-fit off. Setting 0 makes the engine load the model context and fit it to memory instead.',
+      'An explicit --ctx-size prevents auto-fit from choosing the context. Setting 0 loads the model context instead.',
   },
   {
     key: 'n_gpu_layers',
@@ -22,16 +31,7 @@ const overrides = [
     autoLabel: 'Auto',
     restore: { mode: 'clear' },
     reason:
-      'An explicit layer count turns auto-fit off. Clearing it lets the engine choose per-device layers, including partial MoE offload.',
-  },
-  {
-    key: 'flash_attn',
-    label: 'Flash attention',
-    current: 'off',
-    autoLabel: 'Auto',
-    restore: { mode: 'set', value: 'auto' },
-    reason:
-      'An explicit on/off turns auto-fit’s backend-aware choice off. Auto lets the engine pick the mode that works with the selected device.',
+      'A numeric layer count prevents auto-fit from choosing layers. Clearing it lets the engine choose per-device layers.',
   },
 ]
 
@@ -67,17 +67,18 @@ describe('ModelConfigAutoFit', () => {
     const wrapper = mountCard()
 
     expect(wrapper.get('h3').text()).toBe('Auto-fit is overridden')
-    expect(wrapper.get('ul').attributes('aria-label')).toBe('Overrides that disable auto-fit')
+    expect(wrapper.get('ul').attributes('aria-label')).toBe('Settings overriding auto-fit')
     expect(wrapper.findAll('[data-auto-fit-key]')).toHaveLength(3)
 
     const rows = wrapper.findAll('[data-auto-fit-key]')
-    expect(rows[0].text()).toContain('Context size')
-    expect(rows[0].text()).toContain('8,192 tokens')
-    expect(rows[0].text()).toContain('Auto (0)')
-    expect(rows[0].text()).toContain('explicit --ctx-size')
-    expect(rows[1].text()).toContain('32 layers')
-    expect(rows[1].text()).toContain('Auto')
-    expect(rows[2].text()).toContain('Off')
+    expect(rows[0].text()).toContain('Auto-fit')
+    expect(rows[0].text()).toContain('Off')
+    expect(rows[0].text()).toContain('On')
+    expect(rows[1].text()).toContain('Context size')
+    expect(rows[1].text()).toContain('8,192 tokens')
+    expect(rows[1].text()).toContain('Auto (0)')
+    expect(rows[1].text()).toContain('explicit --ctx-size')
+    expect(rows[2].text()).toContain('32 layers')
     expect(rows[2].text()).toContain('Auto')
     expect(wrapper.text()).toContain('3 overrides')
   })
