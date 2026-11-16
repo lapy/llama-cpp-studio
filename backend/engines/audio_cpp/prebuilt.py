@@ -243,6 +243,36 @@ def select_prebuilt(assets: Iterable[Any], host: HostTarget) -> Optional[Prebuil
     return _plan_from_asset(chosen, host, reason)
 
 
+def _describe_sms(values: Iterable[int]) -> str:
+    """``80, 86`` -> ``8.0, 8.6`` for a message a person can check against a GPU."""
+    seen = sorted({int(value) for value in values if int(value) > 0})
+    if not seen:
+        return "unknown"
+    return ", ".join(f"{value // 10}.{value % 10}" for value in seen)
+
+
+def _arch_mismatch_reason(covered: Sequence[dict], host: HostTarget) -> str:
+    """Explain a prebuilt that targets different compute capabilities than the host.
+
+    The host CUDA toolkit version is irrelevant here: a published archive only
+    runs the architectures it was compiled for, so naming both sets stops the
+    message from reading as "your CUDA is too old".
+    """
+    published = sorted({sm for item in covered for sm in item["architectures"]})
+    host_text = _describe_sms(host.sms)
+    if not published:
+        return (
+            "The published CUDA prebuilt does not declare its compute capabilities "
+            f"and this host runs {host_text}, so this release will be built from source."
+        )
+    return (
+        "The published CUDA prebuilt targets compute capability "
+        f"{_describe_sms(published)} and this host runs {host_text}; an installed "
+        "CUDA toolkit does not add architectures to a prebuilt binary, so this "
+        "release will be built from source."
+    )
+
+
 def prebuilt_skip_reason(assets: Iterable[Any], host: HostTarget) -> str:
     """Why ``select_prebuilt`` returned None."""
     if not host.linux_x64:
@@ -268,19 +298,14 @@ def prebuilt_skip_reason(assets: Iterable[Any], host: HostTarget) -> str:
             )
         covered = [item for item in newer_host if _covers_sms(item["architectures"], host.sms)]
         if not covered:
-            return (
-                "No published CUDA prebuilt covers this GPU, so this release "
-                "will be built from source."
-            )
+            return _arch_mismatch_reason(newer_host, host)
         if all(not item["includes_cli"] for item in covered) and not _cpu_cli_archive(parsed, host):
             return (
                 "The CUDA prebuilt does not include audiocpp_cli and this "
                 "release has no CPU archive to supply one, so it will be "
                 "built from source."
             )
-        return (
-            "No published CUDA prebuilt covers this GPU, so this release will be built from source."
-        )
+        return _arch_mismatch_reason(covered, host)
     return "This release has no Linux CPU prebuilt, so it will be built from source."
 
 

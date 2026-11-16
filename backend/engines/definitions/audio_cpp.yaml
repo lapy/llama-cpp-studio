@@ -691,7 +691,7 @@ build_options:
     kind: int
     default: 0
     label: Parallel jobs
-    desc: 0 = automatic (nproc)
+    desc: 0 = automatic (host CPU and memory budget)
     category: advanced
     special: jobs
   - key: custom_cmake_args

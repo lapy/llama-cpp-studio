@@ -139,3 +139,113 @@ def shutdown_blocking(wait: bool = False) -> None:
     _executor = None
     if executor is not None:
         executor.shutdown(wait=wait, cancel_futures=True)
+
+
+#: KiB in one GiB, for the memory budgets below.
+KIB_PER_GIB = 1024 * 1024
+
+
+def _read_meminfo_available_kib() -> int:
+    """``MemAvailable`` from /proc/meminfo, or 0 when it cannot be read."""
+    try:
+        with open("/proc/meminfo", "r", encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1])
+    except (OSError, ValueError, IndexError):
+        return 0
+    return 0
+
+
+def _read_cgroup_available_kib() -> int:
+    """Memory headroom left by the container's cgroup limit, or 0.
+
+    The page cache the cgroup already accounts for is not free memory: the
+    kernel reclaims it on demand, so subtracting it would understate how much
+    a build can safely claim.
+    """
+    maximum = 0
+    try:
+        with open("/sys/fs/cgroup/memory.max", "r", encoding="utf-8") as handle:
+            raw = handle.read().strip()
+        maximum = 0 if raw in {"", "max"} else int(raw)
+    except (OSError, ValueError):
+        maximum = 0
+    if maximum <= 0:
+        try:
+            with open(
+                "/sys/fs/cgroup/memory/memory.limit_in_bytes", "r", encoding="utf-8"
+            ) as handle:
+                maximum = int(handle.read().strip())
+        except (OSError, ValueError):
+            return 0
+        # cgroup v1 reports "unlimited" as a huge page-aligned value.
+        if maximum >= 1 << 60:
+            return 0
+    try:
+        with open("/sys/fs/cgroup/memory.current", "r", encoding="utf-8") as handle:
+            current = int(handle.read().strip())
+        file_cache = 0
+        try:
+            with open("/sys/fs/cgroup/memory.stat", "r", encoding="utf-8") as handle:
+                for line in handle:
+                    key, _, value = line.partition(" ")
+                    if key in {"active_file", "inactive_file"}:
+                        file_cache += int(value.strip())
+        except (OSError, ValueError):
+            file_cache = 0
+        usage = max(0, current - file_cache)
+        if maximum > usage:
+            return (maximum - usage) // 1024
+    except (OSError, ValueError):
+        return 0
+    return 0
+
+
+def available_memory_kib() -> int:
+    """Memory a build can claim right now: host headroom capped by the cgroup."""
+    available = _read_meminfo_available_kib()
+    cgroup_available = _read_cgroup_available_kib()
+    if cgroup_available > 0 and (available <= 0 or cgroup_available < available):
+        return cgroup_available
+    return available
+
+
+def build_job_budget(
+    *,
+    per_job_kib: int = 4 * KIB_PER_GIB,
+    reserve_kib: Optional[int] = None,
+    available_kib: Optional[int] = None,
+) -> int:
+    """Parallel compiler jobs that fit this host without starving Studio.
+
+    Engine builds are the most memory-hungry work Studio starts: a parallel
+    CUDA compile can allocate several GiB per nvcc process, and an unbounded
+    ``cmake --build --parallel`` turns the box into a swapping host where the
+    API, the proxy and every SSE stream stop answering (they recover when the
+    build ends). The budget is the smaller of the CPUs this process may use
+    (affinity and cgroup quota) and what fits in memory after a reserve for
+    the control plane and any loaded model.
+
+    ``per_job_kib`` is the worst-case allocation of one compile job (CUDA is
+    heavier than a host C++ compile); ``available_kib`` lets a caller pass a
+    memory measurement it already made; ``STUDIO_BUILD_JOBS`` overrides the
+    result for hosts that want a different tradeoff.
+    """
+    configured = os.getenv("STUDIO_BUILD_JOBS", "").strip()
+    if configured:
+        try:
+            return max(1, int(configured))
+        except ValueError:
+            pass
+    cpu_jobs = max(1, effective_cpu_count())
+    available = available_memory_kib() if available_kib is None else int(available_kib)
+    if available <= 0:
+        return cpu_jobs
+    if reserve_kib is None:
+        # Leave the control plane (and a resident model) room to keep
+        # answering: at least 4 GiB, and an eighth of the headroom on hosts
+        # large enough for a big compile burst to fill it.
+        reserve_kib = min(max(4 * KIB_PER_GIB, available // 8), available // 2)
+    budget = max(1, (available - reserve_kib) // max(1, int(per_job_kib)))
+    return max(1, min(cpu_jobs, budget))

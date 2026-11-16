@@ -79,7 +79,20 @@ def test_highest_package_the_host_can_run_wins():
 def test_uncovered_gpu_builds_from_source():
     host = _host(cuda=(12, 8), sms=(120,))
     assert select_prebuilt([CUDA_128], host) is None
-    assert "covers this GPU" in prebuilt_skip_reason([CUDA_128], host)
+    reason = prebuilt_skip_reason([CUDA_128], host)
+    # Name both sides of the mismatch: the archive's compute capabilities and
+    # the host's, so an installed CUDA toolkit is not misread as the cause.
+    assert "compute capability 7.5, 8.0, 8.6, 8.9, 9.0" in reason
+    assert "this host runs 12.0" in reason
+    assert "CUDA toolkit does not add architectures" in reason
+
+
+def test_mixed_gpu_host_reports_the_uncovered_capability():
+    # V100 (7.0) plus RTX 3090 (8.6): the colab archive covers 8.6 but not 7.0.
+    host = _host(cuda=(12, 8), sms=(70, 86))
+    assert select_prebuilt([CUDA_128], host) is None
+    reason = prebuilt_skip_reason([CUDA_128], host)
+    assert "this host runs 7.0, 8.6" in reason
 
 
 def test_cpu_host_prefers_the_portable_archive():

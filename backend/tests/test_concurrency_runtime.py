@@ -102,15 +102,72 @@ def test_blocking_worker_count_honours_override(monkeypatch):
     assert concurrency.effective_cpu_count() >= 1
 
 
-def test_build_parallelism_uses_every_available_cpu(monkeypatch):
+def test_build_parallelism_respects_cpus_and_memory(monkeypatch):
+    from backend.concurrency import KIB_PER_GIB
     from backend.engines.python.cmake_build import CmakeBuildHost
 
     host = object.__new__(CmakeBuildHost)
     monkeypatch.delenv("STUDIO_BUILD_THREADS", raising=False)
-    assert host.get_optimal_build_threads() == concurrency.effective_cpu_count()
+    monkeypatch.delenv("STUDIO_BUILD_JOBS", raising=False)
+    monkeypatch.setattr(concurrency, "effective_cpu_count", lambda: 7)
+    monkeypatch.setattr(concurrency, "_read_meminfo_available_kib", lambda: 64 * KIB_PER_GIB)
+    monkeypatch.setattr(concurrency, "_read_cgroup_available_kib", lambda: 0)
+    assert host.get_optimal_build_threads() == 7
+
+    # A 20 GiB host cannot feed seven 8 GiB CUDA compile jobs; the memory
+    # bound wins so the box keeps answering during the build.
+    monkeypatch.setattr(concurrency, "_read_meminfo_available_kib", lambda: 20 * KIB_PER_GIB)
+    assert host.get_optimal_build_threads() == 2
 
     monkeypatch.setenv("STUDIO_BUILD_THREADS", "6")
     assert host.get_optimal_build_threads() == 6
+
+
+def test_build_job_budget_uses_cgroup_headroom_over_host_memory(monkeypatch):
+    from backend.concurrency import KIB_PER_GIB
+
+    monkeypatch.delenv("STUDIO_BUILD_JOBS", raising=False)
+    monkeypatch.setattr(concurrency, "effective_cpu_count", lambda: 32)
+    monkeypatch.setattr(concurrency, "_read_meminfo_available_kib", lambda: 200 * KIB_PER_GIB)
+    monkeypatch.setattr(concurrency, "_read_cgroup_available_kib", lambda: 36 * KIB_PER_GIB)
+    # 36 GiB of container headroom, 4.5 GiB reserve (an eighth), 8 GiB per
+    # CUDA job: three jobs, not the 32 the CPU count would allow.
+    assert concurrency.build_job_budget(per_job_kib=8 * KIB_PER_GIB) == 3
+
+
+def test_build_job_budget_falls_back_to_cpus_without_memory_info(monkeypatch):
+    monkeypatch.delenv("STUDIO_BUILD_JOBS", raising=False)
+    monkeypatch.setattr(concurrency, "effective_cpu_count", lambda: 12)
+    monkeypatch.setattr(concurrency, "_read_meminfo_available_kib", lambda: 0)
+    monkeypatch.setattr(concurrency, "_read_cgroup_available_kib", lambda: 0)
+    assert concurrency.build_job_budget() == 12
+
+
+def test_build_job_budget_honours_the_override(monkeypatch):
+    monkeypatch.setenv("STUDIO_BUILD_JOBS", "5")
+    monkeypatch.setattr(concurrency, "effective_cpu_count", lambda: 32)
+    monkeypatch.setattr(
+        concurrency,
+        "available_memory_kib",
+        lambda: 8 * concurrency.KIB_PER_GIB,
+    )
+    assert concurrency.build_job_budget() == 5
+
+
+def test_loop_stall_warning_is_thresholded_and_rate_limited(monkeypatch, caplog):
+    from backend import ops_metrics
+
+    monkeypatch.setattr(ops_metrics, "_last_stall_warning", 0.0)
+    monkeypatch.delenv("STUDIO_LOOP_STALL_WARN_SECONDS", raising=False)
+    with caplog.at_level("WARNING", logger=ops_metrics.logger.name):
+        assert ops_metrics.warn_loop_stall(0.2) is False
+        assert ops_metrics.warn_loop_stall(3.5) is True
+        # A second stall inside the window is counted but not logged again.
+        assert ops_metrics.warn_loop_stall(9.0) is False
+    messages = [record.message for record in caplog.records]
+    assert any("Event loop stalled for 3.5s" in message for message in messages)
+    assert len(messages) == 1
+    assert ops_metrics.snapshot_metrics()["event_loop_stalls"] >= 1
 
 
 def test_admission_cache_tracks_the_settings_revision(tmp_path, monkeypatch):
