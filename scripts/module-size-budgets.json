@@ -14,7 +14,7 @@
   "frontend/src/composables/useAudioModelConfig.js": 1421,
   "frontend/src/stores/engines.js": 794,
   "frontend/src/views/EnginesView.vue": 4590,
-  "frontend/src/views/ModelConfig.vue": 3880,
+  "frontend/src/views/ModelConfig.vue": 3849,
   "frontend/src/views/ModelLibrary.vue": 2219,
   "frontend/src/views/ModelSearch.vue": 4814,
   "frontend/src/views/ProxyView.vue": 3052

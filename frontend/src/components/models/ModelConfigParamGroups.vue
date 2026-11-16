@@ -46,6 +46,17 @@
         </div>
         <div class="param-groups__actions">
           <Button
+            v-if="autoFitOverrides.length"
+            label="Restore auto settings"
+            icon="pi pi-undo"
+            size="small"
+            severity="secondary"
+            outlined
+            type="button"
+            data-auto-fit-action
+            @click="emit('restore-auto-fit')"
+          />
+          <Button
             label="Expand all"
             size="small"
             severity="secondary"
@@ -421,6 +432,8 @@ const props = defineProps({
   layerCountSuggestion: { type: Number, default: null },
   /** Basic params keep their legacy `basic-*` ids for links and e2e selectors. */
   pinnedKeys: { type: Array, default: () => [] },
+  /** Settings that currently defeat the engine's auto-fit; empty hides the action. */
+  autoFitOverrides: { type: Array, default: () => [] },
 })
 
 const emit = defineEmits([
@@ -431,6 +444,7 @@ const emit = defineEmits([
   'reset:param',
   'remove:param',
   'add:param',
+  'restore-auto-fit',
 ])
 
 const filterMode = ref('all')

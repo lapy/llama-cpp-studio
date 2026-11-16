@@ -25,8 +25,8 @@
  *  - Server & API: `host*`, `port`/`port_*`, `api_key*`, `*timeout*`, `slot*`,
  *    `props*`, `metrics*`, `chat_template*`, `jinja*`, `embedding*`, `rerank*`
  *  - Multimodal: `mmproj*`, `image*`, `vision*`, `audio*`, `clip*`
- *  - Performance: `*threads*`, `numa*`, `prio*`, `poll*`, `cpu` as a whole
- *    token (`cpu`, `cpu_moe`, `use_cpu`)
+ *  - Performance: `fit*` (`fit`, `fit_ctx`, `fit_target`), `*threads*`, `numa*`,
+ *    `prio*`, `poll*`, `cpu` as a whole token (`cpu`, `cpu_moe`, `use_cpu`)
  *  - Logging & debug: `verbose*`, `verbosity*`, `log`/`log_*`, `logfile*`,
  *    `debug*`
  *  - Other: anything else.
@@ -79,7 +79,7 @@ export const PARAM_GROUPS = Object.freeze(
     {
       id: 'performance',
       title: 'Performance',
-      description: 'CPU threading, affinity, and runtime scheduling controls.',
+      description: 'Auto-fit margins, CPU threading, affinity, and runtime scheduling controls.',
       icon: 'pi pi-gauge',
       defaultOpen: false,
     },
@@ -186,7 +186,7 @@ const GROUP_RULES = Object.freeze([
   ['multimodal', [/^mmproj($|_)/, /^image($|_)/, /^vision($|_)/, /^audio($|_)/, /^clip($|_)/]],
   [
     'performance',
-    [/(^|_)threads?($|_)/, /^numa($|_)/, /^prio($|_)/, /^poll($|_)/, /(^|_)cpu($|_)/],
+    [/^fit($|_)/, /(^|_)threads?($|_)/, /^numa($|_)/, /^prio($|_)/, /^poll($|_)/, /(^|_)cpu($|_)/],
   ],
   ['logging', [/^verbose($|_)/, /^verbosity($|_)/, /^log($|_)/, /^logfile/, /^debug($|_)/]],
 ])

@@ -945,4 +945,189 @@ describe('ModelConfig', () => {
 
     expect(wrapper.vm.applyImpactVisible).toBe(true)
   })
+
+  it('restores only the auto-fit overrides in the draft without saving', async () => {
+    const engineId = PRIMARY_ENGINE_ID
+    const autoFitRegistry = {
+      sections: [
+        {
+          id: 'performance',
+          label: 'Performance',
+          params: [
+            {
+              key: 'fit',
+              label: 'Auto-fit',
+              type: 'select',
+              value_kind: 'enum',
+              default: 'on',
+              primary_flag: '--fit',
+              flags: ['--fit'],
+              options: [
+                { value: 'on', label: 'on' },
+                { value: 'off', label: 'off' },
+              ],
+              supported: true,
+            },
+            {
+              key: 'fit_ctx',
+              label: 'Fit context',
+              type: 'int',
+              value_kind: 'scalar',
+              default: 4096,
+              primary_flag: '--fit-ctx',
+              flags: ['--fit-ctx'],
+              supported: true,
+            },
+            {
+              key: 'fit_target',
+              label: 'Fit target',
+              type: 'int',
+              value_kind: 'scalar',
+              default: 1024,
+              primary_flag: '--fit-target',
+              flags: ['--fit-target'],
+              supported: true,
+            },
+            {
+              key: 'ctx_size',
+              label: 'Context Size',
+              type: 'int',
+              value_kind: 'scalar',
+              default: 0,
+              primary_flag: '--ctx-size',
+              flags: ['--ctx-size'],
+              supported: true,
+            },
+            {
+              key: 'n_gpu_layers',
+              label: 'GPU Layers',
+              type: 'int',
+              value_kind: 'scalar',
+              default: 'auto',
+              primary_flag: '--n-gpu-layers',
+              flags: ['--gpu-layers', '--n-gpu-layers'],
+              supported: true,
+            },
+            {
+              key: 'flash_attn',
+              label: 'Flash Attention',
+              type: 'select',
+              value_kind: 'enum',
+              default: 'auto',
+              options: [
+                { value: 'on', label: 'on' },
+                { value: 'off', label: 'off' },
+                { value: 'auto', label: 'auto' },
+              ],
+              supported: true,
+            },
+            {
+              key: 'threads',
+              label: 'Threads',
+              type: 'int',
+              value_kind: 'scalar',
+              default: -1,
+              supported: true,
+            },
+            {
+              key: 'batch_size',
+              label: 'Batch Size',
+              type: 'int',
+              value_kind: 'scalar',
+              default: 2048,
+              supported: true,
+            },
+            {
+              key: 'parallel',
+              label: 'Parallel',
+              type: 'int',
+              value_kind: 'scalar',
+              default: -1,
+              supported: true,
+            },
+          ],
+        },
+      ],
+    }
+    const baseGet = vi.mocked(axios.get).getMockImplementation()
+    vi.mocked(axios.get).mockImplementation((url, config) => {
+      if (url === '/api/models/model-1/config') {
+        return Promise.resolve({
+          data: {
+            engine: engineId,
+            engines: {
+              [engineId]: {
+                ctx_size: 8192,
+                n_gpu_layers: 32,
+                flash_attn: 'on',
+                threads: 8,
+                batch_size: 512,
+                parallel: 2,
+              },
+            },
+          },
+        })
+      }
+      if (url === '/api/models/param-registry') {
+        return Promise.resolve({ data: autoFitRegistry })
+      }
+      return baseGet(url, config)
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    expect(wrapper.vm.autoFitState.supported).toBe(true)
+    expect(wrapper.vm.autoFitState.overrides.map((row) => row.key)).toEqual([
+      'ctx_size',
+      'n_gpu_layers',
+      'flash_attn',
+    ])
+    const card = wrapper.get('[data-auto-fit]')
+    expect(card.text()).toContain('Auto-fit is overridden')
+    expect(card.findAll('[data-auto-fit-key]')).toHaveLength(3)
+    expect(card.text()).not.toMatch(/VRAM|GiB|recommended for this machine/i)
+    expect(wrapper.find('[data-auto-fit-action]').exists()).toBe(true)
+
+    await card.get('[data-auto-fit-review]').trigger('click')
+    await flushPromises()
+    expect(wrapper.vm.pageTab).toBe('runtime')
+
+    await card.get('[data-auto-fit-restore]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.vm.config.ctx_size).toBe(0)
+    expect(wrapper.vm.config).not.toHaveProperty('n_gpu_layers')
+    expect(wrapper.vm.config.flash_attn).toBe('auto')
+    // Auto-fit restoration must not touch unrelated parameters.
+    expect(wrapper.vm.config.threads).toBe(8)
+    expect(wrapper.vm.config.batch_size).toBe(512)
+    expect(wrapper.vm.config.parallel).toBe(2)
+
+    expect(axios.put).not.toHaveBeenCalled()
+    expect(toastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({ summary: 'Auto settings restored' }),
+    )
+    expect(wrapper.vm.autoFitState.overrides).toEqual([])
+    expect(wrapper.get('[data-auto-fit]').text()).toContain('Auto-fit is active')
+    expect(wrapper.find('[data-auto-fit-action]').exists()).toBe(false)
+
+    const paramRows = wrapper.vm.configChangeGroups
+      .find((group) => group.id === 'params')
+      .rows.map((row) => row.key)
+    expect(paramRows.sort()).toEqual(['ctx_size', 'flash_attn', 'n_gpu_layers'])
+  })
+
+  it('hides auto-fit when the engine scan has no fit parameter', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    expect(wrapper.vm.autoFitState.supported).toBe(false)
+    expect(wrapper.find('[data-auto-fit]').exists()).toBe(false)
+    expect(wrapper.find('[data-auto-fit-action]').exists()).toBe(false)
+  })
 })
