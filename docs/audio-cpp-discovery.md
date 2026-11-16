@@ -133,7 +133,20 @@ Saving or building validates the combination and reports one message per problem
 - ZONOS3 text normalization requires a `zyphra-textnorm` checkout;
 - a `custom` model set requires at least one model target.
 
-The derived backend also drives the runtime environment: only a CUDA build gets the managed toolkit on `PATH`/library path. A non-CUDA build still launches with the per-model device/backend selection from its scanned server flags.
+The derived backend also drives the runtime environment: only a CUDA build gets the managed toolkit on `PATH`/library path. A non-CUDA build still launches with the per-device/backend selection from its scanned server flags.
+
+### Build resource budget
+
+A source build runs on the same host that serves the API and the proxy. An audio.cpp CUDA build is the heaviest compile Studio starts (two architecture variants per translation unit), so the build never passes a bare `cmake --build --parallel`: CMake would forward it to Ninja, which sizes itself from the CPUs it can see (cores + 2), including inside a container whose CPU quota is much smaller. That oversubscription turns the box into a swapping host where the API, the proxy and SSE streams stop answering until the build ends.
+
+`backend/concurrency.py::build_job_budget` is the single policy:
+
+- CPUs this process may actually use (affinity and cgroup quota), not `os.cpu_count()`;
+- memory headroom minus a reserve for the control plane and any resident model (an eighth of the headroom, at least 4 GiB), measured from `MemAvailable` and capped by the cgroup limit, at 8 GiB per job for CUDA and 4 GiB elsewhere;
+- `STUDIO_BUILD_JOBS` overrides the result for hosts that want a different tradeoff, and an explicit **Parallel jobs** setting in Build settings always wins.
+
+The same policy sizes the llama-family source build (`get_optimal_build_threads`) and the venv fork builds (`fork_build.safe_jobs`), so no engine build can claim more of the host than the others leave it.
+
 
 ## Embedded engine UI policy
 

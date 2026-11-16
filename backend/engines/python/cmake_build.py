@@ -556,21 +556,24 @@ class CmakeBuildHost:
         return detected
 
     def get_optimal_build_threads(self) -> int:
-        """Compiler parallelism: every CPU this process may actually use.
+        """Compiler parallelism that fits this host's CPUs and free memory.
 
-        The previous 75% heuristic left a quarter of the host idle during the
-        longest CPU-bound work Studio runs. ``effective_cpu_count`` uses
-        affinity and the cgroup quota so the value also respects container
-        limits. ``STUDIO_BUILD_THREADS`` overrides it for hosts that want to
-        keep headroom for serving.
+        ``effective_cpu_count`` uses affinity and the cgroup quota so the value
+        also respects container limits, and ``build_job_budget`` keeps the
+        compile burst from consuming the memory the control plane and a
+        resident model need (an unbounded CUDA build otherwise makes the whole
+        box unresponsive). ``STUDIO_BUILD_THREADS`` overrides it for hosts that
+        want a different tradeoff.
         """
-        from backend.concurrency import effective_cpu_count
+        from backend.concurrency import build_job_budget
 
         try:
             configured = os.getenv("STUDIO_BUILD_THREADS", "").strip()
             if configured:
                 return max(1, int(configured))
-            return max(1, effective_cpu_count())
+            # 8 GiB per job: nvcc for a multi-architecture build is the
+            # heaviest compiler Studio starts.
+            return max(1, build_job_budget(per_job_kib=8 * 1024 * 1024))
         except (TypeError, ValueError):
             return 1
 

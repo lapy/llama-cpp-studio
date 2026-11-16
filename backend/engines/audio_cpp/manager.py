@@ -324,7 +324,27 @@ class AudioCppManager:
         return cmake_args, env
 
     @staticmethod
-    def _build_argv(build_dir: str, config: AudioCppBuildConfig) -> List[str]:
+    def build_job_count(config: AudioCppBuildConfig) -> int:
+        """Parallel compile jobs for this configuration on this host.
+
+        Always a number: CMake forwards ``--parallel`` without one to the
+        generator, and Ninja then uses every CPU it can see (cores + 2), even
+        inside a container with a CPU quota. A full audio.cpp CUDA build is
+        the heaviest compile Studio starts, so an unbounded job count turns
+        the host into a swapping box where the API, the proxy and every SSE
+        stream stop answering until the build ends.
+        """
+        if config.jobs:
+            return max(1, int(config.jobs))
+        from backend.concurrency import KIB_PER_GIB, build_job_budget
+
+        # nvcc compiling two architecture variants at once is far heavier per
+        # job than a host C++ compile; budget accordingly.
+        per_job = 8 * KIB_PER_GIB if config.cuda else 4 * KIB_PER_GIB
+        return build_job_budget(per_job_kib=per_job)
+
+    @classmethod
+    def _build_argv(cls, build_dir: str, config: AudioCppBuildConfig) -> List[str]:
         build_argv = [
             "cmake",
             "--build",
@@ -332,10 +352,11 @@ class AudioCppManager:
             "--config",
             config.build_type,
             "--parallel",
+            str(cls.build_job_count(config)),
+            "--target",
+            "audiocpp_cli",
+            "audiocpp_server",
         ]
-        if config.jobs:
-            build_argv.append(str(config.jobs))
-        build_argv.extend(["--target", "audiocpp_cli", "audiocpp_server"])
         return build_argv
 
     def _local_src_dir(self) -> str:

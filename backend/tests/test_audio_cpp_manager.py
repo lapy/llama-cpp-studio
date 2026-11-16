@@ -38,6 +38,39 @@ def test_pre_host_dead_helpers_stay_removed():
         assert name not in source, name
 
 
+def test_build_argv_always_passes_a_numeric_parallel_budget(monkeypatch):
+    """A bare ``--parallel`` lets the generator use every CPU in the container."""
+    import backend.concurrency as concurrency
+
+    calls: dict = {}
+
+    def fake_budget(**kwargs):
+        calls.update(kwargs)
+        return 9
+
+    monkeypatch.setattr(concurrency, "build_job_budget", fake_budget)
+
+    argv = AudioCppManager._build_argv("/build", AudioCppBuildConfig().normalized())
+    assert argv[argv.index("--parallel") + 1] == "9"
+    assert calls["per_job_kib"] == 4 * concurrency.KIB_PER_GIB
+
+    calls.clear()
+    AudioCppManager._build_argv("/build", AudioCppBuildConfig(cuda=True).normalized())
+    # nvcc for a multi-architecture CUDA build is the heaviest job Studio runs.
+    assert calls["per_job_kib"] == 8 * concurrency.KIB_PER_GIB
+
+
+def test_build_argv_respects_an_explicit_job_count():
+    argv = AudioCppManager._build_argv("/build", AudioCppBuildConfig(jobs=3).normalized())
+    assert argv[argv.index("--parallel") + 1] == "3"
+
+
+def test_build_argv_parallel_budget_is_a_positive_number():
+    argv = AudioCppManager._build_argv("/build", AudioCppBuildConfig().normalized())
+    value = argv[argv.index("--parallel") + 1]
+    assert value.isdigit() and int(value) >= 1
+
+
 def test_cmake_plan_selects_one_backend_and_both_runtime_targets(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "backend.build_progress.shutil.which",

@@ -71,57 +71,39 @@ def _select_compiler(path: str, minimum: int, maximum: int, error: str) -> str:
 
 
 def _read_meminfo_available_kib() -> int:
-    try:
-        with open("/proc/meminfo", "r", encoding="utf-8") as handle:
-            for line in handle:
-                if line.startswith("MemAvailable:"):
-                    return int(line.split()[1])
-    except (OSError, ValueError, IndexError):
-        return 0
-    return 0
+    """Host ``MemAvailable`` in KiB (kept as a seam for tests and callers)."""
+    from backend.concurrency import _read_meminfo_available_kib as read_meminfo
+
+    return read_meminfo()
 
 
 def _read_cgroup_available_kib() -> int:
-    try:
-        with open("/sys/fs/cgroup/memory.max", "r", encoding="utf-8") as handle:
-            maximum = handle.read().strip()
-        if not maximum.isdigit():
-            return 0
-        with open("/sys/fs/cgroup/memory.current", "r", encoding="utf-8") as handle:
-            current = int(handle.read().strip())
-        file_cache = 0
-        try:
-            with open("/sys/fs/cgroup/memory.stat", "r", encoding="utf-8") as handle:
-                for line in handle:
-                    key, _, value = line.partition(" ")
-                    if key in {"active_file", "inactive_file"}:
-                        file_cache += int(value.strip())
-        except (OSError, ValueError):
-            file_cache = 0
-        usage = max(0, current - file_cache)
-        maximum_bytes = int(maximum)
-        if maximum_bytes > usage:
-            return (maximum_bytes - usage) // 1024
-    except (OSError, ValueError):
-        return 0
-    return 0
+    """Container memory headroom in KiB (kept as a seam for tests and callers)."""
+    from backend.concurrency import _read_cgroup_available_kib as read_cgroup
+
+    return read_cgroup()
 
 
 def safe_jobs() -> int:
-    """Compiler parallelism budget using host and cgroup memory limits."""
-    from backend.concurrency import effective_cpu_count
+    """Compiler parallelism budget using host and cgroup memory limits.
 
-    cpu_jobs = max(1, effective_cpu_count())
+    The math lives in :func:`backend.concurrency.build_job_budget` so the CMake
+    builds (audio.cpp, llama-family) and the venv fork builds size their job
+    count the same way; this name stays the fork-build entry point and keeps
+    its historical reading order (host MemAvailable, capped by the cgroup).
+    """
+    from backend.concurrency import KIB_PER_GIB, build_job_budget
+
     available_kib = _read_meminfo_available_kib()
     cgroup_available_kib = _read_cgroup_available_kib()
     if cgroup_available_kib > 0 and (available_kib <= 0 or cgroup_available_kib < available_kib):
         available_kib = cgroup_available_kib
     if available_kib <= 0:
         return 1
-    gib_kib = 1024 * 1024
-    reserve_kib = min(4 * gib_kib, available_kib // 4)
-    memory_jobs = max(1, (available_kib - reserve_kib) // (4 * gib_kib))
-    return max(1, min(cpu_jobs, memory_jobs))
+    return build_job_budget(
+        per_job_kib=4 * KIB_PER_GIB,
+        available_kib=available_kib,
+    )
 
 
 def cuda_arch_count(raw: Any) -> int:
