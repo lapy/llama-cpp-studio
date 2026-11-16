@@ -81,6 +81,30 @@ def _settings_payload() -> dict[str, Any]:
     }
 
 
+def _with_replay_payloads(rows: list[dict]) -> list[dict]:
+    """Attach the memory-only capture fields to metadata rows.
+
+    Both the overview and the paginated request list must carry the same
+    capture fields, otherwise a background overview refresh silently strips
+    Replay from a request that still has a payload.
+    """
+    manager = get_studio_proxy_manager()
+    registry = getattr(manager, "registry", None)
+    payloads = getattr(registry, "replay_payloads", None) if registry is not None else None
+    if not payloads:
+        return rows
+    for row in rows:
+        payload = payloads.get(str(row.get("id") or ""))
+        if not payload:
+            continue
+        row["replayable"] = True
+        row["captured_headers"] = payload.get("headers") or {}
+        row["captured_redacted_headers"] = payload.get("redacted_headers") or []
+        row["captured_body"] = payload.get("body")
+        row["captured_body_truncated"] = bool(payload.get("body_truncated"))
+    return rows
+
+
 @router.get("")
 async def get_proxy_admin():
     from backend.routes.status import _public_inference_url
@@ -127,7 +151,9 @@ async def get_proxy_admin():
         "studio_running": studio_running,
         "running": running,
         "activity": activity,
-        "requests": history["requests"] if settings["backend"] == "studio" else [],
+        "requests": _with_replay_payloads(history["requests"])
+        if settings["backend"] == "studio"
+        else [],
         "catalog": catalog,
         "network": {
             "listen_host": proxy_listen_host(),
@@ -406,19 +432,7 @@ async def get_proxy_requests(
         outcome=outcome,
         search=search,
     )
-    manager = get_studio_proxy_manager()
-    registry = getattr(manager, "registry", None)
-    payloads = getattr(registry, "replay_payloads", None) if registry is not None else None
-    if payloads:
-        for row in result.get("requests", []):
-            payload = payloads.get(str(row.get("id") or ""))
-            if not payload:
-                continue
-            row["replayable"] = True
-            row["captured_headers"] = payload.get("headers") or {}
-            row["captured_redacted_headers"] = payload.get("redacted_headers") or []
-            row["captured_body"] = payload.get("body")
-            row["captured_body_truncated"] = bool(payload.get("body_truncated"))
+    result["requests"] = _with_replay_payloads(result.get("requests", []))
     return result
 
 
