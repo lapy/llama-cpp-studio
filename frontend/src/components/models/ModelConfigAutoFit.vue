@@ -11,12 +11,12 @@
         </h3>
         <p class="config-auto-fit__summary">
           <template v-if="active">
-            No context, GPU-layer, or flash-attention overrides are set. The engine's
+            No context or GPU-layer overrides are set. The engine's
             <code>--fit</code> sizing stays in control and measures the model at load time.
           </template>
           <template v-else>
             The engine's <code>--fit</code> default sizes context and GPU layers from measured
-            memory. These explicit settings switch it off:
+            memory. These settings override the measured sizing:
           </template>
         </p>
       </div>
@@ -28,7 +28,7 @@
     <ul
       v-if="overrides.length"
       class="config-auto-fit__list"
-      aria-label="Overrides that disable auto-fit"
+      aria-label="Settings overriding auto-fit"
     >
       <li
         v-for="override in overrides"
@@ -111,7 +111,7 @@ function capitalize(value) {
 }
 
 function displayCurrent(override) {
-  if (override.key === 'flash_attn') {
+  if (override.key === 'fit') {
     if (override.current === true) return 'On'
     if (override.current === false) return 'Off'
     return capitalize(override.current)
