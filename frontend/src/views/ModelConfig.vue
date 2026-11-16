@@ -210,6 +210,16 @@
             @add:param="addParamKey"
             @restore-auto-fit="restoreAutoFit"
           />
+          <ModelConfigRuntimeEmpty
+            v-else
+            :engine-label="selectedEngineLabel"
+            :scan-error="selectedParamRegistry.scan_error || ''"
+            :scan-pending="Boolean(selectedParamRegistry.scan_pending)"
+            :saved-entries="savedRuntimeEntries"
+            :rescanning="runtimeRescanning"
+            @rescan="rescanRuntimeParams"
+            @open-engines="openEnginesPage"
+          />
           <ModelConfigGpuCard
             v-if="showNvidiaGpuBind"
             v-model:mode="gpuMode"
@@ -221,7 +231,7 @@
       </div>
 
       <Message
-        v-if="!isAudioEngine && selectedParamRegistry.scan_error"
+        v-if="catalogSections.length && !isAudioEngine && selectedParamRegistry.scan_error"
         severity="warn"
         :closable="false"
         class="config-scan-message"
@@ -232,7 +242,7 @@
         <strong>Rescan CLI parameters</strong> for this engine.
       </Message>
       <Message
-        v-else-if="!isAudioEngine && selectedParamRegistry.scan_pending"
+        v-else-if="catalogSections.length && !isAudioEngine && selectedParamRegistry.scan_pending"
         severity="info"
         :closable="false"
         class="config-scan-message"
@@ -815,10 +825,13 @@ import ModelConfigSectionHeading from '@/components/models/ModelConfigSectionHea
 import ModelConfigLaunchSettings from '@/components/models/ModelConfigLaunchSettings.vue'
 import ModelConfigGpuCard from '@/components/models/ModelConfigGpuCard.vue'
 import ModelConfigParamGroups from '@/components/models/ModelConfigParamGroups.vue'
+import ModelConfigRuntimeEmpty from '@/components/models/ModelConfigRuntimeEmpty.vue'
+import { useRuntimeEmptyState } from '@/composables/useRuntimeEmptyState'
+import { useConfigChangeGroups } from '@/composables/useConfigChangeGroups'
 import AudioModelConfig from '@/components/audio/AudioModelConfig.vue'
 import ConfigChangeReview from '@/components/ConfigChangeReview.vue'
 import ParseCommandDialog from '@/components/ParseCommandDialog.vue'
-import { buildConfigChanges, countConfigChanges } from '@/utils/configChanges'
+import { countConfigChanges } from '@/utils/configChanges'
 import {
   defaultValueForParam,
   isDelimitedEnumParam,
@@ -1337,35 +1350,14 @@ const hasUnsavedChanges = computed(() => {
   }
 })
 
-const configChangeGroups = computed(() => {
-  if (!hasUnsavedChanges.value || loading.value) return []
-  try {
-    const paramLabels = {}
-    for (const [key, param] of catalogParamByKey.value.entries()) {
-      paramLabels[key] = param.label || formatLabel(key)
-    }
-    const engineLabel =
-      engineOptions.value.find((option) => option.value === config.value.engine)?.label ||
-      config.value.engine
-    // Snapshot without mutating the live form (buildPersistedPayload syncs UI
-    // rows into config and must stay outside a render computation).
-    const snapshot = (source, fromStoredSection = false) => {
-      const engines =
-        source.engines && typeof source.engines === 'object'
-          ? JSON.parse(JSON.stringify(source.engines))
-          : {}
-      engines[source.engine] = fromStoredSection
-        ? JSON.parse(JSON.stringify(source.engines?.[source.engine] || {}))
-        : buildEngineStashFromForm(source)
-      return { engine: source.engine, engines }
-    }
-    return buildConfigChanges(snapshot(config.value), snapshot(savedConfig.value, true), {
-      paramLabels,
-      engineLabel,
-    })
-  } catch {
-    return []
-  }
+const configChangeGroups = useConfigChangeGroups({
+  config,
+  savedConfig,
+  catalogParamByKey,
+  engineOptions,
+  hasUnsavedChanges,
+  loading,
+  buildEngineStashFromForm,
 })
 
 const configChangeCount = computed(() => countConfigChanges(configChangeGroups.value))
@@ -1559,6 +1551,14 @@ const addableParamList = computed(() => {
   const shown = new Set(runtimeParams.value.map((param) => param.key))
   return catalogParamList.value.filter((param) => !shown.has(param.key))
 })
+
+const {
+  selectedEngineLabel,
+  savedRuntimeEntries,
+  runtimeRescanning,
+  rescanRuntimeParams,
+  openEnginesPage,
+} = useRuntimeEmptyState({ config, engineOptions, fetchParamRegistry, router })
 
 function engineIsInstalled(option) {
   const count = option?.descriptor?.installed_versions

@@ -1120,6 +1120,40 @@ describe('ModelConfig', () => {
     expect(paramRows.sort()).toEqual(['ctx_size', 'flash_attn', 'n_gpu_layers'])
   })
 
+  it('explains a missing engine parameter catalog and keeps saved values visible', async () => {
+    const baseGet = vi.mocked(axios.get).getMockImplementation()
+    vi.mocked(axios.get).mockImplementation((url, config) => {
+      if (url === '/api/models/param-registry') {
+        return Promise.resolve({
+          data: { sections: [], scan_error: 'engine help timed out', scan_pending: false },
+        })
+      }
+      return baseGet(url, config)
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await flushPromises()
+    wrapper.vm.pageTab = 'runtime'
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('No engine parameters yet')
+    expect(wrapper.text()).toContain('engine help timed out')
+    expect(wrapper.text()).toContain('Saved settings')
+    expect(wrapper.text()).toContain('Temperature')
+    expect(wrapper.find('[data-runtime-rescan]').exists()).toBe(true)
+
+    await wrapper.get('[data-runtime-rescan]').trigger('click')
+    await flushPromises()
+    expect(axios.get).toHaveBeenCalledWith(
+      '/api/models/param-registry',
+      expect.objectContaining({
+        params: expect.objectContaining({ rescan: true }),
+      }),
+    )
+  })
+
   it('hides auto-fit when the engine scan has no fit parameter', async () => {
     const wrapper = mountView()
     await flushPromises()
