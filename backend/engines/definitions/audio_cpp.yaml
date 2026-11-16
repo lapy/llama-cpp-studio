@@ -30,20 +30,26 @@ package_kinds:
 - hf_snapshot
 - prepared_bundle
 tasks:
+# Upstream task vocabulary (src/framework/runtime/task_vocabulary.cpp) plus
+# Studio's own ``pipeline`` task, which composes engine tasks.
 - align
 - asr
 - clon
+- cls
 - diar
 - gen
+- midi
 - pipeline
 - s2s
 - sep
 - spk
 - svc
 - tts
+- turn
 - vad
 - vc
 - vdes
+- wake
 input_modalities:
 - audio
 - text
@@ -380,11 +386,18 @@ build_options:
     label: CUDA options
     collapsed: true
     requires: cuda
+  - id: hip
+    label: HIP / ROCm options
+    collapsed: true
+    requires: hip
   - id: artifacts
     label: Build artifacts
     collapsed: true
   - id: cpu
     label: CPU options
+    collapsed: true
+  - id: npu
+    label: NPU paths
     collapsed: true
   - id: models
     label: Model set
@@ -402,6 +415,55 @@ build_options:
     category: backends
     cmake: ENGINE_ENABLE_CUDA
     special: backend
+  # Remaining upstream ggml backends, in the order upstream aggregates them into
+  # AUDIOCPP_BUILD_BACKENDS (cpu is implicit). ``supported: false`` means Studio
+  # catalogues the knob, pins it off, disables it in the UI and refuses it in
+  # validation; build_options.supported_backends() derives the allowed set.
+  - key: hip
+    field: hip
+    kind: bool
+    default: false
+    label: HIP
+    desc: "ENGINE_ENABLE_HIP - AMD ROCm backend; mutually exclusive with CUDA"
+    category: backends
+    cmake: ENGINE_ENABLE_HIP
+    supported: false
+  - key: vulkan
+    field: vulkan
+    kind: bool
+    default: false
+    label: Vulkan
+    desc: "ENGINE_ENABLE_VULKAN - Vulkan backend (AMD, Intel, NVIDIA)"
+    category: backends
+    cmake: ENGINE_ENABLE_VULKAN
+    supported: false
+  - key: webgpu
+    field: webgpu
+    kind: bool
+    default: false
+    label: WebGPU
+    desc: "ENGINE_ENABLE_WEBGPU - WebGPU through Dawn (configure needs Dawn_DIR)"
+    category: backends
+    cmake: ENGINE_ENABLE_WEBGPU
+    supported: false
+  - key: sycl
+    field: sycl
+    kind: bool
+    default: false
+    label: SYCL
+    desc: "ENGINE_ENABLE_SYCL - Intel oneAPI SYCL backend (needs the icpx compiler)"
+    category: backends
+    cmake: ENGINE_ENABLE_SYCL
+    supported: false
+  - key: metal
+    field: metal
+    kind: bool
+    default: false
+    label: Metal
+    desc: "ENGINE_ENABLE_METAL - Apple Metal backend (upstream defaults it ON on Apple hosts)"
+    category: backends
+    cmake: ENGINE_ENABLE_METAL
+    supported: false
   - key: cuda_graphs
     field: cuda_graphs
     kind: bool
@@ -411,6 +473,15 @@ build_options:
     category: cuda
     cmake: ENGINE_ENABLE_CUDA_GRAPHS
     requires: cuda
+  - key: hip_strix_halo
+    field: hip_strix_halo
+    kind: bool
+    default: false
+    label: Strix Halo optimizations
+    desc: "ENGINE_HIP_STRIX_HALO_OPTIMIZATIONS - HIP kernels validated only for gfx1151"
+    category: hip
+    cmake: ENGINE_HIP_STRIX_HALO_OPTIMIZATIONS
+    requires: hip
   - key: build_tests
     field: build_tests
     kind: bool
@@ -481,9 +552,27 @@ build_options:
     kind: bool
     default: false
     label: Server frontends
-    desc: "AUDIOCPP_BUILD_SERVER_FRONTENDS \u2014 optional in-process UI adapters"
+    desc: "AUDIOCPP_BUILD_SERVER_FRONTENDS - optional in-process transport adapters"
     category: artifacts
     cmake: AUDIOCPP_BUILD_SERVER_FRONTENDS
+  - key: server_frontend_modules
+    field: server_frontend_modules
+    kind: str
+    default: ''
+    label: Frontend modules
+    desc: "AUDIOCPP_SERVER_FRONTEND_MODULES - semicolon-separated adapters, e.g. audio_decode;mp3_encode"
+    category: artifacts
+    cmake: AUDIOCPP_SERVER_FRONTEND_MODULES
+    requires: build_server_frontends
+  - key: server_frontends_dir
+    field: server_frontends_dir
+    kind: str
+    default: external/audio.cpp-server-frontends
+    label: Frontends package
+    desc: "AUDIOCPP_SERVER_FRONTENDS_DIR - checkout holding server_frontends.cmake"
+    category: artifacts
+    cmake: AUDIOCPP_SERVER_FRONTENDS_DIR
+    requires: build_server_frontends
   - key: build_c_api
     field: build_c_api
     kind: bool
@@ -492,6 +581,15 @@ build_options:
     desc: "AUDIOCPP_BUILD_C_API \u2014 opt-in libaudiocpp shared library"
     category: artifacts
     cmake: AUDIOCPP_BUILD_C_API
+  - key: c_api_static
+    field: c_api_static
+    kind: bool
+    default: false
+    label: C ABI static
+    desc: "AUDIOCPP_BUILD_C_API_STATIC - also archive libaudiocpp.a for embedding"
+    category: artifacts
+    cmake: AUDIOCPP_BUILD_C_API_STATIC
+    requires: build_c_api
   - key: static_espeak
     field: static_espeak
     kind: bool
@@ -532,6 +630,24 @@ build_options:
     desc: ENGINE_ENABLE_CPU_ALL_VARIANTS
     category: cpu
     cmake: ENGINE_ENABLE_CPU_ALL_VARIANTS
+  - key: neon
+    field: neon
+    kind: bool
+    default: false
+    label: NEON
+    desc: "ENGINE_ENABLE_NEON - opt-in NEON library and native model paths (ARM)"
+    category: cpu
+    cmake: ENGINE_ENABLE_NEON
+    supported: false
+  - key: rknn
+    field: rknn
+    kind: bool
+    default: false
+    label: Rockchip NPU
+    desc: "ENGINE_ENABLE_RKNN - librknnrt decoder path for RK3588-class boards"
+    category: npu
+    cmake: ENGINE_ENABLE_RKNN
+    supported: false
   - key: model_set
     field: model_set
     kind: enum
@@ -553,6 +669,23 @@ build_options:
     category: models
     cmake: AUDIOCPP_MODELS
     requires: model_set_custom
+  - key: zonos3_textnorm
+    field: zonos3_textnorm
+    kind: bool
+    default: false
+    label: ZONOS3 textnorm
+    desc: "AUDIOCPP_ZONOS3_TEXTNORM - link Zyphra zyphra-textnorm (Rust/cargo) for ZONOS3"
+    category: models
+    cmake: AUDIOCPP_ZONOS3_TEXTNORM
+  - key: zonos3_textnorm_dir
+    field: zonos3_textnorm_dir
+    kind: str
+    default: ''
+    label: Textnorm checkout
+    desc: "AUDIOCPP_ZONOS3_TEXTNORM_DIR - zyphra-textnorm root holding Cargo.toml"
+    category: models
+    cmake: AUDIOCPP_ZONOS3_TEXTNORM_DIR
+    requires: zonos3_textnorm
   - key: jobs
     field: jobs
     kind: int

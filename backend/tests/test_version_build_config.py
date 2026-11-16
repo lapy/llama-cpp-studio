@@ -308,7 +308,8 @@ def test_put_1cat_vllm_rejected(client, monkeypatch, tmp_path):
     assert r.status_code == 400
 
 
-def test_put_audio_coerces_unsupported_backend_to_cpu(client, monkeypatch, tmp_path):
+def test_put_audio_rejects_a_backend_studio_cannot_ship(client, monkeypatch, tmp_path):
+    """A catalogued upstream backend is now an explicit refusal, not a silent drop."""
     store = _install_temp_store(monkeypatch, tmp_path)
     store.add_engine_version(
         "audio_cpp",
@@ -328,8 +329,36 @@ def test_put_audio_coerces_unsupported_backend_to_cpu(client, monkeypatch, tmp_p
             "build_config": {"metal": True},
         },
     )
-    assert r.status_code == 200
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert "metal" in detail
+    assert "build matrix" in detail
     stored = store.get_engine_versions("audio_cpp")[0]["build_config"]
     assert stored["backend"] == "cpu"
     assert "metal" not in stored
-    assert stored.get("cuda") is False
+
+
+def test_put_audio_drops_an_unknown_build_key(client, monkeypatch, tmp_path):
+    store = _install_temp_store(monkeypatch, tmp_path)
+    store.add_engine_version(
+        "audio_cpp",
+        {
+            "version": "audio-main",
+            "type": "source",
+            "install_type": "source",
+            "source_ref": "main",
+            "build_config": {"backend": "cpu"},
+            "repository_source": "audio.cpp",
+        },
+    )
+    r = client.put(
+        "/api/llama-versions/versions/build-config",
+        json={
+            "version_id": "audio_cpp:audio-main",
+            "build_config": {"telemetry": "on", "cuda": True},
+        },
+    )
+    assert r.status_code == 200
+    stored = store.get_engine_versions("audio_cpp")[0]["build_config"]
+    assert stored["backend"] == "cuda"
+    assert "telemetry" not in stored

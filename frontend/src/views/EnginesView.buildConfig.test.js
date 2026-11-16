@@ -312,6 +312,18 @@ describe('EnginesView per-build CMake editor', () => {
       expect.objectContaining({ backend: 'cpu' }),
     )
   })
+  it('reads audio.cpp build defaults from the generated catalog export', () => {
+    // Guards against a hand-copied fallback literal drifting from the backend
+    // catalog (scripts/export-build-defaults.py is the only writer).
+    const src = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), './EnginesView.vue'),
+      'utf8',
+    )
+    expect(src).toContain('FALLBACK_AUDIO_BUILD_DEFAULTS')
+    expect(src).toContain('FALLBACK_AUDIO_BUILD_TYPES')
+    expect(src).not.toContain('AUDIO_FALLBACK_DEFAULTS')
+    expect(src).toContain('Studio ships audio.cpp builds for')
+  })
 })
 
 describe('EnginesView build dialog theming', () => {

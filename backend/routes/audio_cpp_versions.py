@@ -1073,6 +1073,14 @@ async def save_build_settings(payload: dict = Body(default_factory=dict)):
             if key not in {"tracking_ref", "repository_url", "build_config"}
         }
     build_config = coerce_build_settings(build_config)
+    # Fail on save, not in a CMake log: upstream's configure guards (CUDA/HIP,
+    # OpenSSL, server frontends, ZONOS3 textnorm, custom model set) plus the
+    # backends Studio can actually run.
+    manager = get_audio_cpp_manager()
+    try:
+        manager.validate_build_config(manager.build_config_from_dict(build_config))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     merged = merge_settings(
         tracking_ref=payload.get("tracking_ref"),
         repository_url=payload.get("repository_url"),

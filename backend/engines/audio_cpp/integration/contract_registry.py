@@ -183,8 +183,24 @@ OPERATIONS: Tuple[Operation, ...] = (
         responses=("json", "audio", "sse-events"),
         errors="audio-cpp-error",
         # Deterministic fall-through route: everything the engine does not
-        # map to a dedicated OpenAI-shaped route (vc, svc, s2s, vad, ...).
-        serves_tasks=("vc", "svc", "s2s", "vad", "diar", "sep", "gen"),
+        # map to a dedicated OpenAI-shaped route. The task tuple mirrors
+        # upstream's task vocabulary
+        # (src/framework/runtime/task_vocabulary.cpp) so the composed
+        # ``task_routing`` covers every task the engine can serve.
+        serves_tasks=(
+            "vc",
+            "svc",
+            "s2s",
+            "vad",
+            "diar",
+            "sep",
+            "gen",
+            "spk",
+            "midi",
+            "turn",
+            "wake",
+            "cls",
+        ),
     ),
 )
 
