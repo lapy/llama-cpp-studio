@@ -95,6 +95,29 @@ async def test_subscribe_yields_heartbeat_and_task_events():
 
 
 @pytest.mark.asyncio
+async def test_subscribe_emits_a_named_heartbeat(monkeypatch):
+    """EventSource cannot see SSE comments, so the liveness beat must be a named event."""
+    monkeypatch.setattr(pm_mod, "HEARTBEAT_SECONDS", 0.01)
+    pm = pm_mod.get_progress_manager()
+
+    gen = pm.subscribe()
+    first = await asyncio.wait_for(gen.__anext__(), timeout=2.0)
+    assert ": heartbeat" in first
+    second = await asyncio.wait_for(gen.__anext__(), timeout=2.0)
+    assert "event: heartbeat" in second
+    assert "data:" in second
+
+    found_timeout_beat = False
+    for _ in range(10):
+        chunk = await asyncio.wait_for(gen.__anext__(), timeout=0.5)
+        if "event: heartbeat" in chunk:
+            found_timeout_beat = True
+            break
+    assert found_timeout_beat
+    await gen.aclose()
+
+
+@pytest.mark.asyncio
 async def test_emit_notification():
     pm = pm_mod.get_progress_manager()
     q = asyncio.Queue()

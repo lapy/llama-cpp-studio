@@ -487,12 +487,20 @@ class ProgressManager:
         self.send_build_progress_now(task_id, stage, progress, message, log_lines)
 
     async def subscribe(self) -> AsyncGenerator[str, None]:
-        """Yields SSE-formatted strings. Sends an initial comment so the client connection opens."""
+        """Yield SSE frames for task updates.
+
+        The initial comment opens the connection through buffering proxies
+        immediately. The named ``heartbeat`` event is what lets EventSource
+        clients distinguish a healthy idle stream from a half-open socket:
+        the SSE spec discards comments, so a comment-only heartbeat is
+        invisible to JavaScript and cannot refresh a client's liveness clock.
+        """
         self._loop = asyncio.get_running_loop()
         queue: asyncio.Queue = asyncio.Queue(maxsize=MAX_SUBSCRIBER_QUEUE)
         self._subscribers.append(queue)
         try:
             yield ": heartbeat\n\n"
+            yield self._format_sse("heartbeat", {"ts": time.time()})
             await asyncio.sleep(0)
             snapshot = self.snapshot_tasks()
             yield self._format_sse("task_snapshot", {"tasks": snapshot, "reason": "connect"})
@@ -502,7 +510,7 @@ class ProgressManager:
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_SECONDS)
                 except asyncio.TimeoutError:
-                    yield ": heartbeat\n\n"
+                    yield self._format_sse("heartbeat", {"ts": time.time()})
                     continue
                 yield self._format_sse(event["event"], event["data"])
         except asyncio.CancelledError:
