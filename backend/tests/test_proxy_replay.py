@@ -154,6 +154,19 @@ PAYLOAD = {
 }
 
 
+def test_overview_rows_receive_the_same_replay_fields(monkeypatch):
+    from backend.routes.proxy_admin import _with_replay_payloads
+
+    monkeypatch.setattr(
+        "backend.routes.proxy_admin.get_studio_proxy_manager",
+        lambda: _FakeManager(_FakeRegistry(payloads={"req-1": PAYLOAD})),
+    )
+    rows = _with_replay_payloads([{"id": "req-1"}, {"id": "req-2"}])
+    assert rows[0]["replayable"] is True
+    assert rows[0]["captured_body"] == '{"messages":[]}'
+    assert rows[1] == {"id": "req-2"}
+
+
 def test_request_list_marks_captured_payloads(client, monkeypatch, tmp_path):
     _install_temp_store(monkeypatch, tmp_path)
 
