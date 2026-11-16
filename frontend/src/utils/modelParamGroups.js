@@ -13,23 +13,31 @@
  * Documented key families (lowercase key matching):
  *  - Context & tokens: `ctx*`, `n_ctx*`, `batch*`, `n_batch*`, `ubatch*`,
  *    `n_ubatch*`, `parallel*`, `n_parallel*`, `cont_batching*`, `cache_reuse*`,
- *    `n_keep*`, `n_discard*`, `session_len`
+ *    `keep`/`n_keep*`, `n_discard*`, `session_len`, `rope*`, `yarn*`,
+ *    `swa_full`, `context_shift`, `ctx_checkpoints`, `checkpoint_min_step`
  *  - Memory & GPU: `gpu` as a whole token (`gpu`, `gpu_mode`, `main_gpu`,
  *    `n_gpu_layers`, `gpu_split`, `use_gpu`), `split*`, `tensor*`, `*offload*`,
- *    `mlock*`, `mmap*`, `flash_attn*`, `cache_type*`
+ *    `mlock*`, `mmap*`, `flash_attn*`, `cache_type*`, `fit*`, `cache_*`,
+ *    `kv_*`, `defrag_thold`, `direct_io`, `load_mode`, `device`, `list_devices`,
+ *    `override_*`, `check_tensors`, `repack`
+ *  - Speculative decoding: `spec*`, `draft*`, `lookup_cache*`
  *  - Sampling & decoding: `temperature*`, `temp`/`temp_*`, `top_*`, `min_p*`,
  *    `repeat*`, `presence_penalty*`, `frequency_penalty*`, `seed*`, `grammar*`,
  *    `mirostat*`, `dry`/`dry_*`, `min_keep*`, `typical_p*`, `tfs_z*`, `xtc_*`,
  *    `dynatemp*`, `logit_bias*`, `n_probs*`, `n_predict*`, `ignore_eos*`,
  *    `sampler*`
  *  - Server & API: `host*`, `port`/`port_*`, `api_key*`, `*timeout*`, `slot*`,
- *    `props*`, `metrics*`, `chat_template*`, `jinja*`, `embedding*`, `rerank*`
- *  - Multimodal: `mmproj*`, `image*`, `vision*`, `audio*`, `clip*`
+ *    `props*`, `metrics*`, `chat_template*`, `jinja*`, `embedding*`, `rerank*`,
+ *    `ui*`, `mcp*`, `tools*`, `json_schema*`, `ssl*`, `cors*`, `api_prefix`,
+ *    `alias`, `tags`, `pooling`, `embeddings`, `models_*`, `path`, `offline`
+ *  - Multimodal: `mmproj*`, `image*`, `vision*`, `audio*`, `clip*`, `video*`,
+ *    `mtmd*`, `media_path`
+ *  - Model & adapters: `model*`, `hf*`, `lora*`, `control_vector*`
  *  - Performance: `fit*` (`fit`, `fit_ctx`, `fit_target`), `*threads*`, `numa*`,
  *    `prio*`, `poll*`, `cpu` as a whole token (`cpu`, `cpu_moe`, `use_cpu`)
  *  - Logging & debug: `verbose*`, `verbosity*`, `log`/`log_*`, `logfile*`,
  *    `debug*`
- *  - Other: anything else.
+ *  - Engine-specific: obscure presets and flags that do not fit a category.
  *
  * When an engine adds a genuinely new key family, add a narrow pattern here and
  * a representative test in modelParamGroups.test.js; do not broaden a pattern
@@ -56,6 +64,13 @@ export const PARAM_GROUPS = Object.freeze(
       defaultOpen: true,
     },
     {
+      id: 'speculative',
+      title: 'Speculative decoding',
+      description: 'Draft models, n-gram lookups, and acceleration that trades memory for speed.',
+      icon: 'pi pi-forward',
+      defaultOpen: false,
+    },
+    {
       id: 'sampling',
       title: 'Sampling & decoding',
       description: 'How tokens are chosen once the model is loaded.',
@@ -77,9 +92,16 @@ export const PARAM_GROUPS = Object.freeze(
       defaultOpen: false,
     },
     {
+      id: 'model',
+      title: 'Model & adapters',
+      description: 'Model source, Hugging Face files, LoRA adapters, and tensor overrides.',
+      icon: 'pi pi-box',
+      defaultOpen: false,
+    },
+    {
       id: 'performance',
       title: 'Performance',
-      description: 'Auto-fit margins, CPU threading, affinity, and runtime scheduling controls.',
+      description: 'CPU threading, affinity, and runtime scheduling controls.',
       icon: 'pi pi-gauge',
       defaultOpen: false,
     },
@@ -92,8 +114,8 @@ export const PARAM_GROUPS = Object.freeze(
     },
     {
       id: 'other',
-      title: 'Other',
-      description: 'Parameters that do not match a known category yet.',
+      title: 'Engine-specific',
+      description: 'Advanced engine flags that do not fit a category yet.',
       icon: 'pi pi-ellipsis-h',
       defaultOpen: false,
     },
@@ -126,6 +148,13 @@ const GROUP_RULES = Object.freeze([
       /^n_keep($|_)/,
       /^n_discard($|_)/,
       /^session_len$/,
+      /^keep($|_)/,
+      /^rope($|_)/,
+      /^yarn($|_)/,
+      /^swa_full($|_)/,
+      /^context_shift($|_)/,
+      /^ctx_checkpoints($|_)/,
+      /^checkpoint_min_step($|_)/,
     ],
   ],
   [
@@ -139,8 +168,20 @@ const GROUP_RULES = Object.freeze([
       /^mmap($|_)/,
       /^flash_attn($|_)/,
       /^cache_type($|_)/,
+      /^cache_(prompt|ram|idle_slots)$/,
+      /^kv_/,
+      /^fit($|_)/,
+      /^defrag_thold$/,
+      /^direct_io$/,
+      /^load_mode$/,
+      /^device$/,
+      /^list_devices$/,
+      /^override_(kv|tensor)$/,
+      /^check_tensors$/,
+      /^repack$/,
     ],
   ],
+  ['speculative', [/^spec($|_)/, /^draft($|_)/, /^lookup_cache($|_)/]],
   [
     'sampling',
     [
@@ -165,6 +206,11 @@ const GROUP_RULES = Object.freeze([
       /^n_predict($|_)/,
       /^ignore_eos($|_)/,
       /^samplers?($|_)/,
+      /^reasoning($|_)/,
+      /^adaptive($|_)/,
+      /^backend_sampling($|_)/,
+      /^sampling_seq($|_)/,
+      /^special$/,
     ],
   ],
   [
@@ -181,14 +227,62 @@ const GROUP_RULES = Object.freeze([
       /(^|_)jinja($|_)/,
       /^embedding($|_)/,
       /^rerank($|_)/,
+      /^ui($|_)/,
+      /^mcp($|_)/,
+      /^tools?($|_)/,
+      /^json_schema($|_)/,
+      /^ssl($|_)/,
+      /^cors($|_)/,
+      /^api_prefix$/,
+      /^alias$/,
+      /^tags$/,
+      /^pooling$/,
+      /^embeddings?$/,
+      /^models_/,
+      /^path$/,
+      /^offline$/,
+      /^warmup$/,
+      /^sleep_idle_seconds$/,
+      /^sse_ping_interval$/,
+      /^escape$/,
+      /^usage$/,
+      /^version$/,
+      /^completion_bash$/,
+      /^cache_list$/,
+      /^reranking$/,
+      /^reuse_port$/,
+      /^prefill_assistant$/,
+      /^reverse_prompt$/,
+      /^skip_chat_parsing$/,
+      /^spm_infill$/,
+      /^docker_repo$/,
+      /^agent$/,
+      /^no_host$/,
+      /^embd_normalize$/,
     ],
   ],
-  ['multimodal', [/^mmproj($|_)/, /^image($|_)/, /^vision($|_)/, /^audio($|_)/, /^clip($|_)/]],
+  [
+    'multimodal',
+    [
+      /^mmproj($|_)/,
+      /^image($|_)/,
+      /^vision($|_)/,
+      /^audio($|_)/,
+      /^clip($|_)/,
+      /^video($|_)/,
+      /^mtmd($|_)/,
+      /^media_path$/,
+    ],
+  ],
+  ['model', [/^model($|_)/, /^hf($|_)/, /^lora($|_)/, /^control_vector($|_)/]],
   [
     'performance',
-    [/^fit($|_)/, /(^|_)threads?($|_)/, /^numa($|_)/, /^prio($|_)/, /^poll($|_)/, /(^|_)cpu($|_)/],
+    [/(^|_)threads?($|_)/, /^numa($|_)/, /^prio($|_)/, /^poll($|_)/, /(^|_)cpu($|_)/],
   ],
-  ['logging', [/^verbose($|_)/, /^verbosity($|_)/, /^log($|_)/, /^logfile/, /^debug($|_)/]],
+  [
+    'logging',
+    [/^verbose($|_)/, /^verbosity($|_)/, /^log($|_)/, /^logfile/, /^debug($|_)/, /^perf$/],
+  ],
 ])
 
 /**

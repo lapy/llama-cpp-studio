@@ -9,9 +9,11 @@ import {
 const GROUP_IDS = [
   'context',
   'memory',
+  'speculative',
   'sampling',
   'server',
   'multimodal',
+  'model',
   'performance',
   'logging',
   'other',
@@ -49,6 +51,10 @@ describe('groupForParam', () => {
     ['n_keep', 'context'],
     ['n_discard', 'context'],
     ['session_len', 'context'],
+    ['rope_freq_base', 'context'],
+    ['yarn_orig_ctx', 'context'],
+    ['keep', 'context'],
+    ['swa_full', 'context'],
     ['n_gpu_layers', 'memory'],
     ['main_gpu', 'memory'],
     ['gpu_split', 'memory'],
@@ -59,6 +65,11 @@ describe('groupForParam', () => {
     ['mmap', 'memory'],
     ['flash_attn', 'memory'],
     ['cache_type_k', 'memory'],
+    ['cache_prompt', 'memory'],
+    ['cache_ram', 'memory'],
+    ['kv_unified', 'memory'],
+    ['direct_io', 'memory'],
+    ['override_kv', 'memory'],
     ['temperature', 'sampling'],
     ['temp', 'sampling'],
     ['top_k', 'sampling'],
@@ -72,6 +83,9 @@ describe('groupForParam', () => {
     ['mirostat_tau', 'sampling'],
     ['dry_multiplier', 'sampling'],
     ['n_predict', 'sampling'],
+    ['reasoning_effort', 'sampling'],
+    ['adaptive_target', 'sampling'],
+    ['backend_sampling', 'sampling'],
     ['host', 'server'],
     ['port', 'server'],
     ['api_key', 'server'],
@@ -83,14 +97,33 @@ describe('groupForParam', () => {
     ['jinja', 'server'],
     ['embedding', 'server'],
     ['rerank', 'server'],
+    ['ui_config', 'server'],
+    ['mcp_servers_json', 'server'],
+    ['tools', 'server'],
+    ['json_schema', 'server'],
+    ['ssl_cert_file', 'server'],
+    ['cors_origins', 'server'],
+    ['embeddings', 'server'],
+    ['reranking', 'server'],
+    ['reuse_port', 'server'],
+    ['prefill_assistant', 'server'],
     ['mmproj', 'multimodal'],
     ['image_min_tokens', 'multimodal'],
     ['vision', 'multimodal'],
     ['audio', 'multimodal'],
     ['clip_model', 'multimodal'],
-    ['fit', 'performance'],
-    ['fit_ctx', 'performance'],
-    ['fit_target', 'performance'],
+    ['video_fps', 'multimodal'],
+    ['mtmd_batch_max_tokens', 'multimodal'],
+    ['fit', 'memory'],
+    ['fit_ctx', 'memory'],
+    ['fit_target', 'memory'],
+    ['hf_repo', 'model'],
+    ['model_url', 'model'],
+    ['lora', 'model'],
+    ['control_vector', 'model'],
+    ['spec_type', 'speculative'],
+    ['spec_draft_model', 'speculative'],
+    ['lookup_cache_static', 'speculative'],
     ['threads', 'performance'],
     ['n_threads', 'performance'],
     ['threads_batch', 'performance'],
@@ -103,6 +136,7 @@ describe('groupForParam', () => {
     ['log_level', 'logging'],
     ['log_file', 'logging'],
     ['debug', 'logging'],
+    ['perf', 'logging'],
   ])('maps %s to %s', (key, expectedGroup) => {
     expect(groupForParam({ key }).id).toBe(expectedGroup)
   })
@@ -110,7 +144,7 @@ describe('groupForParam', () => {
   it('returns the group metadata and falls back to Other for unknown keys', () => {
     expect(groupForParam({ key: 'ctx_size' }).title).toBe('Context & tokens')
     expect(groupForParam({ key: 'mystery_key' }).id).toBe('other')
-    expect(groupForParam({ key: 'mystery_key' }).title).toBe('Other')
+    expect(groupForParam({ key: 'mystery_key' }).title).toBe('Engine-specific')
     // `logits_all` is an output control, not a logging key: ambiguous names stay
     // in Other by design (see the module documentation).
     expect(groupForParam({ key: 'logits_all' }).id).toBe('other')
