@@ -85,7 +85,13 @@ export function modelRuntimeState(model, options = {}) {
 export function modelNeedsSetup(model, runtimeState = null) {
   if (!model || model.config_reviewed !== false) return false
   if (isAudioPackage(model)) return false
-  return (runtimeState || modelRuntimeState(model)).key === 'stopped'
+  // A never-saved model stays a setup candidate even when the proxy cannot
+  // confirm its state: is_active===false plus a stopped/unknown/stale state
+  // means it is not running, and editing config is safe. Only an active model
+  // keeps its state-driven primary.
+  if (model.is_active) return false
+  const state = runtimeState || modelRuntimeState(model)
+  return ['stopped', 'unknown', 'stale'].includes(state.key)
 }
 
 export function groupRuntimeState(group) {
