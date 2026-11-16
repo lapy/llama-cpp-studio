@@ -89,7 +89,7 @@ AREA_CAPS: Dict[str, int] = {
     # the measured total dropped; the cap now has NO slack.
     # 2026-11-15: 265 -> 266. Prettier split one line in ModelConfig.test.js,
     # putting a second id literal on its own line.
-    "frontend/src/views/": 266,
+    "frontend/src/views/": 261,
     # Every engine conversion tightened this as recipes/constants moved out of
     # the exporter into authoritative definitions; deleting the exporter after
     # the final conversion took it to 40.
