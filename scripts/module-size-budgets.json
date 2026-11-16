@@ -1,6 +1,6 @@
 {
   "backend/build_progress.py": 1224,
-  "backend/cuda_installer.py": 2330,
+  "backend/cuda_installer.py": 2013,
   "backend/data_store.py": 1187,
   "backend/engines/definitions/schema.py": 2471,
   "backend/engines/scan/help_parsers.py": 2507,
