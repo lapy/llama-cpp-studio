@@ -93,7 +93,9 @@ AREA_CAPS: Dict[str, int] = {
     # Every engine conversion tightened this as recipes/constants moved out of
     # the exporter into authoritative definitions; deleting the exporter after
     # the final conversion took it to 40.
-    "scripts/": 40,
+    # The build-default exporter now reads both catalogs through
+    # backend/engines/build_defaults.py, so its own engine-id literal is gone: 40 -> 39.
+    "scripts/": 39,
 }
 
 

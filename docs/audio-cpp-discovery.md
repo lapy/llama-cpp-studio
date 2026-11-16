@@ -105,9 +105,41 @@ Transcription upload transport converts input to WAV only when the engine contra
 
 Alignments and transcription details use concrete engine-specific routing when required by the operation contract. The target uses the stable native model identity. Errors remain explicit for unsupported model selection, missing assets, invalid paths, absent schema, activation failure, or request-field validation.
 
+## Build configuration contract
+
+Studio builds audio.cpp from source with CMake. The build-option catalog is engine data (`build_options` in `backend/engines/definitions/audio_cpp.yaml`), exported into the generated definition and rendered as `-D` argv by `backend/engines/audio_cpp/build_options.py`. Aligned with upstream `0xShug0/audio.cpp` `v0.9.5` and the commits after it.
+
+Every option the catalog knows is passed explicitly on every configure, including the ones left at their default. A build therefore never inherits an upstream default it did not ask for, which matters because upstream defaults are host-dependent (`ENGINE_ENABLE_METAL` defaults ON on Apple hosts) and forks can change them. `backend/tests/test_audio_build_options.py` pins the catalog against the complete upstream variable list, so a new upstream knob fails the suite until the definition grows the matching entry.
+
+| Group           | Options                                                                                                                                                                                                                                                            |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Backends        | `ENGINE_ENABLE_CUDA`, `HIP`, `VULKAN`, `WEBGPU`, `SYCL`, `METAL`; plus `ENGINE_ENABLE_RKNN` (Rockchip NPU path) and `ENGINE_ENABLE_NEON` (ARM)                                                                                                                     |
+| Backend tuning  | `ENGINE_ENABLE_CUDA_GRAPHS`, `ENGINE_HIP_STRIX_HALO_OPTIMIZATIONS`                                                                                                                                                                                                 |
+| CPU             | `ENGINE_ENABLE_NATIVE_CPU`, `ENGINE_ENABLE_OPENMP`, `ENGINE_ENABLE_LLAMAFILE`, `ENGINE_ENABLE_CPU_ALL_VARIANTS`                                                                                                                                                    |
+| Artifacts       | `ENGINE_BUILD_TESTS`, `EXTENDED_TESTS`, `MODEL_TESTS`, `EXAMPLES`, `WARMBENCH`, `AUDIOCPP_DEPLOYMENT_BUILD`, `AUDIOCPP_BUILD_NATIVE_MODEL_MANAGER`, `AUDIOCPP_USE_SYSTEM_OPENSSL`, `AUDIOCPP_BUILD_C_API`, `AUDIOCPP_BUILD_C_API_STATIC`, `AUDIOCPP_STATIC_ESPEAK` |
+| Server adapters | `AUDIOCPP_BUILD_SERVER_FRONTENDS`, `AUDIOCPP_SERVER_FRONTEND_MODULES`, `AUDIOCPP_SERVER_FRONTENDS_DIR`                                                                                                                                                             |
+| Model set       | `AUDIOCPP_MODEL_SET` (`full`/`core`/`custom`), `AUDIOCPP_MODELS`, `AUDIOCPP_ZONOS3_TEXTNORM`, `AUDIOCPP_ZONOS3_TEXTNORM_DIR`                                                                                                                                       |
+
+Test-only upstream cache variables (`AUDIOCPP_C_API_MODEL_ROOT`, `AUDIOCPP_RKNN_TEST_ENGINE`, `AUDIOCPP_GGML_SOURCE_DIR`) are deliberately not catalogued: they steer fixture paths, not a distributable build.
+
+Studio's supported backend set is CPU and CUDA (`build_options.supported_backends()`, reported as `supported_build_backends` on the status payload and in the build-options catalog). Every other upstream knob stays catalogued with `supported: false` so settings round-trip, the documentation and the UI stay honest, and every build pins it off; the UI disables those entries with the reason and validation refuses enabling them. `GET /api/audio-cpp/build-options` returns the catalog; `GET/PUT /api/audio-cpp/build-settings` persist it.
+
+Saving or building validates the combination and reports one message per problem (HTTP 422) instead of leaving the failure to a CMake configure log:
+
+- no catalogued-but-unsupported knob may be enabled (`metal`, `vulkan`, `webgpu`, `sycl`, `hip`, `rknn`, `neon`); `backend` itself is derived from the enabled backends and is never user-set;
+- CUDA and HIP are mutually exclusive, and the Strix Halo HIP tuning requires HIP (upstream `FATAL_ERROR`);
+- system OpenSSL requires the native model manager (upstream `FATAL_ERROR`);
+- server frontend modules require server frontends, which in turn require the frontend package directory (upstream `FATAL_ERROR`); the default directory is the `external/audio.cpp-server-frontends` submodule that the checkout already initializes;
+- ZONOS3 text normalization requires a `zyphra-textnorm` checkout;
+- a `custom` model set requires at least one model target.
+
+The derived backend also drives the runtime environment: only a CUDA build gets the managed toolkit on `PATH`/library path. A non-CUDA build still launches with the per-model device/backend selection from its scanned server flags.
+
 ## Embedded engine UI policy
 
-The engine's embedded server UI requires an active installation that explicitly records `build_server_frontends` enabled. Unknown/prebuilt build settings default off. The parameter registry, saved configuration policy, generated `ui`/`ui_management` values, and custom-argument validation enforce the applicable build policy.
+The engine's embedded server UI is served by `audiocpp_server --ui` and is built unconditionally upstream since `v0.9.4`; it is _not_ gated by a CMake option. Studio's current policy keeps it off unless the active installation records `build_server_frontends` enabled: the parameter registry marks `ui`/`ui_management` unsupported, the saved model configuration is forced off, and custom arguments cannot inject the flags.
+
+That gate predates the cataloguing of `AUDIOCPP_BUILD_SERVER_FRONTENDS` as what upstream means by it (optional in-process transport adapters such as MP3 encoding and audio decoding). Two follow-ups are intentionally not part of the build-option work: the gate should follow the scanned `--ui` row instead of a build toggle, and process-scope server-config values (`ui`, `ui_management`, `max_loaded_models`, `busy_timeout_ms`, …) need to be written into the generated sidecar; today only `device`, `threads`, `lazy_load`, `voice_dir`, `model_spec_override` and the UI-off policy reach it.
 
 Studio's Audio workspace uses its own browser/request components and operates independently of the embedded engine UI switch.
 

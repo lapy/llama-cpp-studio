@@ -132,6 +132,32 @@ def test_build_settings_round_trip_preserves_tracking_ref(client, store, monkeyp
     assert r.json()["backend"] == "cuda"
 
 
+def test_build_settings_reject_an_unsupported_backend(client, store):
+    r = client.put("/api/audio-cpp/build-settings", json={"vulkan": True})
+    assert r.status_code == 422
+    assert "vulkan" in r.json()["detail"]
+
+
+def test_build_settings_reject_a_conflicting_combination(client, store):
+    r = client.put("/api/audio-cpp/build-settings", json={"cuda": True, "hip": True})
+    assert r.status_code == 422
+    assert "mutually exclusive" in r.json()["detail"]
+
+
+def test_build_settings_accept_a_complete_frontends_configuration(client, store):
+    r = client.put(
+        "/api/audio-cpp/build-settings",
+        json={
+            "build_server_frontends": True,
+            "server_frontend_modules": "audio_decode;mp3_encode",
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["build_server_frontends"] is True
+    assert body["server_frontends_dir"] == "external/audio.cpp-server-frontends"
+
+
 def test_check_updates_uses_stored_tracking_ref(client, store, monkeypatch):
     store.update_engine_build_settings(
         "audio_cpp",

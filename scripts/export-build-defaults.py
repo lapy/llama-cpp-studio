@@ -1,11 +1,12 @@
-"""Export the llama-family build-option defaults the frontend falls back to.
+"""Export the engine build-option defaults the frontend falls back to.
 
-The EnginesView build-settings panel needs a default build config before
-``GET /build-options`` answers (and when it fails). That fallback used to be a
-hand-copied literal in the Vue SFC, explicitly "kept in sync with backend
-defaults" — a drift risk. The source of truth is the backend's
-``llama_cpp.build_options`` catalog; this script writes it to a JSON module the
-frontend imports, and ``--check`` fails when the checked-in file is stale.
+The EnginesView build-settings panels need a default build config before
+``GET /build-options`` answers (and when it fails). Those fallbacks used to be
+hand-copied literals in the Vue SFC, explicitly "kept in sync with backend
+defaults" — a drift risk. The source of truth is the backend build-option
+catalogs, aggregated by ``backend.engines.build_defaults``; this script writes
+them to a JSON module the frontend imports, and ``--check`` fails when the
+checked-in file is stale.
 """
 
 from __future__ import annotations
@@ -18,23 +19,15 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 TARGET = ROOT / "frontend" / "src" / "engines" / "build-defaults.generated.json"
 
-
-def _ordered_build_types() -> list:
-    """Catalog order with the default first (the panel's historic UI order)."""
-    from backend.engines.llama_cpp import build_options as llama_options
-
-    default = llama_options.BUILD_TYPE_DEFAULT
-    values = list(llama_options.BUILD_TYPE_VALUES)
-    return [default] + [value for value in values if value != default]
+# `python scripts/export-build-defaults.py` must import the app package.
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 
 def _payload() -> dict:
-    from backend.engines.llama_cpp import build_options as llama_options
+    from backend.engines.build_defaults import export_payload
 
-    return {
-        "defaults": llama_options.default_build_settings(),
-        "build_types": _ordered_build_types(),
-    }
+    return export_payload()
 
 
 def _render() -> str:

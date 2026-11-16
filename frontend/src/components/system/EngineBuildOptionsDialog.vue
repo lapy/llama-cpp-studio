@@ -147,6 +147,7 @@
                   :model-value="config[opt.key]"
                   :min="opt.min ?? 0"
                   :max="opt.max ?? 256"
+                  :disabled="Boolean(opt.disabled)"
                   class="w-full mt-1"
                   @update:model-value="setOption(opt.key, $event)"
                 />
@@ -158,6 +159,7 @@
                   v-if="opt.type === 'enum'"
                   :model-value="config[opt.key]"
                   :options="opt.enum_values || []"
+                  :disabled="Boolean(opt.disabled)"
                   class="w-full mt-1"
                   @update:model-value="setOption(opt.key, $event)"
                 />
@@ -165,6 +167,7 @@
                   v-else
                   :model-value="config[opt.key]"
                   :placeholder="opt.placeholder || ''"
+                  :disabled="Boolean(opt.disabled)"
                   class="w-full mt-1"
                   @update:model-value="setOption(opt.key, $event)"
                 />

@@ -784,7 +784,12 @@ import {
   presentationForEngine,
   serverBackedEngines,
 } from '@/engines/registry'
-import { FALLBACK_BUILD_DEFAULTS, FALLBACK_BUILD_TYPES } from '@/engines/buildDefaults'
+import {
+  FALLBACK_AUDIO_BUILD_DEFAULTS,
+  FALLBACK_AUDIO_BUILD_TYPES,
+  FALLBACK_BUILD_DEFAULTS,
+  FALLBACK_BUILD_TYPES,
+} from '@/engines/buildDefaults'
 import { versionDeleteErrorText, versionDeleteRetry } from '@/composables/actionConfirmation'
 import EngineStatusTag from '@/components/system/EngineStatusTag.vue'
 import { useEnginesStore } from '@/stores/engines'
@@ -2439,44 +2444,16 @@ const audioCppBuildDialogVisible = ref(false)
 const audioCppOptionsLoading = ref(false)
 const audioCppOptionsCatalog = ref({ categories: [], defaults: {}, build_types: [] })
 
-const AUDIO_FALLBACK_DEFAULTS = {
-  build_type: 'RelWithDebInfo',
-  cuda: false,
-  native_cpu: true,
-  openmp: true,
-  cuda_graphs: true,
-  llamafile: true,
-  cpu_all_variants: false,
-  build_tests: false,
-  build_extended_tests: false,
-  build_model_tests: false,
-  build_examples: false,
-  build_warmbench: false,
-  deployment_build: false,
-  native_model_manager: false,
-  use_system_openssl: false,
-  build_server_frontends: false,
-  build_c_api: false,
-  static_espeak: false,
-  model_set: 'full',
-  models: '',
-  jobs: 0,
-  custom_cmake_args: '',
-  cflags: '',
-  cxxflags: '',
-  backend: 'cpu',
-}
-
-const audioCppBuildTypeOptions = [
-  { label: 'RelWithDebInfo', value: 'RelWithDebInfo' },
-  { label: 'Release', value: 'Release' },
-  { label: 'Debug', value: 'Debug' },
-  { label: 'MinSizeRel', value: 'MinSizeRel' },
-]
+// Defaults come from the generated backend catalog export (see
+// scripts/export-build-defaults.py): never hand-copy them here.
+const audioCppBuildTypeOptions = FALLBACK_AUDIO_BUILD_TYPES.map((value) => ({
+  label: value,
+  value,
+}))
 
 function _defaultAudioBuildConfig() {
   return {
-    ...AUDIO_FALLBACK_DEFAULTS,
+    ...FALLBACK_AUDIO_BUILD_DEFAULTS,
     ...(audioCppOptionsCatalog.value?.defaults || {}),
   }
 }
@@ -2499,7 +2476,7 @@ const visibleAudioBuildCategories = computed(() => {
 
 function audioOptionParentEnabled(requires) {
   const cfg = audioCppBuildForm.value?.build_config || {}
-  if (requires === 'cuda_or_hip') return !!cfg.cuda
+  if (requires === 'cuda_or_hip') return !!(cfg.cuda || cfg.hip)
   if (requires === 'model_set_custom') return cfg.model_set === 'custom'
   return !!cfg[requires]
 }
@@ -2510,9 +2487,25 @@ function visibleAudioOptions(cat) {
   )
 }
 
-function audioBackendDisabled(key) {
-  const supported = new Set(audioCppStatus.value?.supported_build_backends || ['cpu', 'cuda'])
-  return !supported.has(key)
+// Which upstream backends Studio can actually build and run. The catalog lists
+// every upstream knob (so settings round-trip and every build pins it off), and
+// marks the ones Studio cannot build with `supported: false`.
+const audioSupportedBackends = computed(
+  () =>
+    new Set(
+      audioCppOptionsCatalog.value?.supported_backends ||
+        audioCppStatus.value?.supported_build_backends || ['cpu', 'cuda'],
+    ),
+)
+
+function audioOptionUnsupported(opt) {
+  return opt.supported === false
+}
+
+function audioOptionReason(opt) {
+  if (!audioOptionUnsupported(opt)) return ''
+  const names = [...audioSupportedBackends.value].map((name) => name.toUpperCase()).join(' and ')
+  return `Studio ships audio.cpp builds for ${names} only.`
 }
 
 const audioBuildFields = computed(() => [
@@ -2546,9 +2539,14 @@ const audioBuildDialogCategories = computed(() =>
     return {
       ...cat,
       layout: isBackends ? 'grid' : 'advanced',
+      note: isBackends
+        ? 'Upstream backends beyond CPU and CUDA are catalogued but pinned off: ' +
+          'Studio ships, tests and supports CPU and CUDA audio.cpp builds.'
+        : '',
       options: (isBackends ? cat.options || [] : visibleAudioOptions(cat)).map((opt) => ({
         ...opt,
-        disabled: isBackends ? audioBackendDisabled(opt.key) : false,
+        disabled: audioOptionUnsupported(opt),
+        disabledReason: audioOptionReason(opt),
       })),
     }
   }),

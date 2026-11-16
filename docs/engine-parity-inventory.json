@@ -94,14 +94,14 @@
           "count": 8,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            800,
-            932,
-            950,
-            1083,
-            3236,
-            3623,
-            3642,
-            3780
+            805,
+            937,
+            955,
+            1088,
+            3234,
+            3621,
+            3640,
+            3778
           ]
         },
         {
@@ -230,9 +230,9 @@
           "file": "backend/engines/audio_cpp/manager.py",
           "lines": [
             4,
-            162,
-            165,
-            166
+            181,
+            184,
+            185
           ]
         },
         {
@@ -296,7 +296,7 @@
           "count": 1,
           "file": "backend/engines/audio_cpp/build_options.py",
           "lines": [
-            17
+            23
           ]
         },
         {
@@ -758,7 +758,7 @@
           "count": 1,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            1115
+            1120
           ]
         },
         {
@@ -930,43 +930,43 @@
             641,
             642,
             645,
-            916,
-            1080,
-            1111,
-            1543,
-            1601,
-            1618,
-            1691,
-            1708,
-            1724,
+            921,
+            1085,
+            1116,
+            1548,
+            1606,
+            1623,
+            1696,
+            1713,
             1729,
-            1783,
-            1876,
-            2045,
-            2178,
-            2179,
-            2193,
-            2194,
+            1734,
+            1788,
+            1881,
+            2050,
+            2183,
+            2184,
             2198,
-            2202,
-            2250,
-            2262,
-            2265,
-            2344,
-            2345,
-            2351,
-            2357,
-            2375,
-            2398,
-            2408,
-            3411,
-            3462,
-            3465,
-            3469,
-            3476,
-            3479,
-            3502,
-            3503
+            2199,
+            2203,
+            2207,
+            2255,
+            2267,
+            2270,
+            2349,
+            2350,
+            2356,
+            2362,
+            2380,
+            2403,
+            2413,
+            3409,
+            3460,
+            3463,
+            3467,
+            3474,
+            3477,
+            3500,
+            3501
           ]
         },
         {
@@ -1462,29 +1462,29 @@
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
             572,
-            870,
-            1079,
-            1110,
-            1583,
-            1627,
-            1644,
-            1660,
-            1843,
-            1861,
-            2045,
-            2178,
-            2250,
-            2262,
-            2345,
-            2375,
-            2408,
-            3420,
-            3427,
-            3433,
-            3459,
-            3460,
-            3515,
-            3521
+            875,
+            1084,
+            1115,
+            1588,
+            1632,
+            1649,
+            1665,
+            1848,
+            1866,
+            2050,
+            2183,
+            2255,
+            2267,
+            2350,
+            2380,
+            2413,
+            3418,
+            3425,
+            3431,
+            3457,
+            3458,
+            3513,
+            3519
           ]
         },
         {
@@ -1924,13 +1924,6 @@
           "lines": [
             170
           ]
-        },
-        {
-          "count": 1,
-          "file": "scripts/export-build-defaults.py",
-          "lines": [
-            7
-          ]
         }
       ]
     },
@@ -1991,19 +1984,19 @@
           "lines": [
             493,
             683,
-            799,
-            931,
-            949,
-            1082,
-            1113,
-            2978,
-            2988,
-            2999,
-            3021,
-            3582,
-            3599,
-            3603,
-            3618
+            804,
+            936,
+            954,
+            1087,
+            1118,
+            2976,
+            2986,
+            2997,
+            3019,
+            3580,
+            3597,
+            3601,
+            3616
           ]
         },
         {
@@ -2326,12 +2319,12 @@
           "count": 6,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            881,
-            933,
-            951,
-            978,
-            1084,
-            3647
+            886,
+            938,
+            956,
+            983,
+            1089,
+            3645
           ]
         },
         {
@@ -2546,11 +2539,11 @@
           "count": 5,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            979,
-            1033,
-            1044,
-            1085,
-            3652
+            984,
+            1038,
+            1049,
+            1090,
+            3650
           ]
         },
         {
@@ -2745,13 +2738,13 @@
           "count": 7,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            930,
-            1081,
-            1112,
-            3414,
-            3505,
-            3508,
-            3787
+            935,
+            1086,
+            1117,
+            3412,
+            3503,
+            3506,
+            3785
           ]
         },
         {
@@ -2961,12 +2954,12 @@
           "count": 6,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            980,
-            1039,
-            1050,
-            1088,
-            3633,
-            3667
+            985,
+            1044,
+            1055,
+            1093,
+            3631,
+            3665
           ]
         },
         {
@@ -3107,6 +3100,7 @@
           "build_tests": false,
           "build_type": "RelWithDebInfo",
           "build_warmbench": false,
+          "c_api_static": false,
           "cflags": "",
           "cpu_all_variants": false,
           "cuda": false,
@@ -3114,15 +3108,27 @@
           "custom_cmake_args": "",
           "cxxflags": "",
           "deployment_build": false,
+          "hip": false,
+          "hip_strix_halo": false,
           "jobs": 0,
           "llamafile": true,
+          "metal": false,
           "model_set": "full",
           "models": "",
           "native_cpu": true,
           "native_model_manager": false,
+          "neon": false,
           "openmp": true,
+          "rknn": false,
+          "server_frontend_modules": "",
+          "server_frontends_dir": "external/audio.cpp-server-frontends",
           "static_espeak": false,
-          "use_system_openssl": false
+          "sycl": false,
+          "use_system_openssl": false,
+          "vulkan": false,
+          "webgpu": false,
+          "zonos3_textnorm": false,
+          "zonos3_textnorm_dir": ""
         },
         "source_ref_default": "main"
       }
@@ -3714,17 +3720,21 @@
         "align",
         "asr",
         "clon",
+        "cls",
         "diar",
         "gen",
+        "midi",
         "pipeline",
         "s2s",
         "sep",
         "spk",
         "svc",
         "tts",
+        "turn",
         "vad",
         "vc",
-        "vdes"
+        "vdes",
+        "wake"
       ],
       "ui_kind": "audio"
     },
