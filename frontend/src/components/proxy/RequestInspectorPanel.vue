@@ -74,7 +74,38 @@
           </p>
         </div>
       </div>
+      <button
+        v-if="request.replayable"
+        type="button"
+        class="request-replay-button"
+        data-request-replay
+        :disabled="replaying"
+        @click="replayRequest"
+      >
+        <i :class="[replaying ? 'pi pi-spin pi-spinner' : 'pi pi-replay', '']" aria-hidden="true" />
+        {{ replaying ? 'Replaying…' : 'Replay request' }}
+      </button>
     </div>
+    <Message v-if="replayError" severity="error" :closable="false">{{ replayError }}</Message>
+    <div v-if="replayResult" class="request-replay-result" data-replay-result>
+      <h3>
+        Replay result
+        <Tag
+          :value="String(replayResult.status)"
+          :severity="replayResult.status < 400 ? 'success' : 'danger'"
+        />
+      </h3>
+      <pre class="request-captured-body">{{ replayResult.body || '(empty body)' }}</pre>
+      <p v-if="replayResult.body_truncated" class="hint">Response body truncated for display.</p>
+    </div>
+    <section v-if="request.captured_body" class="request-detail-section" data-captured-body>
+      <h3>Captured request body</h3>
+      <pre class="request-captured-body">{{ request.captured_body }}</pre>
+      <p v-if="request.captured_body_truncated" class="hint">Captured body truncated at 256 KiB.</p>
+      <p v-if="(request.captured_redacted_headers || []).length" class="hint">
+        Redacted headers: {{ (request.captured_redacted_headers || []).join(', ') }}
+      </p>
+    </section>
     <div class="request-inspector">
       <section
         v-for="section in visibleRequestDetailSections"
@@ -92,8 +123,8 @@
     </div>
     <p class="hint">
       Usage marked “reservation” is a conservative charge retained because the engine did not report
-      final usage. Unknown token counts remain blank. Request and response headers and bodies are
-      not retained.
+      final usage. Unknown token counts remain blank. Request headers and bodies are retained only
+      in memory when payload capture is enabled; otherwise only metadata is kept.
     </p>
   </Dialog>
 </template>
@@ -102,7 +133,9 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import Dialog from 'primevue/dialog'
 import Tag from 'primevue/tag'
+import Message from 'primevue/message'
 import { useToast } from 'primevue/usetoast'
+import axios from 'axios'
 import { copyText } from '@/utils/clipboard'
 import {
   buildCurlCommand,
@@ -139,6 +172,9 @@ const dialogVisible = computed({
 const toast = useToast()
 const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'
 const capturedPayload = computed(() => hasCapturedPayload(props.request))
+const replaying = ref(false)
+const replayError = ref('')
+const replayResult = ref(null)
 const exportOpen = ref(false)
 const exportRoot = ref(null)
 const exportToggle = ref(null)
@@ -191,6 +227,27 @@ function onExportMenuKeydown(event) {
   if (next === null) return
   event.preventDefault()
   items[next].focus()
+}
+
+async function replayRequest() {
+  if (replaying.value || !props.request?.id) return
+  replaying.value = true
+  replayError.value = ''
+  replayResult.value = null
+  try {
+    const { data } = await axios.post(
+      `/api/proxy/requests/${encodeURIComponent(props.request.id)}/replay`,
+    )
+    replayResult.value = data
+  } catch (error) {
+    replayError.value =
+      error?.response?.data?.detail?.message ||
+      error?.response?.data?.detail ||
+      error.message ||
+      'Replay failed'
+  } finally {
+    replaying.value = false
+  }
 }
 
 async function copyAsCurl() {
@@ -350,6 +407,14 @@ watch(
   () => props.visible,
   (visible) => {
     if (!visible) closeExportMenu()
+  },
+)
+
+watch(
+  () => props.request?.id,
+  () => {
+    replayResult.value = null
+    replayError.value = ''
   },
 )
 
@@ -612,5 +677,55 @@ function requestDetail(name) {
     grid-template-columns: 1fr;
     gap: 0.15rem;
   }
+}
+.request-replay-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.request-replay-button:hover:not(:disabled) {
+  border-color: var(--accent-cyan);
+}
+
+.request-replay-button:disabled {
+  opacity: 0.65;
+  cursor: progress;
+}
+
+.request-replay-result {
+  margin: 0.75rem 0;
+  padding: 0.65rem;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.request-replay-result h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+}
+
+.request-captured-body {
+  max-height: 18rem;
+  overflow: auto;
+  margin: 0.35rem 0;
+  padding: 0.5rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 </style>

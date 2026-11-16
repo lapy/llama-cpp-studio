@@ -42,6 +42,7 @@ from backend.engines.capabilities import VLLM_FAMILY, SGLANG_FAMILY, capabilitie
 from backend.proxy.studio.transport import UpstreamTransport
 from backend.proxy.studio.tokenization import count_input, count_route_supported
 from backend.proxy.studio.filters import apply_request_filters
+from backend.proxy.studio.cors import cors_headers, cors_preflight
 from backend.proxy.studio.registry import ProcessRegistry, RegistryError
 
 ModelResolver = Callable[[str], Optional["ResolvedModel"]]
@@ -124,6 +125,7 @@ class StudioDataPlane:
         history_retention_days: int = 7,
         history_max_rows: int = 100000,
         default_output_tokens: int = 4096,
+        capture_request_payloads: bool = False,
     ) -> None:
         self.accounting = accounting
         self.identity_resolver = identity_resolver
@@ -139,6 +141,7 @@ class StudioDataPlane:
         self.history_retention_days = history_retention_days
         self.history_max_rows = history_max_rows
         self.default_output_tokens = default_output_tokens
+        self.capture_request_payloads = bool(capture_request_payloads)
         self.registry = registry
         self.resolve_model = resolve_model
         self.authorize = authorize
@@ -472,6 +475,8 @@ class StudioDataPlane:
             ):
                 trace["usage_source"] = "reservation"
             generation = scope.get("studio.generation")
+            captured_headers = trace.pop("_capture_headers", None)
+            captured_body = trace.pop("_capture_request_body", None)
             record_request = getattr(self.registry, "record_request", None)
             if generation is not None and dispatched and record_request is not None:
                 record_request(
@@ -485,6 +490,8 @@ class StudioDataPlane:
                     method=str(trace.get("method") or ""),
                     path=str(trace.get("path") or ""),
                     observation=trace,
+                    request_headers=captured_headers,
+                    request_body=captured_body,
                 )
             trace.pop("reserved", None)
             self._observed_count -= 1
@@ -515,7 +522,7 @@ class StudioDataPlane:
         # preflight is answered before auth because browsers send no key on it.
         origin = request_headers.get("origin", "")
         if method == "OPTIONS":
-            await _cors_preflight(send, origin)
+            await cors_preflight(send, origin)
             return
 
         if path in ("/health", "/wol-health"):
@@ -530,7 +537,7 @@ class StudioDataPlane:
                 {
                     "type": "http.response.start",
                     "status": 302,
-                    "headers": [(b"location", b"/"), *_cors_headers(origin)],
+                    "headers": [(b"location", b"/"), *cors_headers(origin)],
                 }
             )
             await send({"type": "http.response.body", "body": b""})
@@ -644,6 +651,11 @@ class StudioDataPlane:
             trace.update(state="cancelled", status=499, error="client_disconnected")
             return
         trace["input_bytes"] = len(body)
+        if self.capture_request_payloads:
+            # Kept out of the accounting payload: popped before persistence and
+            # handed only to the registry's bounded in-memory replay window.
+            trace["_capture_headers"] = dict(request_headers)
+            trace["_capture_request_body"] = body
         trace["requested_stream"] = _requested_stream(body)
         route_model, upstream_path = _model_route(path)
         upstream_passthrough = bool(route_model) or upstream_path != path
@@ -1268,7 +1280,7 @@ class StudioDataPlane:
                         (b"content-type", b"text/event-stream"),
                         (b"cache-control", b"no-cache, no-store"),
                         (b"x-accel-buffering", b"no"),
-                        *_cors_headers(origin),
+                        *cors_headers(origin),
                     ],
                 }
             )
@@ -1829,34 +1841,9 @@ async def _send_response_start(send: Callable, status: int, headers: list, origi
             "type": "http.response.start",
             "status": status,
             "headers": [(key.encode("latin-1"), value.encode("latin-1")) for key, value in headers]
-            + _cors_headers(origin),
+            + cors_headers(origin),
         }
     )
-
-
-def _cors_headers(origin: str) -> list:
-    if not origin:
-        return []
-    return [
-        (b"access-control-allow-origin", b"*"),
-        (b"vary", b"Origin"),
-        (
-            b"access-control-expose-headers",
-            b"X-Request-ID, Retry-After, X-RateLimit-Remaining-Requests, X-RateLimit-Remaining-Tokens-Day, X-RateLimit-Remaining-Tokens-Month",
-        ),
-    ]
-
-
-async def _cors_preflight(send: Callable, origin: str) -> None:
-    headers = [
-        (b"access-control-allow-methods", b"GET, POST, PUT, PATCH, DELETE, OPTIONS"),
-        (b"access-control-allow-headers", b"*"),
-        (b"access-control-max-age", b"600"),
-        (b"content-length", b"0"),
-        *_cors_headers(origin),
-    ]
-    await send({"type": "http.response.start", "status": 204, "headers": headers})
-    await send({"type": "http.response.body", "body": b""})
 
 
 def _requested_model(scope: dict[str, Any], body: bytes) -> str:
@@ -1996,7 +1983,7 @@ async def _landing_page(send: Callable, *, origin: str = "") -> None:
             "headers": [
                 (b"content-type", b"text/html; charset=utf-8"),
                 (b"content-length", str(len(body)).encode()),
-                *_cors_headers(origin),
+                *cors_headers(origin),
             ],
         }
     )
@@ -2082,7 +2069,7 @@ async def _redirect_with_ui_cookie(
                     ).encode("latin-1"),
                 ),
                 (b"content-length", b"0"),
-                *_cors_headers(origin),
+                *cors_headers(origin),
             ],
         }
     )
@@ -2116,7 +2103,7 @@ async def _json_response(
                 (b"content-type", b"application/json"),
                 (b"content-length", str(len(body)).encode()),
                 *(extra_headers or []),
-                *_cors_headers(origin),
+                *cors_headers(origin),
             ],
         }
     )

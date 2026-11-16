@@ -3,6 +3,8 @@
 import json
 import os
 import asyncio
+
+import httpx
 from typing import Any
 from urllib.parse import unquote
 
@@ -39,6 +41,7 @@ class ProxySettingsBody(BaseModel):
     history_retention_days: int = Field(default=7, ge=1, le=365)
     history_max_rows: int = Field(default=100000, ge=100, le=1000000)
     default_output_tokens: int = Field(default=4096, ge=1, le=1000000)
+    capture_request_payloads: bool = False
     default_model: str | None = None
     routing_aliases: dict[str, str | list[str]] = Field(default_factory=dict)
 
@@ -58,6 +61,7 @@ def _settings_payload() -> dict[str, Any]:
                 "history_retention_days": 7,
                 "history_max_rows": 100000,
                 "default_output_tokens": 4096,
+                "capture_request_payloads": False,
             }.items()
         },
         "backend": configured_proxy_backend(),
@@ -391,7 +395,7 @@ async def get_proxy_requests(
     await asyncio.to_thread(
         accounting.flush, settings["history_retention_days"], settings["history_max_rows"]
     )
-    return await asyncio.to_thread(
+    result = await asyncio.to_thread(
         accounting.query,
         limit=limit,
         offset=offset,
@@ -402,3 +406,88 @@ async def get_proxy_requests(
         outcome=outcome,
         search=search,
     )
+    manager = get_studio_proxy_manager()
+    registry = getattr(manager, "registry", None)
+    payloads = getattr(registry, "replay_payloads", None) if registry is not None else None
+    if payloads:
+        for row in result.get("requests", []):
+            payload = payloads.get(str(row.get("id") or ""))
+            if not payload:
+                continue
+            row["replayable"] = True
+            row["captured_headers"] = payload.get("headers") or {}
+            row["captured_redacted_headers"] = payload.get("redacted_headers") or []
+            row["captured_body"] = payload.get("body")
+            row["captured_body_truncated"] = bool(payload.get("body_truncated"))
+    return result
+
+
+@router.post("/requests/{request_id}/replay")
+async def replay_proxy_request(request_id: str):
+    """Re-send a captured request to the still-loaded engine.
+
+    Captured payloads are memory-only and opt-in. Replay is an operator action:
+    it bypasses quota accounting and reaches the loaded engine directly. It is
+    intentionally rejected when the model is no longer loaded so a replay can
+    never silently start a new process or hit a different model.
+    """
+    manager = get_studio_proxy_manager()
+    registry = getattr(manager, "registry", None)
+    payload = registry.replay_payload(request_id) if registry is not None else None
+    if not payload:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "PAYLOAD_NOT_CAPTURED",
+                "message": "Request payload is no longer available. Enable payload capture before the request.",
+            },
+        )
+    generation = registry.active(payload.get("model") or "") if registry is not None else None
+    if generation is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "MODEL_NOT_LOADED",
+                "message": f"Start {payload.get('model') or 'the model'} before replaying this request.",
+            },
+        )
+    headers = {
+        str(name): str(value)
+        for name, value in (payload.get("headers") or {}).items()
+        if str(name).lower()
+        not in {"host", "content-length", "connection", "transfer-encoding", "accept-encoding"}
+    }
+    body = payload.get("body")
+    content = body.encode("utf-8") if body is not None else None
+    url = generation.upstream.rstrip("/") + "/" + str(payload.get("path") or "/").lstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.request(
+                str(payload.get("method") or "POST").upper(),
+                url,
+                headers=headers,
+                content=content,
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": "REPLAY_FAILED",
+                "message": f"Replay request failed: {type(exc).__name__}",
+            },
+        ) from exc
+    limit = 512 * 1024
+    raw = response.content or b""
+    truncated = len(raw) > limit
+    text = raw[:limit].decode("utf-8", "replace")
+    return {
+        "replayed": True,
+        "source_request_id": request_id,
+        "model": payload.get("model"),
+        "method": payload.get("method"),
+        "path": payload.get("path"),
+        "status": response.status_code,
+        "content_type": response.headers.get("content-type", ""),
+        "body": text,
+        "body_truncated": truncated,
+    }

@@ -30,6 +30,7 @@ from backend.inference_auth import (
 )
 from backend.proxy.launch_spec import compile_model_runtime, manifest_document
 from backend.proxy.manifests import LaunchManifestStore
+from backend.proxy.studio.runtime_defaults import RUNTIME_DEFAULTS
 from backend.proxy.studio.dataplane import DEFAULT_MAX_BODY_BYTES, ResolvedModel, StudioDataPlane
 from backend.proxy.studio.registry import ProcessRegistry
 
@@ -48,27 +49,6 @@ def get_studio_proxy_manager() -> "StudioProxyManager":
 
         _instance = StudioProxyManager(get_proxy_port())
     return _instance
-
-
-RUNTIME_DEFAULTS = {
-    "idle_ttl_seconds": None,
-    "max_body_bytes": None,
-    "max_loaded_models": None,
-    "global_concurrency": None,
-    "per_model_concurrency": None,
-    "queue_timeout_seconds": 30,
-    "request_timeout_seconds": None,
-    "readiness_timeout_seconds": 2700,
-    "drain_timeout_seconds": 30,
-    "max_queue_size": 100,
-    "stream_idle_timeout_seconds": None,
-    "pool_timeout_seconds": 10,
-    "max_connections": 200,
-    "max_keepalive_connections": 40,
-    "history_retention_days": 7,
-    "history_max_rows": 100000,
-    "default_output_tokens": 4096,
-}
 
 
 @dataclass(frozen=True)
@@ -168,6 +148,7 @@ class StudioProxyManager:
             global_concurrency=_positive_int(settings, "global_concurrency"),
             queue_timeout=_positive_float(settings, "queue_timeout_seconds", 30),
             request_timeout=_positive_float(settings, "request_timeout_seconds", None),
+            capture_request_payloads=bool(settings.get("capture_request_payloads", False)),
         )
 
     def apply_routing(self, settings):

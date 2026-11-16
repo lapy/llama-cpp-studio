@@ -16,7 +16,7 @@ import socket
 import subprocess
 import time
 import uuid
-from collections import deque
+from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Mapping, Optional
 
@@ -28,6 +28,49 @@ from backend.proxy.studio.ring import EventRing
 
 class RegistryError(RuntimeError):
     pass
+
+
+# Captured payloads are deliberately memory-only: they are never written to the
+# accounting database or logs. The window is small and bodies are capped so an
+# operator can replay a recent request without turning the proxy into a
+# transcript store.
+CAPTURE_MAX_REQUESTS = 200
+CAPTURE_MAX_BODY_BYTES = 256 * 1024
+_SENSITIVE_CAPTURE_HEADERS = frozenset(
+    {"authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key", "api-key"}
+)
+_SKIP_CAPTURE_HEADERS = frozenset(
+    {"host", "content-length", "connection", "transfer-encoding", "accept-encoding"}
+)
+
+
+def _sanitize_captured_headers(headers: Any) -> tuple[dict[str, str], list[str]]:
+    if not isinstance(headers, Mapping):
+        return {}, []
+    captured: dict[str, str] = {}
+    redacted: list[str] = []
+    for name, value in headers.items():
+        lower = str(name).strip().lower()
+        if not lower:
+            continue
+        if lower in _SENSITIVE_CAPTURE_HEADERS:
+            redacted.append(lower)
+            continue
+        if lower in _SKIP_CAPTURE_HEADERS:
+            continue
+        captured[lower] = str(value)
+    return captured, redacted
+
+
+def _capture_body_text(body: Any) -> tuple[Optional[str], bool]:
+    if body is None or body == b"" or body == "":
+        return None, False
+    if isinstance(body, bytes):
+        raw = body
+    else:
+        raw = str(body).encode("utf-8", "replace")
+    truncated = len(raw) > CAPTURE_MAX_BODY_BYTES
+    return raw[:CAPTURE_MAX_BODY_BYTES].decode("utf-8", "replace"), truncated
 
 
 # Engines explicitly known to expose no /health route. For these only, a
@@ -125,6 +168,9 @@ class ProcessRegistry:
         self._generations: dict[int, Generation] = {}
         self.activities: EventRing[dict[str, Any]] = EventRing(1000)
         self.requests: EventRing[dict[str, Any]] = EventRing(100)
+        # Request-id -> captured method/path/headers/body for replay/export.
+        # Bounded and in-memory only (never persisted by accounting).
+        self.replay_payloads: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self._closed = False
         self._reaper: Optional[asyncio.Task[None]] = None
         self._background: set[asyncio.Task[None]] = set()
@@ -273,6 +319,41 @@ class ProcessRegistry:
             "p95_decode_tokens_per_second": percentile(0.95, decode_samples),
         }
 
+    def remember_replay_payload(
+        self,
+        request_id: str,
+        *,
+        model: str,
+        method: str,
+        path: str,
+        headers: Any,
+        body: Any,
+    ) -> None:
+        """Keep a bounded, memory-only capture for replay and export."""
+        if not request_id:
+            return
+        captured_headers, redacted = _sanitize_captured_headers(headers)
+        captured_body, body_truncated = _capture_body_text(body)
+        if not captured_headers and captured_body is None:
+            return
+        self.replay_payloads[request_id] = {
+            "id": request_id,
+            "model": str(model or ""),
+            "method": str(method or "POST").upper(),
+            "path": str(path or "/"),
+            "headers": captured_headers,
+            "redacted_headers": redacted,
+            "body": captured_body,
+            "body_truncated": body_truncated,
+        }
+        self.replay_payloads.move_to_end(request_id)
+        while len(self.replay_payloads) > CAPTURE_MAX_REQUESTS:
+            self.replay_payloads.popitem(last=False)
+
+    def replay_payload(self, request_id: str) -> Optional[dict[str, Any]]:
+        payload = self.replay_payloads.get(str(request_id or ""))
+        return dict(payload) if payload else None
+
     async def enter_request(self, model_id: str) -> None:
         if not self.per_model_concurrency:
             return
@@ -303,6 +384,8 @@ class ProcessRegistry:
         method: str = "",
         path: str = "",
         observation: Mapping[str, Any] | None = None,
+        request_headers: Mapping[str, Any] | None = None,
+        request_body: Any = None,
     ) -> None:
         """Consume a finalized observation, never raw pre-normalization counts.
 
@@ -315,9 +398,10 @@ class ProcessRegistry:
         if output_tokens is not None and record.get("output_tokens") is None:
             record["output_tokens"] = output_tokens
         timestamp = time.time()
+        request_id = record.get("id") or uuid.uuid4().hex
         self.requests.append(
             {
-                "id": record.get("id") or uuid.uuid4().hex,
+                "id": request_id,
                 "completed_at": timestamp,
                 "model": generation.model_id,
                 "engine": generation.engine_id,
@@ -335,6 +419,15 @@ class ProcessRegistry:
                 "pid": generation.process.pid,
             }
         )
+        if request_headers is not None or request_body is not None:
+            self.remember_replay_payload(
+                request_id,
+                model=generation.model_id,
+                method=method,
+                path=path,
+                headers=request_headers,
+                body=request_body,
+            )
         generation.request_count += 1
         generation.error_count += int(status >= 400)
         generation.client_error_count += int(400 <= status < 500)

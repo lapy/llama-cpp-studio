@@ -5,8 +5,8 @@
   "backend/engines/definitions/schema.py": 2471,
   "backend/engines/scan/help_parsers.py": 2507,
   "backend/models/hub.py": 2468,
-  "backend/proxy/studio/dataplane.py": 2131,
-  "backend/proxy/studio/manager.py": 477,
+  "backend/proxy/studio/dataplane.py": 2118,
+  "backend/proxy/studio/manager.py": 458,
   "backend/routes/llama_versions.py": 2154,
   "backend/routes/models.py": 2767,
   "frontend/src/components/audio/AudioModelConfig.vue": 1297,
@@ -17,5 +17,5 @@
   "frontend/src/views/ModelConfig.vue": 3849,
   "frontend/src/views/ModelLibrary.vue": 2219,
   "frontend/src/views/ModelSearch.vue": 4814,
-  "frontend/src/views/ProxyView.vue": 3052
+  "frontend/src/views/ProxyView.vue": 3050
 }
