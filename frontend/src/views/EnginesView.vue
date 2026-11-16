@@ -55,42 +55,9 @@
               :disabled="card.disabled"
               v-tooltip.top="card.tooltip"
               @open="card.disabled ? undefined : openEngineModal(card.id)"
-              :title="card.title"
-              :count="card.count"
+              :card="card"
               :cta="presentation(card.id).cta"
-            >
-              <template #mark>
-                <span
-                  v-if="card.mark.text"
-                  :class="['engine-mark', card.mark.className]"
-                  aria-hidden="true"
-                  >{{ card.mark.text }}</span
-                >
-                <i v-else :class="['engine-card-icon', card.mark.icon]" />
-              </template>
-              <template v-if="card.badge" #badge>
-                <Tag :value="card.badge.value" :severity="card.badge.severity" />
-              </template>
-              <div
-                class="engine-card-version-line"
-                :title="card.active ? card.active.version : undefined"
-              >
-                <Tag
-                  v-if="card.active"
-                  :value="engineVersionDisplay(card.active.version)"
-                  severity="success"
-                  class="engine-version-tag"
-                />
-                <EngineStatusTag v-else :versions="card.versions" :engine-id="card.id" />
-              </div>
-              <div
-                v-if="card.update?.update_available"
-                class="engine-card-status engine-card-status--warning"
-              >
-                Update available: {{ card.updateText }}
-              </div>
-              <div v-else class="engine-card-status">{{ card.subtitle }}</div>
-            </EngineCard>
+            />
 
             <!-- YAML campaign S6: dynamic cards for SERVER-BACKED
                  (YAML-onboarded) engines — payload-driven, zero view edits
@@ -583,48 +550,17 @@
     />
 
     <!-- ── audio.cpp Install from Source Dialog ───────────── -->
-    <Dialog
+    <EngineInstallSourceDialog
       v-model:visible="audioCppSourceDialogVisible"
+      v-model:repo="audioCppSourceRepo"
+      v-model:source-ref="audioCppSourceRef"
       header="Build audio.cpp from source"
-      modal
-      class="dialog-width-md"
-    >
-      <div class="dialog-body">
-        <div class="form-field">
-          <label>Repo URL</label>
-          <InputText
-            v-model="audioCppSourceRepo"
-            placeholder="https://github.com/0xShug0/audio.cpp.git"
-            class="w-full"
-          />
-          <small>Official repo or any fork with the same layout.</small>
-        </div>
-        <div class="form-field">
-          <label>Tag / branch / commit</label>
-          <InputText v-model="audioCppSourceRef" placeholder="main" class="w-full" />
-          <small
-            >Checked out before CMake build. Uses your saved build settings (gear in the
-            header).</small
-          >
-        </div>
-      </div>
-      <template #footer>
-        <Button
-          label="Cancel"
-          severity="secondary"
-          outlined
-          @click="audioCppSourceDialogVisible = false"
-        />
-        <Button
-          label="Build from source"
-          icon="pi pi-code"
-          severity="info"
-          :loading="audioCppSourceInstalling"
-          :disabled="audioCppSourceInstalling"
-          @click="installAudioCppFromSource"
-        />
-      </template>
-    </Dialog>
+      repo-placeholder="https://github.com/0xShug0/audio.cpp.git"
+      repo-hint="Official repo or any fork with the same layout."
+      ref-hint="Checked out before CMake build. Uses your saved build settings (gear in the header)."
+      :installing="audioCppSourceInstalling"
+      @install="installAudioCppFromSource"
+    />
 
     <Dialog
       v-model:visible="verifyDialogVisible"
@@ -682,96 +618,32 @@
     />
 
     <!-- ── llama.cpp Install from Source Dialog ────────────── -->
-    <Dialog
+    <EngineInstallSourceDialog
       v-model:visible="llamaCppSourceDialogVisible"
+      v-model:repo="llamaCppSourceRepo"
+      v-model:source-ref="llamaCppSourceRef"
       header="Build llama.cpp from source"
-      modal
-      class="dialog-width-md"
-    >
-      <div class="dialog-body">
-        <div class="form-field">
-          <label>Repo URL</label>
-          <InputText
-            v-model="llamaCppSourceRepo"
-            placeholder="https://github.com/ggerganov/llama.cpp.git"
-            class="w-full"
-          />
-          <small>Official repo or any fork with the same layout.</small>
-        </div>
-        <div class="form-field">
-          <label>Tag / branch / commit</label>
-          <InputText
-            v-model="llamaCppSourceRef"
-            placeholder="vX.Y.Z, bNNNN, or master"
-            class="w-full"
-          />
-          <small
-            >Stable releases are vX.Y.Z. Nightly tags are still bNNNN (master commit count, not a
-            SHA). A branch or commit SHA works too.</small
-          >
-        </div>
-      </div>
-      <template #footer>
-        <Button
-          label="Cancel"
-          severity="secondary"
-          outlined
-          @click="llamaCppSourceDialogVisible = false"
-        />
-        <Button
-          label="Build from source"
-          icon="pi pi-code"
-          severity="info"
-          :loading="llamaCppSourceInstalling"
-          :disabled="llamaCppSourceInstalling"
-          @click="installLlamaCppFromSource"
-        />
-      </template>
-    </Dialog>
+      repo-placeholder="https://github.com/ggerganov/llama.cpp.git"
+      repo-hint="Official repo or any fork with the same layout."
+      ref-placeholder="vX.Y.Z, bNNNN, or master"
+      ref-hint="Stable releases are vX.Y.Z. Nightly tags are still bNNNN (master commit count, not a SHA). A branch or commit SHA works too."
+      :installing="llamaCppSourceInstalling"
+      @install="installLlamaCppFromSource"
+    />
 
     <!-- ── ik_llama.cpp Install from Source Dialog ─────────── -->
-    <Dialog
+    <EngineInstallSourceDialog
       v-model:visible="ikLlamaSourceDialogVisible"
+      v-model:repo="ikLlamaSourceRepo"
+      v-model:source-ref="ikLlamaSourceRef"
       header="Build ik_llama.cpp from source"
-      modal
-      class="dialog-width-md"
-    >
-      <div class="dialog-body">
-        <div class="form-field">
-          <label>Repo URL</label>
-          <InputText
-            v-model="ikLlamaSourceRepo"
-            placeholder="https://github.com/ikawrakow/ik_llama.cpp.git"
-            class="w-full"
-          />
-          <small>Official repo or any fork with the same layout.</small>
-        </div>
-        <div class="form-field">
-          <label>Branch / commit</label>
-          <InputText v-model="ikLlamaSourceRef" placeholder="main" class="w-full" />
-          <small
-            >Checked out before CMake build. Uses your saved build settings (gear in the header).
-            Release tags are not used for ik_llama.cpp.</small
-          >
-        </div>
-      </div>
-      <template #footer>
-        <Button
-          label="Cancel"
-          severity="secondary"
-          outlined
-          @click="ikLlamaSourceDialogVisible = false"
-        />
-        <Button
-          label="Build from source"
-          icon="pi pi-code"
-          severity="info"
-          :loading="ikLlamaSourceInstalling"
-          :disabled="ikLlamaSourceInstalling"
-          @click="installIkLlamaFromSource"
-        />
-      </template>
-    </Dialog>
+      repo-placeholder="https://github.com/ikawrakow/ik_llama.cpp.git"
+      repo-hint="Official repo or any fork with the same layout."
+      ref-label="Branch / commit"
+      ref-hint="Checked out before CMake build. Uses your saved build settings (gear in the header). Release tags are not used for ik_llama.cpp."
+      :installing="ikLlamaSourceInstalling"
+      @install="installIkLlamaFromSource"
+    />
 
     <!-- ── LMDeploy Install from pip Dialog ───────────────── -->
     <Dialog
@@ -801,43 +673,17 @@
     </Dialog>
 
     <!-- ── LMDeploy Install from Source Dialog ─────────────── -->
-    <Dialog
+    <EngineInstallSourceDialog
       v-model:visible="lmSourceDialogVisible"
+      v-model:repo="lmSourceRepo"
+      v-model:source-ref="lmSourceBranch"
       header="Install LMDeploy from Source"
-      modal
-      class="dialog-width-md"
-    >
-      <div class="dialog-body">
-        <div class="form-field">
-          <label>Repo URL</label>
-          <InputText
-            v-model="lmSourceRepo"
-            placeholder="https://github.com/InternLM/lmdeploy.git"
-            class="w-full"
-          />
-        </div>
-        <div class="form-field">
-          <label>Branch</label>
-          <InputText v-model="lmSourceBranch" placeholder="main" class="w-full" />
-        </div>
-      </div>
-      <template #footer>
-        <Button
-          label="Cancel"
-          severity="secondary"
-          outlined
-          @click="lmSourceDialogVisible = false"
-        />
-        <Button
-          label="Install from Source"
-          icon="pi pi-code"
-          severity="info"
-          :loading="lmdeployInstalling"
-          :disabled="lmdeployInstalling"
-          @click="installLmdeploySource"
-        />
-      </template>
-    </Dialog>
+      repo-placeholder="https://github.com/InternLM/lmdeploy.git"
+      ref-label="Branch"
+      :installing="lmdeployInstalling"
+      install-label="Install from Source"
+      @install="installLmdeploySource"
+    />
 
     <!-- ── 1Cat-vLLM Install from Release Dialog ───────────── -->
     <Dialog
@@ -875,55 +721,25 @@
     </Dialog>
 
     <!-- ── 1Cat-vLLM Install from Source Dialog ────────────── -->
-    <Dialog
+    <EngineInstallSourceDialog
       v-model:visible="ovllmSourceDialogVisible"
+      v-model:repo="ovllmSourceRepo"
+      v-model:source-ref="ovllmSourceBranch"
       header="Build 1Cat-vLLM from Source"
-      modal
-      class="dialog-width-md"
-    >
-      <div class="dialog-body">
-        <div class="form-field">
-          <label>Repo URL</label>
-          <InputText
-            v-model="ovllmSourceRepo"
-            placeholder="https://github.com/1CatAI/1Cat-vLLM.git"
-            class="w-full"
-          />
-        </div>
-        <div class="form-field">
-          <label>Branch</label>
-          <InputText v-model="ovllmSourceBranch" placeholder="main" class="w-full" />
-        </div>
-        <div class="form-field">
-          <small
-            >Source builds compile SM70 CUDA kernels and require an NVIDIA GPU plus the CUDA 12.8
-            toolkit. This can take a long time.</small
-          >
-        </div>
-      </div>
-      <template #footer>
-        <Button
-          label="Cancel"
-          severity="secondary"
-          outlined
-          @click="ovllmSourceDialogVisible = false"
-        />
-        <Button
-          label="Build from Source"
-          icon="pi pi-code"
-          severity="info"
-          :loading="onecatVllmInstalling"
-          :disabled="onecatVllmInstalling"
-          @click="installOnecatVllmSource"
-        />
-      </template>
-    </Dialog>
+      repo-placeholder="https://github.com/1CatAI/1Cat-vLLM.git"
+      ref-label="Branch"
+      note="Source builds compile SM70 CUDA kernels and require an NVIDIA GPU plus the CUDA 12.8 toolkit. This can take a long time."
+      :installing="onecatVllmInstalling"
+      install-label="Build from Source"
+      @install="installOnecatVllmSource"
+    />
   </div>
 </template>
 
 <script setup>
 import EngineCard from '@/components/engines/EngineCard.vue'
 import EngineFiltersBar from '@/components/engines/EngineFiltersBar.vue'
+import EngineInstallSourceDialog from '@/components/engines/EngineInstallSourceDialog.vue'
 import GenericEnginePanel from '@/components/engines/GenericEnginePanel.vue'
 import { useQueryState } from '@/composables/useQueryState'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
@@ -1323,6 +1139,7 @@ const engineSummaryCards = computed(() =>
       versions,
       count: versions.length,
       active,
+      activeVersionLabel: active ? engineVersionDisplay(active.version) : '',
       mark: card.mark || {},
       badge,
       subtitle: card.subtitle || '',
