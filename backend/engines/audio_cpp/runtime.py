@@ -38,9 +38,13 @@ from backend.engines.scan.scanner import (
     _audio_cpp_source_root,
 )
 from backend.feature_flags import audio_cpp_enabled
+from backend.logging_config import get_logger
 from backend.models.config import normalize_model_config
 from backend.reference_audio import reference_audio_storage_root
 from backend.runtime_env import audio_cpp_library_dirs, build_runtime_process_env
+
+
+logger = get_logger(__name__)
 
 
 def _sidecar_root() -> str:
@@ -154,9 +158,31 @@ def _server_flag_tokens(store: Any, active: dict, config: dict) -> List[str]:
             continue
         if key in {"ui", "ui_management"} and not server_ui_available(active):
             continue
-        output.extend(_flag_tokens(key, config.get(key), row))
+        value = config.get(key)
+        if _is_help_artifact_value(row, value):
+            # A config saved while help prose was read as a default (for
+            # example "default preserves existing dispatch" -> backend_impl
+            # "preserves") would make the engine reject the launch. The engine
+            # default dispatch is the intended behavior, so drop the value.
+            logger.warning(
+                "Ignoring %s=%r for audio.cpp: the value came from help prose, "
+                "not from a stated default",
+                key,
+                value,
+            )
+            continue
+        output.extend(_flag_tokens(key, value, row))
     output.extend(_custom_args(config.get("custom_args")))
     return output
+
+
+def _is_help_artifact_value(row: dict, value: Any) -> bool:
+    """True when ``value`` was copied from help prose rather than stated as a default."""
+    if value is None or value == "":
+        return False
+    from backend.engines.scan.default_fragments import is_documentation_default_artifact
+
+    return is_documentation_default_artifact(str(row.get("description") or ""), value)
 
 
 def _runtime_env(active: dict, config: dict) -> List[str]:

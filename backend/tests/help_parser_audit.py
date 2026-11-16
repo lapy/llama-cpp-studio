@@ -822,6 +822,23 @@ def _audio_pipe_values(text: str) -> Optional[List[str]]:
 
 
 def _audio_default_from_text(text: str) -> Optional[str]:
+    """The default an independent reader would take from a help line.
+
+    The parser rejects defaults read out of prose ("default preserves existing
+    dispatch"); the audit's naive reader still finds such a token, so it is
+    dropped here before it is compared with the parsed default.
+    """
+    value = _audio_default_from_text_naive(text)
+    if value is None:
+        return None
+    from backend.engines.scan.default_fragments import is_documentation_default_artifact
+
+    if is_documentation_default_artifact(text, value):
+        return None
+    return value
+
+
+def _audio_default_from_text_naive(text: str) -> Optional[str]:
     paren = _extract_paren_default(text)
     if paren is not None:
         return paren

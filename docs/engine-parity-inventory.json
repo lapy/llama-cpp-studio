@@ -765,7 +765,7 @@
           "count": 1,
           "file": "frontend/src/views/ModelConfig.vue",
           "lines": [
-            1057
+            1056
           ]
         },
         {
@@ -840,11 +840,11 @@
           "count": 5,
           "file": "backend/engines/scan/help_parsers.py",
           "lines": [
-            35,
-            880,
-            1200,
-            1281,
-            1295
+            39,
+            842,
+            1162,
+            1243,
+            1257
           ]
         },
         {
@@ -1346,15 +1346,14 @@
           ]
         },
         {
-          "count": 6,
+          "count": 5,
           "file": "backend/engines/scan/help_parsers.py",
           "lines": [
-            479,
-            615,
-            726,
-            1229,
-            1280,
-            1338
+            483,
+            688,
+            1191,
+            1242,
+            1300
           ]
         },
         {
@@ -1415,6 +1414,13 @@
           "file": "backend/engines/registry.py",
           "lines": [
             121
+          ]
+        },
+        {
+          "count": 1,
+          "file": "backend/engines/scan/default_fragments.py",
+          "lines": [
+            6
           ]
         },
         {
@@ -1756,9 +1762,9 @@
           "count": 3,
           "file": "frontend/src/views/ModelConfig.vue",
           "lines": [
-            2127,
-            2541,
-            2545
+            2126,
+            2512,
+            2516
           ]
         },
         {
@@ -1973,7 +1979,7 @@
           "count": 1,
           "file": "backend/engines/scan/help_parsers.py",
           "lines": [
-            2258
+            2214
           ]
         }
       ],
@@ -2215,8 +2221,8 @@
           "count": 2,
           "file": "backend/engines/scan/help_parsers.py",
           "lines": [
-            2338,
-            2343
+            2294,
+            2299
           ]
         },
         {
@@ -2839,8 +2845,8 @@
           "count": 2,
           "file": "backend/engines/scan/help_parsers.py",
           "lines": [
-            180,
-            2409
+            184,
+            2365
           ]
         },
         {

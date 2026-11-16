@@ -7,6 +7,10 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from backend.param_scan_progress import looks_like_cli_option_line, trace_extract
+from backend.engines.scan.default_fragments import (
+    looks_like_structured_default as _looks_like_structured_default,
+    normalize_default_fragment as _normalize_default_fragment,
+)
 
 LONG_FLAG_RE = re.compile(r"--[a-zA-Z0-9][a-zA-Z0-9.-]*")
 # ``--list-loaders [--json]``: the bracketed token is an optional companion flag,
@@ -599,48 +603,6 @@ def _infer_multiple(value_spec: str, description: str) -> bool:
         if _looks_like_single_metavar(value_spec):
             markers = tuple(m for m in markers if m != "one or more")
     return any(marker in hay for marker in markers)
-
-
-def _looks_like_structured_default(value: str) -> bool:
-    """JSON / list / dataclass defaults must keep commas and closing parens."""
-    s = (value or "").strip()
-    if not s:
-        return False
-    if s[0] in "{[(":
-        return True
-    return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*\(", s))
-
-
-def _normalize_default_fragment(raw: str) -> Optional[str]:
-    """Trim and unwrap a single default token from llama-server help prose."""
-    value = (raw or "").strip().strip(",")
-    if not value:
-        return None
-    structured = _looks_like_structured_default(value)
-    # "40, 0 = disabled" / "8192, -1 - no limit" / "-1; -1 = disabled"
-    numeric_head = re.match(r"^([-+]?\d+(?:\.\d+)?)\s*[,;]", value)
-    if numeric_head:
-        value = numeric_head.group(1)
-    else:
-        # "0 = model training context size"
-        numeric_eq = re.match(r"^([-+]?\d+(?:\.\d+)?)\s*=\s*[A-Za-z]", value)
-        if numeric_eq:
-            value = numeric_eq.group(1)
-    # ``enabled, requires cache-ram`` is prose; ``GET, POST, DELETE`` is a CSV default.
-    # Do not split ``EPLBConfig(window_size=1000, step_interval=3000)``.
-    if not structured:
-        prose_tail = re.match(r"^(\S+)\s*,\s+[a-z]", value)
-        if prose_tail:
-            value = prose_tail.group(1)
-    if re.fullmatch(r"""^['"].*['"]$""", value):
-        value = value.strip("'\"")
-    elif not structured:
-        quoted = re.fullmatch(r"""['"]([^'"]*)['"].*""", value)
-        if quoted:
-            value = quoted.group(1).strip()
-        else:
-            value = value.rstrip(").;").strip()
-    return value or None
 
 
 def _extract_paren_default(text: str) -> Optional[str]:
@@ -1656,20 +1618,14 @@ def _audio_pair_ui_negative(row: dict) -> dict:
 
 
 def _audio_default_from_description(description: str) -> Optional[str]:
-    """Parse ``default cuda`` / ``default 300000`` prose used by audio.cpp help."""
-    text = str(description or "")
-    for match in re.finditer(
-        r"\bdefault(?:\s+to)?(?:\s*[:=]\s*|\s+)(?P<val>[^\s,;]+)",
-        text,
-        re.IGNORECASE,
-    ):
-        value = match.group("val")
-        # "the default comes from ..." describes a derived value; keep
-        # looking for a later explicit default in the same help line.
-        if value.lower() in {"come", "comes"} and text[match.end() :].lstrip().startswith("from"):
-            continue
-        return _normalize_default_fragment(value)
-    return None
+    """Parse ``default cuda`` / ``default 300000`` prose used by audio.cpp help.
+
+    Only defaults the help text states as values are accepted; prose such as
+    "default preserves existing dispatch" is documentation, not a default.
+    """
+    from backend.engines.scan.default_fragments import default_from_description
+
+    return default_from_description(description)
 
 
 def _audio_row_metadata(row: dict, section_id: str, source: str) -> dict:
