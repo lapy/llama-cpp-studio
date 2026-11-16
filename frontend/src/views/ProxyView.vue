@@ -2804,8 +2804,6 @@ td {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-}
 .inline-control small {
   color: var(--text-secondary);
   font-weight: 400;

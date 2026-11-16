@@ -999,6 +999,11 @@
             "title": "Allow Anonymous",
             "type": "boolean"
           },
+          "capture_request_payloads": {
+            "default": false,
+            "title": "Capture Request Payloads",
+            "type": "boolean"
+          },
           "default_model": {
             "anyOf": [
               {
@@ -7246,6 +7251,47 @@
           }
         },
         "summary": "Get Proxy Requests",
+        "tags": [
+          "proxy"
+        ]
+      }
+    },
+    "/api/proxy/requests/{request_id}/replay": {
+      "post": {
+        "description": "Re-send a captured request to the still-loaded engine.\n\nCaptured payloads are memory-only and opt-in. Replay is an operator action:\nit bypasses quota accounting and reaches the loaded engine directly. It is\nintentionally rejected when the model is no longer loaded so a replay can\nnever silently start a new process or hit a different model.",
+        "operationId": "replay_proxy_request_api_proxy_requests__request_id__replay_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Replay Proxy Request",
         "tags": [
           "proxy"
         ]
