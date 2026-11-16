@@ -69,12 +69,21 @@ describe('setup presentation', () => {
     expect(modelNeedsSetup({ status: 'stopped', is_active: false })).toBe(false)
   })
 
-  it('leaves running, starting, failed and unknown models to their state primary', () => {
+  it('asks for setup when an inactive unreviewed model state is unknown or stale', () => {
+    const unreviewed = { config_reviewed: false, is_active: false }
+    expect(modelNeedsSetup({ ...unreviewed, runtime_quality: 'unknown' })).toBe(true)
+    expect(modelNeedsSetup({ ...unreviewed, runtime_quality: 'stale' })).toBe(true)
+    expect(modelNeedsSetup({ ...unreviewed, runtime_quality: 'unreachable' })).toBe(true)
+    expect(modelNeedsSetup({ ...unreviewed, runtime_quality: 'unknown', is_active: true })).toBe(
+      false,
+    )
+  })
+
+  it('leaves running, starting and failed models to their state primary', () => {
     const unreviewed = { config_reviewed: false }
     expect(modelNeedsSetup({ ...unreviewed, status: 'ready', is_active: true })).toBe(false)
     expect(modelNeedsSetup({ ...unreviewed, status: 'loading' })).toBe(false)
     expect(modelNeedsSetup({ ...unreviewed, status: 'failed' })).toBe(false)
-    expect(modelNeedsSetup({ ...unreviewed, runtime_quality: 'stale' })).toBe(false)
   })
 
   it('keeps audio packages on the audio path', () => {

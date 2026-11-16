@@ -105,6 +105,18 @@ describe('ModelCardActions state matrix', () => {
     wrapper.unmount()
   })
 
+  it('unreviewed model with an unavailable status still leads with Set up', async () => {
+    const wrapper = mountActions({
+      config_reviewed: false,
+      is_active: false,
+      runtime_quality: 'unknown',
+    })
+    expect(button(wrapper, 'Set up Q4_K_M').text()).toBe('Set up')
+    expect(wrapper.get('.model-actions__setup-tag').text()).toBe('Needs setup')
+    expect(wrapper.find('button[aria-label="Refresh status for Q4_K_M"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('unreviewed audio package keeps its audio path instead of Set up', async () => {
     const wrapper = mountActions({ config_reviewed: false, format: AUDIO_PACKAGE })
     expect(button(wrapper, 'Start Q4_K_M')).toBeTruthy()

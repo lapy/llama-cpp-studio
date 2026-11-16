@@ -195,16 +195,16 @@ const primary = computed(() => {
       tooltip: 'Stopping the model.',
       ariaLabel: `${label.value} is stopping`,
     }
+  if (needsSetup.value && ['stopped', 'unknown', 'stale'].includes(state.key))
+    return {
+      label: 'Set up',
+      icon: 'pi pi-cog',
+      severity: 'info',
+      action: 'configure',
+      tooltip: setupHint.value,
+      ariaLabel: `Set up ${label.value}`,
+    }
   if (state.key === 'stopped') {
-    if (needsSetup.value)
-      return {
-        label: 'Set up',
-        icon: 'pi pi-cog',
-        severity: 'info',
-        action: 'configure',
-        tooltip: setupHint.value,
-        ariaLabel: `Set up ${label.value}`,
-      }
     return {
       label: 'Start',
       icon: 'pi pi-play',
@@ -325,6 +325,9 @@ watch(
 .model-actions__setup-tag {
   white-space: nowrap;
   font-size: var(--text-xs, 0.75rem);
+  /* Keep the setup tag at the start of the action row while the buttons stay
+     right-aligned; without this the shrink-wrapped tag floats mid-row. */
+  margin-right: auto;
 }
 
 .model-actions__primary :deep(.p-button-label) {
