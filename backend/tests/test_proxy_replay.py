@@ -47,6 +47,8 @@ def test_capture_keeps_body_and_redacts_sensitive_headers():
         request_headers={
             "Authorization": "Bearer super-secret",
             "X-Api-Key": "key-secret",
+            "X-Custom-API-Key": "vendor-secret",
+            "X-Client-Trace": "trace-1",
             "Content-Type": "application/json",
             "Host": "studio.test",
             "User-Agent": "pytest",
@@ -64,8 +66,13 @@ def test_capture_keeps_body_and_redacts_sensitive_headers():
     assert payload["headers"] == {
         "content-type": "application/json",
         "user-agent": "pytest",
+        "x-client-trace": "trace-1",
     }
-    assert sorted(payload["redacted_headers"]) == ["authorization", "x-api-key"]
+    assert sorted(payload["redacted_headers"]) == [
+        "authorization",
+        "x-api-key",
+        "x-custom-api-key",
+    ]
 
 
 def test_capture_is_bounded_and_truncates_large_bodies():
@@ -110,6 +117,7 @@ def test_payload_capture_setting_defaults_off_and_round_trips(client, monkeypatc
 class _FakeRegistry:
     def __init__(self, payloads=None, generation=None):
         self.replay_payloads = dict(payloads or {})
+        self.activities = []
         self._generation = generation
 
     def replay_payload(self, request_id):
@@ -214,6 +222,10 @@ def test_replay_posts_captured_payload_to_the_loaded_engine(client, monkeypatch,
     assert payload["replayed"] is True
     assert payload["status"] == 200
     assert payload["body"] == '{"ok": true}'
+    assert registry.activities[-1]["type"] == "replay"
+    assert registry.activities[-1]["status"] == 200
+    assert registry.activities[-1]["request_id"] == "req-1"
+    assert "body" not in registry.activities[-1]
     assert client_calls == [
         (
             "POST",
@@ -239,6 +251,8 @@ def test_replay_rejects_missing_payload_or_unloaded_model(client, monkeypatch, t
     unloaded = client.post("/api/proxy/requests/req-1/replay")
     assert unloaded.status_code == 409
     assert unloaded.json()["detail"]["code"] == "MODEL_NOT_LOADED"
+    assert registry.activities[-1]["type"] == "replay_failed"
+    assert registry.activities[-1]["error"] == "model_not_loaded"
 
 
 @pytest.mark.parametrize("method", ["GET", "POST"])
