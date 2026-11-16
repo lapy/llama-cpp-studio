@@ -393,4 +393,21 @@ describe('ModelConfigParamGroups', () => {
     await wrapper.setProps({ hideUnsupported: true })
     expect(wrapper.find('[data-group="server"]').exists()).toBe(false)
   })
+
+  it('offers one auto-fit restore action when overrides are present', async () => {
+    const { wrapper } = mountGroups()
+    expect(wrapper.find('[data-auto-fit-action]').exists()).toBe(false)
+
+    await wrapper.setProps({
+      autoFitOverrides: [
+        { key: 'ctx_size', label: 'Context size' },
+        { key: 'n_gpu_layers', label: 'GPU layers' },
+      ],
+    })
+    const action = wrapper.get('[data-auto-fit-action]')
+    expect(action.text()).toBe('Restore auto settings')
+
+    await action.trigger('click')
+    expect(wrapper.emitted('restore-auto-fit')).toHaveLength(1)
+  })
 })

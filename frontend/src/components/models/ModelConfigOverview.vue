@@ -129,6 +129,15 @@
       </dl>
     </section>
 
+    <ModelConfigAutoFit
+      v-if="autoFit.supported"
+      :active="autoFit.active"
+      :overrides="autoFit.overrides"
+      :defaults="autoFit.defaults"
+      @restore="$emit('restore-auto-fit')"
+      @review="$emit('review-auto-fit')"
+    />
+
     <section class="config-card config-overview__review" aria-labelledby="config-overview-review">
       <div class="config-overview__review-head">
         <h3 id="config-overview-review" class="config-overview__section-title">Review</h3>
@@ -199,6 +208,7 @@ import Select from 'primevue/select'
 import Tag from 'primevue/tag'
 
 import ModelConfigSectionHeading from '@/components/models/ModelConfigSectionHeading.vue'
+import ModelConfigAutoFit from '@/components/models/ModelConfigAutoFit.vue'
 import { ENGINE_DESCRIPTORS } from '@/engines/registry'
 import { formatLibraryBytes } from '@/utils/libraryPresentation'
 import { formatLabel } from '@/utils/modelPresentation'
@@ -230,6 +240,10 @@ const props = defineProps({
   starting: { type: Boolean, default: false },
   canStart: { type: Boolean, default: false },
   startDisabledReason: { type: String, default: '' },
+  autoFit: {
+    type: Object,
+    default: () => ({ supported: false, active: false, overrides: [], defaults: null }),
+  },
 })
 
 const emit = defineEmits([
@@ -239,6 +253,8 @@ const emit = defineEmits([
   'open-library',
   'open-engines',
   'go-to-section',
+  'restore-auto-fit',
+  'review-auto-fit',
 ])
 
 const modelLabel = computed(

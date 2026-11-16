@@ -161,12 +161,15 @@
           :starting="isStartingModel"
           :can-start="canStartModel"
           :start-disabled-reason="startModelBlockedReason"
+          :auto-fit="autoFitState"
           @select-engine="changeEngine"
           @update:sglang-runtime="changeSglangRuntime"
           @start="startModelFromConfig"
           @open-library="openModelInLibrary"
           @open-engines="requestLeave('/engines')"
           @go-to-section="goToConfigSection"
+          @restore-auto-fit="restoreAutoFit"
+          @review-auto-fit="goToConfigSection('runtime')"
         />
       </div>
 
@@ -197,6 +200,7 @@
             :max-context-suggestion="maxContextSuggestion"
             :layer-count-suggestion="layerCountSuggestion"
             :pinned-keys="BASIC_PARAM_KEYS"
+            :auto-fit-overrides="autoFitState.overrides"
             @update:search-query="paramSearchQuery = $event"
             @update:hide-unsupported="hideUnsupportedParams = $event"
             @update:param="setParamValue"
@@ -204,6 +208,7 @@
             @reset:param="useParameterDefault"
             @remove:param="removeParamKey"
             @add:param="addParamKey"
+            @restore-auto-fit="restoreAutoFit"
           />
           <ModelConfigGpuCard
             v-if="showNvidiaGpuBind"
@@ -815,6 +820,13 @@ import ConfigChangeReview from '@/components/ConfigChangeReview.vue'
 import ParseCommandDialog from '@/components/ParseCommandDialog.vue'
 import { buildConfigChanges, countConfigChanges } from '@/utils/configChanges'
 import {
+  defaultValueForParam,
+  isDelimitedEnumParam,
+  normalizeCsvEnumValue,
+  paramIsActiveInSection,
+} from '@/utils/modelParamValues'
+import { useModelAutoFit } from '@/composables/useModelAutoFit'
+import {
   useAudioModelConfig,
   AUDIO_NESTED_SCOPE_KEYS,
   coerceAudioParamValue,
@@ -1244,6 +1256,15 @@ const catalogParamByKey = computed(() => {
   return m
 })
 
+const { state: autoFitState, restore: restoreAutoFit } = useModelAutoFit({
+  enabled: computed(() => Boolean(model.value) && !isAudioEngine.value),
+  parameters: catalogParamList,
+  config,
+  activeParamKeys,
+  catalogParamByKey,
+  toast,
+})
+
 const paneParams = computed(() => {
   const m = catalogParamByKey.value
   const out = []
@@ -1581,26 +1602,6 @@ const applyRuntimeHint = computed(() => {
   return 'Publish this model’s saved settings for its next start. It stays stopped, and other models stay loaded.'
 })
 
-function hasExplicitValue(sec, key) {
-  return Object.prototype.hasOwnProperty.call(sec || {}, key)
-}
-
-function paramIsActiveInSection(sec, param) {
-  if (!hasExplicitValue(sec, param.key)) return false
-  const value = sec[param.key]
-  if (value === null) return true
-  if (param.value_kind === 'flag') {
-    return value === true || (param.negative_flag && value === false)
-  }
-  if (['repeatable', 'space_list'].includes(param.value_kind)) {
-    return Array.isArray(value) ? value.length > 0 : Boolean(value)
-  }
-  if (isDelimitedEnumParam(param)) {
-    return normalizeCsvEnumValue(value, param).length > 0
-  }
-  return value !== undefined && value !== null && value !== ''
-}
-
 function setActiveKeysFromSection(sec, params) {
   if (!params.length) {
     activeParamKeys.value = []
@@ -1611,38 +1612,6 @@ function setActiveKeysFromSection(sec, params) {
     if (paramIsActiveInSection(sec, p)) keys.push(p.key)
   }
   activeParamKeys.value = keys
-}
-
-function isDelimitedEnumParam(param) {
-  return ['csv_enum', 'semicolon_enum'].includes(param.value_kind) || param.type === 'multiselect'
-}
-
-function delimitedEnumSeparator(param) {
-  return param.value_kind === 'semicolon_enum' ? ';' : ','
-}
-
-function normalizeCsvEnumValue(value, param) {
-  if (Array.isArray(value)) {
-    return value.filter((v) => v != null && v !== '')
-  }
-  if (value == null || value === '') return []
-  if (typeof value === 'string') {
-    return value
-      .split(delimitedEnumSeparator(param))
-      .map((s) => s.trim())
-      .filter(Boolean)
-  }
-  return [value]
-}
-
-function defaultValueForParam(param) {
-  if (['repeatable', 'space_list'].includes(param.value_kind))
-    return Array.isArray(param.default) ? [...param.default] : []
-  if (isDelimitedEnumParam(param)) {
-    return normalizeCsvEnumValue(param.default, param)
-  }
-  if (param.value_kind === 'flag') return param.negative_flag ? null : true
-  return param.default ?? null
 }
 
 function addParamKey(key) {
