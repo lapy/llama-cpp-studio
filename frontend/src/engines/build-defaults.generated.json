@@ -61,6 +61,7 @@
     "cuda_no_peer_copy": false,
     "cuda_no_vmm": false,
     "cuda_peer_max_batch_size": "128",
+    "cuda_toolkit": "",
     "custom_cmake_args": "",
     "cxxflags": "",
     "expert_chunking": true,

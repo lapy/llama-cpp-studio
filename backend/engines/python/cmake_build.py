@@ -154,6 +154,8 @@ class BuildConfig:
     cflags: str = _BC["cflags"]
     cxxflags: str = _BC["cxxflags"]
     env_vars: Dict[str, str] = field(default_factory=dict)
+    # Optional installed CUDA toolkit version for this build ("" = active).
+    cuda_toolkit: str = _BC.get("cuda_toolkit", "")
 
     def __post_init__(self):
         self.normalize()
@@ -212,6 +214,7 @@ class CmakeBuildHost:
 
     def _check_cuda_toolkit_available(
         self,
+        preferred_toolkit: str = "",
     ) -> Tuple[bool, Optional[str], Optional[str]]:
         """
         Check if CUDA Toolkit is available on the system.
@@ -222,6 +225,33 @@ class CmakeBuildHost:
             - cuda_root: Path to CUDA root directory if found, None otherwise
             - error_message: Error message if not available, None otherwise
         """
+        # A per-engine binding wins over the active toolkit: a source build
+        # must use the toolkit the user bound to this engine, not whichever
+        # toolkit happens to be active globally.
+        if str(preferred_toolkit or "").strip():
+            try:
+                from backend.cuda_installer import get_cuda_installer
+
+                env = get_cuda_installer().get_cuda_env(str(preferred_toolkit).strip())
+                cuda_path = str(env.get("CUDA_HOME") or env.get("CUDA_PATH") or "").strip()
+                nvcc_path = os.path.join(cuda_path, "bin", "nvcc") if cuda_path else ""
+                if not cuda_path or not os.path.exists(nvcc_path):
+                    return (
+                        False,
+                        None,
+                        f"CUDA toolkit {preferred_toolkit} is not installed or has no nvcc.",
+                    )
+                is_complete, missing = self._verify_cuda_toolkit_complete(cuda_path)
+                if not is_complete:
+                    return (
+                        False,
+                        None,
+                        f"CUDA toolkit {preferred_toolkit} is incomplete, missing: {missing}",
+                    )
+                return (True, cuda_path, None)
+            except Exception as exc:
+                return (False, None, f"Could not resolve CUDA toolkit {preferred_toolkit}: {exc}")
+
         # First, check CUDA installer for installations in data directory
         try:
             from backend.cuda_installer import get_cuda_installer

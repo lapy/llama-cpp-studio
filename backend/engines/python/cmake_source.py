@@ -586,7 +586,9 @@ class CmakeSourceInstaller(GenericNativeInstaller):
         # Validate CUDA Toolkit availability if CUDA is enabled
         validated_cuda_root = None
         if build_config.enable_cuda:
-            cuda_available, cuda_root, cuda_error = host._check_cuda_toolkit_available()
+            cuda_available, cuda_root, cuda_error = host._check_cuda_toolkit_available(
+                getattr(build_config, "cuda_toolkit", "")
+            )
             if not cuda_available:
                 # Check if CUDA installer is available
                 try:

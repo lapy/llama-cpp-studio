@@ -38,6 +38,24 @@
         </div>
       </template>
 
+      <div v-if="showToolkit" class="form-field">
+        <label>CUDA toolkit</label>
+        <Select
+          :model-value="config.cuda_toolkit || ''"
+          :options="toolkitOptions"
+          option-label="label"
+          option-value="value"
+          placeholder="Active Studio toolkit"
+          class="w-full"
+          data-toolkit-select
+          @update:model-value="setOption('cuda_toolkit', $event)"
+        />
+        <small>
+          Pin this engine's source build to an installed toolkit. Active uses the Studio-managed
+          toolkit; a missing bound toolkit fails the build with a clear error.
+        </small>
+      </div>
+
       <div class="form-field">
         <label>{{ buildTypeLabel }}</label>
         <Select
@@ -266,6 +284,8 @@ const props = defineProps({
   buildTypeLabel: { type: String, default: 'Build type' },
   buildTypes: { type: Array, default: () => [] },
   buildTypePlaceholder: { type: String, default: '' },
+  showToolkit: { type: Boolean, default: false },
+  toolkitOptions: { type: Array, default: () => [] },
   fields: { type: Array, default: () => [] },
   categories: { type: Array, default: () => [] },
   notes: { type: Array, default: () => [] },

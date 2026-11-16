@@ -608,6 +608,8 @@
       :frozen="Boolean(editingVersion)"
       :frozen-version="String(editingVersion?.version || '')"
       :actions="llamaBuildDialogActions"
+      show-toolkit
+      :toolkit-options="cudaToolkitOptions"
       @field="applyLlamaBuildField"
       @option="applyLlamaBuildOption"
       @retry="retryDocumentSave"
@@ -753,6 +755,8 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import EngineDialogHeader from '@/components/system/EngineDialogHeader.vue'
 import EngineCheckUpdatesCta from '@/components/system/EngineCheckUpdatesCta.vue'
 import EngineBuildSettingsHint from '@/components/system/EngineBuildSettingsHint.vue'
+import { cudaToolkitOptions as cudaToolkitOptionsFor } from '@/utils/cudaToolkits'
+import { ENGINE_UPDATE_FORMATTERS, formatEngineUpdateVersion } from '@/utils/engineUpdates'
 import EngineBuildOptionsDialog from '@/components/system/EngineBuildOptionsDialog.vue'
 import EngineInstallPanel from '@/components/system/EngineInstallPanel.vue'
 import EngineInstallSettingsDialog from '@/components/system/EngineInstallSettingsDialog.vue'
@@ -1109,12 +1113,6 @@ const ENGINE_UPDATE_SOURCES = {
   lmdeploy: () => lmdeployUpdateInfo.value,
   onecatVllm: () => onecatVllmUpdateInfo.value,
   audioCpp: () => audioCppUpdateInfo.value,
-}
-
-const ENGINE_UPDATE_FORMATTERS = {
-  plain: (value) => String(value ?? ''),
-  v: (value) => `v${value ?? ''}`,
-  version: (value) => formatEngineUpdateVersion(value),
 }
 
 const engineSummaryCards = computed(() =>
@@ -1903,6 +1901,8 @@ const buildOptionsCatalog = ref({
 const buildOptionsLoading = ref(false)
 const buildOptionsCatalogEngine = ref(null)
 
+const cudaToolkitOptions = computed(() => cudaToolkitOptionsFor(enginesStore.cudaStatus))
+
 const buildForm = ref({
   commitSha: '',
   versionSuffix: '',
@@ -2075,13 +2075,6 @@ function inferSourceRefType(ref) {
     return 'release'
   }
   return 'branch'
-}
-
-/** Show full release tags; shorten commit SHAs. */
-function formatEngineUpdateVersion(value) {
-  const s = String(value || '').trim()
-  if (/^[0-9a-f]{7,40}$/i.test(s)) return s.slice(0, 8)
-  return s
 }
 
 async function fetchEngineBuildSettings(engineId) {
