@@ -156,6 +156,28 @@ function mountDialog(props = {}) {
   })
 }
 
+describe('EngineBuildOptionsDialog toolkit binding', () => {
+  it('binds an installed CUDA toolkit to the engine build', async () => {
+    const wrapper = mountDialog({
+      showToolkit: true,
+      toolkitOptions: [
+        { label: 'Active Studio toolkit', value: '' },
+        { label: 'CUDA 12.9', value: '12.9' },
+      ],
+    })
+
+    const select = wrapper.get('[data-toolkit-select]')
+    expect(select.text()).toContain('CUDA 12.9')
+    await select.setValue('12.9')
+    expect(wrapper.emitted('option')).toContainEqual(['cuda_toolkit', '12.9'])
+  })
+
+  it('hides the toolkit binding for engines that do not expose it', () => {
+    const wrapper = mountDialog()
+    expect(wrapper.find('[data-toolkit-select]').exists()).toBe(false)
+  })
+})
+
 describe('EngineBuildOptionsDialog schema rendering', () => {
   it('renders form fields, build type, categories and custom flags from props', () => {
     const wrapper = mountDialog()

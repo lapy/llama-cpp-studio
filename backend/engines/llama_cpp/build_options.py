@@ -126,7 +126,7 @@ OPTION_BY_FIELD: Dict[str, BuildOptionDef] = {o.field: o for o in BUILD_OPTIONS}
 
 def default_build_settings() -> Dict[str, Any]:
     """UI/API-shaped defaults (short keys)."""
-    out: Dict[str, Any] = {"build_type": BUILD_TYPE_DEFAULT}
+    out: Dict[str, Any] = {"build_type": BUILD_TYPE_DEFAULT, "cuda_toolkit": ""}
     for opt in BUILD_OPTIONS:
         out[opt.key] = opt.default
     return out
@@ -138,6 +138,7 @@ def build_config_field_defaults() -> Dict[str, Any]:
     for opt in BUILD_OPTIONS:
         out[opt.field] = opt.default
     out["env_vars"] = {}
+    out["cuda_toolkit"] = ""
     return out
 
 
@@ -163,6 +164,7 @@ def coerce_build_settings(settings: Optional[dict]) -> Dict[str, Any]:
     if build_type not in BUILD_TYPE_VALUES:
         build_type = base["build_type"]
     out["build_type"] = build_type
+    out["cuda_toolkit"] = _str(settings.get("cuda_toolkit"), "")
 
     for opt in BUILD_OPTIONS:
         raw = settings.get(opt.key, base[opt.key])
@@ -189,7 +191,7 @@ def stored_config_to_settings(raw: Optional[dict]) -> Dict[str, Any]:
             mapped[opt.key] = raw[opt.key]
         elif opt.field in raw:
             mapped[opt.key] = raw[opt.field]
-    for key in ("custom_cmake_args", "cflags", "cxxflags", "cuda_architectures"):
+    for key in ("custom_cmake_args", "cflags", "cxxflags", "cuda_architectures", "cuda_toolkit"):
         if key in raw and key not in mapped:
             mapped[key] = raw[key]
     return coerce_build_settings(mapped)
@@ -198,7 +200,10 @@ def stored_config_to_settings(raw: Optional[dict]) -> Dict[str, Any]:
 def settings_to_field_kwargs(settings: dict) -> Dict[str, Any]:
     """Map coerced settings keys → BuildConfig constructor kwargs."""
     normalized = coerce_build_settings(settings)
-    kwargs: Dict[str, Any] = {"build_type": normalized["build_type"]}
+    kwargs: Dict[str, Any] = {
+        "build_type": normalized["build_type"],
+        "cuda_toolkit": normalized["cuda_toolkit"],
+    }
     for opt in BUILD_OPTIONS:
         kwargs[opt.field] = normalized[opt.key]
     return kwargs
