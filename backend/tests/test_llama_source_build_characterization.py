@@ -1,8 +1,8 @@
 """Characterization pins for the llama.cpp ``source`` recipe on the native host.
 
-These pins freeze the source build's OBSERVABLE contract â€” command argv
+These pins freeze the source build's OBSERVABLE contract — command argv
 sequences, stage/progress ordering, error strings (including the wrapper),
-cancellation identity, cleanup points, and the finally bookkeeping â€” against a
+cancellation identity, cleanup points, and the finally bookkeeping — against a
 fake manager, so the Phase-7 cutover onto ``GenericNativeInstaller`` must be
 observably identical to the legacy ``source_build`` module (now deleted).
 
@@ -10,7 +10,7 @@ Key pinned asymmetries (deliberate, not bugs to fix during conversion):
 - cancellation raises the ORIGINAL TaskCancelledError unwrapped; every other
   failure is re-raised as ``Failed to build from source {commit}: {e}``.
 - partial checkouts are removed only at specific checkpoints (pre-command
-  cancel, clone failure, configure/build failure) â€” the post-build binary
+  cancel, clone failure, configure/build failure) — the post-build binary
   hunt, the stage-3 cancel check, and validate failures leave it on disk.
 - the cancel registry is always unregistered in ``finally``.
 """
