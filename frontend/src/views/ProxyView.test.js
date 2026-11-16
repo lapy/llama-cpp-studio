@@ -495,6 +495,22 @@ describe('ProxyView', () => {
     wrapper.unmount()
   })
 
+  it('persists the memory-only request payload capture setting', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await clickButton(wrapper, 'Settings & routing')
+
+    const toggle = wrapper.get('[data-capture-request-payloads]')
+    expect(toggle.element.checked).toBe(false)
+    await toggle.setValue(true)
+    await clickButton(wrapper, 'Save settings')
+    await flushPromises()
+
+    const [, body] = vi.mocked(axios.put).mock.calls[0]
+    expect(body.capture_request_payloads).toBe(true)
+    wrapper.unmount()
+  })
+
   it('disables save until the form is dirty and saves native access settings', async () => {
     const wrapper = mountView()
     await flushPromises()

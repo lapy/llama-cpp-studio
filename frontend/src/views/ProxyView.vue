@@ -165,6 +165,7 @@
                 placeholder="Disabled"
               />
             </label>
+            <ProxyCaptureToggle v-model="draft.capture_request_payloads" />
             <label
               >Maximum request size (bytes)
               <input
@@ -1219,6 +1220,8 @@ import UnsavedChangesDialog from '@/components/common/UnsavedChangesDialog.vue'
 import FreshnessStatus from '@/components/common/FreshnessStatus.vue'
 import RequestFiltersBar from '@/components/proxy/RequestFiltersBar.vue'
 import RequestInspectorPanel from '@/components/proxy/RequestInspectorPanel.vue'
+import ProxyCaptureToggle from '@/components/proxy/ProxyCaptureToggle.vue'
+import { ENGINE_LOG_LEVELS, MAX_ENGINE_LOG_LINES } from '@/utils/proxyLogLevels'
 import { copyText } from '@/utils/clipboard'
 import {
   formatBuildIdentity,
@@ -1518,12 +1521,6 @@ watch(
 )
 const logs = reactive({})
 const logSeq = reactive({})
-const ENGINE_LOG_LEVELS = [
-  { value: '', label: 'All' },
-  { value: 'warn', label: 'Warn' },
-  { value: 'error', label: 'Error' },
-]
-const MAX_ENGINE_LOG_LINES = 5000
 let logSource = null
 let logOpenToken = 0
 const keyNameInput = ref(null)
@@ -1540,6 +1537,7 @@ const draft = reactive({
   history_retention_days: 7,
   history_max_rows: 100000,
   default_output_tokens: 4096,
+  capture_request_payloads: false,
   proxy_port: 2000,
   idle_ttl_seconds: null,
   max_body_bytes: null,
@@ -2805,6 +2803,8 @@ td {
   line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
 }
 .inline-control small {
   color: var(--text-secondary);

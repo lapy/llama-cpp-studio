@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import RequestInspectorPanel from './RequestInspectorPanel.vue'
+import axios from 'axios'
 import { copyText } from '@/utils/clipboard'
 import {
   buildCurlCommand,
@@ -10,6 +11,7 @@ import {
 } from '@/utils/proxyRequestExport'
 
 const toastAdd = vi.fn()
+vi.mock('axios', () => ({ default: { post: vi.fn() } }))
 vi.mock('primevue/usetoast', () => ({ useToast: () => ({ add: toastAdd }) }))
 vi.mock('@/utils/clipboard', () => ({ copyText: vi.fn() }))
 vi.mock('@/utils/proxyRequestExport', async (importOriginal) => {
@@ -264,6 +266,51 @@ describe('RequestInspectorPanel export actions', () => {
     await flushPromises()
     expect(wrapper.find('[role="menu"]').exists()).toBe(false)
     expect(document.activeElement).toBe(toggle.element)
+    wrapper.unmount()
+  })
+
+  it('replays a captured request and shows the engine response', async () => {
+    vi.mocked(axios.post).mockResolvedValue({
+      data: { status: 200, body: '{"ok":true}', body_truncated: false },
+    })
+    const wrapper = mountPanel(
+      request({
+        replayable: true,
+        captured_body: '{"messages":[]}',
+        captured_body_truncated: false,
+        captured_redacted_headers: ['authorization'],
+      }),
+    )
+
+    expect(wrapper.get('[data-captured-body]').text()).toContain('{"messages":[]}')
+    expect(wrapper.text()).toContain('Redacted headers: authorization')
+
+    await wrapper.get('[data-request-replay]').trigger('click')
+    await flushPromises()
+
+    expect(axios.post).toHaveBeenCalledWith('/api/proxy/requests/r1/replay')
+    expect(wrapper.get('[data-replay-result]').text()).toContain('200')
+    expect(wrapper.get('[data-replay-result]').text()).toContain('{"ok":true}')
+    wrapper.unmount()
+  })
+
+  it('shows the replay error message without claiming success', async () => {
+    vi.mocked(axios.post).mockRejectedValue({
+      response: { data: { detail: { message: 'Start demo before replaying this request.' } } },
+    })
+    const wrapper = mountPanel(request({ replayable: true }))
+
+    await wrapper.get('[data-request-replay]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Start demo before replaying this request.')
+    expect(wrapper.find('[data-replay-result]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('hides the replay control when the payload was not captured', () => {
+    const wrapper = mountPanel(request())
+    expect(wrapper.find('[data-request-replay]').exists()).toBe(false)
     wrapper.unmount()
   })
 
