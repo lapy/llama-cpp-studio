@@ -304,8 +304,15 @@ async def finish_audio_activation(store, row: dict, on_stage=None) -> dict:
                 from backend.engines.params import upsert_version_entry
 
                 try:
-                    upsert_version_entry(
-                        store, default_audio_engine_id(), str(row.get("version") or ""), scan_entry
+                    # The catalog holds megabytes of help text; dumping and
+                    # fsyncing it on the event loop stalled every API request
+                    # (and the proxy) for seconds right after an install.
+                    await asyncio.to_thread(
+                        upsert_version_entry,
+                        store,
+                        default_audio_engine_id(),
+                        str(row.get("version") or ""),
+                        scan_entry,
                     )
                 except Exception as exc:
                     logger.debug("audio.cpp identity persist failed: %s", exc)

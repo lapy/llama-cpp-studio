@@ -20,6 +20,29 @@ from backend.engines.params import (
 )
 
 
+class _FakeStore:
+    """Minimal store surface the catalog writers use (config dir + lock + YAML)."""
+
+    def __init__(self, root):
+        self._config_dir = str(root)
+        self._lock = threading.RLock()
+
+    def _read_yaml(self, filename):
+        path = Path(self._config_dir) / filename
+        if not path.exists():
+            return {}
+        with open(path, "r", encoding="utf-8") as fh:
+            return yaml.safe_load(fh) or {}
+
+    def _write_yaml(self, path, data):
+        with open(path, "w", encoding="utf-8") as fh:
+            yaml.safe_dump(data, fh, sort_keys=False)
+
+
+def _fake_store(root):
+    return _FakeStore(root)
+
+
 def test_embedding_mode_key_from_plural_cli_flag():
     entry = {
         "sections": [
@@ -346,6 +369,79 @@ def test_upsert_and_get_version_entry_round_trip(tmp_path):
     assert profile["fingerprint"] == "fingerprint"
     scoped = scoped_param_index_from_entry(profile)
     assert "voice.path" in scoped["load_option"]
+
+
+def test_upsert_serves_the_next_read_from_memory(tmp_path, monkeypatch):
+    """A write must not force the next reader to re-parse the catalog YAML.
+
+    After an audio.cpp scan the catalog holds megabytes of help text; the UI
+    polls status immediately, and that poll used to parse the file on the event
+    loop (blocking the API and the proxy for seconds).
+    """
+    from backend.engines import params
+
+    store = _fake_store(tmp_path)
+    params._CATALOG_CACHE.clear()
+    upsert_version_entry(store, "audio_cpp", "v9", {"capabilities": {"families": ["demo"]}})
+
+    def _no_parse(*args, **kwargs):
+        raise AssertionError("catalog was re-parsed after a write")
+
+    monkeypatch.setattr(params.yaml, "load", _no_parse)
+    monkeypatch.setattr(params.yaml, "safe_load", _no_parse)
+    entry = get_version_entry(store, "audio_cpp", "v9")
+    assert entry["capabilities"]["families"] == ["demo"]
+
+
+def test_external_catalog_change_still_invalidates_the_cache(tmp_path):
+    """Editing the YAML outside the writers must be picked up (mtime+size key)."""
+    from backend.engines import params
+
+    store = _fake_store(tmp_path)
+    params._CATALOG_CACHE.clear()
+    upsert_version_entry(store, "audio_cpp", "v1", {"scanned_at": "first"})
+    assert get_version_entry(store, "audio_cpp", "v1")["scanned_at"] == "first"
+
+    path = Path(tmp_path) / params.CATALOG_FILENAME
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    document["engines"]["audio_cpp"]["versions"]["v1"]["scanned_at"] = "second-and-longer"
+    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+
+    assert get_version_entry(store, "audio_cpp", "v1")["scanned_at"] == "second-and-longer"
+
+
+def test_profile_upsert_keeps_the_catalog_cache_warm(tmp_path, monkeypatch):
+    from backend.engines import params
+
+    store = _fake_store(tmp_path)
+    params._CATALOG_CACHE.clear()
+    upsert_version_entry(store, "audio_cpp", "v1", {"scanned_at": "x"})
+    upsert_model_profile_entry(store, "audio_cpp", "v1", "fp", {"fingerprint": "fp"})
+
+    def _no_parse(*args, **kwargs):
+        raise AssertionError("catalog was re-parsed after a profile write")
+
+    monkeypatch.setattr(params.yaml, "load", _no_parse)
+    assert get_version_entry(store, "audio_cpp", "v1")["scanned_at"] == "x"
+    assert get_model_profile_entry(store, "audio_cpp", "v1", "fp")["fingerprint"] == "fp"
+
+
+def test_catalog_io_does_not_need_the_store_lock(tmp_path):
+    """Catalog reads/writes must not serialize on the store-wide lock.
+
+    Holding that lock across the multi-megabyte catalog parse/dump blocked every
+    other request (and the proxy) on the event loop right after an install.
+    """
+
+    class LockFreeStore:
+        def __init__(self, root):
+            self._config_dir = str(root)
+
+    store = LockFreeStore(tmp_path)
+    upsert_version_entry(store, "audio_cpp", "v1", {"scanned_at": "lock-free"})
+    assert get_version_entry(store, "audio_cpp", "v1")["scanned_at"] == "lock-free"
+    upsert_model_profile_entry(store, "audio_cpp", "v1", "fp", {"fingerprint": "fp"})
+    assert get_model_profile_entry(store, "audio_cpp", "v1", "fp")["fingerprint"] == "fp"
 
 
 def test_flags_from_entry_deduplicates_and_ignores_scan_error():

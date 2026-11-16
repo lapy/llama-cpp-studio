@@ -183,6 +183,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Failed to warm GPU list cache at startup: %s", e)
 
+    # The engine parameter catalog holds megabytes of help text once engines are
+    # scanned. Parsing it off the event loop at startup keeps the first status or
+    # model request from blocking every other request while it parses.
+    from backend.engines.params import read_catalog
+
+    try:
+        await asyncio.to_thread(read_catalog, get_store())
+    except Exception as e:
+        logger.warning("Failed to warm the engine parameter catalog at startup: %s", e)
+
     huggingface_api_key = os.getenv("HUGGINGFACE_API_KEY")
     if huggingface_api_key:
         set_huggingface_token(huggingface_api_key)
