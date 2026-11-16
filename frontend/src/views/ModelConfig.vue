@@ -842,7 +842,6 @@ import { useModelAutoFit } from '@/composables/useModelAutoFit'
 import {
   useAudioModelConfig,
   AUDIO_NESTED_SCOPE_KEYS,
-  coerceAudioParamValue,
   defaultValueForAudioParam,
   pruneStaleAudioRequestDefaults,
 } from '@/composables/useAudioModelConfig'
@@ -1301,7 +1300,7 @@ const audioModelConfig = useAudioModelConfig(config, paramRegistry, enginesStore
 
 const {
   audioEditableParams,
-  audioParamValue,
+  applyAudioParamsToSection,
   ensureTtsConfigShape,
   seedSessionVoiceFromPackagedIds,
 } = audioModelConfig
@@ -2191,35 +2190,7 @@ function buildEngineStashFromForm(sourceConfig = config.value) {
     stash.gpu_devices = sourceConfig.gpu_devices.map((item) => String(item))
   }
   if (preserveUnknownAudioKeys) {
-    for (const param of audioEditableParams.value) {
-      const nestedKey = AUDIO_NESTED_SCOPE_KEYS[param.scope]
-      const value = audioParamValue(param, sourceConfig)
-      const empty =
-        value == null ||
-        value === '' ||
-        (typeof value === 'number' && Number.isNaN(value)) ||
-        (Array.isArray(value) && value.length === 0)
-      if (nestedKey) {
-        if (!stash[nestedKey] || typeof stash[nestedKey] !== 'object') {
-          stash[nestedKey] = {}
-        }
-        if (empty) {
-          if (param.required !== true) stash[nestedKey][param.key] = null
-          else delete stash[nestedKey][param.key]
-        } else {
-          stash[nestedKey][param.key] = Array.isArray(value)
-            ? [...value]
-            : coerceAudioParamValue(param, value)
-        }
-        continue
-      }
-      if (empty) {
-        if (param.required !== true) stash[param.key] = null
-        else delete stash[param.key]
-      } else {
-        stash[param.key] = Array.isArray(value) ? [...value] : coerceAudioParamValue(param, value)
-      }
-    }
+    applyAudioParamsToSection(stash, sourceConfig)
     for (const nestedKey of ['load_options', 'session_options']) {
       if (
         stash[nestedKey] &&

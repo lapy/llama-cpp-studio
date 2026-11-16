@@ -684,6 +684,87 @@ describe('ModelConfig audio profiles', () => {
     )
   })
 
+  it('does not turn untouched parameter defaults into launch flags', async () => {
+    // Saving used to copy every displayed default into the engine section, so
+    // a help-text default reached the engine as an explicit --flag value.
+    setupAudioMocks({
+      sections: [
+        ...paramRegistryResponse().sections,
+        {
+          id: 'server',
+          label: 'Server',
+          params: [
+            {
+              key: 'busy_timeout_ms',
+              label: 'Busy timeout',
+              type: 'int',
+              scope: 'process',
+              supported: true,
+              default: 300000,
+            },
+            {
+              key: 'backend_impl',
+              label: 'Backend impl',
+              type: 'string',
+              scope: 'process',
+              supported: true,
+              default: null,
+            },
+          ],
+        },
+      ],
+    })
+    const wrapper = mountView()
+    await settleView(wrapper)
+
+    await markDirty(wrapper)
+    await wrapper.get('button[data-label="Save changes"]').trigger('click')
+    await flushPromises()
+
+    const saved = vi
+      .mocked(axios.put)
+      .mock.calls.find(([url]) => url === '/api/models/audio-model-1/config')
+    const section = saved[1].engines.audio_cpp
+    expect(section).not.toHaveProperty('busy_timeout_ms')
+    expect(section).not.toHaveProperty('backend_impl')
+  })
+
+  it('keeps parameter values the model config already set', async () => {
+    setupAudioMocks(
+      {
+        sections: [
+          ...paramRegistryResponse().sections,
+          {
+            id: 'server',
+            label: 'Server',
+            params: [
+              {
+                key: 'busy_timeout_ms',
+                label: 'Busy timeout',
+                type: 'int',
+                scope: 'process',
+                supported: true,
+                default: 300000,
+              },
+            ],
+          },
+        ],
+      },
+      { busy_timeout_ms: 120000 },
+    )
+    const wrapper = mountView()
+    await settleView(wrapper)
+
+    await markDirty(wrapper)
+    await wrapper.get('button[data-label="Save changes"]').trigger('click')
+    await flushPromises()
+
+    const saved = vi
+      .mocked(axios.put)
+      .mock.calls.find(([url]) => url === '/api/models/audio-model-1/config')
+    expect(saved[1].engines.audio_cpp.busy_timeout_ms).toBe(120000)
+  })
+
   it('hides sub-id variants section for audio engine', async () => {
     setupAudioMocks()
     const wrapper = mountView()

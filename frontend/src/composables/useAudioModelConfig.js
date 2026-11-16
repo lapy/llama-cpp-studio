@@ -1,5 +1,10 @@
 import { computed, ref } from 'vue'
 import {
+  coerceAudioParamValue,
+  defaultValueForAudioParam,
+  isOptionalConfigParam,
+} from '@/engines/audioParamValues'
+import {
   audioContract,
   audioOperationForTask,
   audioTaskBodyShape,
@@ -175,82 +180,15 @@ export const MODEL_SPEC_OVERRIDE_PARAM = {
     'Optional path to a model metadata JSON file or directory. Leave blank unless you are testing a custom package layout.',
 }
 
-export function isOptionalConfigParam(param) {
-  return param?.required !== true
-}
-
-export function coerceAudioParamValue(param, value) {
-  const scalarType = param.scalar_type || param.type
-  if (scalarType === 'int') {
-    if (typeof value === 'number' && !Number.isNaN(value)) return Math.trunc(value)
-    if (typeof value === 'string' && value.trim() !== '') {
-      const parsed = parseInt(value, 10)
-      if (!Number.isNaN(parsed)) return parsed
-    }
-  }
-  if (scalarType === 'float') {
-    if (typeof value === 'number' && !Number.isNaN(value)) return value
-    if (typeof value === 'string' && value.trim() !== '') {
-      const parsed = parseFloat(value)
-      if (!Number.isNaN(parsed)) return parsed
-    }
-  }
-  return value
-}
-
-export function defaultValueForAudioParam(param) {
-  if (param.value_kind === 'repeatable') {
-    return Array.isArray(param.default) ? [...param.default] : []
-  }
-  if (isDelimitedEnumParam(param)) {
-    return normalizeCsvEnumValue(param.default, param)
-  }
-  if (param.value_kind === 'flag') return param.negative_flag ? null : true
-  return param.default ?? null
-}
-
-export function isDelimitedEnumParam(param) {
-  return ['csv_enum', 'semicolon_enum'].includes(param.value_kind) || param.type === 'multiselect'
-}
-
-export function delimitedEnumSeparator(param) {
-  return param.value_kind === 'semicolon_enum' ? ';' : ','
-}
-
-export function normalizeCsvEnumValue(value, param) {
-  if (Array.isArray(value)) {
-    return value.filter((v) => v != null && v !== '')
-  }
-  if (value == null || value === '') return []
-  if (typeof value === 'string') {
-    return value
-      .split(delimitedEnumSeparator(param))
-      .map((s) => s.trim())
-      .filter(Boolean)
-  }
-  return [value]
-}
-
-export function jsonParamDisplay(value) {
-  if (value == null || value === '') return ''
-  if (typeof value === 'string') {
-    const trimmed = value.trim()
-    if (!trimmed) return ''
-    try {
-      return JSON.stringify(JSON.parse(trimmed), null, 2)
-    } catch {
-      return value
-    }
-  }
-  if (typeof value === 'object') {
-    try {
-      return JSON.stringify(value, null, 2)
-    } catch {
-      return ''
-    }
-  }
-  return String(value)
-}
+export {
+  coerceAudioParamValue,
+  defaultValueForAudioParam,
+  delimitedEnumSeparator,
+  isDelimitedEnumParam,
+  isOptionalConfigParam,
+  jsonParamDisplay,
+  normalizeCsvEnumValue,
+} from '@/engines/audioParamValues'
 
 export function paramDescriptionTooltip(param) {
   const parts = [param.description].filter(Boolean)
@@ -966,6 +904,51 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, stableM
     }
   }
 
+  /**
+   * Copy the params the form holds explicitly into an engine section.
+   *
+   * Saving used to write every displayed default, which turned a help-text
+   * default (or a stale prose artifact) into an explicit launch flag the user
+   * never chose. Only explicit values and Studio-forced values are copied;
+   * untouched params keep falling back to the engine's own default.
+   */
+  function applyAudioParamsToSection(section, sourceConfig = config.value) {
+    for (const param of audioEditableParams.value) {
+      const explicit =
+        audioParamHasExplicitValue(param, sourceConfig) ||
+        Object.prototype.hasOwnProperty.call(param, 'forced_value')
+      if (!explicit) continue
+      const nestedKey = AUDIO_NESTED_SCOPE_KEYS[param.scope]
+      const value = audioParamValue(param, sourceConfig)
+      const empty =
+        value == null ||
+        value === '' ||
+        (typeof value === 'number' && Number.isNaN(value)) ||
+        (Array.isArray(value) && value.length === 0)
+      if (nestedKey) {
+        if (!section[nestedKey] || typeof section[nestedKey] !== 'object') {
+          section[nestedKey] = {}
+        }
+        if (empty) {
+          if (param.required !== true) section[nestedKey][param.key] = null
+          else delete section[nestedKey][param.key]
+        } else {
+          section[nestedKey][param.key] = Array.isArray(value)
+            ? [...value]
+            : coerceAudioParamValue(param, value)
+        }
+        continue
+      }
+      if (empty) {
+        if (param.required !== true) section[param.key] = null
+        else delete section[param.key]
+      } else {
+        section[param.key] = Array.isArray(value) ? [...value] : coerceAudioParamValue(param, value)
+      }
+    }
+    return section
+  }
+
   function audioParamOptions(param) {
     if (param.key === 'mode') {
       const task = config.value?.task
@@ -1402,6 +1385,7 @@ export function useAudioModelConfig(config, paramRegistry, enginesStore, stableM
     requestApiExample,
     audioParamValue,
     audioParamHasExplicitValue,
+    applyAudioParamsToSection,
     audioParamOptions,
     setAudioParamValue,
     updateAudioJsonParam,

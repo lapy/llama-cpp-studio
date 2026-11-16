@@ -54,6 +54,74 @@ def test_server_flags_are_not_shadowed_by_cli_help(monkeypatch):
     ]
 
 
+def test_help_prose_default_is_not_sent_as_a_backend_impl(monkeypatch, caplog):
+    """A config that copied "default preserves existing dispatch" must still launch.
+
+    The engine rejects the value (`unsupported impl 'preserves'`), and the
+    default dispatch is what the help text describes, so the flag is dropped
+    instead of failing the model start.
+    """
+    monkeypatch.setattr(
+        audio_runtime,
+        "get_version_entry",
+        lambda *args: {
+            "sections": [
+                {
+                    "params": [
+                        {
+                            "key": "backend_impl",
+                            "label": "Backend Impl",
+                            "description": (
+                                "optional backend implementation; "
+                                "default preserves existing dispatch"
+                            ),
+                            "scope": "process",
+                            "transport": "server_flag",
+                            "primary_flag": "--backend-impl",
+                            "value_kind": "scalar",
+                            "scalar_type": "string",
+                        }
+                    ]
+                }
+            ],
+        },
+    )
+    with caplog.at_level("WARNING", logger=audio_runtime.logger.name):
+        tokens = audio_runtime._server_flag_tokens(
+            None, {"version": "v1"}, {"backend_impl": "preserves"}
+        )
+    assert tokens == []
+    assert any("Ignoring backend_impl" in record.message for record in caplog.records)
+
+
+def test_stated_string_defaults_are_still_emitted(monkeypatch):
+    monkeypatch.setattr(
+        audio_runtime,
+        "get_version_entry",
+        lambda *args: {
+            "sections": [
+                {
+                    "params": [
+                        {
+                            "key": "backend_impl",
+                            "description": "optional backend implementation; default: ggml",
+                            "scope": "process",
+                            "transport": "server_flag",
+                            "primary_flag": "--backend-impl",
+                            "value_kind": "scalar",
+                            "scalar_type": "string",
+                        }
+                    ]
+                }
+            ],
+        },
+    )
+    assert audio_runtime._server_flag_tokens(None, {"version": "v1"}, {"backend_impl": "ggml"}) == [
+        "--backend-impl",
+        "ggml",
+    ]
+
+
 def _fixture(tmp_path):
     binary = tmp_path / "build" / "bin" / "audiocpp_server"
     binary.parent.mkdir(parents=True)
