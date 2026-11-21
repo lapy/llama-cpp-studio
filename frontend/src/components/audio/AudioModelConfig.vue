@@ -44,15 +44,52 @@
     </Message>
 
     <Message
-      v-if="contractUnavailable"
+      v-if="contractFailureKind === 'schema-mismatch'"
       severity="error"
       :closable="false"
       class="config-scan-message"
     >
       <div class="config-message__body">
-        <strong>audio.cpp build is too old for Studio.</strong>
-        Studio requires v0.9.1 or newer (JSON loader listing). Update audio.cpp on the Engines page
-        to configure and run audio models. ({{ audioContractError }})
+        <strong>audio.cpp contract schema mismatch.</strong>
+        {{ audioContractError }} Studio will not guess at routing it does not understand; forms stay
+        disabled until Studio and the engine agree on the contract schema.
+      </div>
+    </Message>
+
+    <Message
+      v-else-if="contractFailureKind === 'no-engine'"
+      severity="warn"
+      :closable="false"
+      class="config-scan-message"
+    >
+      <div class="config-message__body">
+        <strong>No active modern audio.cpp engine.</strong>
+        Studio needs an active v0.9.1 or newer audio.cpp version with JSON loader listing. Activate
+        one on the Engines page and let its parameter scan finish; forms appear once it does. ({{
+          audioContractError
+        }})
+      </div>
+    </Message>
+
+    <Message
+      v-else-if="contractFailureKind === 'unreachable'"
+      severity="error"
+      :closable="false"
+      class="config-scan-message"
+    >
+      <div class="config-message__body">
+        <strong>Could not load the audio.cpp integration contract.</strong>
+        {{ audioContractError }} This is a connection or server error, not a build-version signal.
+        <Button
+          label="Retry contract"
+          icon="pi pi-refresh"
+          size="small"
+          severity="secondary"
+          outlined
+          :loading="contractRetrying"
+          class="config-message__action"
+          @click="retryContract"
+        />
       </div>
     </Message>
 
@@ -599,9 +636,10 @@ import {
   paramMatchesSearch,
 } from '@/composables/useAudioModelConfig'
 import {
-  audioContract,
   audioContractError,
   audioContractLoaded,
+  audioContractSchemaMismatch,
+  audioContractStatus,
   fetchAudioContract,
 } from '@/composables/useAudioContract'
 import { useEnginesStore } from '@/stores/engines'
@@ -650,6 +688,7 @@ const serverSearchQuery = ref('')
 const hideUnsupportedParams = ref(true)
 const showAdvancedRuntime = ref(false)
 const rescanLoading = ref(false)
+const contractRetrying = ref(false)
 const referenceAudioItems = ref([])
 const referenceAudioLoading = ref(false)
 const referenceAudioUploading = ref(false)
@@ -700,15 +739,15 @@ const contractDriftWarnings = computed(() =>
   (props.paramRegistry?.contract_drift_warnings || []).map(String),
 )
 
-// No composed contract means the active build predates JSON probes (or no
-// audio.cpp version is active). Forms must not render degraded — prompt update.
-const contractUnavailable = computed(() => {
-  if (props.paramRegistry?.scan_error || props.paramRegistry?.scan_pending) return false
-  return Boolean(
-    audioContractError.value &&
-    !audioContractLoaded.value &&
-    !audioContract.value.operations?.length,
-  )
+// No composed contract means either no modern engine is active (409) or the
+// contract request itself failed. Only a schema mismatch is a version signal;
+// a network/500 error must never be reported as "build too old".
+const contractFailureKind = computed(() => {
+  if (props.paramRegistry?.scan_error || props.paramRegistry?.scan_pending) return ''
+  if (audioContractLoaded.value || !audioContractError.value) return ''
+  if (audioContractSchemaMismatch.value) return 'schema-mismatch'
+  if (audioContractStatus.value === 409) return 'no-engine'
+  return 'unreachable'
 })
 
 const {
@@ -820,6 +859,15 @@ const commonRuntimeParams = computed(() => {
 
 let referenceAudioEpoch = 0
 let referenceAudioDisposed = false
+
+async function retryContract() {
+  contractRetrying.value = true
+  try {
+    await fetchAudioContract({ force: true })
+  } finally {
+    contractRetrying.value = false
+  }
+}
 
 onMounted(() => {
   // Shared module-level singleton; concurrent callers share one request.

@@ -42,6 +42,13 @@ vi.mock('@/composables/useAudioContract', async (importOriginal) => ({
 }))
 
 import AudioModelConfig from './AudioModelConfig.vue'
+import {
+  audioContractError,
+  audioContractLoaded,
+  audioContractSchemaMismatch,
+  audioContractStatus,
+  resetAudioContract,
+} from '@/composables/useAudioContract'
 
 enableAutoUnmount(afterEach)
 
@@ -232,6 +239,7 @@ async function openDefaultsTab(wrapper) {
 
 describe('AudioModelConfig reference audio', () => {
   beforeEach(() => {
+    resetAudioContract()
     toastAdd.mockReset()
     listReferenceAudio.mockReset()
     uploadReferenceAudio.mockReset()
@@ -941,5 +949,63 @@ describe('AudioModelConfig reference audio', () => {
     expect(
       wrapper.findAll('button').find((button) => button.text().includes('Remove preset voices')),
     ).toBeFalsy()
+  })
+
+  it('reports a network contract failure as a connection error, not an old build', async () => {
+    audioContractLoaded.value = false
+    audioContractStatus.value = 0
+    audioContractError.value = 'Failed to fetch'
+    audioContractSchemaMismatch.value = false
+
+    const wrapper = mountComponent()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Could not load the audio.cpp integration contract')
+    expect(wrapper.text()).toContain('Failed to fetch')
+    expect(wrapper.text()).toContain('not a build-version signal')
+    expect(wrapper.text()).not.toContain('build is too old')
+  })
+
+  it('reports a 500 contract failure as a server error', async () => {
+    audioContractLoaded.value = false
+    audioContractStatus.value = 500
+    audioContractError.value = 'contract composer crashed'
+    audioContractSchemaMismatch.value = false
+
+    const wrapper = mountComponent()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Could not load the audio.cpp integration contract')
+    expect(wrapper.text()).toContain('contract composer crashed')
+    expect(wrapper.text()).not.toContain('build is too old')
+  })
+
+  it('reports a 409 as no active modern engine', async () => {
+    audioContractLoaded.value = false
+    audioContractStatus.value = 409
+    audioContractError.value = 'No composed audio.cpp contract is available.'
+    audioContractSchemaMismatch.value = false
+
+    const wrapper = mountComponent()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('No active modern audio.cpp engine')
+    expect(wrapper.text()).toContain('v0.9.1')
+    expect(wrapper.text()).not.toContain('build is too old')
+  })
+
+  it('reports a contract schema mismatch as a schema problem', async () => {
+    audioContractLoaded.value = false
+    audioContractStatus.value = 200
+    audioContractError.value =
+      'Audio contract schema mismatch: expected audio-cpp.studio-contract/v0, received audio-cpp.studio-contract/v99.'
+    audioContractSchemaMismatch.value = true
+
+    const wrapper = mountComponent()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('audio.cpp contract schema mismatch')
+    expect(wrapper.text()).toContain('audio-cpp.studio-contract/v99')
+    expect(wrapper.text()).not.toContain('build is too old')
   })
 })
