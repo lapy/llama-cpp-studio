@@ -1,11 +1,11 @@
 name: audio.cpp latest release canary
 
-# The canary tracks upstream audio.cpp, not this repository's diff. It is
-# intentionally schedule/dispatch-only: while a known upstream break is
-# outstanding (v0.9.4/v0.9.5 prebuilts require GLIBC_2.43; ubuntu:24.04 ships
-# 2.39) every merge must not inherit a red workflow. The scheduled run is the
-# loud signal, and its JSON artifact says exactly which contract assumption
-# failed.
+# The canary tracks upstream audio.cpp, not this repository's diff. It runs in
+# the Ubuntu 26.04 container that matches the shipped Studio image (glibc 2.43),
+# so a prebuilt ABI change is distinguished from a contract change. It is
+# schedule/dispatch-only: every merge must not inherit a red workflow. The
+# scheduled run is the loud signal, and its JSON artifact says exactly which
+# contract assumption failed.
 on:
   schedule:
     # Mondays, 06:17 UTC.
@@ -22,8 +22,16 @@ concurrency:
 jobs:
   canary:
     runs-on: ubuntu-latest
+    container:
+      image: ubuntu:26.04
     timeout-minutes: 30
     steps:
+      - name: Install container prerequisites
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ca-certificates curl git xz-utils
+
       - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v7

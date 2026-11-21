@@ -6,7 +6,7 @@ Studio's audio integration is validated against pinned v0.9.1 fixtures in the te
 
 The canary is a scheduled/dispatch signal, not a merge gate. `.github/workflows/audio-canary.yml` runs it on Mondays at 06:17 UTC and on manual dispatch with `permissions: contents: read`. It deliberately has no `push` trigger: upstream breakage is not caused by a Studio diff, and a known-red canary must not turn every merge into a red workflow. The JSON report is uploaded as the `audio-cpp-canary-report` artifact on every run, pass or fail.
 
-> **Known red until the host ABI catches up.** audio.cpp `v0.9.4`/`v0.9.5` Linux prebuilts require `GLIBC_2.43`; `ubuntu-latest` and Studio's `ubuntu:24.04` base ship glibc 2.39. The canary reports `abi_unsupported` for the latest release today and will keep failing until the base image (or the prebuilt selection policy) moves past that ABI break. Do not make the canary green by skipping the ABI check.
+> **Runs on the shipped ABI.** The workflow executes inside `ubuntu:26.04` (glibc 2.43), matching the Studio image, so a prebuilt ABI failure means the base image or the selected artifact regressed. Do not make the canary green by skipping the ABI check.
 
 ## What it checks
 
