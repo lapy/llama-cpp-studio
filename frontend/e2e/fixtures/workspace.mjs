@@ -25,7 +25,7 @@ import {
 
 export async function installWorkspaceApi(
   page,
-  { bridgeOrigin, remote = false, key = 'sk-studio-copy-probe' } = {},
+  { bridgeOrigin, remote = false, key = 'sk-studio-copy-probe', audio = false } = {},
 ) {
   const keys = inferenceKeys()
   await page.route('**/*', async (route) => {
@@ -63,8 +63,10 @@ export async function installWorkspaceApi(
       })
     if (path === '/api/access') data = accessState({ remote })
     else if (path === '/api/status') data = workspaceStatus()
-    else if (path === '/api/engines') data = engineDescriptors()
-    else if (path === AUDIO_CONTRACT_PATH) data = audioContract()
+    // Opt-in only: descriptor-driven engine options would hide the llama.cpp
+    // fixture from unrelated ModelConfig journeys, so keep this stub partial.
+    else if (audio && path === '/api/engines') data = engineDescriptors()
+    else if (audio && path === AUDIO_CONTRACT_PATH) data = audioContract()
     else if (path === '/api/models') data = modelCatalog()
     else if (path === '/api/models/param-registry') data = paramRegistry()
     else if (path.endsWith('/reference-audio')) data = referenceAudio()
