@@ -306,7 +306,9 @@ def test_v095_task_routes_are_registered_on_the_management_origin():
     for method in ("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"):
         assert ("/v1/audio/{rest:path}", method) in routes, method
     assert not any(path.startswith("/v1/audio/tasks") for path, _ in routes)
-    assert not any(path.startswith("/v1/tasks/") and path not in V095_TASK_ROUTES for path, _ in routes)
+    assert not any(
+        path.startswith("/v1/tasks/") and path not in V095_TASK_ROUTES for path, _ in routes
+    )
 
 
 def test_new_routes_appear_in_the_openapi_document():

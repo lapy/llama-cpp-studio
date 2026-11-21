@@ -423,9 +423,7 @@ def test_tasks_stream_rejects_oversized_body_by_content_length(client, monkeypat
     from backend.routes import audio_openai_proxy as proxy
 
     monkeypatch.setattr(proxy, "MAX_AUDIO_UPLOAD_BYTES", 32)
-    response = client.post(
-        "/v1/tasks/stream", json={"model": "x", "request": {"text": "y" * 128}}
-    )
+    response = client.post("/v1/tasks/stream", json={"model": "x", "request": {"text": "y" * 128}})
     assert response.status_code == 413
 
 
@@ -560,9 +558,7 @@ def test_unload_models_explicit_pin_selects_the_engine_instance(client, monkeypa
         return _FakeUpstream(200, json_body={"unloaded": [], "not_found": ["audio-demo"]})
 
     _install_upstream(monkeypatch, handler)
-    response = client.post(
-        "/v1/tasks/unload_models?model=asr", json={"model_ids": ["voice"]}
-    )
+    response = client.post("/v1/tasks/unload_models?model=asr", json={"model_ids": ["voice"]})
     assert response.status_code == 200
     # The explicit pin chooses the engine instance; the body still lists the
     # rewritten ids the caller asked about.
@@ -700,7 +696,7 @@ async def test_stream_response_is_lazy_and_keeps_upstream_sse_headers():
         (
             "/v1/audio/transcriptions/live",
             "model=asr-live&sample_rate=16000&channels=1&sample_format=s16le",
-            [b"data: {\"type\":\"transcript.text.delta\"}\n\n", b"data: [DONE]\n\n"],
+            [b'data: {"type":"transcript.text.delta"}\n\n', b"data: [DONE]\n\n"],
         ),
         (
             "/v1/audio/speech/live",
@@ -717,9 +713,7 @@ def test_live_audio_routes_forward_chunked_pcm_and_stream_sse(
     async def handler(request, kwargs):
         seen["url"] = str(request.url)
         seen["content"] = kwargs["content"]
-        seen["content_length"] = any(
-            key.lower() == "content-length" for key in kwargs["headers"]
-        )
+        seen["content_length"] = any(key.lower() == "content-length" for key in kwargs["headers"])
         received = []
         async for chunk in kwargs["content"]:
             received.append(chunk)
@@ -789,9 +783,7 @@ async def test_live_audio_passthrough_is_incrementally_forwarded(monkeypatch):
         async def send(self, built, stream=False):
             content = built.kwargs["content"]
             assert hasattr(content, "__aiter__"), "body must not be buffered"
-            assert "content-length" not in {
-                key.lower() for key in built.kwargs["headers"]
-            }
+            assert "content-length" not in {key.lower() for key in built.kwargs["headers"]}
             async for chunk in content:
                 observed.append((chunk, tuple(pulled)))
             return _FakeUpstream(
@@ -815,5 +807,3 @@ async def test_live_audio_passthrough_is_incrementally_forwarded(monkeypatch):
     assert str(request.url) == (
         "http://testserver/v1/audio/transcriptions/live?model=asr-live&sample_rate=16000"
     )
-
-

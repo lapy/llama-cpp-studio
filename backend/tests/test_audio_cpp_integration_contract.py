@@ -221,18 +221,21 @@ class TestV095Surface:
     Citations are ``app/server/api.md`` at tag ``v0.9.5`` (plus the server
     README for ``POST /v1/models/load``'s body) and live next to each registry
     entry. These tests pin the table a reviewer checks against that document:
-    path, method, encodings, responses, error shape, task claims, and whether
-    Studio serves the route itself or only through /upstream.
+    path, method, encodings, responses, error shape, task claims, whether
+    Studio serves the route itself or only through /upstream, and whether a
+    working Studio route exists at all (``served``).
     """
 
     EXPECTED = {
-        # id: (native_path, studio_path, method, encodings, responses, upstream_only)
+        # id: (native_path, studio_path, method, encodings, responses,
+        #      upstream_only, served)
         "speech_live": (
             "/v1/audio/speech/live",
             "/v1/audio/speech/live",
             "POST",
             ["raw-pcm"],
             ["sse-events"],
+            False,
             False,
         ),
         "transcriptions_live": (
@@ -242,6 +245,7 @@ class TestV095Surface:
             ["raw-pcm"],
             ["sse-events"],
             False,
+            False,
         ),
         "models_load": (
             "/v1/models/load",
@@ -250,6 +254,7 @@ class TestV095Surface:
             ["json"],
             ["json"],
             True,
+            False,
         ),
         "tasks_stream": (
             "/v1/tasks/stream",
@@ -257,6 +262,7 @@ class TestV095Surface:
             "POST",
             ["json"],
             ["json", "sse-events"],
+            True,
             True,
         ),
         "tasks_batch": (
@@ -266,6 +272,7 @@ class TestV095Surface:
             ["json"],
             ["sse-events"],
             True,
+            True,
         ),
         "tasks_unload_models": (
             "/v1/tasks/unload_models",
@@ -273,6 +280,7 @@ class TestV095Surface:
             "POST",
             ["json"],
             ["json"],
+            True,
             True,
         ),
         "tasks_unload_all_models": (
@@ -282,8 +290,9 @@ class TestV095Surface:
             [],
             ["json"],
             True,
+            True,
         ),
-        "recipes": ("/v1/recipes", "/v1/recipes", "GET", [], ["json"], True),
+        "recipes": ("/v1/recipes", "/v1/recipes", "GET", [], ["json"], True, False),
         "recipes_run": (
             "/v1/recipes/run",
             "/v1/recipes/run",
@@ -291,6 +300,7 @@ class TestV095Surface:
             ["json"],
             ["json", "sse-events"],
             True,
+            False,
         ),
     }
 
@@ -302,13 +312,14 @@ class TestV095Surface:
         for op_id, expected in self.EXPECTED.items():
             op = operation_by_id(op_id)
             assert op is not None, op_id
-            native, studio, method, encodings, responses, upstream_only = expected
+            native, studio, method, encodings, responses, upstream_only, served = expected
             assert op.native_path == native
             assert op.studio_path == studio
             assert op.method == method
             assert list(op.encodings) == encodings
             assert list(op.responses) == responses
             assert op.upstream_only is upstream_only
+            assert op.served is served
             assert op.provenance == "studio"
             # A transport/management route must never claim a task.
             assert op.serves_tasks == ()
@@ -325,6 +336,53 @@ class TestV095Surface:
             "health",
             "tasks_run",
         }
+        for op_id in (
+            "speech",
+            "transcriptions",
+            "transcriptions_details",
+            "alignments",
+            "batch_transcriptions",
+            "voices",
+            "models",
+            "health",
+            "tasks_run",
+        ):
+            assert operation_by_id(op_id).served is True, op_id
+
+    def test_served_flags_pin_the_working_surface(self):
+        """``served`` is independent of ``upstream_only``.
+
+        - tasks/stream & tasks/batch are served by management shims that
+          themselves forward through /upstream/{model}.
+        - live audio is nominally routed through the /v1/audio catch-all but
+          cannot work through the buffered proxy dataplane.
+        - models/load and recipes have no Studio route at all.
+        """
+        unserved = {op.id for op in operations() if not op.served}
+        assert unserved == {
+            "speech_live",
+            "transcriptions_live",
+            "models_load",
+            "recipes",
+            "recipes_run",
+        }
+        # Served management shims still reach the engine through /upstream.
+        for op_id in ("tasks_stream", "tasks_batch", "tasks_unload_models"):
+            op = operation_by_id(op_id)
+            assert op.served is True
+            assert op.upstream_only is True
+        # Nominally routed does not mean served.
+        live = operation_by_id("speech_live")
+        assert live.served is False
+        assert live.upstream_only is False
+        # Registry-only routes have no shim.
+        for op_id in ("models_load", "recipes", "recipes_run"):
+            op = operation_by_id(op_id)
+            assert op.served is False
+            assert op.upstream_only is True
+        # The serialized descriptor carries the flag for every operation.
+        for op in operations():
+            assert op.as_dict()["served"] is op.served
 
     def test_body_shapes_for_new_envelopes(self):
         assert operation_by_id("tasks_stream").as_dict()["body_shape"] == "tasks-run"

@@ -5,6 +5,15 @@ The core server accepts WAV uploads and returns WAV for offline speech. Studio
 converts other uploads to WAV at the source sample rate, and converts speech
 only when the engine still returns WAV for a compressed response_format.
 SSE and native audio responses stream.
+
+Live ingest is routed but not usable yet: ``/v1/audio/speech/live`` and
+``/v1/audio/transcriptions/live`` reach the catch-all below, yet the
+inference-origin dataplane reads the whole request body before forwarding
+(``backend/proxy/studio/dataplane.py``: ``StudioDataPlane._handle`` ->
+``_read_body`` at L641, then ``StudioDataPlane._proxy`` ->
+``build_request(..., content=body)`` at L1569), while the engine's live
+handlers require a chunked body. Fixing that belongs in the dataplane; the
+contract registry marks both operations ``served=False`` until it does.
 """
 
 from __future__ import annotations
@@ -513,9 +522,7 @@ async def proxy_tasks_unload_models(request: Request):
     if pin:
         pinned = await _resolve_target(pin, _native_path("tasks_unload_models"))
     if pinned is None:
-        raise HTTPException(
-            400, "model_ids must name at least one audio model, or pass ?model="
-        )
+        raise HTTPException(400, "model_ids must name at least one audio model, or pass ?model=")
     payload["model_ids"] = stable_ids
     return await _passthrough(
         request,
@@ -553,6 +560,11 @@ async def proxy_tasks_unload_all_models(request: Request):
 
 
 async def proxy_audio_passthrough(request: Request, rest: str = ""):
+    # Live-ingest paths land here too, but this shim is not enough for them:
+    # the proxy dataplane buffers the request body before forwarding
+    # (backend/proxy/studio/dataplane.py: _read_body at L641, content=body at
+    # L1569), so the engine never sees the chunked PCM its live handlers
+    # require. The registry keeps speech_live/transcriptions_live served=False.
     return await _passthrough(request, f"{NATIVE_AUDIO_BASE}/{rest}" if rest else NATIVE_AUDIO_BASE)
 
 

@@ -14,10 +14,26 @@ instead of being mirrored per consumer.
 The table covers the documented v0.9.x server surface. Routes added for the
 v0.9.5 line cite ``app/server/api.md`` at tag ``v0.9.5`` (and the server
 README where it documents a request body the API reference only names).
-``upstream_only=True`` marks a route Studio has no management shim for: it is
-reached only through the inference origin's ``/upstream/{model}`` concrete
-passthrough, and the reason is stated next to the entry. Nothing here is
-guessed from a route name.
+Nothing here is guessed from a route name.
+
+Two flags describe how a caller can actually reach an operation:
+
+- ``upstream_only=True`` — Studio has no dedicated proxy/management route for
+  it, so the documented path is the inference origin's concrete
+  ``/upstream/{model}`` passthrough. A Studio shim may itself forward through
+  that passthrough, so this flag does not mean "unserved".
+- ``served=False`` — Studio has no working route for it at all. It is
+  documented and represented here, but either only nominally routed or
+  reachable solely through ``/upstream/{model}``. Live ingest is the first
+  case: the management catch-all forwards ``/v1/audio/speech/live`` and
+  ``/v1/audio/transcriptions/live``, but the inference-origin dataplane reads
+  the whole request body before forwarding
+  (``backend/proxy/studio/dataplane.py``: ``StudioDataPlane._handle`` ->
+  ``_read_body`` at L641, then ``StudioDataPlane._proxy`` ->
+  ``build_request(..., content=body)`` at L1569), so the engine never receives
+  the chunked PCM its live handlers require. Fixing that belongs in the
+  dataplane, not in this registry; the entry keeps ``served=False`` until it
+  does.
 """
 
 from __future__ import annotations
@@ -48,8 +64,15 @@ class Operation:
     errors: str
     serves_tasks: Tuple[str, ...]
     provenance: str = "studio"
+    # True when Studio serves this operation with a working route on one of its
+    # own origins (a management shim, or the native audio paths on the
+    # inference origin). False is registry-only: documented here but not usable
+    # through Studio; each such entry states why.
+    served: bool = True
     # True when the route is absent from Studio proxy's route table and Studio
-    # must reach it through the ``/upstream/{model}`` passthrough.
+    # must reach it through the ``/upstream/{model}`` passthrough. Independent
+    # of ``served``: a management shim can be served while forwarding through
+    # /upstream, and a nominally routed native path can still be unserved.
     upstream_only: bool = False
 
     def as_dict(self) -> dict:
@@ -63,6 +86,7 @@ class Operation:
             "errors": self.errors,
             "serves_tasks": list(self.serves_tasks),
             "provenance": self.provenance,
+            "served": self.served,
             "upstream_only": self.upstream_only,
             # Derived once so the frontend renders request bodies and defaults
             # buckets from the contract instead of endpoint-string heuristics.
@@ -137,6 +161,10 @@ OPERATIONS: Tuple[Operation, ...] = (
         # Live is a transport variant, not a task route: s2s/vc/svc models keep
         # routing their ordinary requests to tasks_run.
         serves_tasks=(),
+        # served=False: the management catch-all nominally forwards the path,
+        # but the proxy dataplane buffers request bodies (see module docstring),
+        # so the engine never receives the chunked PCM this route requires.
+        served=False,
     ),
     Operation(
         id="transcriptions",
@@ -164,6 +192,8 @@ OPERATIONS: Tuple[Operation, ...] = (
         # Live is a transport variant, not a task route: asr models keep routing
         # their ordinary requests to `transcriptions`.
         serves_tasks=(),
+        # served=False: same dataplane buffering limit as speech_live above.
+        served=False,
     ),
     Operation(
         id="transcriptions_details",
@@ -239,6 +269,8 @@ OPERATIONS: Tuple[Operation, ...] = (
         # models behind Studio's back, so Studio leaves it to the concrete
         # /upstream/{model} passthrough instead of faking support.
         upstream_only=True,
+        # served=False: no Studio route at all, for the reason above.
+        served=False,
     ),
     Operation(
         id="health",
@@ -363,6 +395,9 @@ OPERATIONS: Tuple[Operation, ...] = (
         # has no model to pin one with here. Kept unserved rather than inventing
         # a management-level recipe catalog.
         upstream_only=True,
+        # served=False: no Studio route; reachable only through
+        # /upstream/{model}/v1/recipes on a concrete engine instance.
+        served=False,
     ),
     Operation(
         id="recipes_run",
@@ -382,6 +417,9 @@ OPERATIONS: Tuple[Operation, ...] = (
         # passthrough would send Studio aliases the engine does not know, so
         # this stays upstream-only instead of pretending to support recipes.
         upstream_only=True,
+        # served=False: no Studio route; reachable only through
+        # /upstream/{model}/v1/recipes/run on a concrete engine instance.
+        served=False,
     ),
 )
 
