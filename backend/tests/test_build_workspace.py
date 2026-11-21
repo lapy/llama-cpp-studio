@@ -57,6 +57,32 @@ def test_workspace_key_changes_with_config_and_patches():
     assert base != workspace_key("ik_llama", "https://example.com/llama.git", {"cuda": True})
 
 
+def test_workspace_key_changes_with_the_host_toolchain(monkeypatch):
+    """A persistent data volume must not reuse a cache from another image."""
+    monkeypatch.setattr(
+        "backend.engines.build_workspace._host_build_identity",
+        lambda: {
+            "release": "ID=ubuntu;VERSION_ID=24.04;",
+            "arch": "x86_64",
+            "compiler": "/usr/bin/g++",
+            "compiler_version": "g++ 13.3.0",
+        },
+    )
+    old = workspace_key("audio_cpp", "https://example.com/audio.git", {"cuda": True})
+    monkeypatch.setattr(
+        "backend.engines.build_workspace._host_build_identity",
+        lambda: {
+            "release": "ID=ubuntu;VERSION_ID=26.04;",
+            "arch": "x86_64",
+            "compiler": "/usr/bin/g++",
+            "compiler_version": "g++ 15.2.0",
+        },
+    )
+    new = workspace_key("audio_cpp", "https://example.com/audio.git", {"cuda": True})
+    assert old != new
+    assert new == workspace_key("audio_cpp", "https://example.com/audio.git", {"cuda": True})
+
+
 def test_sync_preserves_build_dir_and_advances(origin, tmp_path):
     ws = BuildWorkspace.open("llama_cpp", str(origin), {"cuda": False}, root=str(tmp_path / "ws"))
     ws.acquire()

@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
 import shutil
 import subprocess
 import time
@@ -74,18 +75,70 @@ def ccache_dir() -> str:
     return os.path.join(studio_data_dir(), "ccache")
 
 
+def _host_build_identity() -> Dict[str, str]:
+    """Identify the host toolchain a workspace's CMake cache was generated for.
+
+    A workspace can outlive the image it was created in (``data`` is a volume).
+    Reusing it after an OS or compiler upgrade keeps stale absolute paths in
+    CMakeCache, for example a linker dependency on the old image's
+    ``/usr/lib/gcc/.../13/libgomp.so``. Including this identity in
+    :func:`workspace_key` gives the new environment a fresh build directory
+    instead of reusing a cache it cannot satisfy.
+    """
+    release = ""
+    try:
+        with open("/etc/os-release", "r", encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                if line.startswith(("ID=", "VERSION_ID=")):
+                    release += line.strip() + ";"
+    except OSError:
+        release = f"{platform.system()}-{platform.release()};"
+    compiler = (
+        os.environ.get("CXX")
+        or shutil.which("g++")
+        or shutil.which("c++")
+        or shutil.which("cl")
+        or ""
+    )
+    version = ""
+    if compiler and not compiler.lower().endswith("cl.exe"):
+        try:
+            proc = subprocess.run(
+                [compiler, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            version = (proc.stdout or proc.stderr or "").splitlines()[0].strip()
+        except (OSError, subprocess.SubprocessError, IndexError):
+            version = ""
+    return {
+        "release": release,
+        "arch": platform.machine(),
+        "compiler": compiler,
+        "compiler_version": version,
+    }
+
+
 def workspace_key(
     engine: str,
     repo_url: str,
     config: Optional[dict] = None,
     patches: Optional[Sequence[str]] = None,
 ) -> str:
-    """Stable id for one engine, repository, build configuration, and patch set."""
+    """Stable id for one engine, repository, build configuration, and patch set.
+
+    The host build identity is part of the key on purpose: build directories
+    live on the persistent data volume, so an image/toolchain upgrade must not
+    reuse a CMake cache that points at paths from the previous image.
+    """
     payload = {
         "engine": str(engine or "").strip(),
         "repo": str(repo_url or "").strip(),
         "config": config or {},
         "patches": [str(item) for item in (patches or [])],
+        "host": _host_build_identity(),
     }
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
