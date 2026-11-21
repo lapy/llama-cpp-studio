@@ -144,6 +144,25 @@ describe('useAudioInferenceClient', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('http://studio.test/v1/audio/speech-v2')
   })
 
+  it('maps a future /audioapi-prefixed operation onto the management origin', async () => {
+    vi.stubGlobal('window', { location: { origin: 'http://studio.test' } })
+    const payload = audioContractFixture()
+    payload.operations = payload.operations.map((op) =>
+      op.id === 'speech' ? { ...op, studio_path: '/audioapi/v1/audio/speech-v2' } : op,
+    )
+    audioContract.value = payload
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: () => 'audio/wav' },
+      blob: async () => new Blob([new Uint8Array([1])], { type: 'audio/wav' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await synthesizeSpeech({ modelId: 'tts-demo', input: 'hello' })
+
+    expect(fetchMock.mock.calls[0][0]).toBe('http://studio.test/v1/audio/speech-v2')
+  })
+
   it('refuses to post a speech body through the offline generic floor', async () => {
     vi.stubGlobal('window', { location: { origin: 'http://studio.test' } })
     const fetchMock = vi.fn()

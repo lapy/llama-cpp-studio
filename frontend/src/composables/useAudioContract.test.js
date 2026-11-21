@@ -15,6 +15,7 @@ import {
   audioTaskEndpoint,
   audioTaskRequestPath,
   fetchAudioContract,
+  managementAudioPath,
   OFFLINE_AUDIO_CONTRACT,
   resetAudioContract,
 } from './useAudioContract'
@@ -55,6 +56,8 @@ describe('useAudioContract', () => {
     expect(audioTaskRequestPath('transcribe_details')).toBe('/v1/audio/transcriptions/details')
     expect(audioTaskRequestPath('batch_transcribe')).toBe('/v1/batches/transcriptions')
     expect(audioTaskRequestPath('align')).toBe('/v1/audio/alignments')
+    expect(managementAudioPath('/audioapi/v1/audio/future')).toBe('/v1/audio/future')
+    expect(managementAudioPath('/v1/audio/speech')).toBe('/v1/audio/speech')
   })
 
   it('loads the composed contract and routes from it', async () => {

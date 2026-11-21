@@ -186,7 +186,7 @@ export function audioTaskEndpoint(task) {
  * ``/v1/audio``. Only the dataplane-only ``/audioapi`` prefix is rewritten;
  * every other contract path is already a management path.
  */
-function managementAudioPath(endpoint) {
+export function managementAudioPath(endpoint) {
   const value = String(endpoint || '').trim()
   if (value.startsWith('/audioapi/')) return value.slice('/audioapi'.length)
   return value
