@@ -56,7 +56,9 @@ AREA_CAPS: Dict[str, int] = {
     "frontend/src/components/": 69,
     # 2026-11-15: 58 -> 59. Prettier split one line in
     # engineReadiness.test.js, putting a second id literal on its own line.
-    "frontend/src/composables/": 59,
+    # 2026-11-21: 59 -> 58. The audio workspace/contract composables now derive
+    # the audio engine id from engines/registry.js instead of restating it.
+    "frontend/src/composables/": 58,
     # R95 raised this 42 -> 44: the frontend descriptors now declare the
     # build-options catalog endpoint (one per catalog-bearing engine) instead of
     # the views branching on engine ids — reviewed diff.
@@ -89,7 +91,10 @@ AREA_CAPS: Dict[str, int] = {
     # the measured total dropped; the cap now has NO slack.
     # 2026-11-15: 265 -> 266. Prettier split one line in ModelConfig.test.js,
     # putting a second id literal on its own line.
-    "frontend/src/views/": 261,
+    # 2026-11-21: 261 -> 237. The audio workspace/tests import the registry's
+    # audio engine id and contract path/schema constants instead of restating
+    # them (24 literal sites removed, no UI control flow added).
+    "frontend/src/views/": 237,
     # Every engine conversion tightened this as recipes/constants moved out of
     # the exporter into authoritative definitions; deleting the exporter after
     # the final conversion took it to 40.

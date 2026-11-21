@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import * as audioClient from './useAudioInferenceClient'
 import {
@@ -6,8 +6,6 @@ import {
   audioInferenceModelId,
   audioTabFromConfig,
   extractAudioClipsFromTaskResult,
-  isGenericTaskEndpoint,
-  nativeProxyBaseUrl,
   runAudioTask,
   speechRateRequestFields,
   studioAudioBaseUrl,
@@ -26,13 +24,22 @@ import {
   audioTaskBodyShape,
   audioTaskDefaultsKey,
   audioTaskEndpoint,
+  audioTaskRequestPath,
   OFFLINE_AUDIO_CONTRACT,
+  resetAudioContract,
 } from './useAudioContract'
+import { audioContractFixture } from '@/test-fixtures/audioContract'
 
 describe('useAudioInferenceClient', () => {
+  beforeEach(() => {
+    resetAudioContract()
+    audioContract.value = audioContractFixture()
+  })
+
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+    resetAudioContract()
   })
 
   it('does not expose the removed native WebUI helper', () => {
@@ -81,12 +88,13 @@ describe('useAudioInferenceClient', () => {
   })
 
   it('falls through to the generic route before the contract has loaded', () => {
+    resetAudioContract()
     // Offline floor: no operations table → every task hits the generic route.
     expect(audioTaskEndpoint('tts')).toBe(OFFLINE_AUDIO_CONTRACT.generic_studio_path)
     expect(audioTaskDefaultsKey('tts')).toBe('task_defaults')
-    expect(isGenericTaskEndpoint(audioTaskEndpoint('vc'))).toBe(true)
-    expect(isGenericTaskEndpoint('/v1/audio/speech')).toBe(false)
-    expect(isGenericTaskEndpoint('')).toBe(false)
+    expect(audioEndpointIsGeneric(audioTaskEndpoint('vc'))).toBe(true)
+    expect(audioEndpointIsGeneric('/v1/audio/speech')).toBe(false)
+    expect(audioEndpointIsGeneric('')).toBe(false)
     expect(audioEndpointIsGeneric('/v1/tasks/run')).toBe(true)
   })
 
@@ -98,21 +106,73 @@ describe('useAudioInferenceClient', () => {
       blob: async () => new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/wav' }),
     })
     vi.stubGlobal('fetch', fetchMock)
+    const signal = new AbortController().signal
 
     const { blob } = await synthesizeSpeech({
       modelId: 'tts-demo',
       input: 'hello',
       voice: 'default',
+      signal,
     })
 
     expect(studioAudioBaseUrl()).toBe('http://studio.test/v1/audio')
     expect(fetchMock).toHaveBeenCalledWith(
       'http://studio.test/v1/audio/speech',
-      expect.objectContaining({ method: 'POST' }),
+      expect.objectContaining({ method: 'POST', signal }),
     )
     const body = JSON.parse(fetchMock.mock.calls[0][1].body)
     expect(body).toEqual({ model: 'tts-demo', input: 'hello', voice: 'default' })
     expect(blob.size).toBe(3)
+  })
+
+  it('follows a contract-provided speech path instead of a literal', async () => {
+    vi.stubGlobal('window', { location: { origin: 'http://studio.test' } })
+    const payload = audioContractFixture()
+    payload.operations = payload.operations.map((op) =>
+      op.id === 'speech' ? { ...op, studio_path: '/v1/audio/speech-v2' } : op,
+    )
+    audioContract.value = payload
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: () => 'audio/wav' },
+      blob: async () => new Blob([new Uint8Array([1])], { type: 'audio/wav' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await synthesizeSpeech({ modelId: 'tts-demo', input: 'hello' })
+
+    expect(fetchMock.mock.calls[0][0]).toBe('http://studio.test/v1/audio/speech-v2')
+  })
+
+  it('maps a future /audioapi-prefixed operation onto the management origin', async () => {
+    vi.stubGlobal('window', { location: { origin: 'http://studio.test' } })
+    const payload = audioContractFixture()
+    payload.operations = payload.operations.map((op) =>
+      op.id === 'speech' ? { ...op, studio_path: '/audioapi/v1/audio/speech-v2' } : op,
+    )
+    audioContract.value = payload
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: () => 'audio/wav' },
+      blob: async () => new Blob([new Uint8Array([1])], { type: 'audio/wav' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await synthesizeSpeech({ modelId: 'tts-demo', input: 'hello' })
+
+    expect(fetchMock.mock.calls[0][0]).toBe('http://studio.test/v1/audio/speech-v2')
+  })
+
+  it('refuses to post a speech body through the offline generic floor', async () => {
+    vi.stubGlobal('window', { location: { origin: 'http://studio.test' } })
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    resetAudioContract()
+
+    await expect(synthesizeSpeech({ modelId: 'tts-demo', input: 'hello' })).rejects.toThrow(
+      /needs the audio\.cpp integration contract/,
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   function sseResponse(frames) {
@@ -162,6 +222,7 @@ describe('useAudioInferenceClient', () => {
     })
 
     const sent = JSON.parse(fetchMock.mock.calls[0][1].body)
+    expect(fetchMock.mock.calls[0][0]).toBe('http://studio.test/v1/audio/speech')
     expect(sent).toMatchObject({
       model: 'pocket-stream',
       input: 'hello',
@@ -215,7 +276,7 @@ describe('useAudioInferenceClient', () => {
     expect(view.getUint32(40, true)).toBe(4)
   })
 
-  it('posts multipart transcriptions to Studio /v1/audio/transcriptions', async () => {
+  it('posts multipart transcriptions to the contract transcription path', async () => {
     vi.stubGlobal('window', { location: { origin: 'http://studio.test' } })
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -225,18 +286,42 @@ describe('useAudioInferenceClient', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const file = new File([new Uint8Array([9])], 'memo.ogg', { type: 'audio/ogg' })
+    const signal = new AbortController().signal
     const result = await transcribeAudio({
       modelId: 'asr-demo',
       file,
       language: 'en',
+      signal,
     })
 
     expect(result).toEqual({ text: 'hi' })
-    expect(fetchMock.mock.calls[0][0]).toBe('http://studio.test/v1/audio/transcriptions')
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://studio.test/v1/audio/transcriptions',
+      expect.objectContaining({ method: 'POST', signal }),
+    )
     const form = fetchMock.mock.calls[0][1].body
     expect(form).toBeInstanceOf(FormData)
     expect(form.get('model')).toBe('asr-demo')
     expect(form.get('language')).toBe('en')
+    expect(form.get('file').name).toBe('memo.ogg')
+  })
+
+  it('posts details requests to the contract transcriptions/details path', async () => {
+    vi.stubGlobal('window', { location: { origin: 'http://studio.test' } })
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ text: 'hi', words: [] }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await transcribeAudio({
+      modelId: 'asr-demo',
+      file: new File([new Uint8Array([9])], 'memo.wav', { type: 'audio/wav' }),
+      details: true,
+    })
+
+    expect(fetchMock.mock.calls[0][0]).toBe('http://studio.test/v1/audio/transcriptions/details')
   })
 
   it('posts every selected file to /v1/batches/transcriptions', async () => {
@@ -272,7 +357,24 @@ describe('useAudioInferenceClient', () => {
     expect(parsed.results).toEqual([{ name: 'File 1', text: 'hi' }])
   })
 
-  it('posts generic tasks to Studio /v1/tasks/run', async () => {
+  it('reads the native batch SSE shape without turning the done event into a row', () => {
+    const parsed = parseBatchTranscriptionPayload(
+      'text/event-stream',
+      [
+        'data: {"type":"batch.transcription.result","index":0,"filename":"meeting-a.wav","text":"one"}',
+        'data: {"type":"batch.transcription.result","index":1,"filename":"meeting-b.wav","text":"two"}',
+        'data: {"type":"batch.transcription.done","result_count":2,"timing":{"wall_ms":10}}',
+        'data: [DONE]',
+        '',
+      ].join('\n\n'),
+    )
+    expect(parsed.results).toEqual([
+      { name: 'meeting-a.wav', text: 'one' },
+      { name: 'meeting-b.wav', text: 'two' },
+    ])
+  })
+
+  it('posts generic tasks to the same-origin management /v1/tasks/run route', async () => {
     vi.stubGlobal('window', {
       location: { origin: 'http://studio.test', hostname: 'studio.test', protocol: 'http:' },
     })
@@ -282,79 +384,67 @@ describe('useAudioInferenceClient', () => {
       json: async () => ({ ok: true }),
     })
     vi.stubGlobal('fetch', fetchMock)
+    const signal = new AbortController().signal
 
     const result = await runAudioTask({
       modelId: 'vad-demo',
-      input: { audio_path: '/a.wav' },
+      task: 'vad',
+      input: { audio: '/a.wav' },
+      signal,
     })
 
     expect(result).toEqual({ ok: true })
-    expect(nativeProxyBaseUrl(2000)).toBe('http://studio.test:2000')
+    // The contract's /audioapi/... path belongs to the proxy dataplane; the
+    // browser management origin serves the same route as /v1/tasks/run.
     expect(fetchMock).toHaveBeenCalledWith(
       'http://studio.test/v1/tasks/run',
-      expect.objectContaining({ method: 'POST' }),
+      expect.objectContaining({ method: 'POST', signal }),
     )
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
       model: 'vad-demo',
-      request: { audio_path: '/a.wav' },
+      request: { audio: '/a.wav' },
     })
   })
 
+  it('builds a multipart body for a contract operation with multipart-form shape', async () => {
+    vi.stubGlobal('window', { location: { origin: 'http://studio.test' } })
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ words: [] }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await runAudioTask({
+      modelId: 'align-demo',
+      task: 'align',
+      input: { text: 'hello', language: 'en' },
+    })
+
+    expect(fetchMock.mock.calls[0][0]).toBe('http://studio.test/v1/audio/alignments')
+    const form = fetchMock.mock.calls[0][1].body
+    expect(form).toBeInstanceOf(FormData)
+    expect(form.get('model')).toBe('align-demo')
+    expect(form.get('text')).toBe('hello')
+    expect(form.get('language')).toBe('en')
+  })
+
   it('routes tasks from the loaded contract payload', () => {
-    const previous = audioContract.value
-    audioContract.value = {
-      ...OFFLINE_AUDIO_CONTRACT,
-      defaults_keys: {
-        ...OFFLINE_AUDIO_CONTRACT.defaults_keys,
-        speech: 'speech_defaults',
-        transcriptions: 'transcription_defaults',
-        alignments: 'task_defaults',
-      },
-      task_routing: {
-        tts: 'speech',
-        asr: 'transcriptions',
-        align: 'alignments',
-        vc: 'tasks_run',
-      },
-      operations: [
-        {
-          id: 'speech',
-          studio_path: '/v1/audio/speech',
-          request_defaults_key: 'speech_defaults',
-          body_shape: 'openai-json',
-        },
-        {
-          id: 'transcriptions',
-          studio_path: '/v1/audio/transcriptions',
-          request_defaults_key: 'transcription_defaults',
-          body_shape: 'multipart-form',
-        },
-        {
-          id: 'alignments',
-          studio_path: '/v1/audio/alignments',
-          request_defaults_key: 'task_defaults',
-          body_shape: 'multipart-form',
-        },
-        {
-          id: 'tasks_run',
-          studio_path: '/audioapi/v1/tasks/run',
-          request_defaults_key: 'task_defaults',
-          body_shape: 'tasks-run',
-        },
-      ],
-    }
-    try {
-      expect(audioTaskEndpoint('align')).toBe('/v1/audio/alignments')
-      expect(audioTaskEndpoint('tts')).toBe('/v1/audio/speech')
-      expect(audioTaskEndpoint('asr')).toBe('/v1/audio/transcriptions')
-      expect(audioTaskDefaultsKey('asr')).toBe('transcription_defaults')
-      expect(audioTaskBodyShape('align')).toBe('multipart-form')
-      expect(audioTaskBodyShape('vc')).toBe('tasks-run')
-      // Unknown task ids fall through to the generic route like the backend.
-      expect(audioTaskEndpoint('brand_new_task')).toBe('/audioapi/v1/tasks/run')
-    } finally {
-      audioContract.value = previous
-    }
+    audioContract.value = audioContractFixture()
+
+    expect(audioTaskEndpoint('align')).toBe('/v1/audio/alignments')
+    expect(audioTaskEndpoint('tts')).toBe('/v1/audio/speech')
+    expect(audioTaskEndpoint('asr')).toBe('/v1/audio/transcriptions')
+    expect(audioTaskEndpoint('gen')).toBe('/audioapi/v1/tasks/run')
+    expect(audioTaskRequestPath('tts')).toBe('/v1/audio/speech')
+    expect(audioTaskRequestPath('asr')).toBe('/v1/audio/transcriptions')
+    expect(audioTaskRequestPath('batch_transcribe')).toBe('/v1/batches/transcriptions')
+    expect(audioTaskRequestPath('gen')).toBe('/v1/tasks/run')
+    expect(audioTaskDefaultsKey('asr')).toBe('transcription_defaults')
+    expect(audioTaskBodyShape('align')).toBe('multipart-form')
+    expect(audioTaskBodyShape('vc')).toBe('tasks-run')
+    // Unknown task ids fall through to the generic route like the backend.
+    expect(audioTaskEndpoint('brand_new_task')).toBe('/audioapi/v1/tasks/run')
   })
 
   it('preserves engine input names without inventing conversion aliases', () => {

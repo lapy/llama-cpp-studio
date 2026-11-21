@@ -1,24 +1,31 @@
 <template>
-  <div v-if="hasContent" class="config-card">
-    <div class="section-label">{{ title }}</div>
-    <Message v-if="error" severity="error" :closable="false" class="config-scan-message">
-      {{ error }}
-    </Message>
-    <div v-for="clip in clips" :key="clip.id" class="task-audio-clip">
-      <div v-if="clip.label && clips.length > 1" class="section-hint">{{ clip.label }}</div>
-      <audio :src="clip.url" controls class="audio-player" />
-      <div class="audio-actions">
-        <Button
-          :label="downloadLabel(clip)"
-          icon="pi pi-download"
-          size="small"
-          severity="secondary"
-          outlined
-          @click="$emit('download', clip)"
-        />
+  <div
+    class="audio-result-region"
+    role="status"
+    aria-live="polite"
+    :aria-busy="loading ? 'true' : 'false'"
+  >
+    <div v-if="hasContent" class="config-card">
+      <div class="section-label">{{ title }}</div>
+      <Message v-if="error" severity="error" :closable="false" class="config-scan-message">
+        {{ error }}
+      </Message>
+      <div v-for="clip in clips" :key="clip.id" class="task-audio-clip">
+        <div v-if="clip.label && clips.length > 1" class="section-hint">{{ clip.label }}</div>
+        <audio :src="clip.url" controls class="audio-player" />
+        <div class="audio-actions">
+          <Button
+            :label="downloadLabel(clip)"
+            icon="pi pi-download"
+            size="small"
+            severity="secondary"
+            outlined
+            @click="$emit('download', clip)"
+          />
+        </div>
       </div>
+      <pre v-if="text" class="audio-transcript">{{ text }}</pre>
     </div>
-    <pre v-if="text" class="audio-transcript">{{ text }}</pre>
   </div>
 </template>
 
@@ -32,6 +39,7 @@ const props = defineProps({
   error: { type: String, default: '' },
   clips: { type: Array, default: () => [] },
   text: { type: String, default: '' },
+  loading: { type: Boolean, default: false },
 })
 
 defineEmits(['download'])
