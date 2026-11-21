@@ -20,6 +20,7 @@ from backend.engines.audio_cpp.integration import (
     operation_by_id,
     operation_for_native_path,
     operation_for_task,
+    operations,
     registry_descriptor,
     resolve_operation,
 )
@@ -212,6 +213,223 @@ class TestComposer:
         )
         assert descriptor["provenance"]["speech"] == "upstream"
         assert descriptor["upstream_contract"] is True
+
+
+class TestV095Surface:
+    """The documented v0.9.5 server surface is represented exactly once.
+
+    Citations are ``app/server/api.md`` at tag ``v0.9.5`` (plus the server
+    README for ``POST /v1/models/load``'s body) and live next to each registry
+    entry. These tests pin the table a reviewer checks against that document:
+    path, method, encodings, responses, error shape, task claims, and whether
+    Studio serves the route itself or only through /upstream.
+    """
+
+    EXPECTED = {
+        # id: (native_path, studio_path, method, encodings, responses, upstream_only)
+        "speech_live": (
+            "/v1/audio/speech/live",
+            "/v1/audio/speech/live",
+            "POST",
+            ["raw-pcm"],
+            ["sse-events"],
+            False,
+        ),
+        "transcriptions_live": (
+            "/v1/audio/transcriptions/live",
+            "/v1/audio/transcriptions/live",
+            "POST",
+            ["raw-pcm"],
+            ["sse-events"],
+            False,
+        ),
+        "models_load": (
+            "/v1/models/load",
+            "/v1/models/load",
+            "POST",
+            ["json"],
+            ["json"],
+            True,
+        ),
+        "tasks_stream": (
+            "/v1/tasks/stream",
+            "/v1/tasks/stream",
+            "POST",
+            ["json"],
+            ["json", "sse-events"],
+            True,
+        ),
+        "tasks_batch": (
+            "/v1/tasks/batch",
+            "/v1/tasks/batch",
+            "POST",
+            ["json"],
+            ["sse-events"],
+            True,
+        ),
+        "tasks_unload_models": (
+            "/v1/tasks/unload_models",
+            "/v1/tasks/unload_models",
+            "POST",
+            ["json"],
+            ["json"],
+            True,
+        ),
+        "tasks_unload_all_models": (
+            "/v1/tasks/unload_all_models",
+            "/v1/tasks/unload_all_models",
+            "POST",
+            [],
+            ["json"],
+            True,
+        ),
+        "recipes": ("/v1/recipes", "/v1/recipes", "GET", [], ["json"], True),
+        "recipes_run": (
+            "/v1/recipes/run",
+            "/v1/recipes/run",
+            "POST",
+            ["json"],
+            ["json", "sse-events"],
+            True,
+        ),
+    }
+
+    def test_every_documented_route_is_registered_exactly_once(self):
+        by_native = {op.native_path: op for op in operations()}
+        by_studio = {op.studio_path: op for op in operations()}
+        assert len(by_native) == len(operations())
+        assert len(by_studio) == len(operations())
+        for op_id, expected in self.EXPECTED.items():
+            op = operation_by_id(op_id)
+            assert op is not None, op_id
+            native, studio, method, encodings, responses, upstream_only = expected
+            assert op.native_path == native
+            assert op.studio_path == studio
+            assert op.method == method
+            assert list(op.encodings) == encodings
+            assert list(op.responses) == responses
+            assert op.upstream_only is upstream_only
+            assert op.provenance == "studio"
+            # A transport/management route must never claim a task.
+            assert op.serves_tasks == ()
+
+    def test_registry_still_serves_the_pre_v095_table(self):
+        assert {op.id for op in operations()} >= {
+            "speech",
+            "transcriptions",
+            "transcriptions_details",
+            "alignments",
+            "batch_transcriptions",
+            "voices",
+            "models",
+            "health",
+            "tasks_run",
+        }
+
+    def test_body_shapes_for_new_envelopes(self):
+        assert operation_by_id("tasks_stream").as_dict()["body_shape"] == "tasks-run"
+        assert operation_by_id("tasks_batch").as_dict()["body_shape"] == "tasks-batch"
+        assert operation_by_id("speech_live").as_dict()["body_shape"] == "raw-pcm"
+        assert operation_by_id("transcriptions_live").as_dict()["body_shape"] == "raw-pcm"
+        # Management/metadata routes fall back to the flat-JSON schema shape.
+        assert operation_by_id("tasks_unload_models").as_dict()["body_shape"] == "openai-json"
+        assert operation_by_id("recipes").as_dict()["body_shape"] == "openai-json"
+
+    def test_defaults_keys_are_deterministic_for_new_operations(self):
+        # Both generic transports take the tasks/run request vocabulary.
+        assert defaults_key_for(operation_by_id("tasks_stream")) == "task_defaults"
+        assert defaults_key_for(operation_by_id("tasks_batch")) == "task_defaults"
+        # Everything else inherits the documented schema fallback, not a claim
+        # that the route persists defaults.
+        for op_id in (
+            "speech_live",
+            "transcriptions_live",
+            "models_load",
+            "tasks_unload_models",
+            "tasks_unload_all_models",
+            "recipes",
+            "recipes_run",
+        ):
+            assert defaults_key_for(operation_by_id(op_id)) == "task_defaults"
+
+    def test_task_routing_is_unchanged_and_new_routes_never_claim_tasks(self):
+        descriptor = compose_version_contract(_caps_from_loaders(V091_LIST_LOADERS_JSON))
+        assert descriptor["task_routing"] == {
+            "tts": "speech",
+            "vdes": "speech",
+            "clon": "speech",
+            "asr": "transcriptions",
+            "stt": "transcriptions",
+            "transcribe_details": "transcriptions_details",
+            "align": "alignments",
+            "alignment": "alignments",
+            "batch_transcribe": "batch_transcriptions",
+            "vc": "tasks_run",
+            "svc": "tasks_run",
+            "s2s": "tasks_run",
+            "vad": "tasks_run",
+            "diar": "tasks_run",
+            "sep": "tasks_run",
+            "gen": "tasks_run",
+            "spk": "tasks_run",
+            "midi": "tasks_run",
+            "turn": "tasks_run",
+            "wake": "tasks_run",
+            "cls": "tasks_run",
+        }
+        v095_ids = set(self.EXPECTED)
+        assert not v095_ids & set(descriptor["task_routing"].values())
+        ids = {op["id"] for op in descriptor["operations"]}
+        assert v095_ids <= ids
+        assert all(descriptor["provenance"][op_id] == "studio" for op_id in v095_ids)
+
+    def test_resolution_honors_generic_stream_but_never_live_or_management(self):
+        # A family advertising the streaming generic route gets that operation;
+        # it takes the same request envelope as tasks/run.
+        assert resolve_operation(preferred_api_endpoint="/v1/tasks/stream").id == "tasks_stream"
+        assert resolve_operation(family_endpoints=["tasks/stream"]).id == "tasks_stream"
+        # Transport variants and management routes are not model surfaces.
+        for endpoint in (
+            "/v1/audio/speech/live",
+            "/v1/audio/transcriptions/live",
+            "/v1/tasks/batch",
+            "/v1/tasks/unload_models",
+            "/v1/tasks/unload_all_models",
+            "/v1/recipes",
+            "/v1/recipes/run",
+            "/v1/models/load",
+        ):
+            assert resolve_operation(preferred_api_endpoint=endpoint).id == "tasks_run", endpoint
+        assert operation_for_task("vc").id == "tasks_run"
+
+    def test_native_path_lookup_and_validation_for_new_routes(self):
+        for op_id, expected in self.EXPECTED.items():
+            native = expected[0]
+            assert operation_for_native_path(native).id == op_id
+            assert is_native_api_path(native) is True
+        assert is_native_api_path("/v1/tasks/../unload_models") is False
+        assert is_native_api_path("/v1/recipes?x=1") is False
+        assert is_generic_route("/v1/tasks/stream") is True
+        assert is_generic_route("/v1/audio/speech/live") is False
+
+    def test_advertised_new_route_is_not_drift(self):
+        from backend.engines.scan.help_parsers import parse_audio_cpp_loaders_json
+
+        caps = parse_audio_cpp_loaders_json(
+            {
+                "loaders": [
+                    {
+                        "family": "future_v095",
+                        "tasks": [{"id": "vc"}],
+                        "api_endpoints": ["/v1/tasks/stream"],
+                    }
+                ],
+            }
+        )
+        descriptor = compose_version_contract(caps)
+        assert descriptor["drift_warnings"] == []
+        assert descriptor["family_routing"]["future_v095"]["operation_id"] == "tasks_stream"
+        assert descriptor["family_routing"]["future_v095"]["studio_path"] == "/v1/tasks/stream"
 
 
 class TestActivationGate:
