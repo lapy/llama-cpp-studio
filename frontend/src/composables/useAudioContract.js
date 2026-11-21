@@ -9,6 +9,7 @@ import { sessionFetch } from '@/api/sessionFetch.js'
  */
 
 export const AUDIO_CONTRACT_SCHEMA = 'audio-cpp.studio-contract/v0'
+export const AUDIO_CONTRACT_PATH = '/api/audio-cpp/contract'
 
 /**
  * The only offline facts kept on the client: Studio's generic task route and
@@ -28,33 +29,110 @@ export const OFFLINE_AUDIO_CONTRACT = {
   engine_version: '',
 }
 
-export const audioContract = ref({ ...OFFLINE_AUDIO_CONTRACT })
+/** Fresh mutable copy of the offline floor (refs must never share tables). */
+function offlineContract() {
+  return {
+    ...OFFLINE_AUDIO_CONTRACT,
+    defaults_keys: { ...OFFLINE_AUDIO_CONTRACT.defaults_keys },
+    task_routing: {},
+    operations: [],
+    family_routing: {},
+    drift_warnings: [],
+  }
+}
+
+export const audioContract = ref(offlineContract())
 export const audioContractLoaded = ref(false)
 export const audioContractError = ref('')
+/** HTTP status of the last contract load (0 = transport/network failure). */
+export const audioContractStatus = ref(0)
+/** True when a 200 response carried a schema this client does not implement. */
+export const audioContractSchemaMismatch = ref(false)
+/** Schema string the server actually sent, for the mismatch message. */
+export const audioContractSchema = ref('')
 
 let inflight = null
+let requestSequence = 0
 
-/** Fetch (or reuse) the composed contract for the active engine version. */
+/** Test/support hook: drop every module-level singleton back to the floor. */
+export function resetAudioContract() {
+  requestSequence += 1
+  inflight = null
+  audioContract.value = offlineContract()
+  audioContractLoaded.value = false
+  audioContractError.value = ''
+  audioContractStatus.value = 0
+  audioContractSchemaMismatch.value = false
+  audioContractSchema.value = ''
+}
+
+/**
+ * Fetch (or reuse) the composed contract for the active engine version.
+ *
+ * A forced refetch intentionally resets the composed tables before the network
+ * round-trip: after an engine/model change a previous version's task_routing
+ * must never answer, even if the new request fails. A failed load also leaves
+ * the offline floor (never the previous payload) behind.
+ */
 export async function fetchAudioContract({ force = false } = {}) {
   if (inflight && !force) return inflight
+
+  if (force) {
+    audioContract.value = offlineContract()
+    audioContractLoaded.value = false
+    audioContractError.value = ''
+    audioContractStatus.value = 0
+    audioContractSchemaMismatch.value = false
+    audioContractSchema.value = ''
+  }
+
+  const sequence = ++requestSequence
   const request = (async () => {
     try {
-      const response = await sessionFetch('/api/audio-cpp/contract', {
+      const response = await sessionFetch(AUDIO_CONTRACT_PATH, {
         headers: { Authorization: 'Bearer local' },
       })
       if (!response.ok) {
         const payload = await response.json().catch(() => null)
-        throw new Error(payload?.detail || `HTTP ${response.status}`)
+        const error = new Error(payload?.detail || `HTTP ${response.status}`)
+        error.status = response.status
+        throw error
       }
       const data = await response.json()
-      audioContract.value = { ...OFFLINE_AUDIO_CONTRACT, ...data }
-      audioContractError.value = ''
+      const schema = typeof data?.schema === 'string' ? data.schema : ''
+      if (schema !== AUDIO_CONTRACT_SCHEMA) {
+        if (sequence === requestSequence) {
+          audioContract.value = offlineContract()
+          audioContractLoaded.value = false
+          audioContractStatus.value = response.status || 200
+          audioContractSchemaMismatch.value = true
+          audioContractSchema.value = schema
+          audioContractError.value =
+            `Audio contract schema mismatch: expected ${AUDIO_CONTRACT_SCHEMA}, ` +
+            `received ${schema || '(none)'}.`
+        }
+        return audioContract.value
+      }
+      if (sequence !== requestSequence) return audioContract.value
+      audioContract.value = { ...offlineContract(), ...data, schema }
       audioContractLoaded.value = true
+      audioContractError.value = ''
+      audioContractStatus.value = response.status || 200
+      audioContractSchemaMismatch.value = false
+      audioContractSchema.value = schema
       return audioContract.value
     } catch (error) {
-      // 409 = no active modern engine yet; keep the offline table so forms can
-      // render defaults, and surface the update prompt via the error text.
-      audioContractError.value = error?.message || String(error)
+      // 409 = no active modern engine yet; network/5xx = capability discovery
+      // failed. Both keep the offline floor so forms can still render
+      // defaults, but the status is preserved so callers can say which.
+      if (sequence === requestSequence) {
+        audioContract.value = offlineContract()
+        audioContractLoaded.value = false
+        audioContractError.value = error?.message || String(error)
+        audioContractStatus.value = Number(error?.status) || 0
+        audioContractSchemaMismatch.value = false
+        audioContractSchema.value = ''
+      }
       return audioContract.value
     } finally {
       if (inflight === request) inflight = null
@@ -78,13 +156,46 @@ export function audioOperationForTask(task) {
     .toLowerCase()
   const byId = operationsBy()
   const opId = key ? (contract.task_routing || {})[key] : null
-  return (opId && byId.get(opId)) || byId.get('tasks_run') || null
+  let operation = opId ? byId.get(opId) : null
+  if (!operation && key) {
+    // ``task_routing`` is the primary table, but operations still carry their
+    // own ``serves_tasks`` claims (composer merges both); honor those if a
+    // payload ships a partial routing map.
+    operation =
+      (contract.operations || []).find((candidate) =>
+        (candidate.serves_tasks || []).some(
+          (servedTask) => String(servedTask).trim().toLowerCase() === key,
+        ),
+      ) || null
+  }
+  return operation || byId.get('tasks_run') || null
 }
 
 /** Public (Studio proxy) endpoint a task's requests go to. */
 export function audioTaskEndpoint(task) {
   const op = audioOperationForTask(task)
   return op?.studio_path || audioContract.value.generic_studio_path
+}
+
+/**
+ * Same-origin management path for a contract ``studio_path``.
+ *
+ * Contract paths describe the Studio proxy dataplane, where ``/audioapi`` is
+ * stripped before forwarding (backend/proxy/studio/dataplane.py). The browser
+ * talks to the management origin instead: backend/main.py mounts the generic
+ * task route as ``/tasks/run`` under ``/v1`` and the audio routes under
+ * ``/v1/audio``. Only the dataplane-only ``/audioapi`` prefix is rewritten;
+ * every other contract path is already a management path.
+ */
+export function managementAudioPath(endpoint) {
+  const value = String(endpoint || '').trim()
+  if (value.startsWith('/audioapi/')) return value.slice('/audioapi'.length)
+  return value
+}
+
+/** Browser-safe management path a task's requests go to. */
+export function audioTaskRequestPath(task) {
+  return managementAudioPath(audioTaskEndpoint(task))
 }
 
 /** Studio-persistence defaults bucket for a task's serving operation. */

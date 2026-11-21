@@ -41,7 +41,7 @@ for (const theme of ['dark', 'light']) {
     await page.setViewportSize({ width: 1440, height: 1000 })
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await page.addInitScript((value) => localStorage.setItem('theme', value), theme)
-    await installWorkspaceApi(page)
+    await installWorkspaceApi(page, { audio: true })
     for (const path of [
       '/models',
       '/search',
@@ -166,7 +166,7 @@ test('touch layouts retain minimum target sizes and reflow at 320 CSS pixels', a
   })
   const page = await context.newPage()
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await installWorkspaceApi(page)
+  await installWorkspaceApi(page, { audio: true })
   try {
     for (const theme of ['dark', 'light']) {
       await page.addInitScript((value) => localStorage.setItem('theme', value), theme)

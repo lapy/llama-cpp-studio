@@ -446,6 +446,9 @@ export const SGLANG_RUNTIME_OPTIONS = Object.freeze([
 /** Audio config-panel family; no view compares an engine id by hand. */
 export const AUDIO_ENGINE_IDS = byField('configPanel', 'audio')
 
+/** Canonical engine whose single Audio workspace Studio renders today. */
+export const DEFAULT_AUDIO_ENGINE_ID = AUDIO_ENGINE_IDS[0]
+
 /** Shared installer-panel family (SglangEnginePanel/store trio) — includes vllm. */
 export const SG_PANEL_ENGINE_IDS = byField('panelFamily', 'sglang')
 

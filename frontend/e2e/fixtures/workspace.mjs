@@ -1,9 +1,12 @@
 import {
   accessState,
+  audioContract,
+  AUDIO_CONTRACT_PATH,
   audioModelConfig,
   audioVoices,
   configHistory,
   createdInferenceKey,
+  engineDescriptors,
   inferenceKeyFromRequest,
   inferenceKeys,
   inferenceKeysResponse,
@@ -22,7 +25,7 @@ import {
 
 export async function installWorkspaceApi(
   page,
-  { bridgeOrigin, remote = false, key = 'sk-studio-copy-probe' } = {},
+  { bridgeOrigin, remote = false, key = 'sk-studio-copy-probe', audio = false } = {},
 ) {
   const keys = inferenceKeys()
   await page.route('**/*', async (route) => {
@@ -60,6 +63,10 @@ export async function installWorkspaceApi(
       })
     if (path === '/api/access') data = accessState({ remote })
     else if (path === '/api/status') data = workspaceStatus()
+    // Opt-in only: descriptor-driven engine options would hide the llama.cpp
+    // fixture from unrelated ModelConfig journeys, so keep this stub partial.
+    else if (audio && path === '/api/engines') data = engineDescriptors()
+    else if (audio && path === AUDIO_CONTRACT_PATH) data = audioContract()
     else if (path === '/api/models') data = modelCatalog()
     else if (path === '/api/models/param-registry') data = paramRegistry()
     else if (path.endsWith('/reference-audio')) data = referenceAudio()

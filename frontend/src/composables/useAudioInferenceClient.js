@@ -1,22 +1,44 @@
 import { sessionFetch } from '@/api/sessionFetch.js'
-import { audioEndpointIsGeneric } from '@/composables/useAudioContract.js'
+import { audioTaskBodyShape, audioTaskRequestPath } from '@/composables/useAudioContract.js'
 
 /**
  * Audio inference through the Studio origin. Studio handles transport and
  * format compatibility; audio.cpp owns request semantics and model behavior.
  *
  * Route/endpoint/defaults-key facts come from the composed integration
- * contract (``useAudioContract``); this module only moves bytes. The single
- * literal kept here is Studio's own tasks-run mount point, not engine knowledge.
+ * contract (``useAudioContract``); this module only moves bytes and builds the
+ * body shape the contract assigns to the serving operation. The only literal
+ * kept here is the UI task→tab presentation map at the bottom, which is not a
+ * transport route.
  */
 
-/** Studio's own generic-task route suffix (audio proxy router mounts it under /v1). */
-const STUDIO_TASKS_RUN_SUFFIX = '/tasks/run'
 const SPEECH_RATE_KEYS = ['speed', 'speaking_rate']
 
-/** True when a policy endpoint is the generic tasks/run surface (contract-derived). */
-export function isGenericTaskEndpoint(endpoint) {
-  return audioEndpointIsGeneric(endpoint)
+/** Absolute Studio-origin URL for a browser-safe management path. */
+function studioRequestUrl(path) {
+  const value = String(path || '')
+  if (/^https?:\/\//i.test(value)) return value
+  const origin =
+    typeof window !== 'undefined' && window.location?.origin ? window.location.origin : ''
+  return `${origin}${value.startsWith('/') ? value : `/${value}`}`
+}
+
+/**
+ * Resolve the browser/management path for a task and require the body shape
+ * this caller knows how to produce. With no contract loaded the offline floor
+ * says ``tasks-run``, so speech/transcription callers fail loudly instead of
+ * posting a body the generic route would misinterpret.
+ */
+function contractEndpointFor(task, bodyShape, action) {
+  const requestPath = audioTaskRequestPath(task)
+  const actual = audioTaskBodyShape(task)
+  if (actual !== bodyShape) {
+    throw new Error(
+      `${action} needs the audio.cpp integration contract ` +
+        `(expected ${bodyShape}, got ${actual} from ${requestPath}). Reload capabilities.`,
+    )
+  }
+  return requestPath
 }
 
 /** Request-option keys the model scan advertised as speed controls. */
@@ -69,17 +91,6 @@ export function studioAudioBaseUrl() {
   return '/v1/audio'
 }
 
-/** Same host as the Studio UI, with the configured Studio proxy proxy port. */
-export function nativeProxyBaseUrl(proxyPort) {
-  const port = Number(proxyPort)
-  const resolved = Number.isFinite(port) && port > 0 ? port : 2000
-  if (typeof window !== 'undefined' && window.location?.hostname) {
-    const protocol = window.location.protocol || 'http:'
-    return `${protocol}//${window.location.hostname}:${resolved}`
-  }
-  return `http://localhost:${resolved}`
-}
-
 /**
  * Normalize Studio/workspace bodies to audio.cpp ``request`` object fields.
  */
@@ -119,17 +130,25 @@ async function readErrorDetail(response) {
 }
 
 /**
- * POST /v1/audio/speech — returns { blob, contentType }
+ * POST the contract's speech route — returns { blob, contentType }
  */
-export async function synthesizeSpeech({ modelId, input, voice, extras = {}, signal } = {}) {
+export async function synthesizeSpeech({
+  task = 'tts',
+  modelId,
+  input,
+  voice,
+  extras = {},
+  signal,
+} = {}) {
   const body = {
     model: modelId,
     input,
     ...extras,
   }
   if (voice != null && voice !== '') body.voice = voice
+  const endpoint = contractEndpointFor(task, 'openai-json', 'Speech synthesis')
 
-  const response = await sessionFetch(`${studioAudioBaseUrl()}/speech`, {
+  const response = await sessionFetch(studioRequestUrl(endpoint), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -244,6 +263,7 @@ async function readSpeechSseStream(response, { onAudio, onText, onTiming } = {})
  * wav Blob assembled from the same buffers.
  */
 export async function streamSpeech({
+  task = 'tts',
   modelId,
   input,
   voice,
@@ -270,8 +290,9 @@ export async function streamSpeech({
   if (voiceRef != null && voiceRef !== '') body.voice_ref = voiceRef
   if (referenceText != null && referenceText !== '') body.reference_text = referenceText
   if (returnText) body.return_text = true
+  const endpoint = contractEndpointFor(task, 'openai-json', 'Streaming speech')
 
-  const response = await sessionFetch(`${studioAudioBaseUrl()}/speech`, {
+  const response = await sessionFetch(studioRequestUrl(endpoint), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -326,9 +347,10 @@ export function pcmToWavBlob(pcm, { sampleRate = 24000, channels = 1, bitsPerSam
 }
 
 /**
- * POST /v1/audio/transcriptions (multipart) — returns parsed JSON or { text }
+ * POST the contract's transcription route (multipart) — returns parsed JSON or { text }
  */
 export async function transcribeAudio({
+  task = 'asr',
   modelId,
   file,
   filename,
@@ -348,8 +370,9 @@ export async function transcribeAudio({
     form.append(key, typeof value === 'string' ? value : String(value))
   }
 
-  const endpoint = details ? 'transcriptions/details' : 'transcriptions'
-  const response = await sessionFetch(`${studioAudioBaseUrl()}/${endpoint}`, {
+  const servingTask = details ? 'transcribe_details' : task
+  const endpoint = contractEndpointFor(servingTask, 'multipart-form', 'Transcription')
+  const response = await sessionFetch(studioRequestUrl(endpoint), {
     method: 'POST',
     headers: {
       Authorization: 'Bearer local',
@@ -406,11 +429,16 @@ export function parseBatchTranscriptionPayload(contentType, bodyText) {
       if (!line.startsWith('data:')) continue
       const data = line.slice(5).trim()
       if (!data || data === '[DONE]') continue
+      let event
       try {
-        events.push(JSON.parse(data))
+        event = JSON.parse(data)
       } catch {
-        events.push({ text: data })
+        event = { text: data }
       }
+      // The native batch route ends with batch.transcription.done (aggregate
+      // timing, no result); it is not a transcription row.
+      if (typeof event?.type === 'string' && event.type.endsWith('.done')) continue
+      events.push(event)
     }
     if (events.length) return { results: events.map(batchItem) }
   }
@@ -418,10 +446,17 @@ export function parseBatchTranscriptionPayload(contentType, bodyText) {
 }
 
 /**
- * POST /v1/batches/transcriptions — one multipart request, up to 32 files.
- * Returns { results: [{ name, text }], text? }.
+ * POST the contract's native batch transcription route — one multipart request,
+ * up to 32 files. Returns { results: [{ name, text }], text? }.
  */
-export async function transcribeAudioBatch({ modelId, files, language, prompt, signal } = {}) {
+export async function transcribeAudioBatch({
+  task = 'batch_transcribe',
+  modelId,
+  files,
+  language,
+  prompt,
+  signal,
+} = {}) {
   const list = Array.from(files || []).filter(Boolean)
   if (!list.length) throw new Error('Choose at least one audio file.')
   if (list.length > 32) throw new Error('Batch transcription accepts at most 32 files.')
@@ -432,10 +467,9 @@ export async function transcribeAudioBatch({ modelId, files, language, prompt, s
   }
   if (language) form.append('language', language)
   if (prompt) form.append('prompt', prompt)
+  const endpoint = contractEndpointFor(task, 'multipart-form', 'Batch transcription')
 
-  const origin =
-    typeof window !== 'undefined' && window.location?.origin ? window.location.origin : ''
-  const response = await sessionFetch(`${origin}/v1/batches/transcriptions`, {
+  const response = await sessionFetch(studioRequestUrl(endpoint), {
     method: 'POST',
     headers: { Authorization: 'Bearer local' },
     body: form,
@@ -464,7 +498,8 @@ export async function alignAudio({ modelId, file, text, language, signal } = {})
   form.append('file', file, file.name || 'audio.wav')
   form.append('text', text)
   if (language) form.append('language', language)
-  const response = await sessionFetch(`${studioAudioBaseUrl()}/alignments`, {
+  const endpoint = contractEndpointFor('align', 'multipart-form', 'Forced alignment')
+  const response = await sessionFetch(studioRequestUrl(endpoint), {
     method: 'POST',
     headers: { Authorization: 'Bearer local' },
     body: form,
@@ -474,26 +509,53 @@ export async function alignAudio({ modelId, file, text, language, signal } = {})
   return response.json()
 }
 
-/**
- * POST Studio /v1/tasks/run with audio.cpp ``{model, request}``.
- */
-export async function runAudioTask({ modelId, input = {}, busyTimeoutMs, signal } = {}) {
-  const request = tasksRunRequestObject(input)
-  const body = { model: modelId, request }
-  if (busyTimeoutMs != null) body.busy_timeout_ms = busyTimeoutMs
+function appendMultipartValue(form, key, value) {
+  if (value == null || value === '') return
+  if (Array.isArray(value)) {
+    for (const item of value) appendMultipartValue(form, key, item)
+    return
+  }
+  if (typeof Blob !== 'undefined' && value instanceof Blob) {
+    form.append(key, value, value.name || key)
+    return
+  }
+  form.append(key, typeof value === 'object' ? JSON.stringify(value) : String(value))
+}
 
-  const response = await sessionFetch(
-    `${studioAudioBaseUrl().replace(/\/audio$/, '')}${STUDIO_TASKS_RUN_SUFFIX}`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer local',
-      },
-      body: JSON.stringify(body),
-      signal,
-    },
-  )
+/**
+ * POST the operation the contract routes ``task`` to. The operation's
+ * ``body_shape`` decides the envelope: generic tasks keep audio.cpp's
+ * ``{model, request}`` object, OpenAI-shaped operations send flat JSON, and
+ * multipart operations send FormData. No task→route table lives here.
+ */
+export async function runAudioTask({ modelId, task, input = {}, busyTimeoutMs, signal } = {}) {
+  const endpoint = audioTaskRequestPath(task)
+  const shape = audioTaskBodyShape(task)
+  const request = tasksRunRequestObject(input)
+  let headers = { Authorization: 'Bearer local' }
+  let body
+
+  if (shape === 'multipart-form') {
+    const form = new FormData()
+    form.append('model', modelId)
+    for (const [key, value] of Object.entries(request)) appendMultipartValue(form, key, value)
+    body = form
+  } else if (shape === 'openai-json') {
+    headers = { ...headers, 'Content-Type': 'application/json' }
+    body = JSON.stringify({ model: modelId, ...request })
+  } else {
+    const envelope = { model: modelId, request }
+    if (busyTimeoutMs != null) envelope.busy_timeout_ms = busyTimeoutMs
+    headers = { ...headers, 'Content-Type': 'application/json' }
+    body = JSON.stringify(envelope)
+  }
+
+  const response = await sessionFetch(studioRequestUrl(endpoint), {
+    method: 'POST',
+    headers,
+    body,
+    signal,
+  })
   if (!response.ok) {
     throw new Error(await readErrorDetail(response))
   }
@@ -504,6 +566,13 @@ export async function runAudioTask({ modelId, input = {}, busyTimeoutMs, signal 
   return { blob: await response.blob(), contentType }
 }
 
+/**
+ * UI presentation only: which workspace tab a configured task opens. Route
+ * selection never reads this table; it is the last-resort offline mapping for
+ * known task names when no composed contract is loaded. With a contract, the
+ * serving operation id decides between Speech/Transcribe/Analyze and the
+ * schema-driven generic task form.
+ */
 export function taskKindFromConfig(config = {}) {
   const task = String(config.task || '').toLowerCase()
   if (['asr', 'stt', 'transcription'].includes(task)) return 'transcribe'

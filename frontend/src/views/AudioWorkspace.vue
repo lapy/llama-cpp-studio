@@ -56,6 +56,22 @@
       <Button label="Retry" icon="pi pi-refresh" @click="refreshWorkspace" />
     </EmptyState>
     <EmptyState
+      v-else-if="audioEngineDisabled"
+      icon="pi pi-power-off"
+      title="audio.cpp is disabled"
+      description="The audio.cpp engine is turned off by the AUDIO_CPP_ENABLED server setting. Enable it and restart Studio before installing audio models."
+    >
+      <Button label="Open Engines" icon="pi pi-cog" @click="$router.push('/engines')" />
+    </EmptyState>
+    <EmptyState
+      v-else-if="audioEngineMissing"
+      icon="pi pi-exclamation-circle"
+      title="audio.cpp engine unavailable"
+      description="This Studio build does not expose an audio.cpp engine. Enable or install audio.cpp on the Engines page before adding audio models."
+    >
+      <Button label="Open Engines" icon="pi pi-cog" @click="$router.push('/engines')" />
+    </EmptyState>
+    <EmptyState
       v-else-if="!audioModels.length"
       icon="pi pi-volume-up"
       title="No audio.cpp models installed"
@@ -80,9 +96,24 @@
         }}<Button label="Retry configuration" size="small" @click="refreshWorkspace" />
       </div>
       <div v-if="contractError" class="state-banner" role="alert">
-        {{ contractError
-        }}<Button label="Retry capabilities" size="small" @click="loadWorkspaceData(true)" />
+        {{ contractError }}
+        <Button label="Retry capabilities" size="small" @click="loadWorkspaceData(true)" />
       </div>
+      <details v-if="driftWarnings.length" class="state-banner contract-drift" role="status">
+        <summary>Engine contract drift ({{ driftWarnings.length }})</summary>
+        <ul>
+          <li v-for="(warning, index) in driftWarnings" :key="`drift-${index}`">{{ warning }}</li>
+        </ul>
+      </details>
+      <Message
+        v-if="contractValidationHint"
+        severity="info"
+        :closable="false"
+        role="status"
+        class="config-scan-message"
+      >
+        {{ contractValidationHint }}
+      </Message>
       <div v-if="referenceAudioError" class="state-banner" role="alert">
         {{ referenceAudioError
         }}<Button
@@ -106,6 +137,12 @@
           <code v-if="inferenceModelId" class="param-key-hint" :title="'API model id'">{{
             inferenceModelId
           }}</code>
+          <code
+            v-if="contractEngineVersion"
+            class="param-key-hint"
+            data-testid="audio-engine-version"
+            >audio.cpp {{ contractEngineVersion }}</code
+          >
         </div>
         <p v-if="needsReferenceHint" class="config-muted-hint audio-model-hint">
           <span v-if="!referenceAudioOptions.length">No reference audio yet.</span>
@@ -145,7 +182,7 @@
           class="config-section-tab"
           :class="{ selected: activeTab === tab.id }"
           :aria-selected="activeTab === tab.id"
-          :aria-controls="`audio-panel-${tab.id}`"
+          :aria-controls="activeTab === tab.id ? `audio-panel-${tab.id}` : undefined"
           :tabindex="activeTab === tab.id ? 0 : -1"
           @click="activeTab = tab.id"
           @keydown="onRovingTabKeydown"
@@ -253,6 +290,15 @@
               @click="runSpeech"
             />
             <Button
+              v-if="speechLoading"
+              label="Cancel"
+              icon="pi pi-stop"
+              size="small"
+              severity="secondary"
+              outlined
+              @click="cancelSpeech"
+            />
+            <Button
               label="Edit defaults"
               icon="pi pi-cog"
               size="small"
@@ -265,6 +311,7 @@
         <AudioResultPanel
           :error="speechError"
           :clips="resultAudioClips"
+          :loading="speechLoading"
           @download="onDownloadClip"
         />
         <p v-if="speechStreamTiming" class="config-muted-hint">{{ speechStreamTiming }}</p>
@@ -293,7 +340,7 @@
               type="file"
               multiple
               accept="audio/*,.wav,.ogg,.opus,.mp3,.webm,.m4a"
-              class="audio-file-input"
+              class="sr-only"
               @change="onAsrFile"
             />
             <div class="audio-actions audio-actions--flush">
@@ -311,6 +358,7 @@
                 size="small"
                 severity="secondary"
                 outlined
+                :aria-pressed="recording ? 'true' : 'false'"
                 @click="toggleRecord"
               />
             </div>
@@ -356,9 +404,24 @@
               :disabled="!canRun || !asrFiles.length"
               @click="runAsr"
             />
+            <Button
+              v-if="asrLoading"
+              label="Cancel"
+              icon="pi pi-stop"
+              size="small"
+              severity="secondary"
+              outlined
+              @click="cancelAsr"
+            />
           </div>
         </div>
-        <div v-if="asrError || asrText || asrBatchResults.length" class="config-card">
+        <div
+          v-if="asrError || asrText || asrBatchResults.length || asrLoading"
+          class="config-card"
+          role="status"
+          aria-live="polite"
+          :aria-busy="asrLoading ? 'true' : 'false'"
+        >
           <div class="section-label">Transcript</div>
           <Message v-if="asrError" severity="error" :closable="false" class="config-scan-message">
             {{ asrError }}
@@ -411,9 +474,23 @@
               :disabled="!canRunTask"
               @click="runSchemaTask"
             />
+            <Button
+              v-if="taskLoading"
+              label="Cancel"
+              icon="pi pi-stop"
+              size="small"
+              severity="secondary"
+              outlined
+              @click="cancelTask"
+            />
           </div>
         </div>
-        <AudioResultPanel :error="taskError" :clips="resultAudioClips" @download="onDownloadClip" />
+        <AudioResultPanel
+          :error="taskError"
+          :clips="resultAudioClips"
+          :loading="taskLoading"
+          @download="onDownloadClip"
+        />
         <pre v-if="taskResult" class="audio-transcript">{{ taskResult }}</pre>
       </div>
     </template>
@@ -444,9 +521,9 @@ import { requireSingleConfirmation } from '@/composables/singleConfirm'
 import { withheldConfirmation } from '@/composables/actionConfirmation'
 import { useModelStore } from '@/stores/models'
 import { useEnginesStore } from '@/stores/engines'
+import { DEFAULT_AUDIO_ENGINE_ID } from '@/engines/registry'
 import {
   audioInferenceModelId,
-  isGenericTaskEndpoint,
   extractAudioClipsFromTaskResult,
   acceptedSpeechRateKeys,
   fetchAudioVoices,
@@ -459,8 +536,11 @@ import {
   runAudioTask,
 } from '@/composables/useAudioInferenceClient'
 import {
-  audioTaskDefaultsKey,
+  audioContract,
   audioContractError,
+  audioEndpointIsGeneric,
+  audioOperationForTask,
+  audioTaskDefaultsKey,
   fetchAudioContract,
 } from '@/composables/useAudioContract'
 
@@ -486,6 +566,17 @@ const workspaceError = ref('')
 const configError = ref('')
 const contractError = ref('')
 const referenceAudioError = ref('')
+const engineDescriptorsLoaded = ref(false)
+const audioEngineDescriptor = computed(
+  () =>
+    (enginesStore.engineDescriptors || []).find(
+      (engine) => engine.id === DEFAULT_AUDIO_ENGINE_ID,
+    ) || null,
+)
+const audioEngineDisabled = computed(() => audioEngineDescriptor.value?.enabled === false)
+const audioEngineMissing = computed(
+  () => engineDescriptorsLoaded.value && !audioEngineDescriptor.value,
+)
 const selectedRuntimeState = computed(() => modelRuntimeState(selectedModel.value))
 const bootLoading = ref(true)
 const refreshing = ref(false)
@@ -513,6 +604,9 @@ const referenceUploadInput = ref(null)
 const REFERENCE_AUDIO_MAX_BYTES = 60 * 1024 * 1024
 const engineVoices = ref([])
 let voicesController = null
+let disposed = false
+/** One controller per inference surface; Cancel aborts the current run. */
+const runControllers = { speech: null, asr: null, task: null }
 
 const asrFiles = ref([])
 const asrFileInput = ref(null)
@@ -526,6 +620,7 @@ const asrDetails = ref(false)
 const asrMetadata = ref('')
 const recording = ref(false)
 let mediaRecorder = null
+let recordStream = null
 let recordChunks = []
 
 const modelRegistry = ref(null)
@@ -631,15 +726,117 @@ const referenceAudioOptions = computed(() =>
   })),
 )
 
-const modelKind = computed(() => {
-  const kind = taskKindFromConfig(selectedConfig.value || {})
-  // The composed contract decides the serving route; a speech/asr-labelled task
-  // whose operation resolves to tasks_run gets the schema-driven task form.
+const contractEngineVersion = computed(() =>
+  String(audioContract.value.engine_version || '').trim(),
+)
+
+const driftWarnings = computed(() =>
+  (audioContract.value.drift_warnings || []).map((warning) => String(warning)).filter(Boolean),
+)
+
+function versionParts(value) {
+  return String(value || '')
+    .trim()
+    .replace(/^v/i, '')
+    .split(/[.+-]/)
+    .map((part) => {
+      const parsed = Number.parseInt(part, 10)
+      return Number.isFinite(parsed) ? parsed : 0
+    })
+}
+
+/**
+ * Compatibility workstream may add ``validated_through`` / ``engine_supported``
+ * to the contract. When it does, a newer engine is a hint, never a block: the
+ * payload still drives routing and the engine still runs.
+ */
+const engineNewerThanValidated = computed(() => {
+  const contract = audioContract.value
+  if (contract.engine_supported === false) return true
+  if (!contract.validated_through) return false
+  const engine = versionParts(contract.engine_version)
+  const validated = versionParts(contract.validated_through)
+  const length = Math.max(engine.length, validated.length)
+  for (let index = 0; index < length; index += 1) {
+    const enginePart = engine[index] || 0
+    const validatedPart = validated[index] || 0
+    if (enginePart !== validatedPart) return enginePart > validatedPart
+  }
+  return false
+})
+
+const contractValidationHint = computed(() => {
+  if (!engineNewerThanValidated.value) return ''
+  const contract = audioContract.value
+  const engine = contract.engine_version || 'The active engine'
+  const validated = contract.validated_through
+    ? ` Studio validated the contract through ${contract.validated_through}.`
+    : ''
+  return `audio.cpp ${engine} is newer than the contract Studio validated.${validated} Some controls may be incomplete; the engine still runs.`
+})
+
+const configuredTask = computed(() =>
+  String(selectedConfig.value?.task || '')
+    .trim()
+    .toLowerCase(),
+)
+
+/**
+ * Tab presentation for a configured task. Dedicated contract operations map a
+ * task to Speech/Transcribe/Analyze, but UI-only generic surfaces (Music,
+ * Convert, Separate, Design) keep their schema-driven forms because the
+ * contract has no operation that renders their request fields. Without a
+ * contract this is the last-resort offline map.
+ */
+function workspaceKindForOperation(operationId, task) {
+  const presentation = taskKindFromConfig({ task })
+  if (!operationId) return presentation
+  if (['music', 'convert', 'separate', 'analyze', 'design'].includes(presentation)) {
+    return presentation
+  }
+  if (operationId === 'speech') return 'speech'
+  if (['transcriptions', 'transcriptions_details', 'batch_transcriptions'].includes(operationId)) {
+    return 'transcribe'
+  }
+  if (operationId === 'alignments') return 'analyze'
+  if (operationId === 'tasks_run') {
+    // A per-model policy can force a speech/ASR task through tasks/run.
+    return ['speech', 'transcribe'].includes(presentation) ? 'task' : presentation
+  }
+  // A contract operation Studio has no dedicated form for: render the
+  // schema-driven task form instead of guessing at a surface.
+  return 'task'
+}
+
+const modelOperationId = computed(() => {
   const policy = modelRegistry.value?.request_policy || null
-  const generic = policy
-    ? policy.operation_id === 'tasks_run'
-    : isGenericTaskEndpoint(modelRegistry.value?.api_endpoint)
-  return ['speech', 'transcribe'].includes(kind) && generic ? 'task' : kind
+  if (policy?.operation_id) return policy.operation_id
+  const endpoint = modelRegistry.value?.api_endpoint
+  if (endpoint) {
+    const byPath = (audioContract.value.operations || []).find(
+      (operation) => operation.studio_path === endpoint,
+    )
+    if (byPath) return byPath.id
+    if (audioEndpointIsGeneric(endpoint)) return 'tasks_run'
+  }
+  const task = configuredTask.value
+  return task ? audioOperationForTask(task)?.id || '' : ''
+})
+
+function familyPresentationTask() {
+  const family = String(selectedConfig.value?.family || '')
+    .trim()
+    .toLowerCase()
+  if (!family) return ''
+  const tasks = (audioContract.value.family_routing || {})[family]?.tasks || []
+  return tasks.find((task) => taskKindFromConfig({ task }) !== 'task') || tasks[0] || ''
+}
+
+const modelKind = computed(() => {
+  // Contract/model task routing chooses the tab; the configured task is the
+  // input, and family routing fills in when a model has no task row yet.
+  const task = configuredTask.value || familyPresentationTask()
+  return workspaceKindForOperation(modelOperationId.value, task)
 })
 
 const visibleTabs = computed(() => {
@@ -742,7 +939,7 @@ async function loadAcceptedSpeechRates(modelId) {
   if (!modelId) return
   try {
     const response = await fetch(
-      `/api/models/param-registry?engine=audio_cpp&model_id=${encodeURIComponent(modelId)}`,
+      `/api/models/param-registry?engine=${encodeURIComponent(DEFAULT_AUDIO_ENGINE_ID)}&model_id=${encodeURIComponent(modelId)}`,
     )
     if (!response.ok) return
     const registry = await response.json()
@@ -755,17 +952,24 @@ async function loadAcceptedSpeechRates(modelId) {
 }
 
 async function loadWorkspaceData(force = false) {
+  const descriptorRequest =
+    typeof enginesStore.fetchEngineDescriptors === 'function'
+      ? enginesStore.fetchEngineDescriptors()
+      : Promise.resolve([])
   const results = await Promise.allSettled([
     modelStore.fetchModels(),
     enginesStore.fetchSystemStatus(),
     fetchAudioContract({ force }),
+    descriptorRequest,
   ])
+  engineDescriptorsLoaded.value = results[3].status === 'fulfilled'
   workspaceError.value =
     results[0].status === 'rejected'
       ? 'Could not refresh audio models. Check the connection and try again.'
       : ''
-  contractError.value =
-    results[2].status === 'rejected' || audioContractError.value
+  contractError.value = audioContractError.value
+    ? audioContractError.value
+    : results[2].status === 'rejected'
       ? 'Audio capabilities could not be loaded. Retry before running inference.'
       : ''
 }
@@ -801,6 +1005,9 @@ async function refreshWorkspace() {
 }
 
 watch(selectedModelId, async (id) => {
+  abortAllRuns()
+  stopPcmPlayer()
+  stopRecorder({ discard: true })
   referenceAudioItems.value = []
   referenceAudioError.value = ''
   selectedConfig.value = null
@@ -901,12 +1108,11 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  disposed = true
+  abortAllRuns()
   clearResultAudio()
-  stopRecorder()
-  if (pcmPlayer) {
-    pcmPlayer.stop()
-    pcmPlayer = null
-  }
+  stopRecorder({ discard: true })
+  stopPcmPlayer()
 })
 
 function clearResultAudio() {
@@ -917,11 +1123,70 @@ function clearResultAudio() {
 }
 
 function publishAudioClips(clips) {
+  if (disposed) return
   clearResultAudio()
   resultAudioClips.value = (clips || []).map((clip) => ({
     ...clip,
     url: URL.createObjectURL(clip.blob),
   }))
+}
+
+function stopPcmPlayer() {
+  const player = pcmPlayer
+  pcmPlayer = null
+  if (player) player.stop()
+}
+
+function beginRun(kind) {
+  runControllers[kind]?.abort()
+  const controller = new AbortController()
+  runControllers[kind] = controller
+  return controller
+}
+
+function runWasCancelled(kind, controller) {
+  return disposed || controller.signal.aborted || runControllers[kind] !== controller
+}
+
+function finishRun(kind, controller) {
+  if (runControllers[kind] !== controller) return false
+  runControllers[kind] = null
+  return true
+}
+
+function abortAllRuns() {
+  for (const kind of Object.keys(runControllers)) {
+    const controller = runControllers[kind]
+    if (!controller) continue
+    controller.abort()
+    runControllers[kind] = null
+  }
+  speechLoading.value = false
+  asrLoading.value = false
+  taskLoading.value = false
+}
+
+function cancelRun(kind) {
+  const controller = runControllers[kind]
+  if (!controller) return
+  controller.abort()
+  runControllers[kind] = null
+  if (kind === 'speech') stopPcmPlayer()
+  if (kind === 'speech') speechLoading.value = false
+  if (kind === 'asr') asrLoading.value = false
+  if (kind === 'task') taskLoading.value = false
+}
+
+function cancelSpeech() {
+  cancelRun('speech')
+}
+
+function cancelAsr() {
+  cancelRun('asr')
+}
+
+function cancelTask() {
+  cancelRun('task')
 }
 
 function setSpeechResult(blob, filename = 'speech.wav') {
@@ -1031,6 +1296,7 @@ function createPcmPlayer(sampleRate) {
   const context = new Ctx()
   let nextTime = 0
   let sourceEnded = null
+  let resolveSourceEnded = null
   return {
     push(pcmBytes) {
       const samples = new Int16Array(
@@ -1050,8 +1316,12 @@ function createPcmPlayer(sampleRate) {
       source.buffer = buffer
       source.connect(context.destination)
       sourceEnded = new Promise((resolve) => {
-        source.onended = resolve
+        resolveSourceEnded = resolve
       })
+      source.onended = () => {
+        resolveSourceEnded?.()
+        resolveSourceEnded = null
+      }
       const start = Math.max(context.currentTime + 0.02, nextTime)
       source.start(start)
       nextTime = start + buffer.duration
@@ -1060,21 +1330,23 @@ function createPcmPlayer(sampleRate) {
       if (sourceEnded) await sourceEnded.catch(() => {})
     },
     stop() {
+      // A cancel can land while finish() is awaiting playback; resolve it so
+      // the aborted run settles instead of leaving a pending promise.
+      resolveSourceEnded?.()
+      resolveSourceEnded = null
       context.close().catch(() => {})
     },
   }
 }
 
 async function runSpeech() {
+  if (speechLoading.value) return
   speechError.value = ''
   taskError.value = ''
   speechStreamTiming.value = ''
   speechLoading.value = true
   setSpeechResult(null)
-  if (pcmPlayer) {
-    pcmPlayer.stop()
-    pcmPlayer = null
-  }
+  stopPcmPlayer()
   const extras = {}
   const defaults = selectedConfig.value?.speech_defaults || {}
   Object.assign(extras, pickDefined(defaults, ['voice_ref', 'reference_text', 'instruct']))
@@ -1088,40 +1360,50 @@ async function runSpeech() {
       extras.reference_text = match.reference_text
     }
   }
+  const controller = beginRun('speech')
+  const task = configuredTask.value || 'tts'
+  let player = null
   try {
     if (speechStreamingAvailable.value && speechStream.value) {
-      const player = createPcmPlayer(SPEECH_STREAM_SAMPLE_RATE)
+      player = createPcmPlayer(SPEECH_STREAM_SAMPLE_RATE)
       pcmPlayer = player
       const { blob, timing } = await streamSpeech({
+        task,
         modelId: inferenceModelId.value,
         input: speechText.value,
         voice: speechVoice.value || undefined,
         sampleRate: SPEECH_STREAM_SAMPLE_RATE,
         extras,
-        onAudio: (bytes) => player.push(bytes),
+        signal: controller.signal,
+        onAudio: (bytes) => {
+          if (!runWasCancelled('speech', controller)) player.push(bytes)
+        },
       })
+      if (runWasCancelled('speech', controller)) return
       await player.finish()
+      if (runWasCancelled('speech', controller)) return
       if (timing?.ttft_ms != null) {
         speechStreamTiming.value = `First audio in ${Math.round(timing.ttft_ms)} ms`
       }
       setSpeechResult(blob, 'speech.wav')
     } else {
       const { blob } = await synthesizeSpeech({
+        task,
         modelId: inferenceModelId.value,
         input: speechText.value,
         voice: speechVoice.value || undefined,
         extras,
+        signal: controller.signal,
       })
+      if (runWasCancelled('speech', controller)) return
       setSpeechResult(blob, 'speech.wav')
     }
   } catch (error) {
+    if (runWasCancelled('speech', controller) || error?.name === 'AbortError') return
     speechError.value = error?.message || String(error)
   } finally {
-    if (pcmPlayer) {
-      pcmPlayer.stop()
-      pcmPlayer = null
-    }
-    speechLoading.value = false
+    if (pcmPlayer === player) stopPcmPlayer()
+    if (finishRun('speech', controller)) speechLoading.value = false
   }
 }
 
@@ -1152,21 +1434,32 @@ async function toggleRecord() {
   }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    if (disposed) {
+      stream.getTracks().forEach((track) => track.stop())
+      return
+    }
     recordChunks = []
-    mediaRecorder = new MediaRecorder(stream)
-    mediaRecorder.ondataavailable = (ev) => {
+    recordStream = stream
+    const recorder = new MediaRecorder(stream)
+    recorder.__studioDiscard = false
+    mediaRecorder = recorder
+    recorder.ondataavailable = (ev) => {
       if (ev.data?.size) recordChunks.push(ev.data)
     }
-    mediaRecorder.onstop = () => {
-      stream.getTracks().forEach((t) => t.stop())
-      const blob = new Blob(recordChunks, { type: mediaRecorder?.mimeType || 'audio/webm' })
+    recorder.onstop = () => {
+      recordStream?.getTracks().forEach((track) => track.stop())
+      recordStream = null
+      if (mediaRecorder === recorder) mediaRecorder = null
+      if (recorder.__studioDiscard || disposed) return
+      const blob = new Blob(recordChunks, { type: recorder.mimeType || 'audio/webm' })
       asrFiles.value = [new File([blob], 'recording.webm', { type: blob.type })]
       asrBatchResults.value = []
-      mediaRecorder = null
+      recording.value = false
     }
-    mediaRecorder.start()
+    recorder.start()
     recording.value = true
   } catch (error) {
+    if (disposed) return
     toast.add({
       severity: 'error',
       summary: 'Microphone unavailable',
@@ -1176,27 +1469,38 @@ async function toggleRecord() {
   }
 }
 
-function stopRecorder() {
-  if (mediaRecorder && recording.value) {
-    mediaRecorder.stop()
-  }
+function stopRecorder({ discard = false } = {}) {
+  const recorder = mediaRecorder
   recording.value = false
+  if (recorder) recorder.__studioDiscard = discard
+  if (recorder && recorder.state !== 'inactive') {
+    recorder.stop()
+  } else if (!recorder) {
+    recordStream?.getTracks().forEach((track) => track.stop())
+    recordStream = null
+  }
 }
 
 async function runAsr() {
+  if (asrLoading.value) return
   asrError.value = ''
   asrText.value = ''
   asrMetadata.value = ''
   asrBatchResults.value = []
   asrLoading.value = true
+  const controller = beginRun('asr')
+  const task = configuredTask.value || 'asr'
   try {
     if (asrFiles.value.length > 1) {
       const result = await transcribeAudioBatch({
+        task: 'batch_transcribe',
         modelId: inferenceModelId.value,
         files: asrFiles.value,
         language: asrLanguage.value || undefined,
         prompt: asrPrompt.value || undefined,
+        signal: controller.signal,
       })
+      if (runWasCancelled('asr', controller)) return
       asrBatchResults.value = Array.isArray(result?.results) ? result.results : []
       if (!asrBatchResults.value.length && result?.text) {
         asrText.value = result.text
@@ -1205,41 +1509,49 @@ async function runAsr() {
     }
     const file = asrFiles.value[0]
     const result = await transcribeAudio({
+      task,
       modelId: inferenceModelId.value,
       file,
       filename: file?.name,
       language: asrLanguage.value || undefined,
       prompt: asrPrompt.value || undefined,
       details: asrDetails.value,
+      signal: controller.signal,
     })
+    if (runWasCancelled('asr', controller)) return
     asrText.value = result?.text || JSON.stringify(result, null, 2)
     if (asrDetails.value && result && typeof result === 'object') {
       const { text: _text, ...metadata } = result
       asrMetadata.value = Object.keys(metadata).length ? JSON.stringify(metadata, null, 2) : ''
     }
   } catch (error) {
+    if (runWasCancelled('asr', controller) || error?.name === 'AbortError') return
     asrError.value = error?.message || String(error)
   } finally {
-    asrLoading.value = false
+    if (finishRun('asr', controller)) asrLoading.value = false
   }
 }
 
-async function runTask(task, input, { defaultFilename = 'audio.wav' } = {}) {
+async function runTask(input, { defaultFilename = 'audio.wav' } = {}) {
+  if (taskLoading.value) return
   taskError.value = ''
   setTaskResult(null)
   taskLoading.value = true
+  const controller = beginRun('task')
   try {
     const result = await runAudioTask({
       modelId: inferenceModelId.value,
-      task,
+      task: configuredTask.value,
       input,
-      proxyPort: enginesStore.systemStatus?.proxy_status?.port,
+      signal: controller.signal,
     })
+    if (runWasCancelled('task', controller)) return
     setTaskResult(result, { defaultFilename })
   } catch (error) {
+    if (runWasCancelled('task', controller) || error?.name === 'AbortError') return
     taskError.value = error?.message || String(error)
   } finally {
-    taskLoading.value = false
+    if (finishRun('task', controller)) taskLoading.value = false
   }
 }
 
@@ -1264,7 +1576,7 @@ function runSchemaTask() {
     if (field.nested) (input.options ||= {})[field.key] = value
     else input[field.key] = value
   }
-  return runTask(selectedConfig.value?.task, input)
+  return runTask(input)
 }
 
 function downloadBlob(blob, name) {
@@ -1398,8 +1710,13 @@ function pickDefined(obj, keys) {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
-.audio-file-input {
-  display: none;
+.contract-drift {
+  display: block;
+}
+
+.contract-drift ul {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
 }
 
 :deep(.page-empty__actions) {

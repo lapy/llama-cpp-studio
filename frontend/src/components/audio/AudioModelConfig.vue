@@ -43,18 +43,10 @@
       </div>
     </Message>
 
-    <Message
-      v-if="contractUnavailable"
-      severity="error"
-      :closable="false"
-      class="config-scan-message"
-    >
-      <div class="config-message__body">
-        <strong>audio.cpp build is too old for Studio.</strong>
-        Studio requires v0.9.1 or newer (JSON loader listing). Update audio.cpp on the Engines page
-        to configure and run audio models. ({{ audioContractError }})
-      </div>
-    </Message>
+    <AudioContractNotice
+      :scan-error="paramRegistry.scan_error"
+      :scan-pending="paramRegistry.scan_pending"
+    />
 
     <Message
       v-for="(warning, index) in contractDriftWarnings"
@@ -591,6 +583,7 @@ import Select from 'primevue/select'
 import Message from 'primevue/message'
 import Textarea from 'primevue/textarea'
 import AudioParamField from '@/components/audio/AudioParamField.vue'
+import AudioContractNotice from '@/components/audio/AudioContractNotice.vue'
 import ModelConfigAudioProfiles from '@/components/models/ModelConfigAudioProfiles.vue'
 import {
   useAudioModelConfig,
@@ -598,12 +591,7 @@ import {
   dependencyFieldTags,
   paramMatchesSearch,
 } from '@/composables/useAudioModelConfig'
-import {
-  audioContract,
-  audioContractError,
-  audioContractLoaded,
-  fetchAudioContract,
-} from '@/composables/useAudioContract'
+import { fetchAudioContract } from '@/composables/useAudioContract'
 import { useEnginesStore } from '@/stores/engines'
 import { isAudioEngineId } from '@/engines/registry'
 import { useModelStore } from '@/stores/models'
@@ -699,17 +687,6 @@ const audio = useAudioModelConfig(configRef, registryRef, enginesStore, stableId
 const contractDriftWarnings = computed(() =>
   (props.paramRegistry?.contract_drift_warnings || []).map(String),
 )
-
-// No composed contract means the active build predates JSON probes (or no
-// audio.cpp version is active). Forms must not render degraded — prompt update.
-const contractUnavailable = computed(() => {
-  if (props.paramRegistry?.scan_error || props.paramRegistry?.scan_pending) return false
-  return Boolean(
-    audioContractError.value &&
-    !audioContractLoaded.value &&
-    !audioContract.value.operations?.length,
-  )
-})
 
 const {
   audioConfigGroups,

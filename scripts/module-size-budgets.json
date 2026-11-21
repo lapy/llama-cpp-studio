@@ -9,7 +9,7 @@
   "backend/proxy/studio/manager.py": 449,
   "backend/routes/llama_versions.py": 2154,
   "backend/routes/models.py": 2767,
-  "frontend/src/components/audio/AudioModelConfig.vue": 1297,
+  "frontend/src/components/audio/AudioModelConfig.vue": 1274,
   "frontend/src/components/system/HardwarePanel.vue": 631,
   "frontend/src/composables/useAudioModelConfig.js": 1405,
   "frontend/src/stores/engines.js": 794,
