@@ -7,7 +7,7 @@
   "backend/models/hub.py": 2468,
   "backend/proxy/studio/dataplane.py": 2118,
   "backend/proxy/studio/manager.py": 449,
-  "backend/routes/llama_versions.py": 2154,
+  "backend/routes/llama_versions.py": 2138,
   "backend/routes/models.py": 2767,
   "frontend/src/components/audio/AudioModelConfig.vue": 1274,
   "frontend/src/components/system/HardwarePanel.vue": 631,

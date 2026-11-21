@@ -11,13 +11,19 @@ Studio's audio integration composes engine and model metadata into the contract 
 | Model-aware `--inspect` and help       | Preferred/per-task endpoints, model capabilities, inputs, option declarations, and execution constraints.                                                  |
 | `model_specs/<family>.json`            | Package identity, tasks, typed load/session/request options, defaults, ranges, dependencies, and voice metadata.                                           |
 | Configured model-spec override         | Explicit metadata/execution spec source for the configured model.                                                                                          |
-| Available structured upstream contract | Additional observed facts composed by the upstream adapter.                                                                                                |
+| Upstream contract document             | An optional machine-readable document (audio.cpp#852) detected behind `AUDIO_CPP_UPSTREAM_CONTRACT=1`; the composer overlays it when supplied.             |
 
 `backend/engines/audio_cpp/integration/contract_registry.py` defines Studio-owned operations and transport policy. `composer.py` overlays observations and assigns provenance. Observed facts take precedence over the corresponding registry floor. Contradictions produce drift warnings and a descriptor fingerprint rather than silent reinterpretation.
 
-Activation requires a successful structured loader JSON probe. A build without the required interface receives an actionable activation error. Engine and model scans use structured metadata and executable help; a model name or organization does not establish task, family, instruction support, or access permissions.
+Activation requires a successful structured loader JSON probe, which upstream provides from v0.9.1 onward. A build without the required interface receives an actionable activation error. Engine and model scans use structured metadata and executable help; a model name or organization does not establish task, family, instruction support, or access permissions.
 
-`GET /api/audio-cpp/contract` returns the version descriptor with operations, task/family routing, defaults keys, fingerprints, and warnings. Model parameter registries also contain `request_policy`: operation identity, relevant paths, body shape, defaults key, instructions policy, and provenance. The frontend's `useAudioContract` reads that descriptor.
+## Validated engine versions and compatibility
+
+Studio reports a compatibility ceiling rather than silently assuming every new audio.cpp release works. The ceiling is `0.9.5` (`VALIDATED_ENGINE_VERSION` in `backend/engines/audio_cpp/compatibility.py`): the newest release whose source build, Linux prebuilt, loader/inspect surface, and real inference were actually exercised. `0.9.6` and newer install and run unblocked but are reported unsupported until they are exercised the same way. Releases below 0.9.1 are unsupported because they cannot answer the activation probe. A branch, commit, or local build remains `unknown` instead of being guessed newer or older. The 0.9.4/0.9.5 Linux prebuilts need glibc 2.43, which the Ubuntu 26.04 Studio image provides; on an older host they fall back to a source build.
+
+The classification rides the existing read paths: `GET /api/audio-cpp/status` and `GET /api/audio-cpp/contract` add `engine_version`, `validated_through`, `engine_supported` (`true`/`false`/`null`), and `engine_compat_note`; status additionally reports `upstream_contract_available`. Audio.cpp rows in `GET /api/llama-versions` carry the same compatibility fields for the Engines view. Nothing in the classification blocks install, activation, or inference. See [audio.cpp engine compatibility](audio-cpp-compatibility.md) for the durable matrix, the source-build path, and what "unknown" means.
+
+`GET /api/audio-cpp/contract` returns the version descriptor with operations, task/family routing, defaults keys, fingerprints, warnings, and the compatibility fields above. Model parameter registries also contain `request_policy`: operation identity, relevant paths, body shape, defaults key, instructions policy, and provenance. The frontend's `useAudioContract` reads that descriptor.
 
 ## Operation and transport model
 
@@ -111,7 +117,7 @@ Alignments and transcription details use concrete engine-specific routing when r
 
 ## Build configuration contract
 
-Studio builds audio.cpp from source with CMake. The build-option catalog is engine data (`build_options` in `backend/engines/definitions/audio_cpp.yaml`), exported into the generated definition and rendered as `-D` argv by `backend/engines/audio_cpp/build_options.py`. Aligned with upstream `0xShug0/audio.cpp` `v0.9.5` and the commits after it.
+Studio builds audio.cpp from source with CMake. The build-option catalog is engine data (`build_options` in `backend/engines/definitions/audio_cpp.yaml`), exported into the generated definition and rendered as `-D` argv by `backend/engines/audio_cpp/build_options.py`. The catalog tracks upstream `0xShug0/audio.cpp` `v0.9.5` and the commits after it — source-tree alignment, not a validated runtime claim: the validated runtime ceiling is `0.9.5` (see [compatibility](audio-cpp-compatibility.md)).
 
 Every option the catalog knows is passed explicitly on every configure, including the ones left at their default. A build therefore never inherits an upstream default it did not ask for, which matters because upstream defaults are host-dependent (`ENGINE_ENABLE_METAL` defaults ON on Apple hosts) and forks can change them. `backend/tests/test_audio_build_options.py` pins the catalog against the complete upstream variable list, so a new upstream knob fails the suite until the definition grows the matching entry.
 
@@ -164,6 +170,6 @@ Studio's Audio workspace uses its own browser/request components and operates in
 
 Contract responses carry fingerprints, provenance, and drift warnings. Activation returns operation/progress data and capability changes; model configuration surfaces relevant review/scan hints. Runtime failures expose task/request details and the real model's process logs.
 
-Tests cover the operation registry, composer precedence, drift warnings, structured activation gate, contract endpoint, model-spec overrides, typed enums/ranges, profile invalidation, request scope conflicts, instructions policy, package acquisition, file declarations, voice handling, server UI policy, and generic forms. Environment-driven discovery tests can use `AUDIO_CPP_CLI`, `AUDIO_CPP_MODEL`, and `AUDIO_CPP_SOURCE` for a suitable actual runtime/model.
+Tests cover the operation registry, composer precedence, drift warnings, structured activation gate, contract endpoint, compatibility parsing/ceiling and status/contract/row fields, upstream-contract probe behavior, model-spec overrides, typed enums/ranges, profile invalidation, request scope conflicts, instructions policy, package acquisition, file declarations, voice handling, server UI policy, and generic forms. Environment-driven discovery tests can use `AUDIO_CPP_CLI`, `AUDIO_CPP_MODEL`, and `AUDIO_CPP_SOURCE` for a suitable actual runtime/model; the upstream-contract probe is opt-in with `AUDIO_CPP_UPSTREAM_CONTRACT=1`.
 
 Successful metadata composition does not itself measure audio quality, latency, device support, or every family's runtime correctness. Those outcomes require the applicable engine/model/assets and a successful request on the target machine.

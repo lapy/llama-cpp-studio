@@ -8,6 +8,36 @@ underway… I'll ping you"). This plan fills the same five gaps with a
 **temporary Studio-side shim** that is shaped so the upstream contract can
 later replace it without a second redesign.
 
+## Status as of 2026-11-21
+
+Upstream is at `v0.9.5` (released 2026-11-14) and moves fast. Since the
+previously validated `0.9.3` line: `0.9.4` made malformed request options a
+`400`, and `0.9.5` added inline `voice_ref`, `models-root`, and explicit
+model-variant routing. `0.9.5` is now the validated ceiling: its source build
+and Linux prebuilt were exercised (loader/inspect, a real CPU inference run) on
+the Ubuntu 26.04 image. The 0.9.4/0.9.5 Linux prebuilts need **glibc 2.43**;
+the 26.04 image provides it, and older hosts fall back to a source build.
+
+- **M1–M4 delivered** (registry/composer, single-source routing, composition +
+  drift warnings, activation speed fixes). The milestone list below records
+  what shipped.
+- **M5 blocked upstream.** Issue
+  [0xShug0/audio.cpp#852](https://github.com/0xShug0/audio.cpp/issues/852) is
+  still open with no maintainer commitment to a landing date, so the Studio
+  shim remains. The adapter's detection seam is now implemented behind
+  `AUDIO_CPP_UPSTREAM_CONTRACT=1`: it probes `--describe-server --json`, then a
+  well-known contract file, and returns nothing cleanly when absent. The
+  composed descriptor stays Studio-owned until an upstream document exists and
+  a scan passes it into composition.
+- **Compatibility ceiling in review (not merged).** A separate PR adds
+  `backend/engines/audio_cpp/compatibility.py`, the `validated_through` /
+  `engine_supported` / `engine_compat_note` fields on status, contract, and
+  version rows, and `docs/audio-cpp-compatibility.md`. Studio validates through
+  `0.9.5`; newer releases stay installable and run unblocked but are reported
+  unsupported.
+- **Canary in review (not merged).** The audio.cpp canary work is a separate
+  PR; it is not part of the delivered status recorded here.
+
 The five gaps from the issue, restated as questions Studio must answer from data:
 
 1. What server/CLI configuration is accepted to start a model?
@@ -16,7 +46,7 @@ The five gaps from the issue, restated as questions Studio must answer from data
 4. How is each request encoded (JSON / multipart / streaming / audio artifacts)?
 5. What response, error, and stream-event shapes must a client handle?
 
-## What Studio has today (measured, verified against v0.9.1 prebuilt and the local `linux-cpu-local` build)
+## What Studio has today (measured against the v0.9.1 prebuilt and the local `linux-cpu-local` build; the loader/inspect surface is validated through 0.9.5)
 
 Studio already derives most of gaps 1–2 from engine-owned data and does it well:
 
@@ -95,7 +125,7 @@ the existing `contract_fingerprint` / model-profile fingerprint scheme:
 
 1. Start from `OPERATIONS` (provenance `studio`).
 2. Overlay `capabilities.family_endpoints`, `family_policies`, `family_modes`
-   from `--list-loaders --json` (provenance `loaders-json`). v0.9.1 already
+   from `--list-loaders --json` (provenance `loaders-json`). v0.9.1+ already
    emits `api_endpoints` + `instructions_policy` per family — this alone
    replaces several hardcoded assumptions.
 3. Overlay per-model `--inspect` task/mode/`preferred_api_endpoint` and
@@ -142,22 +172,32 @@ Served surface:
 
 Upstream-readiness (the point of the design):
 
-- `fetch_upstream_contract()` adapter stub behind
-  `AUDIO_CPP_UPSTREAM_CONTRACT=1`. When #852 lands, its document maps onto the
-  same descriptor with provenance `upstream`; every `studio`-provenance entry
-  with upstream coverage is deleted. The descriptor is the seam, so the shim is
-  throwaway per-entry, not per-layer.
+- `fetch_upstream_contract()` detection is implemented behind
+  `AUDIO_CPP_UPSTREAM_CONTRACT=1` (off by default). It probes the installed
+  server with `--describe-server --json`, then a well-known contract file in
+  the checkout, and returns `None` cleanly when neither exists; a binary without
+  `--describe-server` (or a checkout without the file) is harmless — it just
+  yields no document and changes no state. The status route reports
+  `upstream_contract_available`. When #852 lands, its document
+  maps onto the same descriptor with provenance `upstream`; every
+  `studio`-provenance entry with upstream coverage is deleted. The descriptor
+  is the seam, so the shim is throwaway per-entry, not per-layer. The composed
+  descriptor remains Studio-owned until an upstream document actually exists
+  and is passed into composition.
 
-## Milestones — delivered status (2026-10-15)
+## Milestones — status (2026-11-21)
 
 - ✅ **M1 — Descriptor + registry as data.** `backend/engines/audio_cpp/integration/`
   ships `contract_registry.py` (operations, deterministic task table, coarse
   engine-surface tokens, `DEFAULTS_KEYS`, `STUDIO_OWNED_FLAGS`, per-operation
   `request_defaults_key`/`body_shape`), `composer.py`, and the
-  `upstream_adapter.py` stub. Tests pin the registry/composer against the
+  `upstream_adapter.py` detection seam (a stub at M1; the env-gated probe is
+  implemented as of 2026-11-21). Tests pin the registry/composer against the
   captured v0.9.1 loaders-JSON fixture
   (`backend/tests/audio_profile_fixtures.py::V091_LIST_LOADERS_JSON`,
-  `backend/tests/test_audio_cpp_integration_contract.py`).
+  `backend/tests/test_audio_cpp_integration_contract.py`). The fixture is
+  historical capture data; the loader/inspect surface it represents is
+  validated through 0.9.5.
 - ✅ **M2 — Single-source routing.** Proxy handlers (`audio_openai_proxy.py`)
   and `proxy_routing.resolve_audio_upstream_target` resolve via the registry
   (`_native_path(op_id)`, `is_native_api_path`, `TASKS_RUN_ALIAS`).
@@ -181,9 +221,12 @@ Upstream-readiness (the point of the design):
   fingerprint-gated rescans, bounded concurrency, persistent builtin-utility
   cache, async activation returning `{operation_id}` with SSE stage progress,
   and per-subprocess stage timing logs.
-- ⏳ **M5 — Upstream adapter** awaits audio.cpp#852. `fetch_upstream_contract()`
-  returns nothing until it lands; provenance then flips `studio → upstream` and
-  covered entries get deleted individually.
+- ⏳ **M5 — Upstream adapter** awaits audio.cpp#852 (open, no maintainer
+  commitment). `fetch_upstream_contract()` implements the opt-in detection
+  probe but returns nothing usable until upstream ships a document; provenance
+  then flips `studio → upstream` and covered entries get deleted individually.
+  The Studio-side compatibility ceiling (`docs/audio-cpp-compatibility.md`)
+  covers the gap meanwhile without blocking newer engines.
 
 Retirement order as upstream coverage lands: request-encoding folklore
 (`voice_presets.py`, `format_convert.py`) → GGUF sidecar guessing → finally
