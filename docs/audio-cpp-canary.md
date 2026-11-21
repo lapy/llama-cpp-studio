@@ -79,6 +79,8 @@ Against `v0.9.3` on a glibc 2.39 host the run passes:
 result: v0.9.3: PASS (families=133 tasks=16 endpoints=3 operations=9)
 ```
 
+`operations` is the current registry size, so it follows Studio's contract table as it grows; it is not a property of the engine release.
+
 Against `v0.9.5` on the same host it fails as intended:
 
 ```text

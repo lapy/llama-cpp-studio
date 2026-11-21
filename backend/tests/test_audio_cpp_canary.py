@@ -21,9 +21,15 @@ from pathlib import Path
 
 import pytest
 
+from backend.engines.audio_cpp.integration.contract_registry import registry_descriptor
+
 ROOT = Path(__file__).resolve().parents[2]
 CANARY_PATH = ROOT / "scripts" / "audio-cpp-canary.py"
 V093_FIXTURE = ROOT / "backend" / "tests" / "fixtures" / "audio_cpp_v093_list_loaders.json"
+
+# The registry is the source of truth for the composed operation count; tests
+# must not pin it or every registry growth breaks them.
+REGISTRY_OPERATION_COUNT = len(registry_descriptor())
 
 
 def _load_canary():
@@ -316,7 +322,12 @@ class TestLoaderContract:
         assert payload["schema_version"] == 1
         assert capabilities["families"] == ["omnivoice", "qwen3_asr"]
         audit = canary.audit_contract(capabilities)
-        assert audit["counts"] == {"families": 2, "tasks": 2, "endpoints": 2, "operations": 9}
+        assert audit["counts"] == {
+            "families": 2,
+            "tasks": 2,
+            "endpoints": 2,
+            "operations": REGISTRY_OPERATION_COUNT,
+        }
         assert audit["drift"]["warnings"] == []
         assert all(check.status == "passed" for check in audit["checks"])
 
@@ -326,7 +337,13 @@ class TestLoaderContract:
         audit = canary.audit_contract(capabilities)
         descriptor = audit["descriptor"]
 
-        assert audit["counts"] == {"families": 8, "tasks": 9, "endpoints": 3, "operations": 9}
+        assert audit["counts"] == {
+            "families": 8,
+            "tasks": 9,
+            "endpoints": 3,
+            "operations": REGISTRY_OPERATION_COUNT,
+        }
+        assert set(canary.REQUIRED_OPERATIONS) <= set(audit["operations"]["available"])
         assert audit["endpoints"]["unresolved"] == []
         assert descriptor["drift_warnings"] == []
         for task in ("wake", "cls", "midi", "turn", "diar", "gen"):
@@ -484,8 +501,9 @@ class TestEndToEnd:
             "families": 2,
             "tasks": 2,
             "endpoints": 2,
-            "operations": 9,
+            "operations": REGISTRY_OPERATION_COUNT,
         }
+        assert report["required_operations"]["missing"] == []
         assert report["model_manager"]["packages"] == 1
         assert report["model_manager"]["identity_fields"] is True
         for key in (
