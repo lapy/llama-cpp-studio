@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "loaders": {
+    "zipvoice": {
+      "api_endpoints": ["/v1/audio/speech"],
+      "instructions_policy": "openai_instruct",
+      "tasks": {
+        "clon": ["offline", "streaming"],
+        "tts": ["offline", "streaming"]
+      }
+    },
+    "whistle_asr": {
+      "api_endpoints": ["/v1/audio/transcriptions"],
+      "instructions_policy": "none",
+      "tasks": {
+        "asr": ["offline"]
+      }
+    },
+    "ast_audioset": {
+      "api_endpoints": ["/v1/tasks/run"],
+      "instructions_policy": "none",
+      "tasks": {
+        "cls": ["offline"]
+      }
+    },
+    "sheetsage2": {
+      "api_endpoints": ["/v1/tasks/run"],
+      "instructions_policy": "none",
+      "tasks": {
+        "midi": ["offline"]
+      }
+    },
+    "smart_turn": {
+      "api_endpoints": ["/v1/tasks/run"],
+      "instructions_policy": "none",
+      "tasks": {
+        "turn": ["offline"]
+      }
+    },
+    "micro_wake_word": {
+      "api_endpoints": ["/v1/tasks/run"],
+      "instructions_policy": "none",
+      "tasks": {
+        "wake": ["offline", "streaming"]
+      }
+    },
+    "sortformer_diar": {
+      "api_endpoints": ["/v1/tasks/run"],
+      "instructions_policy": "none",
+      "tasks": {
+        "diar": ["offline"]
+      }
+    },
+    "yue2": {
+      "api_endpoints": ["/v1/tasks/run"],
+      "instructions_policy": "none",
+      "tasks": {
+        "gen": ["offline"]
+      }
+    }
+  }
+}
