@@ -1,9 +1,12 @@
 import {
   accessState,
+  audioContract,
+  AUDIO_CONTRACT_PATH,
   audioModelConfig,
   audioVoices,
   configHistory,
   createdInferenceKey,
+  engineDescriptors,
   inferenceKeyFromRequest,
   inferenceKeys,
   inferenceKeysResponse,
@@ -60,6 +63,8 @@ export async function installWorkspaceApi(
       })
     if (path === '/api/access') data = accessState({ remote })
     else if (path === '/api/status') data = workspaceStatus()
+    else if (path === '/api/engines') data = engineDescriptors()
+    else if (path === AUDIO_CONTRACT_PATH) data = audioContract()
     else if (path === '/api/models') data = modelCatalog()
     else if (path === '/api/models/param-registry') data = paramRegistry()
     else if (path.endsWith('/reference-audio')) data = referenceAudio()

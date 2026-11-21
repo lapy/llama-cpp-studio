@@ -6,6 +6,11 @@
  * (`src/api/contractFixtures.test.js`) import exactly the same data.
  */
 
+/** Engine id shared by the audio fixture rows and the descriptor payload. */
+export const AUDIO_ENGINE_ID = 'audio_cpp'
+/** Management-origin contract route the Audio workspace fetches. */
+export const AUDIO_CONTRACT_PATH = '/api/audio-cpp/contract'
+
 /** One proxy request row as rendered by the Requests tab and its details dialog. */
 export function proxyRequestRows({ now = Date.now() / 1000 } = {}) {
   return [
@@ -113,6 +118,23 @@ export function workspaceStatus() {
   }
 }
 
+/** `/api/engines` descriptor list; the Audio workspace gates on `enabled`. */
+export function engineDescriptors() {
+  return {
+    schema_version: 1,
+    engines: [
+      {
+        id: AUDIO_ENGINE_ID,
+        label: 'audio.cpp',
+        enabled: true,
+        runnable: true,
+        active_version: 'v0.9.5',
+        installed_versions: 1,
+      },
+    ],
+  }
+}
+
 /** `/api/models` grouped catalog used by the model list and pickers. */
 export function modelCatalog() {
   return [
@@ -142,11 +164,11 @@ export function modelCatalog() {
           id: 'speech-model',
           name: 'Speech demo',
           display_name: 'Speech demo',
-          format: 'audio_cpp',
-          engine: 'audio_cpp',
+          format: AUDIO_ENGINE_ID,
+          engine: AUDIO_ENGINE_ID,
           is_active: true,
           runtime_quality: 'verified',
-          config: { engine: 'audio_cpp' },
+          config: { engine: AUDIO_ENGINE_ID },
           proxy_name: 'speech-model',
         },
       ],
@@ -159,6 +181,59 @@ export function paramRegistry(sections = []) {
   return { sections }
 }
 
+/**
+ * `/api/audio-cpp/contract` composed descriptor.
+ *
+ * The speech fixture routes `tts` through the speech operation, so the Audio
+ * workspace renders its real Speech controls instead of an offline/error
+ * banner. Drift is intentionally empty for the browser journeys.
+ */
+export function audioContract() {
+  return {
+    schema: 'audio-cpp.studio-contract/v0',
+    engine_version: 'v0.9.5',
+    generic_studio_path: '/audioapi/v1/tasks/run',
+    defaults_keys: {
+      speech: 'speech_defaults',
+      transcriptions: 'transcription_defaults',
+      tasks_run: 'task_defaults',
+    },
+    task_routing: {
+      tts: 'speech',
+      vdes: 'speech',
+      clon: 'speech',
+      asr: 'transcriptions',
+      stt: 'transcriptions',
+      gen: 'tasks_run',
+    },
+    operations: [
+      {
+        id: 'speech',
+        studio_path: '/v1/audio/speech',
+        request_defaults_key: 'speech_defaults',
+        body_shape: 'openai-json',
+        serves_tasks: ['tts', 'vdes', 'clon'],
+      },
+      {
+        id: 'transcriptions',
+        studio_path: '/v1/audio/transcriptions',
+        request_defaults_key: 'transcription_defaults',
+        body_shape: 'multipart-form',
+        serves_tasks: ['asr', 'stt'],
+      },
+      {
+        id: 'tasks_run',
+        studio_path: '/audioapi/v1/tasks/run',
+        request_defaults_key: 'task_defaults',
+        body_shape: 'tasks-run',
+        serves_tasks: ['gen'],
+      },
+    ],
+    family_routing: {},
+    drift_warnings: [],
+  }
+}
+
 /** `/api/models/{id}/reference-audio` payload. */
 export function referenceAudio(items = []) {
   return items
@@ -167,7 +242,7 @@ export function referenceAudio(items = []) {
 /** `/api/models/speech-model/config` audio.cpp configuration. */
 export function audioModelConfig() {
   return {
-    engine: 'audio_cpp',
+    engine: AUDIO_ENGINE_ID,
     family: 'pocket-tts',
     task: 'tts',
     model_alias: 'speech-model',
