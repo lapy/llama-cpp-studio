@@ -853,11 +853,14 @@ class CmakeSourceInstaller(GenericNativeInstaller):
                     f"CUDA library configuration complete: {len(unique_lib_dirs)} directories"
                 )
 
-                # 7. Set CUDA host compiler explicitly (use system gcc/g++)
+                # 7. Set a CUDA host compiler the toolkit supports (not
+                # necessarily the distro's unversioned g++, which may be newer
+                # than nvcc accepts).
                 if os.name != "nt":
-                    gcc_path = shutil.which("gcc")
-                    gxx_path = shutil.which("g++")
-                    if gcc_path and gxx_path:
+                    from backend.cuda_host_compiler import select_cuda_host_compiler
+
+                    gxx_path = select_cuda_host_compiler(validated_cuda_root)
+                    if gxx_path:
                         cmake_args.append(f"-DCMAKE_CUDA_HOST_COMPILER={gxx_path}")
 
                 logger.info(

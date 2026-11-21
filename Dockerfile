@@ -112,6 +112,7 @@ RUN apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update \
     software-properties-common \
     build-essential \
     g++-12 \
+    g++-14 \
     ccache \
     git \
     pkg-config \
