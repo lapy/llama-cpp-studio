@@ -574,6 +574,10 @@ runtime_profiles:
         FLASHINFER_DISABLE_VERSION_CHECK: '1'
         TORCH_CUDA_ARCH_LIST: '7.0'
         CUDA_DEVICE_ORDER: PCI_BUS_ID
+        CUDAHOSTCXX: /usr/bin/g++-12
+        CC: /usr/bin/gcc-12
+        CXX: /usr/bin/g++-12
+        NVCC_PREPEND_FLAGS: '-ccbin /usr/bin/g++-12 -Xcompiler=-include,/app/backend/engines/cuda/glibc_c23_math_compat.h'
       required:
       - name: CUDA_HOME
         error: SGLang SM70 requires a Studio-managed CUDA 12.8/12.9 toolkit
