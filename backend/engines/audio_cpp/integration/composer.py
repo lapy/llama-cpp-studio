@@ -146,6 +146,12 @@ def compose_version_contract(
             entry["request_defaults_key"] = defaults_key_for(op)
         family_routing[family] = entry
 
+    # Deterministic task -> operation table: walk the registry once, in table
+    # order, and keep each task's first claim. Transport variants that only
+    # mirror an existing route (tasks/stream, the live audio routes) and
+    # management routes declare no tasks, so they can never remap a task.
+    # `tasks_run` is the only fall-through, applied by `operation_for_task`
+    # for a task no operation claims.
     task_routing: Dict[str, str] = {}
     for op in operations:
         for task in op.get("serves_tasks") or []:
