@@ -61,6 +61,19 @@ def get_platform() -> Tuple[str, str]:
     return system, arch
 
 
+def repo_for_ubuntu_version(version: str) -> str:
+    """Map a distro version (``26.04.1``) to NVIDIA's repository codename."""
+    parts = str(version or "").strip().split(".")
+    if len(parts) < 2:
+        return "ubuntu2204"
+    major_minor = f"{parts[0]}{parts[1]}"
+    if major_minor >= "2604":
+        return "ubuntu2604"
+    if major_minor >= "2404":
+        return "ubuntu2404"
+    return "ubuntu2204"
+
+
 def get_ubuntu_version() -> str:
     """Get Ubuntu version for NVIDIA repository URLs."""
     # Try to detect Ubuntu version from /etc/os-release
@@ -70,25 +83,23 @@ def get_ubuntu_version() -> str:
                 for line in f:
                     if line.startswith("VERSION_ID="):
                         version = line.split("=")[1].strip().strip('"')
-                        # Extract major.minor (e.g., "24.04" from "24.04.1")
-                        parts = version.split(".")
-                        if len(parts) >= 2:
-                            major_minor = f"{parts[0]}{parts[1]}"
-                            # Check if it's 24.04 or newer
-                            if major_minor >= "2404":
-                                return "ubuntu2404"
-                            else:
-                                return "ubuntu2204"
+                        return repo_for_ubuntu_version(version)
     except Exception:
         pass
 
-    # Default to ubuntu2404 for Ubuntu 24.04 base image
+    # Default to ubuntu2404; callers on 26.04 normally read /etc/os-release.
     return "ubuntu2404"
 
 
 def get_archive_target_version(ubuntu_version: str) -> str:
-    """Get archive target version for CUDA runfile lookups."""
-    if ubuntu_version == "ubuntu2404":
+    """Get archive target version for CUDA runfile lookups.
+
+    CUDA 13.0 publishes no Ubuntu 26.04 runfile, while the 26.04 repository
+    itself exists (used for cuDNN/NCCL/TensorRT). The 24.04 runfile is the
+    newest archive that covers these supported versions; the installer already
+    passes ``--override`` so a 26.04 host can run it.
+    """
+    if ubuntu_version in ("ubuntu2604", "ubuntu2404"):
         return "24.04"
     return "22.04"
 
