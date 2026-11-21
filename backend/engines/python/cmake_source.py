@@ -857,11 +857,25 @@ class CmakeSourceInstaller(GenericNativeInstaller):
                 # necessarily the distro's unversioned g++, which may be newer
                 # than nvcc accepts).
                 if os.name != "nt":
-                    from backend.cuda_host_compiler import select_cuda_host_compiler
+                    from backend.cuda_host_compiler import (
+                        cuda_toolkit_version,
+                        select_cuda_host_compiler,
+                    )
 
                     gxx_path = select_cuda_host_compiler(validated_cuda_root)
                     if gxx_path:
                         cmake_args.append(f"-DCMAKE_CUDA_HOST_COMPILER={gxx_path}")
+                    from backend.cuda_glibc_compat import (
+                        cuda_c23_shim_flag,
+                        needs_cuda_c23_shim,
+                    )
+
+                    if needs_cuda_c23_shim(
+                        cuda_version=cuda_toolkit_version(validated_cuda_root)
+                    ) and not any(str(arg).startswith("-DCMAKE_CUDA_FLAGS=") for arg in cmake_args):
+                        cmake_args.append(
+                            f"-DCMAKE_CUDA_FLAGS={cuda_c23_shim_flag(validated_cuda_root)}"
+                        )
 
                 logger.info(
                     f"CUDA configuration: compiler={nvcc_path}, toolkit={validated_cuda_root}"

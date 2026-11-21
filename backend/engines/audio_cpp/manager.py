@@ -313,6 +313,16 @@ class AudioCppManager:
                         str(arg).startswith("-DCMAKE_CUDA_HOST_COMPILER=") for arg in cmake_args
                     ):
                         cmake_args.append(f"-DCMAKE_CUDA_HOST_COMPILER={host_gxx}")
+                from backend.cuda_glibc_compat import (
+                    cuda_c23_shim_flag,
+                    needs_cuda_c23_shim,
+                )
+                from backend.cuda_host_compiler import cuda_toolkit_version
+
+                if needs_cuda_c23_shim(cuda_version=cuda_toolkit_version(cuda_root)) and not any(
+                    str(arg).startswith("-DCMAKE_CUDA_FLAGS=") for arg in cmake_args
+                ):
+                    cmake_args.append(f"-DCMAKE_CUDA_FLAGS={cuda_c23_shim_flag(cuda_root)}")
 
             host = await detect_host_target()
             cmake_args = cmake_args_for_host_cuda(cmake_args, host.sms)
