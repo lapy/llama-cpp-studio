@@ -30,6 +30,9 @@ feature overview.
 - [Audio contract and discovery](audio-cpp-discovery.md): structured metadata,
   task/endpoint selection, typed options, assets/voices, model inspection, and audio
   transport boundaries.
+- [audio.cpp engine compatibility](audio-cpp-compatibility.md): validated engine-version
+  ceiling, the status/contract fields, known upstream ABI changes, source-build fallback,
+  and what "unknown" means.
 
 ## Current engineering references
 
