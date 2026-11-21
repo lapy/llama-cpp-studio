@@ -248,26 +248,10 @@ def _list_llama_versions_payload():
             )
     active_audio = store.get_active_engine_version("audio_cpp")
     active_audio_version = active_audio.get("version") if active_audio else None
+    from backend.routes.audio_cpp_versions import audio_version_list_row
+
     for v in store.get_engine_versions("audio_cpp"):
-        annotated = annotate_version_row("audio_cpp", v)
-        result.append(
-            {
-                **annotated,
-                "id": f"audio_cpp:{annotated.get('version')}",
-                "version": annotated.get("version"),
-                "type": annotated.get("type", "source"),
-                "install_type": annotated.get("install_type")
-                or (
-                    "source"
-                    if annotated.get("type") in {"fork", "patched", "source"}
-                    else annotated.get("type", "source")
-                ),
-                "is_fork": bool(annotated.get("is_fork")) or annotated.get("type") == "fork",
-                "is_active": annotated.get("version") == active_audio_version,
-                "repository_source": "audio.cpp",
-                "cmake_editable": True,
-            }
-        )
+        result.append(audio_version_list_row("audio_cpp", v, active_audio_version))
     # Definition-registered engines beyond the hardcoded set above (YAML-only
     # engines) must surface their installed versions too; otherwise the frontend
     # cards show nothing after a successful install.
