@@ -78,6 +78,24 @@ def _candidate_utility_ids(root: Path) -> List[str]:
     return sorted(candidates)
 
 
+def _utility_weights_path(root: Path, model_id: str) -> Path | None:
+    """Resolve the weights path the engine's inspect API expects for one utility.
+
+    audio.cpp loads built-in utilities with ``--model <weights-path>`` plus
+    ``--load-option utility=<id>`` and rejects the bare id: the path is a
+    directory for packaged utilities (``deepfilternet2``, ``zipenhancer``,
+    ``flashsr``) and a ``.safetensors`` checkpoint otherwise, so a stem such as
+    ``gtcrn_dns3`` lives beside other checkpoints in its family directory.
+    """
+    directory = root / model_id
+    if directory.is_dir():
+        return directory
+    for candidate in sorted(root.glob(f"*/{model_id}.safetensors")):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def discover_builtin_audio_packages(active: dict, families: Iterable[str]) -> list[dict]:
     """Expose only ids accepted by the active engine, with its own task metadata.
 
@@ -113,11 +131,15 @@ def discover_builtin_audio_packages(active: dict, families: Iterable[str]) -> li
     env = {**os.environ, **audio_cpp_inspect_env(cli, source_path=source)}
 
     def _probe(model_id: str) -> dict | None:
+        weights = _utility_weights_path(root, model_id)
+        if weights is None:
+            return None
         argv = build_audio_cpp_inspect_argv(
             cli,
-            model_id,
+            str(weights),
             family=BUILTIN_AUDIO_FAMILY,
             model_spec_override=str(Path(source) / "model_specs"),
+            load_options={"utility": model_id},
         )
         try:
             process = subprocess.run(
