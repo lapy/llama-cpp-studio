@@ -505,7 +505,14 @@ app.include_router(
     prefix="/v1/audio",
     tags=["audio-openai-proxy"],
 )
+# Generic task transports (run/stream/batch) share the /v1 origin with the
+# audio routes; they are deliberately not mounted under /v1/audio.
 app.include_router(audio_openai_proxy.tasks_router, prefix="/v1", tags=["audio-tasks-proxy"])
+app.include_router(
+    audio_openai_proxy.task_admin_router,
+    prefix="/v1",
+    tags=["audio-task-admin-proxy"],
+)
 app.include_router(audio_openai_proxy.batches_router, prefix="/v1", tags=["audio-batches-proxy"])
 
 from backend.access_policy import access_status, establish_session

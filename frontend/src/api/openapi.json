@@ -9670,6 +9670,26 @@
         ]
       }
     },
+    "/v1/tasks/batch": {
+      "post": {
+        "description": "Native generic batch (upstream app/server/api.md @ v0.9.5).\n\n``requests`` is forwarded untouched; the engine owns its shape and answers\nwith SSE, so the response is streamed unbuffered with SSE headers.",
+        "operationId": "proxy_tasks_batch_v1_tasks_batch_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Proxy Tasks Batch",
+        "tags": [
+          "audio-tasks-proxy"
+        ]
+      }
+    },
     "/v1/tasks/run": {
       "post": {
         "description": "Keep generic task JSON and Studio proxy filters on the native mapped route.",
@@ -9687,6 +9707,66 @@
         "summary": "Proxy Tasks Run",
         "tags": [
           "audio-tasks-proxy"
+        ]
+      }
+    },
+    "/v1/tasks/stream": {
+      "post": {
+        "description": "Generic streaming task (upstream app/server/api.md @ v0.9.5).\n\nThe body is the /v1/tasks/run body; ``model`` is rewritten to the stable\nnative id and the upstream response is streamed unbuffered, so\n``stream_format: \"sse\"`` reaches the client event by event.",
+        "operationId": "proxy_tasks_stream_v1_tasks_stream_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Proxy Tasks Stream",
+        "tags": [
+          "audio-tasks-proxy"
+        ]
+      }
+    },
+    "/v1/tasks/unload_all_models": {
+      "post": {
+        "description": "Release all engine memory on one instance (upstream api.md @ v0.9.5).\n\nUpstream takes no body and names no model. Studio's engine routes are\nmodel-scoped, so the route requires a concrete ``?model=`` pin to select\nthe engine instance; the pin is Studio routing metadata and is stripped\nbefore forwarding.",
+        "operationId": "proxy_tasks_unload_all_models_v1_tasks_unload_all_models_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Proxy Tasks Unload All Models",
+        "tags": [
+          "audio-task-admin-proxy"
+        ]
+      }
+    },
+    "/v1/tasks/unload_models": {
+      "post": {
+        "description": "Release engine memory for named models (upstream api.md @ v0.9.5).\n\nUpstream takes ``{\"model_ids\": [\"<engine id>\", ...]}``. Studio resolves\nevery id to its stable native id and pins the engine instance by the first\none; when the list is empty (or to choose the instance explicitly) an\n``?model=`` pin does the same job. The pin is Studio routing metadata and\nnever reaches the engine.",
+        "operationId": "proxy_tasks_unload_models_v1_tasks_unload_models_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Proxy Tasks Unload Models",
+        "tags": [
+          "audio-task-admin-proxy"
         ]
       }
     }

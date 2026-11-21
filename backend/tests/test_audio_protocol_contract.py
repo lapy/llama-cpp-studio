@@ -252,6 +252,85 @@ def test_schema_v1_rejects_protocol_and_extensions():
             validate_definition(_raw(schema_version=1, **extra), source="p.yaml")
 
 
+# --- v0.9.5 transport surface: registry -> route table -------------------------
+
+V095_TASK_ROUTES = {
+    "/v1/tasks/run": "audio-tasks-proxy",
+    "/v1/tasks/stream": "audio-tasks-proxy",
+    "/v1/tasks/batch": "audio-tasks-proxy",
+    "/v1/tasks/unload_models": "audio-task-admin-proxy",
+    "/v1/tasks/unload_all_models": "audio-task-admin-proxy",
+}
+
+
+def _registered_routes(app):
+    """(path, method) -> include tags from FastAPI's nested router table.
+
+    This FastAPI version keeps each ``include_router`` call as an
+    ``_IncludedRouter`` container instead of flattening it into ``app.routes``,
+    and nested includes stay nested, so walk them with their prefixes.
+    """
+    from fastapi.routing import APIRoute
+
+    found = {}
+
+    def walk(routes, prefix, tags):
+        for route in routes:
+            context = getattr(route, "include_context", None)
+            if context is not None:
+                walk(
+                    context.included_router.routes,
+                    prefix + (context.prefix or ""),
+                    tuple(context.tags or ()),
+                )
+            elif isinstance(route, APIRoute):
+                for method in route.methods:
+                    found[(prefix + route.path, method)] = tags
+
+    walk(app.routes, "", ())
+    return found
+
+
+def test_v095_task_routes_are_registered_on_the_management_origin():
+    from backend.main import app
+
+    routes = _registered_routes(app)
+    for path, tag in V095_TASK_ROUTES.items():
+        assert (path, "POST") in routes, path
+        assert tag in routes[(path, "POST")], path
+        # Exactly POST: these routes are not mounted with any other method.
+        assert (path, "GET") not in routes, path
+
+    # The live audio routes have no dedicated management route; they are served
+    # by the existing /v1/audio/{rest} catch-all.
+    for method in ("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"):
+        assert ("/v1/audio/{rest:path}", method) in routes, method
+    assert not any(path.startswith("/v1/audio/tasks") for path, _ in routes)
+    assert not any(
+        path.startswith("/v1/tasks/") and path not in V095_TASK_ROUTES for path, _ in routes
+    )
+
+
+def test_new_routes_appear_in_the_openapi_document():
+    from backend.main import app
+
+    paths = app.openapi()["paths"]
+    for path in V095_TASK_ROUTES:
+        assert "post" in paths[path], path
+
+
+def test_live_audio_routes_resolve_through_the_audio_catch_all():
+    from backend.engines.audio_cpp.integration import operation_for_native_path
+
+    for path in ("/v1/audio/speech/live", "/v1/audio/transcriptions/live"):
+        operation = operation_for_native_path(path)
+        assert operation is not None, path
+        # Served natively through /v1/audio, so not an /upstream-only route.
+        assert operation.upstream_only is False
+        assert operation.encodings == ("raw-pcm",)
+        assert operation.serves_tasks == ()
+
+
 # --- request-default vocabularies (S4: the task/request surface) ----------------
 
 

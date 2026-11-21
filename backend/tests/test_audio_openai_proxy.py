@@ -42,7 +42,7 @@ class _FakeUpstream:
         return None
 
 
-def _install_upstream(monkeypatch, handler):
+def _install_upstream(monkeypatch, handler, seen=None):
     from backend.routes import audio_openai_proxy as proxy
 
     class FakeClient:
@@ -53,6 +53,8 @@ def _install_upstream(monkeypatch, handler):
             return SimpleNamespace(method=method, url=url, kwargs=kwargs)
 
         async def send(self, request, stream=False):
+            if seen is not None:
+                seen["send_stream"] = stream
             return await handler(request, request.kwargs)
 
         async def aclose(self):
@@ -310,3 +312,498 @@ def test_tasks_run_forwards_to_native_proxy_audioapi(client, monkeypatch):
     assert response.status_code == 200
     assert seen["url"].startswith("http://127.0.0.1:2000/audioapi/v1/tasks/run")
     assert seen["payload"]["model"] == "vad-demo"
+
+
+# --- v0.9.5 generic task transports + engine-memory management ----------------
+
+
+def _resolve_recorder(monkeypatch, mapping):
+    """Patch the alias resolver and record every (model, native_path) lookup."""
+    from backend.engines.audio_cpp.proxy_routing import AudioUpstreamTarget
+
+    calls = []
+
+    def fake_target(model, native_path, store=None):
+        calls.append((model, native_path))
+        stable = mapping[model]
+        return AudioUpstreamTarget(path=f"/upstream/{stable}{native_path}", model=stable)
+
+    monkeypatch.setattr(
+        "backend.engines.audio_cpp.proxy_routing.resolve_audio_upstream_target",
+        fake_target,
+    )
+    return calls
+
+
+def _empty_audio_store(monkeypatch):
+    """Make the real resolver see no registered models (unknown -> 404)."""
+    from backend import data_store
+
+    monkeypatch.setattr(
+        data_store,
+        "get_store",
+        lambda: SimpleNamespace(list_models=lambda: []),
+    )
+
+
+def test_tasks_stream_rewrites_alias_and_streams_sse(client, monkeypatch):
+    seen: dict[str, Any] = {}
+    calls = _resolve_recorder(monkeypatch, {"s2s alias": "audio-s2s"})
+    body = b'data: {"type":"task.stream.done"}\n\ndata: [DONE]\n\n'
+
+    async def handler(request, kwargs):
+        seen["url"] = str(request.url)
+        seen["payload"] = json.loads(kwargs["content"])
+        seen["headers"] = dict(kwargs["headers"])
+        return _FakeUpstream(
+            200,
+            content=body,
+            headers={"content-type": "text/event-stream", "x-accel-buffering": "no"},
+        )
+
+    _install_upstream(monkeypatch, handler, seen)
+    response = client.post(
+        "/v1/tasks/stream?trace=1",
+        json={"model": "s2s alias", "stream_format": "sse", "request": {"audio": "/q.wav"}},
+    )
+    assert response.status_code == 200
+    assert response.content == body
+    assert seen["send_stream"] is True
+    assert seen["url"] == "http://127.0.0.1:2000/upstream/audio-s2s/v1/tasks/stream?trace=1"
+    assert seen["payload"] == {
+        "model": "audio-s2s",
+        "stream_format": "sse",
+        "request": {"audio": "/q.wav"},
+    }
+    # The upstream request keeps the client's Content-Type; the internal service
+    # key is the only header Studio adds.
+    assert seen["headers"]["content-type"] == "application/json"
+    assert calls == [("s2s alias", "/v1/tasks/stream")]
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert response.headers["x-accel-buffering"] == "no"
+    assert response.headers["cache-control"] == "no-cache"
+
+
+def test_tasks_stream_forwards_json_response(client, monkeypatch):
+    calls = _resolve_recorder(monkeypatch, {"s2s": "audio-s2s"})
+
+    async def handler(request, _kwargs):
+        return _FakeUpstream(200, json_body={"events": [], "result": {"text": "hi"}})
+
+    _install_upstream(monkeypatch, handler)
+    response = client.post("/v1/tasks/stream", json={"model": "s2s", "request": {}})
+    assert response.status_code == 200
+    assert response.json() == {"events": [], "result": {"text": "hi"}}
+    assert calls == [("s2s", "/v1/tasks/stream")]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [b"not json", b"[]", b"{}", b'{"model": 1}', b'{"model": ""}'],
+)
+def test_tasks_stream_rejects_invalid_body_or_missing_model(client, monkeypatch, body):
+    async def handler(_request, _kwargs):  # pragma: no cover - must not run
+        raise AssertionError("invalid requests must not reach upstream")
+
+    _install_upstream(monkeypatch, handler)
+    response = client.post(
+        "/v1/tasks/stream", content=body, headers={"content-type": "application/json"}
+    )
+    assert response.status_code == 400
+
+
+def test_tasks_stream_unknown_model_returns_404(client, monkeypatch):
+    _empty_audio_store(monkeypatch)
+    response = client.post("/v1/tasks/stream", json={"model": "ghost", "request": {}})
+    assert response.status_code == 404
+    assert "Unknown Studio audio model" in response.json()["detail"]
+
+
+def test_tasks_stream_rejects_oversized_body_by_content_length(client, monkeypatch):
+    from backend.routes import audio_openai_proxy as proxy
+
+    monkeypatch.setattr(proxy, "MAX_AUDIO_UPLOAD_BYTES", 32)
+    response = client.post("/v1/tasks/stream", json={"model": "x", "request": {"text": "y" * 128}})
+    assert response.status_code == 413
+
+
+def test_tasks_stream_rejects_oversized_chunked_body(client, monkeypatch):
+    from backend.routes import audio_openai_proxy as proxy
+
+    monkeypatch.setattr(proxy, "MAX_AUDIO_UPLOAD_BYTES", 16)
+
+    def chunks():
+        yield b'{"model":"x",'
+        yield b'"request":{}}'
+
+    response = client.post(
+        "/v1/tasks/stream",
+        content=chunks(),
+        headers={"content-type": "application/json"},
+    )
+    assert response.status_code == 413
+
+
+def test_tasks_batch_rewrites_alias_and_forwards_requests(client, monkeypatch):
+    seen: dict[str, Any] = {}
+    calls = _resolve_recorder(monkeypatch, {"asr-batch alias": "audio-batch"})
+
+    async def handler(request, kwargs):
+        seen["url"] = str(request.url)
+        seen["payload"] = json.loads(kwargs["content"])
+        return _FakeUpstream(
+            200,
+            content=b'data: {"type":"task.batch.done"}\n\ndata: [DONE]\n\n',
+            headers={"content-type": "text/event-stream"},
+        )
+
+    _install_upstream(monkeypatch, handler)
+    requests = [{"audio": "/a.wav"}, {"audio": "/b.wav"}]
+    response = client.post(
+        "/v1/tasks/batch", json={"model": "asr-batch alias", "requests": requests}
+    )
+    assert response.status_code == 200
+    assert seen["url"] == "http://127.0.0.1:2000/upstream/audio-batch/v1/tasks/batch"
+    assert seen["payload"] == {"model": "audio-batch", "requests": requests}
+    assert calls == [("asr-batch alias", "/v1/tasks/batch")]
+    assert response.headers["x-accel-buffering"] == "no"
+
+
+def test_unload_models_rewrites_each_id_and_pins_first(client, monkeypatch):
+    seen: dict[str, Any] = {}
+    calls = _resolve_recorder(monkeypatch, {"voice": "audio-demo", "asr": "audio-asr"})
+
+    async def handler(request, kwargs):
+        seen["url"] = str(request.url)
+        seen["payload"] = json.loads(kwargs["content"])
+        return _FakeUpstream(
+            200, json_body={"unloaded": ["audio-demo"], "not_found": ["audio-asr"]}
+        )
+
+    _install_upstream(monkeypatch, handler)
+    response = client.post(
+        "/v1/tasks/unload_models",
+        json={"model_ids": ["voice", "asr"], "reason": "test"},
+    )
+    assert response.status_code == 200
+    assert response.json() == {"unloaded": ["audio-demo"], "not_found": ["audio-asr"]}
+    assert seen["url"] == "http://127.0.0.1:2000/upstream/audio-demo/v1/tasks/unload_models"
+    assert seen["payload"] == {
+        "model_ids": ["audio-demo", "audio-asr"],
+        # Studio only rewrites the ids; unrelated fields pass through untouched.
+        "reason": "test",
+    }
+    assert calls == [
+        ("voice", "/v1/tasks/unload_models"),
+        ("asr", "/v1/tasks/unload_models"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"nope",
+        b"[]",
+        b"{}",
+        b'{"model_ids":"x"}',
+        b'{"model_ids":[1]}',
+        b'{"model_ids":[""]}',
+    ],
+)
+def test_unload_models_rejects_invalid_shape(client, monkeypatch, body):
+    async def handler(_request, _kwargs):  # pragma: no cover - must not run
+        raise AssertionError("invalid requests must not reach upstream")
+
+    _install_upstream(monkeypatch, handler)
+    response = client.post(
+        "/v1/tasks/unload_models", content=body, headers={"content-type": "application/json"}
+    )
+    assert response.status_code == 400
+
+
+def test_unload_models_empty_list_requires_an_explicit_pin(client, monkeypatch):
+    async def handler(_request, _kwargs):  # pragma: no cover - must not run
+        raise AssertionError("unpinned empty lists must not reach upstream")
+
+    _install_upstream(monkeypatch, handler)
+    response = client.post("/v1/tasks/unload_models", json={"model_ids": []})
+    assert response.status_code == 400
+    assert "model_ids" in response.json()["detail"]
+
+
+def test_unload_models_empty_list_with_pin_forwards_no_ids(client, monkeypatch):
+    seen: dict[str, Any] = {}
+    calls = _resolve_recorder(monkeypatch, {"voice": "audio-demo"})
+
+    async def handler(request, kwargs):
+        seen["url"] = str(request.url)
+        seen["payload"] = json.loads(kwargs["content"])
+        return _FakeUpstream(200, json_body={"unloaded": [], "not_found": []})
+
+    _install_upstream(monkeypatch, handler)
+    response = client.post("/v1/tasks/unload_models?model=voice", json={"model_ids": []})
+    assert response.status_code == 200
+    assert seen["url"] == "http://127.0.0.1:2000/upstream/audio-demo/v1/tasks/unload_models"
+    assert seen["payload"] == {"model_ids": []}
+    assert calls == [("voice", "/v1/tasks/unload_models")]
+
+
+def test_unload_models_explicit_pin_selects_the_engine_instance(client, monkeypatch):
+    seen: dict[str, Any] = {}
+    _resolve_recorder(monkeypatch, {"voice": "audio-demo", "asr": "audio-asr"})
+
+    async def handler(request, kwargs):
+        seen["url"] = str(request.url)
+        seen["payload"] = json.loads(kwargs["content"])
+        return _FakeUpstream(200, json_body={"unloaded": [], "not_found": ["audio-demo"]})
+
+    _install_upstream(monkeypatch, handler)
+    response = client.post("/v1/tasks/unload_models?model=asr", json={"model_ids": ["voice"]})
+    assert response.status_code == 200
+    # The explicit pin chooses the engine instance; the body still lists the
+    # rewritten ids the caller asked about.
+    assert seen["url"] == "http://127.0.0.1:2000/upstream/audio-asr/v1/tasks/unload_models"
+    assert seen["payload"] == {"model_ids": ["audio-demo"]}
+
+
+def test_unload_models_unknown_id_returns_404(client, monkeypatch):
+    _empty_audio_store(monkeypatch)
+    response = client.post("/v1/tasks/unload_models", json={"model_ids": ["ghost"]})
+    assert response.status_code == 404
+
+
+def test_unload_models_rejects_oversized_body(client, monkeypatch):
+    from backend.routes import audio_openai_proxy as proxy
+
+    monkeypatch.setattr(proxy, "MAX_AUDIO_UPLOAD_BYTES", 16)
+    response = client.post("/v1/tasks/unload_models", json={"model_ids": ["voice"]})
+    assert response.status_code == 413
+
+
+def test_unload_all_models_requires_a_model_pin(client, monkeypatch):
+    async def handler(_request, _kwargs):  # pragma: no cover - must not run
+        raise AssertionError("unpinned unload-all must not reach upstream")
+
+    _install_upstream(monkeypatch, handler)
+    response = client.post("/v1/tasks/unload_all_models")
+    assert response.status_code == 400
+    assert "model query parameter" in response.json()["detail"]
+
+
+def test_unload_all_models_forwards_and_strips_the_pin(client, monkeypatch):
+    seen: dict[str, Any] = {}
+    calls = _resolve_recorder(monkeypatch, {"voice": "audio-demo"})
+
+    async def handler(request, kwargs):
+        seen["url"] = str(request.url)
+        seen["content"] = kwargs["content"]
+        return _FakeUpstream(200, json_body={"unloaded": ["audio-demo"]})
+
+    _install_upstream(monkeypatch, handler)
+    response = client.post("/v1/tasks/unload_all_models?model=voice&trace=1")
+    assert response.status_code == 200
+    assert response.json() == {"unloaded": ["audio-demo"]}
+    # The Studio-only `model` pin is not forwarded; other query fields are.
+    assert seen["url"] == (
+        "http://127.0.0.1:2000/upstream/audio-demo/v1/tasks/unload_all_models?trace=1"
+    )
+    assert seen["content"] == b""
+    assert calls == [("voice", "/v1/tasks/unload_all_models")]
+
+
+def test_unload_all_models_unknown_model_returns_404(client, monkeypatch):
+    _empty_audio_store(monkeypatch)
+    response = client.post("/v1/tasks/unload_all_models?model=ghost")
+    assert response.status_code == 404
+
+
+def test_new_task_routes_are_not_mounted_under_v1_audio(client, monkeypatch):
+    seen: dict[str, Any] = {}
+
+    async def handler(request, _kwargs):
+        seen["url"] = str(request.url)
+        return _FakeUpstream(200, json_body={"ok": True})
+
+    _install_upstream(monkeypatch, handler)
+    response = client.post("/v1/audio/tasks/stream", json={"model": "voice"})
+    assert response.status_code == 200
+    # The /v1/audio catch-all forwards the path literally: no alias rewrite, no
+    # /upstream model scoping, no SSE header injection.
+    assert seen["url"] == "http://127.0.0.1:2000/v1/audio/tasks/stream"
+    assert "x-accel-buffering" not in response.headers
+    assert "cache-control" not in response.headers
+
+
+def test_existing_task_route_does_not_gain_sse_headers(client, monkeypatch):
+    async def handler(_request, _kwargs):
+        return _FakeUpstream(200, json_body={"ok": True})
+
+    _install_upstream(monkeypatch, handler)
+    response = client.post("/v1/tasks/run", json={"model": "vad", "request": {}})
+    assert response.status_code == 200
+    assert "x-accel-buffering" not in response.headers
+    assert "cache-control" not in response.headers
+
+
+async def test_stream_response_is_lazy_and_keeps_upstream_sse_headers():
+    from backend.routes import audio_openai_proxy as proxy
+
+    pulled: list[bytes] = []
+    chunks = [b'data: {"type":"task.stream.event"}\n\n', b"data: [DONE]\n\n"]
+
+    class Upstream:
+        status_code = 200
+        headers = httpx.Headers(
+            {
+                "content-type": "text/event-stream",
+                "cache-control": "private",
+                "x-accel-buffering": "no",
+            }
+        )
+
+        async def aiter_raw(self):
+            for chunk in chunks:
+                pulled.append(chunk)
+                yield chunk
+
+        async def aclose(self):
+            return None
+
+    class Client:
+        async def aclose(self):
+            return None
+
+    response = proxy._stream_response(Client(), Upstream(), sse=True)
+    # Building the response must not consume the upstream stream.
+    assert pulled == []
+    # Upstream's own SSE headers win over Studio's defaults.
+    assert response.headers["cache-control"] == "private"
+    assert response.headers["x-accel-buffering"] == "no"
+
+    iterator = response.body_iterator
+    assert await iterator.__anext__() == chunks[0]
+    assert pulled == chunks[:1]
+    assert await iterator.__anext__() == chunks[1]
+    await iterator.aclose()
+
+
+# --- v0.9.5 live audio: chunked request bodies through the /v1/audio catch-all --
+
+
+@pytest.mark.parametrize(
+    "path,query,chunks",
+    [
+        (
+            "/v1/audio/transcriptions/live",
+            "model=asr-live&sample_rate=16000&channels=1&sample_format=s16le",
+            [b'data: {"type":"transcript.text.delta"}\n\n', b"data: [DONE]\n\n"],
+        ),
+        (
+            "/v1/audio/speech/live",
+            "model=s2s-live&return_text=true",
+            [b'data: {"type":"speech.text.delta"}\n\n', b"data: [DONE]\n\n"],
+        ),
+    ],
+)
+def test_live_audio_routes_forward_chunked_pcm_and_stream_sse(
+    client, monkeypatch, path, query, chunks
+):
+    seen: dict[str, Any] = {}
+
+    async def handler(request, kwargs):
+        seen["url"] = str(request.url)
+        seen["content"] = kwargs["content"]
+        seen["content_length"] = any(key.lower() == "content-length" for key in kwargs["headers"])
+        received = []
+        async for chunk in kwargs["content"]:
+            received.append(chunk)
+        seen["received"] = b"".join(received)
+        return _FakeUpstream(
+            200, content=b"".join(chunks), headers={"content-type": "text/event-stream"}
+        )
+
+    _install_upstream(monkeypatch, handler)
+    pcm = b"\x00\x01\x02\x03" * 64
+    response = client.post(
+        f"{path}?{query}",
+        content=iter([pcm[:64], pcm[64:]]),
+        headers={"content-type": "application/octet-stream"},
+    )
+    assert response.status_code == 200
+    # The catch-all forwards the native path and the model query untouched: the
+    # upstream engine reads its model from the query on these routes.
+    assert seen["url"] == f"http://127.0.0.1:2000{path}?{query}"
+    assert hasattr(seen["content"], "__aiter__")
+    assert seen["content_length"] is False
+    assert seen["received"] == pcm
+    assert response.headers["content-type"].startswith("text/event-stream")
+
+
+async def test_live_audio_passthrough_is_incrementally_forwarded(monkeypatch):
+    """No read-ahead buffering: each client chunk reaches httpx as it arrives."""
+    from starlette.requests import Request
+
+    from backend.routes import audio_openai_proxy as proxy
+
+    chunks = [b"pcm-one", b"pcm-two", b"pcm-three"]
+    pulled: list[bytes] = []
+    pending = list(chunks)
+    observed: list[tuple[bytes, tuple[bytes, ...]]] = []
+
+    async def receive():
+        if pending:
+            chunk = pending.pop(0)
+            pulled.append(chunk)
+            return {"type": "http.request", "body": chunk, "more_body": True}
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/v1/audio/transcriptions/live",
+        "raw_path": b"/v1/audio/transcriptions/live",
+        "query_string": b"model=asr-live&sample_rate=16000",
+        "root_path": "",
+        "headers": [(b"content-type", b"application/octet-stream")],
+        "server": ("testserver", 80),
+        "client": ("testclient", 50000),
+    }
+    request = Request(scope, receive)
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def build_request(self, method, url, **kwargs):
+            return SimpleNamespace(method=method, url=url, kwargs=kwargs)
+
+        async def send(self, built, stream=False):
+            content = built.kwargs["content"]
+            assert hasattr(content, "__aiter__"), "body must not be buffered"
+            assert "content-length" not in {key.lower() for key in built.kwargs["headers"]}
+            async for chunk in content:
+                observed.append((chunk, tuple(pulled)))
+            return _FakeUpstream(
+                200, content=b"data: [DONE]\n\n", headers={"content-type": "text/event-stream"}
+            )
+
+        async def aclose(self):
+            return None
+
+    monkeypatch.setattr(proxy.httpx, "AsyncClient", FakeClient)
+    monkeypatch.setattr(proxy, "_get_proxy_port", lambda: 2000)
+
+    response = await proxy._passthrough(request, "/v1/audio/transcriptions/live")
+    assert response.status_code == 200
+    # Starlette may hand over a terminating empty chunk; it carries no audio.
+    forwarded = [(chunk, pulled_at_yield) for chunk, pulled_at_yield in observed if chunk]
+    assert [chunk for chunk, _ in forwarded] == chunks
+    # Consuming chunk N reads only up to chunk N; nothing is read ahead.
+    for index, (_, pulled_at_yield) in enumerate(forwarded):
+        assert pulled_at_yield == tuple(chunks[: index + 1])
+    assert str(request.url) == (
+        "http://testserver/v1/audio/transcriptions/live?model=asr-live&sample_rate=16000"
+    )
