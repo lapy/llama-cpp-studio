@@ -104,6 +104,48 @@ describe('TaskNotifications', () => {
     )
   })
 
+  it('keeps concurrent tasks in start-time order while events stream in', async () => {
+    const store = useProgressStore()
+    store.tasks = reactive({
+      first: {
+        task_id: 'first',
+        type: 'build',
+        status: 'running',
+        progress: 10,
+        description: 'First task',
+        created_at: 100,
+        updated_at: 900,
+      },
+      second: {
+        task_id: 'second',
+        type: 'build',
+        status: 'running',
+        progress: 10,
+        description: 'Second task',
+        created_at: 200,
+        updated_at: 300,
+      },
+    })
+
+    const wrapper = mountTray()
+    await flushPromises()
+    const titles = () => wrapper.findAll('.task-toast__title').map((node) => node.text())
+
+    // Newest start first, independent of which task emitted the last event.
+    expect(titles()).toEqual(['Second task', 'First task'])
+
+    store.tasks.first.updated_at = 1000
+    store.tasks.first.progress = 25
+    await flushPromises()
+    expect(titles()).toEqual(['Second task', 'First task'])
+
+    store.tasks.second.updated_at = 2000
+    store.tasks.second.progress = 25
+    await flushPromises()
+    expect(titles()).toEqual(['Second task', 'First task'])
+    wrapper.unmount()
+  })
+
   it('shows each task once inside the activity panel', async () => {
     seedTask({
       task_id: 'build',
