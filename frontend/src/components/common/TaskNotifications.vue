@@ -267,15 +267,20 @@ onUnmounted(() => {
   window.clearTimeout(alertTimer)
 })
 
+function startStamp(task) {
+  // Activity order must not follow the last streamed event: two concurrent
+  // tasks would swap places on every progress tick. Creation time is fixed for
+  // the life of a task, so their order stays stable while work is running.
+  const raw = task.started_at || task.created_at
+  if (typeof raw === 'number') return raw * (raw < 1e12 ? 1000 : 1)
+  return Date.parse(raw || '') || 0
+}
+
 const sortedTasks = computed(() =>
   [...activityTasks.value].sort((a, b) => {
     const rank = (STATUS_RANK[a.status] ?? 6) - (STATUS_RANK[b.status] ?? 6)
     if (rank !== 0) return rank
-    const stamp = (task) => {
-      const raw = task.updated_at || task.completed_at || task.created_at || task.started_at
-      return typeof raw === 'number' ? raw * (raw < 1e12 ? 1000 : 1) : Date.parse(raw || '') || 0
-    }
-    return stamp(b) - stamp(a) || String(a.task_id).localeCompare(String(b.task_id))
+    return startStamp(b) - startStamp(a) || String(a.task_id).localeCompare(String(b.task_id))
   }),
 )
 
