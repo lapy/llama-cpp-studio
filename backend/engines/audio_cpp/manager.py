@@ -304,6 +304,15 @@ class AudioCppManager:
                     str(arg).startswith("-DCMAKE_CUDA_COMPILER=") for arg in cmake_args
                 ):
                     cmake_args.append(f"-DCMAKE_CUDA_COMPILER={nvcc}")
+                from backend.cuda_host_compiler import select_cuda_host_compiler
+
+                host_gxx = select_cuda_host_compiler(cuda_root)
+                if host_gxx:
+                    env["CUDAHOSTCXX"] = host_gxx
+                    if not any(
+                        str(arg).startswith("-DCMAKE_CUDA_HOST_COMPILER=") for arg in cmake_args
+                    ):
+                        cmake_args.append(f"-DCMAKE_CUDA_HOST_COMPILER={host_gxx}")
 
             host = await detect_host_target()
             cmake_args = cmake_args_for_host_cuda(cmake_args, host.sms)
