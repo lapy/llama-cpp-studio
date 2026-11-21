@@ -28,6 +28,17 @@ operations:
       export NVCC_PREPEND_FLAGS="${NVCC_PREPEND_FLAGS:--ccbin $CUDAHOSTCXX}"
       export CXX="${CXX:-$CUDAHOSTCXX}"
     fi
+    # glibc >= 2.41 declares C23 sinpi/cospi/rsqrt with noexcept, while CUDA
+    # <= 12.9 declares them without one; nvcc's host pass then rejects the
+    # pair. Force-include the same host-only shim used by the native engines.
+    for studio_glibc_shim in \
+      /app/backend/engines/cuda/glibc_c23_math_compat.h \
+      /app/data/glibc_c23_math_compat.h; do
+      if [[ -f "$studio_glibc_shim" ]]; then
+        export NVCC_PREPEND_FLAGS="${NVCC_PREPEND_FLAGS:-} -Xcompiler=-include,$studio_glibc_shim"
+        break
+      fi
+    done
     log "Using Studio Python: $SGLANG_STUDIO_PYTHON"
     log "Using Studio CUDA: $CUDA_HOME"
   skip_if_contains: Studio owns host packages
