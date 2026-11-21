@@ -720,6 +720,10 @@ INSTALL_PRIMITIVES: FrozenSet[str] = frozenset(
         "archive.verify_checksums_file",
         "archive.extract_tar",
         "artifact.materialize_cli",
+        # Engine-owned prebuilt deltas: the resolved release plan carries the
+        # published digest, and the unpacked binaries must prove they can run.
+        "prebuilt.download",
+        "prebuilt.preflight",
         "cgroup.select_concurrency",
         "pip.install_requirements",
         "pip.install_package",

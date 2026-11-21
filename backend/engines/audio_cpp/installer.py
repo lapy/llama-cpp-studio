@@ -6,7 +6,11 @@ audio-specific, delegating to the existing helpers so there is no second
 implementation:
 
 - ``_download_file``: the streaming release downloader with its HTTP(S) guard
-  (``prebuilt.stream_release_download``), which ``archive.download`` uses;
+  (``prebuilt.stream_release_download``), which ``archive.download`` uses for
+  other engines; audio's ``prebuilt.download`` step calls it with the resolved
+  plan's published SHA-256 so the archive is verified while streaming;
+- ``prebuilt.preflight``: both archives' binaries must execute on this host
+  before a version row is published (``prebuilt.assert_prebuilt_binaries_runnable``);
 - ``artifact.materialize_cli``: the Ubuntu CUDA archive ships the server only,
   so a missing CLI is fetched from the SAME release's CPU companion archive and
   copied next to the server (``prebuilt.materialize_cli``, progress 55);
@@ -36,8 +40,11 @@ from backend.engines.definitions import load_default_engine_definitions
 from backend.engines.definitions.executor import PrimitiveExecutionError
 from backend.engines.definitions.schema import EngineDefinition
 from backend.engines.python.native import GenericNativeInstaller
+from backend.logging_config import get_logger
 from backend.paths import studio_data_dir
 
+
+logger = get_logger(__name__)
 
 ENGINE_ID = "audio_cpp"
 
@@ -95,11 +102,65 @@ class AudioCppInstaller(GenericNativeInstaller):
             "cmake.build": self._build_source_tree,
             "cmake.configure": self._configure_source,
             "host.inspect": self._inspect_sync_target,
+            # Prebuilt deltas: the plan's published digest and a runnability
+            # probe are only available here, where `input.plan` is in context.
+            "prebuilt.download": self._download_release_archive,
+            "prebuilt.preflight": self._preflight_prebuilt_binaries,
             "smoke.test": self._validate_binary,
             "vcs.seal_checkout": self._seal_source,
             "vcs.sync": self._sync_checkout,
             "vcs.workspace_checkout": self._checkout_source,
         }
+
+    async def _download_release_archive(self, step, requirements, context) -> Dict[str, Any]:
+        """`prebuilt.download`: stream the release asset and check its digest.
+
+        The generic ``archive.download`` primitive cannot see the resolved
+        ``PrebuiltPlan``; checking while streaming is what keeps a corrupted or
+        swapped archive from ever reaching extraction.
+        """
+        from backend.engines.audio_cpp import prebuilt
+        from backend.engines.definitions.primitives import _emit_progress
+
+        await _emit_progress(self, step, requirements)
+        url = str(requirements.get(str(step.with_.get("url_from") or "url")) or "")
+        dest = str(requirements.get(str(step.with_.get("path_from") or "path")) or "")
+        plan = context.get("input.plan")
+        expected = prebuilt.parse_sha256_digest(getattr(plan, "sha256", ""))
+        if not expected:
+            logger.warning(
+                "No published SHA-256 digest for %s; falling back to the archive's SHA256SUMS",
+                os.path.basename(dest) or url,
+            )
+        digest = await prebuilt.stream_release_download(url, dest, expected_sha256=expected)
+        return {
+            "archive_sha256": str(digest or ""),
+            "archive_digest_verified": bool(expected),
+        }
+
+    async def _preflight_prebuilt_binaries(self, step, requirements, context) -> Dict[str, Any]:
+        """`prebuilt.preflight`: refuse an archive that cannot run here.
+
+        Runs before ``publish_row``, so an unloadable release (e.g. one linked
+        against a newer glibc) never gets a ready version row or an activation.
+        """
+        from backend.engines.audio_cpp.prebuilt import assert_prebuilt_binaries_runnable
+
+        server = str(context.get("server") or "")
+        cli = str(context.get("cli_final") or context.get("cli") or "")
+        install_dir = str(context.get("input.install_dir") or "")
+        await self._update_progress_task(70, "Checking that the prebuilt binaries run on this host")
+        try:
+            # Both probes are short subprocesses; keep them off the event loop.
+            details = await asyncio.to_thread(
+                assert_prebuilt_binaries_runnable,
+                server,
+                cli,
+                install_dir=install_dir,
+            )
+        except RuntimeError as exc:
+            raise PrimitiveExecutionError(str(exc)) from exc
+        return {"preflight": details}
 
     async def _inspect_sync_target(self, step, requirements, context) -> Dict[str, Any]:
         """`host.inspect` for a sync: validate the row's checkout and build dir."""
@@ -399,7 +460,22 @@ class AudioCppInstaller(GenericNativeInstaller):
         """Engine-declared row fields: prebuilt provenance or source-build facts."""
         plan = context.get("input.plan")
         if plan is not None:
+            from backend.engines.audio_cpp.prebuilt import parse_sha256_digest
+
             source_ref = str(context.get("input.source_ref") or "")
+            asset_sha256 = parse_sha256_digest(getattr(plan, "sha256", ""))
+            if asset_sha256:
+                verified_by = "github-digest"
+            elif context.get("checksums_verified"):
+                verified_by = "sha256sums"
+            else:
+                verified_by = "unverified"
+                logger.warning(
+                    "audio.cpp %s (%s) has no published SHA-256 digest and its "
+                    "archive has no SHA256SUMS; the install is UNVERIFIED",
+                    source_ref,
+                    plan.asset_name,
+                )
             return {
                 "is_fork": False,
                 "source_branch": source_ref,
@@ -414,6 +490,11 @@ class AudioCppInstaller(GenericNativeInstaller):
                     "host_cuda": plan.host_cuda,
                     "selection_reason": plan.reason,
                     "architectures": list(plan.architectures),
+                    "asset_sha256": asset_sha256,
+                    # Digest of the bytes actually downloaded; traceability even
+                    # when nothing vouched for them.
+                    "download_sha256": str(context.get("archive_sha256") or ""),
+                    "download_verified_by": verified_by,
                 },
             }
         labels = context.get("input.type_labels")

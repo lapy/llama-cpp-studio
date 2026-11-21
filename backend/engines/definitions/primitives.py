@@ -454,7 +454,9 @@ async def run_shared_primitive(
 
     if primitive == "archive.verify_checksums_file":
         # audio.cpp style: a SHA256SUMS file shipped INSIDE the archive.
-        # Missing file = nothing to verify; missing entries/files skip.
+        # Missing file = nothing to verify; missing entries/files skip. The
+        # result lets the engine record honestly whether anything vouched for
+        # the download ("unverified" rather than an implied success).
         root = str(requirements.get(str(step.with_.get("root_from") or "path")) or "")
         checksum_path = ""
         for dirpath, _, files in os.walk(root):
@@ -462,7 +464,8 @@ async def run_shared_primitive(
                 checksum_path = os.path.join(dirpath, "SHA256SUMS")
                 break
         if not checksum_path:
-            return {}
+            return {"checksums_verified": False}
+        verified = False
         base = os.path.dirname(checksum_path)
         with open(checksum_path, "r", encoding="utf-8") as handle:
             for line in handle:
@@ -478,7 +481,8 @@ async def run_shared_primitive(
                     continue
                 if _sha256_file(target).lower() != digest.lower():
                     raise PrimitiveExecutionError(f"Checksum mismatch for {filename}")
-        return {}
+                verified = True
+        return {"checksums_verified": verified}
 
     if primitive == "artifact.locate":
         root = str(requirements.get(str(step.with_.get("root_from") or "path")) or "")

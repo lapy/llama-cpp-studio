@@ -226,7 +226,9 @@ def assert_activation_supported(store, row: dict) -> None:
     Studio hard-requires modern engine builds (v0.9.1+): the composed contract
     is derived from JSON probes only, so an old build must be refused *before*
     it becomes active. A cached successful JSON scan for identical binaries
-    skips the probe.
+    skips the probe. A binary that cannot execute at all (e.g. a prebuilt
+    linked against a newer glibc) gets the ABI explanation, not the
+    "update audio.cpp" advice that only fits an old-but-runnable build.
     """
     from fastapi import HTTPException
 
@@ -240,6 +242,7 @@ def assert_activation_supported(store, row: dict) -> None:
         _abs_audio_path,
         _audio_cpp_workdir,
         _run_audio_cpp_loaders,
+        audio_cpp_probe_failure_is_execution,
     )
 
     cli_path = _abs_audio_path(str(row.get("cli_binary_path") or ""))
@@ -250,6 +253,19 @@ def assert_activation_supported(store, row: dict) -> None:
         )
     payload, error = _run_audio_cpp_loaders(cli_path, cwd=_audio_cpp_workdir(row, cli_path))
     if payload is None:
+        if audio_cpp_probe_failure_is_execution(error):
+            from backend.engines.audio_cpp.prebuilt import host_glibc_version
+
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "This audio.cpp build cannot run on this host, so it cannot be "
+                    f"activated (host glibc: {host_glibc_version()}). "
+                    f"Probe output: {error or 'no output'}. The installed prebuilt "
+                    "was linked against a newer runtime than this host provides; "
+                    "install a compatible prebuilt or build this release from source."
+                ),
+            )
         raise HTTPException(
             status_code=400,
             detail=(
