@@ -43,55 +43,10 @@
       </div>
     </Message>
 
-    <Message
-      v-if="contractFailureKind === 'schema-mismatch'"
-      severity="error"
-      :closable="false"
-      class="config-scan-message"
-    >
-      <div class="config-message__body">
-        <strong>audio.cpp contract schema mismatch.</strong>
-        {{ audioContractError }} Studio will not guess at routing it does not understand; forms stay
-        disabled until Studio and the engine agree on the contract schema.
-      </div>
-    </Message>
-
-    <Message
-      v-else-if="contractFailureKind === 'no-engine'"
-      severity="warn"
-      :closable="false"
-      class="config-scan-message"
-    >
-      <div class="config-message__body">
-        <strong>No active modern audio.cpp engine.</strong>
-        Studio needs an active v0.9.1 or newer audio.cpp version with JSON loader listing. Activate
-        one on the Engines page and let its parameter scan finish; forms appear once it does. ({{
-          audioContractError
-        }})
-      </div>
-    </Message>
-
-    <Message
-      v-else-if="contractFailureKind === 'unreachable'"
-      severity="error"
-      :closable="false"
-      class="config-scan-message"
-    >
-      <div class="config-message__body">
-        <strong>Could not load the audio.cpp integration contract.</strong>
-        {{ audioContractError }} This is a connection or server error, not a build-version signal.
-        <Button
-          label="Retry contract"
-          icon="pi pi-refresh"
-          size="small"
-          severity="secondary"
-          outlined
-          :loading="contractRetrying"
-          class="config-message__action"
-          @click="retryContract"
-        />
-      </div>
-    </Message>
+    <AudioContractNotice
+      :scan-error="paramRegistry.scan_error"
+      :scan-pending="paramRegistry.scan_pending"
+    />
 
     <Message
       v-for="(warning, index) in contractDriftWarnings"
@@ -628,6 +583,7 @@ import Select from 'primevue/select'
 import Message from 'primevue/message'
 import Textarea from 'primevue/textarea'
 import AudioParamField from '@/components/audio/AudioParamField.vue'
+import AudioContractNotice from '@/components/audio/AudioContractNotice.vue'
 import ModelConfigAudioProfiles from '@/components/models/ModelConfigAudioProfiles.vue'
 import {
   useAudioModelConfig,
@@ -635,13 +591,7 @@ import {
   dependencyFieldTags,
   paramMatchesSearch,
 } from '@/composables/useAudioModelConfig'
-import {
-  audioContractError,
-  audioContractLoaded,
-  audioContractSchemaMismatch,
-  audioContractStatus,
-  fetchAudioContract,
-} from '@/composables/useAudioContract'
+import { fetchAudioContract } from '@/composables/useAudioContract'
 import { useEnginesStore } from '@/stores/engines'
 import { isAudioEngineId } from '@/engines/registry'
 import { useModelStore } from '@/stores/models'
@@ -688,7 +638,6 @@ const serverSearchQuery = ref('')
 const hideUnsupportedParams = ref(true)
 const showAdvancedRuntime = ref(false)
 const rescanLoading = ref(false)
-const contractRetrying = ref(false)
 const referenceAudioItems = ref([])
 const referenceAudioLoading = ref(false)
 const referenceAudioUploading = ref(false)
@@ -738,17 +687,6 @@ const audio = useAudioModelConfig(configRef, registryRef, enginesStore, stableId
 const contractDriftWarnings = computed(() =>
   (props.paramRegistry?.contract_drift_warnings || []).map(String),
 )
-
-// No composed contract means either no modern engine is active (409) or the
-// contract request itself failed. Only a schema mismatch is a version signal;
-// a network/500 error must never be reported as "build too old".
-const contractFailureKind = computed(() => {
-  if (props.paramRegistry?.scan_error || props.paramRegistry?.scan_pending) return ''
-  if (audioContractLoaded.value || !audioContractError.value) return ''
-  if (audioContractSchemaMismatch.value) return 'schema-mismatch'
-  if (audioContractStatus.value === 409) return 'no-engine'
-  return 'unreachable'
-})
 
 const {
   audioConfigGroups,
@@ -859,15 +797,6 @@ const commonRuntimeParams = computed(() => {
 
 let referenceAudioEpoch = 0
 let referenceAudioDisposed = false
-
-async function retryContract() {
-  contractRetrying.value = true
-  try {
-    await fetchAudioContract({ force: true })
-  } finally {
-    contractRetrying.value = false
-  }
-}
 
 onMounted(() => {
   // Shared module-level singleton; concurrent callers share one request.
