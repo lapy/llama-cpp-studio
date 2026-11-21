@@ -1,5 +1,5 @@
 import { sessionFetch } from '@/api/sessionFetch.js'
-import { audioTaskBodyShape, audioTaskEndpoint } from '@/composables/useAudioContract.js'
+import { audioTaskBodyShape, audioTaskRequestPath } from '@/composables/useAudioContract.js'
 
 /**
  * Audio inference through the Studio origin. Studio handles transport and
@@ -14,7 +14,7 @@ import { audioTaskBodyShape, audioTaskEndpoint } from '@/composables/useAudioCon
 
 const SPEECH_RATE_KEYS = ['speed', 'speaking_rate']
 
-/** Absolute Studio-origin URL for a contract ``studio_path``. */
+/** Absolute Studio-origin URL for a browser-safe management path. */
 function studioRequestUrl(path) {
   const value = String(path || '')
   if (/^https?:\/\//i.test(value)) return value
@@ -24,21 +24,21 @@ function studioRequestUrl(path) {
 }
 
 /**
- * Resolve the serving endpoint for a task and require the body shape this
- * caller knows how to produce. With no contract loaded the offline floor says
- * ``tasks-run``, so speech/transcription callers fail loudly instead of
+ * Resolve the browser/management path for a task and require the body shape
+ * this caller knows how to produce. With no contract loaded the offline floor
+ * says ``tasks-run``, so speech/transcription callers fail loudly instead of
  * posting a body the generic route would misinterpret.
  */
 function contractEndpointFor(task, bodyShape, action) {
+  const requestPath = audioTaskRequestPath(task)
   const actual = audioTaskBodyShape(task)
   if (actual !== bodyShape) {
-    const endpoint = audioTaskEndpoint(task)
     throw new Error(
       `${action} needs the audio.cpp integration contract ` +
-        `(expected ${bodyShape}, got ${actual} from ${endpoint}). Reload capabilities.`,
+        `(expected ${bodyShape}, got ${actual} from ${requestPath}). Reload capabilities.`,
     )
   }
-  return audioTaskEndpoint(task)
+  return requestPath
 }
 
 /** Request-option keys the model scan advertised as speed controls. */
@@ -529,7 +529,7 @@ function appendMultipartValue(form, key, value) {
  * multipart operations send FormData. No task→route table lives here.
  */
 export async function runAudioTask({ modelId, task, input = {}, busyTimeoutMs, signal } = {}) {
-  const endpoint = audioTaskEndpoint(task)
+  const endpoint = audioTaskRequestPath(task)
   const shape = audioTaskBodyShape(task)
   const request = tasksRunRequestObject(input)
   let headers = { Authorization: 'Bearer local' }

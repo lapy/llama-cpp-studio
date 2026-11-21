@@ -176,6 +176,27 @@ export function audioTaskEndpoint(task) {
   return op?.studio_path || audioContract.value.generic_studio_path
 }
 
+/**
+ * Same-origin management path for a contract ``studio_path``.
+ *
+ * Contract paths describe the Studio proxy dataplane, where ``/audioapi`` is
+ * stripped before forwarding (backend/proxy/studio/dataplane.py). The browser
+ * talks to the management origin instead: backend/main.py mounts the generic
+ * task route as ``/tasks/run`` under ``/v1`` and the audio routes under
+ * ``/v1/audio``. Only the dataplane-only ``/audioapi`` prefix is rewritten;
+ * every other contract path is already a management path.
+ */
+function managementAudioPath(endpoint) {
+  const value = String(endpoint || '').trim()
+  if (value.startsWith('/audioapi/')) return value.slice('/audioapi'.length)
+  return value
+}
+
+/** Browser-safe management path a task's requests go to. */
+export function audioTaskRequestPath(task) {
+  return managementAudioPath(audioTaskEndpoint(task))
+}
+
 /** Studio-persistence defaults bucket for a task's serving operation. */
 export function audioTaskDefaultsKey(task) {
   const op = audioOperationForTask(task)

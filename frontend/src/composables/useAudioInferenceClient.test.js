@@ -24,6 +24,7 @@ import {
   audioTaskBodyShape,
   audioTaskDefaultsKey,
   audioTaskEndpoint,
+  audioTaskRequestPath,
   OFFLINE_AUDIO_CONTRACT,
   resetAudioContract,
 } from './useAudioContract'
@@ -354,7 +355,7 @@ describe('useAudioInferenceClient', () => {
     ])
   })
 
-  it('posts generic tasks to the contract generic path', async () => {
+  it('posts generic tasks to the same-origin management /v1/tasks/run route', async () => {
     vi.stubGlobal('window', {
       location: { origin: 'http://studio.test', hostname: 'studio.test', protocol: 'http:' },
     })
@@ -374,8 +375,10 @@ describe('useAudioInferenceClient', () => {
     })
 
     expect(result).toEqual({ ok: true })
+    // The contract's /audioapi/... path belongs to the proxy dataplane; the
+    // browser management origin serves the same route as /v1/tasks/run.
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://studio.test/audioapi/v1/tasks/run',
+      'http://studio.test/v1/tasks/run',
       expect.objectContaining({ method: 'POST', signal }),
     )
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
@@ -414,6 +417,10 @@ describe('useAudioInferenceClient', () => {
     expect(audioTaskEndpoint('tts')).toBe('/v1/audio/speech')
     expect(audioTaskEndpoint('asr')).toBe('/v1/audio/transcriptions')
     expect(audioTaskEndpoint('gen')).toBe('/audioapi/v1/tasks/run')
+    expect(audioTaskRequestPath('tts')).toBe('/v1/audio/speech')
+    expect(audioTaskRequestPath('asr')).toBe('/v1/audio/transcriptions')
+    expect(audioTaskRequestPath('batch_transcribe')).toBe('/v1/batches/transcriptions')
+    expect(audioTaskRequestPath('gen')).toBe('/v1/tasks/run')
     expect(audioTaskDefaultsKey('asr')).toBe('transcription_defaults')
     expect(audioTaskBodyShape('align')).toBe('multipart-form')
     expect(audioTaskBodyShape('vc')).toBe('tasks-run')

@@ -13,6 +13,7 @@ import {
   audioTaskBodyShape,
   audioTaskDefaultsKey,
   audioTaskEndpoint,
+  audioTaskRequestPath,
   fetchAudioContract,
   OFFLINE_AUDIO_CONTRACT,
   resetAudioContract,
@@ -35,10 +36,25 @@ describe('useAudioContract', () => {
 
   it('starts on the offline generic-route floor', () => {
     expect(audioTaskEndpoint('tts')).toBe(OFFLINE_AUDIO_CONTRACT.generic_studio_path)
+    expect(audioTaskRequestPath('tts')).toBe('/v1/tasks/run')
     expect(audioTaskDefaultsKey('tts')).toBe('task_defaults')
     expect(audioOperationForTask('tts')).toBeNull()
     expect(audioTaskBodyShape('tts')).toBe('tasks-run')
     expect(audioContractLoaded.value).toBe(false)
+  })
+
+  it('maps dataplane /audioapi paths onto same-origin management paths', () => {
+    audioContract.value = audioContractFixture()
+
+    expect(audioTaskEndpoint('gen')).toBe('/audioapi/v1/tasks/run')
+    expect(audioTaskRequestPath('gen')).toBe('/v1/tasks/run')
+    expect(audioTaskRequestPath('brand_new_task')).toBe('/v1/tasks/run')
+    // Every dedicated route is already a management path and must not change.
+    expect(audioTaskRequestPath('tts')).toBe('/v1/audio/speech')
+    expect(audioTaskRequestPath('asr')).toBe('/v1/audio/transcriptions')
+    expect(audioTaskRequestPath('transcribe_details')).toBe('/v1/audio/transcriptions/details')
+    expect(audioTaskRequestPath('batch_transcribe')).toBe('/v1/batches/transcriptions')
+    expect(audioTaskRequestPath('align')).toBe('/v1/audio/alignments')
   })
 
   it('loads the composed contract and routes from it', async () => {
