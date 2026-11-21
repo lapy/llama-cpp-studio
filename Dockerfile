@@ -1,7 +1,13 @@
 ################################################################################
 # Studio - Multi-stage Docker build
 ################################################################################
-ARG BASE_IMAGE=ubuntu:24.04
+# Ubuntu 26.04 ships glibc 2.43, which is what current audio.cpp Linux
+# prebuilts require; 24.04 (glibc 2.39) cannot load them.
+#
+# Python stays pinned at 3.12: vLLM requires 3.10-3.13 and SGLang's V100 build
+# requires exactly 3.12, so the distro's Python 3.14 cannot run those engine
+# installers. deadsnakes provides 3.12 for 26.04.
+ARG BASE_IMAGE=ubuntu:26.04
 
 ################################################################################
 # Stage 1: Frontend Builder
@@ -42,10 +48,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Install build dependencies required for python wheels and runtime compilation (llama.cpp)
 RUN apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update \
     && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
-    python3 \
-    python3-venv \
-    python3-pip \
-    python3-dev \
+    software-properties-common \
     build-essential \
     cmake \
     gcc \
@@ -61,6 +64,12 @@ RUN apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update \
     ca-certificates \
     pciutils \
     lsb-release \
+    && add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update \
+    && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
+    python3.12 \
+    python3.12-venv \
+    python3.12-dev \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -71,7 +80,7 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Create venv and install Python packages
 ENV VENV_PATH=/opt/venv
-RUN python3 -m venv ${VENV_PATH}
+RUN python3.12 -m venv ${VENV_PATH}
 ENV PATH="${VENV_PATH}/bin:${PATH}"
 
 COPY requirements.lock /tmp/requirements.lock
@@ -100,10 +109,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # Install runtime dependencies (retain build toolchain for llama.cpp builds and GPU detection)
 RUN apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update \
     && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
-    python3 \
-    python3-venv \
-    python3-pip \
-    python3-dev \
+    software-properties-common \
     build-essential \
     g++-12 \
     ccache \
@@ -119,19 +125,32 @@ RUN apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update \
     protobuf-compiler \
     libprotobuf-dev \
     patchelf \
-    # Core libs for Python packages
-    libssl3 \
+    # Core libs for Python packages. 26.04 renamed the time64 ABI packages.
+    libssl3t64 \
     libssl-dev \
     libffi8 \
-    libcurl4 \
+    libcurl4t64 \
     libcurl4-openssl-dev \
     libopenblas0 \
+    # audio.cpp's CPU prebuilts link the OpenMP runtime.
+    libgomp1 \
     # GPU acceleration support (CUDA only)
     ocl-icd-libopencl1 \
     libnuma1 \
     pciutils \
+    # Engine venvs are created with Python 3.12 (vLLM 3.10-3.13, SGLang V100
+    # exactly 3.12); the app venv is copied from the builder stage.
+    && add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update \
+    && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
+    python3.12 \
+    python3.12-venv \
+    python3.12-dev \
     # Optional: ROCm (fails gracefully if unavailable)
     && (apt-get install -y --no-install-recommends rocminfo rocm-smi || echo "ROCm unavailable") \
+    # Ubuntu 26.04's base layer ships Canonical Pebble unowned by dpkg. Studio
+    # never uses it, and Trivy flags its bundled Go stdlib; drop it.
+    && rm -f /usr/bin/pebble \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -228,8 +247,11 @@ RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh /app/setup-cuda-env.sh 
     [ -x /usr/local/bin/docker-entrypoint.sh ] && \
     head -n 1 /usr/local/bin/docker-entrypoint.sh | grep -q "^#!/bin/bash"
 
-# Create python symlink for compatibility
-RUN ln -sf /usr/bin/python3 /usr/bin/python
+# Create python symlinks for compatibility; the application venv is Python 3.12.
+# /usr/local/bin precedes /usr/bin on PATH, so shell tools (node-gyp, helper
+# scripts) also get 3.12 while apt's own python3 remains the distro 3.14.
+RUN ln -sf /usr/bin/python3.12 /usr/bin/python \
+    && ln -sf /usr/bin/python3.12 /usr/local/bin/python3
 
 # Refresh OS packages to current archive versions before freezing the image.
 # The apt install layer above is cached across builds, so it can pin versions
@@ -237,7 +259,7 @@ RUN ln -sf /usr/bin/python3 /usr/bin/python
 # moved on -- that is how 77 fixed linux-libc-dev CVEs survived into a scan.
 # SECURITY_REFRESH rotates only this small layer (CI passes the run timestamp),
 # so every build re-runs apt-get update and upgrades installed packages
-# (e.g. linux-libc-dev, libssl3) to the newest published versions without
+# (e.g. linux-libc-dev, libssl3t64) to the newest published versions without
 # re-downloading the toolchain layers.
 #
 # The refresh must FAIL when the archive cannot be reached. A build container
