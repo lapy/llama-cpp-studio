@@ -428,6 +428,8 @@ def test_v100_transform_assets_rewrite_a_real_checkout(tmp_path):
     rewritten = script_path.read_text(encoding="utf-8")
     assert "Studio owns host packages" in rewritten
     assert "SGLANG_STUDIO_PYTHON" in rewritten
+    assert "glibc_c23_math_compat.h" in rewritten
+    assert "-Xcompiler=-include," in rewritten
     assert "Building the SM70 FlashAttention vision package" in rewritten
     assert "flash-attention-v100.git" in rewritten
     assert "vision_host_compat.patch" in rewritten
@@ -458,6 +460,8 @@ def test_sxm2_transform_assets_rewrite_a_real_checkout(tmp_path):
     assert "Studio owns host packages" in rewritten
     assert "SGLANG_STUDIO_PYTHON" in rewritten
     assert "NVCC_PREPEND_FLAGS" in rewritten
+    assert "glibc_c23_math_compat.h" in rewritten
+    assert "-Xcompiler=-include," in rewritten
     assert "unset CMAKE_ARGS" in rewritten
     assert "Studio environment: $VIRTUAL_ENV" in rewritten
     # The maintainer's dependency strategy is untouched: the --no-deps
@@ -598,6 +602,8 @@ def test_sm70_transform_assets_rewrite_a_real_checkout(tmp_path):
     assert "Studio owns host packages" in rewritten
     assert "SGLANG_STUDIO_PYTHON" in rewritten
     assert "NVCC_PREPEND_FLAGS" in rewritten
+    assert "glibc_c23_math_compat.h" in rewritten
+    assert "-Xcompiler=-include," in rewritten
     assert "unset CMAKE_ARGS" in rewritten
     assert "Studio environment: $VIRTUAL_ENV" in rewritten
     # The maintainer's builder stays the builder: the --no-deps requirements
