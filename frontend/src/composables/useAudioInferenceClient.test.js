@@ -337,6 +337,23 @@ describe('useAudioInferenceClient', () => {
     expect(parsed.results).toEqual([{ name: 'File 1', text: 'hi' }])
   })
 
+  it('reads the native batch SSE shape without turning the done event into a row', () => {
+    const parsed = parseBatchTranscriptionPayload(
+      'text/event-stream',
+      [
+        'data: {"type":"batch.transcription.result","index":0,"filename":"meeting-a.wav","text":"one"}',
+        'data: {"type":"batch.transcription.result","index":1,"filename":"meeting-b.wav","text":"two"}',
+        'data: {"type":"batch.transcription.done","result_count":2,"timing":{"wall_ms":10}}',
+        'data: [DONE]',
+        '',
+      ].join('\n\n'),
+    )
+    expect(parsed.results).toEqual([
+      { name: 'meeting-a.wav', text: 'one' },
+      { name: 'meeting-b.wav', text: 'two' },
+    ])
+  })
+
   it('posts generic tasks to the contract generic path', async () => {
     vi.stubGlobal('window', {
       location: { origin: 'http://studio.test', hostname: 'studio.test', protocol: 'http:' },

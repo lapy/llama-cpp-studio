@@ -429,11 +429,16 @@ export function parseBatchTranscriptionPayload(contentType, bodyText) {
       if (!line.startsWith('data:')) continue
       const data = line.slice(5).trim()
       if (!data || data === '[DONE]') continue
+      let event
       try {
-        events.push(JSON.parse(data))
+        event = JSON.parse(data)
       } catch {
-        events.push({ text: data })
+        event = { text: data }
       }
+      // The native batch route ends with batch.transcription.done (aggregate
+      // timing, no result); it is not a transcription row.
+      if (typeof event?.type === 'string' && event.type.endsWith('.done')) continue
+      events.push(event)
     }
     if (events.length) return { results: events.map(batchItem) }
   }
