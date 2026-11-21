@@ -897,3 +897,14 @@ def test_v100_install_honors_explicit_third_party_fork(client, monkeypatch, endp
         "repo_url": "https://github.com/third-party/sglang-v100.git",
         "branch": "custom-sm70",
     }
+
+
+def test_sm70_launch_profiles_pin_the_cuda12_toolchain():
+    """Runtime JIT invokes bare nvcc; it must not fall back to GCC 15."""
+    for engine_id in ("sglang_v100", "sglang_sxm2", "sglang_sm70"):
+        defaults = ENGINE_REGISTRY[engine_id].runtime_profile["env"]["defaults"]
+        assert defaults["CUDAHOSTCXX"] == "/usr/bin/g++-12"
+        assert defaults["CXX"] == "/usr/bin/g++-12"
+        assert defaults["CC"] == "/usr/bin/gcc-12"
+        assert defaults["NVCC_PREPEND_FLAGS"].startswith("-ccbin /usr/bin/g++-12")
+        assert "glibc_c23_math_compat.h" in defaults["NVCC_PREPEND_FLAGS"]

@@ -96,6 +96,11 @@ def test_default_config_compiles_the_declared_profile(tmp_path, monkeypatch):
     assert spec.env.set["TORCH_CUDA_ARCH_LIST"] == "7.0"
     assert spec.env.set["FLASHINFER_DISABLE_VERSION_CHECK"] == "1"
     assert spec.env.set["CUDA_DEVICE_ORDER"] == "PCI_BUS_ID"
+    assert spec.env.set["CUDAHOSTCXX"] == "/usr/bin/g++-12"
+    assert spec.env.set["CXX"] == "/usr/bin/g++-12"
+    assert spec.env.set["CC"] == "/usr/bin/gcc-12"
+    assert spec.env.set["NVCC_PREPEND_FLAGS"].startswith("-ccbin /usr/bin/g++-12")
+    assert "glibc_c23_math_compat.h" in spec.env.set["NVCC_PREPEND_FLAGS"]
 
 
 def test_cuda_version_falls_back_to_12_8(tmp_path, monkeypatch):
