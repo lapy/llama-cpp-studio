@@ -131,6 +131,11 @@ class AudioEngineStatus(_OpenModel):
 
     installed: bool = False
     active: Optional[Dict[str, Any]] = None
+    engine_version: Optional[str] = None
+    validated_through: Optional[str] = None
+    engine_supported: Optional[bool] = None
+    engine_compat_note: Optional[str] = None
+    upstream_contract_available: bool = False
     runnable: bool = False
     models_root: Optional[str] = None
     model_manager_ready: bool = False
@@ -159,11 +164,15 @@ class AudioContractResponse(_OpenModel):
     """GET /api/audio-cpp/contract — the composed integration descriptor
     (schema/operations/provenance/defaults_keys/task_routing/families/
     family_routing/drift_warnings/upstream_contract/spec_source/
-    descriptor_fingerprint) plus the three envelope fields the route adds.
+    descriptor_fingerprint) plus the envelope fields the route adds, including
+    the validated compatibility ceiling.
     Descriptor internals stay Dict-typed: they are engine data, and the plan
     keeps this surface an extension route."""
 
     engine_version: str = ""
+    validated_through: Optional[str] = None
+    engine_supported: Optional[bool] = None
+    engine_compat_note: Optional[str] = None
     contract_fingerprint: Optional[str] = None
     contract_changed: bool = False
     scanned_at: Optional[Any] = None

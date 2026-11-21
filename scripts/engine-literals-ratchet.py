@@ -43,7 +43,9 @@ AREA_CAPS: Dict[str, int] = {
     # for the native family instead of six id tuples.
     # LMDeploy conversion tightened 152 -> 151: its compatibility module now
     # supplies only the URL prefix through the definition-derived router.
-    "backend/routes/": 91,
+    # 2026-11-21: 91 -> 90. Audio version-row serialization moved to
+    # routes/audio_cpp_versions.py, which takes the engine id as a parameter.
+    "backend/routes/": 90,
     "backend/services/": 7,
     "frontend/e2e/": 22,
     # 2026-11-15: new test-only contract fixtures reference three engine ids
