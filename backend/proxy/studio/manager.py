@@ -28,7 +28,7 @@ from backend.inference_auth import (
     verify_token,
     request_identity,
 )
-from backend.proxy.launch_spec import LaunchSpec, compile_model_runtime, manifest_document
+from backend.proxy.launch_spec import compile_model_runtime
 from backend.proxy.manifests import LaunchManifestStore
 from backend.proxy.studio.runtime_defaults import RUNTIME_DEFAULTS
 from backend.proxy.studio.dataplane import DEFAULT_MAX_BODY_BYTES, ResolvedModel, StudioDataPlane
@@ -290,43 +290,9 @@ class StudioProxyManager:
             return rows
 
     async def _launch(self, model_id: str):
-        """Launch the model's PUBLISHED generation, not the current desired one.
+        from backend.proxy.studio.launch_generation import launch_for_process
 
-        A process creation must use the generation selected for it. Compiling
-        the desired configuration here made an engine install (which activates
-        the new version) silently replace a running model: the next request
-        compiled a different revision, the registry started a second engine
-        next to the loaded one, and for GPU engines that second start failed
-        (typically OOM) - surfacing as 502 for every request while the original
-        process was still healthy. Desired changes stay pending until an
-        explicit apply publishes them.
-        """
-        published = self.manifests.read_pointer(model_id)
-        if published is not None:
-            document = self.manifests.read_manifest(model_id, published.revision)
-            launch = LaunchSpec.from_document(document)
-            if launch.model_id != model_id:
-                raise ValueError(f"published manifest is for {launch.model_id!r}, not {model_id!r}")
-            generation = self.manifests.generation_dir(model_id, published.revision)
-            return launch, published.revision, os.path.join(generation, "artifacts")
-
-        model = await asyncio.to_thread(self._model, model_id)
-        if model is None:
-            raise ValueError(f"unknown model: {model_id}")
-        compiled = await asyncio.to_thread(compile_model_runtime, model)
-        document = manifest_document(
-            compiled.launch,
-            compiled.revision,
-            profile_digest=compiled.profile_digest,
-        )
-        # The first genuine start publishes what it is about to run. Later
-        # desired edits (including an engine-version activation) then wait for
-        # an explicit apply instead of mutating this process out from under
-        # live traffic.
-        self.manifests.stage(compiled.proxy.model_id, document)
-        self.manifests.publish(compiled.proxy.model_id, compiled.revision)
-        generation = self.manifests.generation_dir(compiled.proxy.model_id, compiled.revision)
-        return compiled.launch, compiled.revision, os.path.join(generation, "artifacts")
+        return await launch_for_process(self.manifests, model_id, self._model)
 
     def _resolve(self, requested: str) -> Optional[ResolvedModel]:
         routing = getattr(self, "_routing", None)

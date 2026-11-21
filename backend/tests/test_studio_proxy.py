@@ -80,7 +80,6 @@ async def test_manager_launches_published_generation_after_desired_change(tmp_pa
     """Engine installs activate desired versions; process creation follows the pointer."""
     from backend.proxy.launch_spec import CompiledModel, ProxyModelSpec, manifest_document
     from backend.proxy.manifests import LaunchManifestStore
-    from backend.proxy.studio import manager as manager_module
     from backend.proxy.studio.manager import StudioProxyManager
 
     def compiled(marker: str, revision_char: str) -> CompiledModel:
@@ -121,7 +120,8 @@ async def test_manager_launches_published_generation_after_desired_change(tmp_pa
     try:
         desired = {"compiled": old}
         monkeypatch.setattr(
-            manager_module, "compile_model_runtime", lambda model: desired["compiled"]
+            "backend.proxy.studio.launch_generation.compile_model_runtime",
+            lambda model: desired["compiled"],
         )
 
         # First genuine start publishes exactly what it launches.
