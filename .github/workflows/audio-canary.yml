@@ -1,0 +1,58 @@
+name: audio.cpp latest release canary
+
+# The canary tracks upstream audio.cpp, not this repository's diff. It runs in
+# the Ubuntu 26.04 container that matches the shipped Studio image (glibc 2.43),
+# so a prebuilt ABI change is distinguished from a contract change. It is
+# schedule/dispatch-only: every merge must not inherit a red workflow. The
+# scheduled run is the loud signal, and its JSON artifact says exactly which
+# contract assumption failed.
+on:
+  schedule:
+    # Mondays, 06:17 UTC.
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audio-cpp-canary-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:26.04
+    timeout-minutes: 30
+    steps:
+      - name: Install container prerequisites
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ca-certificates curl git xz-utils
+
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.lock
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.lock
+
+      - name: Canary the latest audio.cpp release against the composed contract
+        run: python scripts/audio-cpp-canary.py --report audio-cpp-canary-report.json
+
+      - name: Upload canary report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: audio-cpp-canary-report
+          path: audio-cpp-canary-report.json
+          if-no-files-found: warn
+          retention-days: 30
