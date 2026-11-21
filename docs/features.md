@@ -36,13 +36,15 @@ The footer shows compact application/service status and a link to System. Activi
 | `sglang_v100`   | SGLang V100       | safetensors/Hugging Face snapshot                        | Source installation in a managed Python environment with a V100-specific build workflow. |
 | `sglang_sxm2`   | SGLang SXM2       | safetensors/Hugging Face snapshot                        | Source installation in a managed Python environment with a V100-SXM2 build workflow.     |
 | `sglang_sm70`   | SGLang SM70       | safetensors/Hugging Face snapshot                        | Source installation in a managed Python environment with a Volta/SM70 build workflow.    |
-| `audio_cpp`     | audio.cpp         | Prepared audio packages and discovered GGUF audio models | Source/CMake build; model-scoped `audiocpp_server`.                                      |
+| `audio_cpp`     | audio.cpp         | Prepared audio packages and discovered GGUF audio models | Source/CMake build; model-scoped `audiocpp_server`; validated through 0.9.3.             |
 
 The shared engine registry describes artifact formats, package kinds, tasks, input/output modalities, installation type, scanner type, active path fields, and capability hints. Compatibility requires a suitable installed runtime and model; a registry task label does not certify every model/build combination.
 
 ### Installation and versions
 
 Engines shows installed versions, active installations, source/build state, and available actions. Multiple installed versions can coexist. Activation selects the installation used by the runtime compiler. Installation, source synchronization, builds, scans, and removals expose progress and failure details.
+
+audio.cpp reports a compatibility ceiling of `0.9.3`: a newer version still installs and activates unblocked, but Engine status and the version row mark it unsupported (`engine_supported: false`) with a short note instead of implying it was validated. Branch/commit/local builds stay `unknown`. See [audio.cpp engine compatibility](audio-cpp-compatibility.md).
 
 Source-based engines accept repository and tracking-ref settings. Saved build settings control supported CMake flags and engine-specific options. A version can carry its own build configuration; source synchronization uses that configuration when present. Custom repositories retain their own identity and source-sync workflow. Unsloth installations select a published artifact appropriate to the detected host and verify its checksum.
 
