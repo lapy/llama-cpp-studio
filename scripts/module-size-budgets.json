@@ -2,7 +2,7 @@
   "backend/build_progress.py": 1224,
   "backend/cuda_installer.py": 2013,
   "backend/data_store.py": 1187,
-  "backend/engines/definitions/schema.py": 2306,
+  "backend/engines/definitions/schema.py": 2255,
   "backend/engines/scan/help_parsers.py": 2463,
   "backend/models/hub.py": 2468,
   "backend/proxy/studio/dataplane.py": 2118,

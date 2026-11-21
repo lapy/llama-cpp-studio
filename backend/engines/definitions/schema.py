@@ -38,6 +38,7 @@ from typing import Any, Dict, FrozenSet, List, Mapping, Sequence, Tuple
 import yaml
 
 from backend.engines.spec import EngineSpec
+from backend.engines.definitions.primitive_vocabulary import INSTALL_PRIMITIVES
 from backend.engines.definitions.schema_build_options import validate_build_options
 
 SCHEMA_VERSION = 1
@@ -686,61 +687,9 @@ RECIPE_STEP_KEYS: FrozenSet[str] = frozenset(
 # "install primitives must be shared and typed, not arbitrary shell").
 # Recipes may only reference these names; raw argv is expressible solely via
 # a step's ``run`` for genuinely host-level one-offs, never inside engines.
-INSTALL_PRIMITIVES: FrozenSet[str] = frozenset(
-    {
-        "host.inspect",
-        "prereqs.resolve_version",
-        "prereqs.resolve_release_assets",
-        "artifact.resolve_candidates",
-        "archive.download_extract",
-        "vcs.clone",
-        "vcs.sync",
-        "vcs.checkout",
-        "vcs.apply_patch",
-        "vcs.capture_identity",
-        "vcs.workspace_checkout",
-        "vcs.seal_checkout",
-        "vcs.capture_commit",
-        "vcs.prepare_build",
-        # Reusable fork mechanisms: versioned, applicability-checked file
-        # transforms and a declared builder environment.
-        "vcs.apply_transform",
-        "build.prepare_fork",
-        "venv.create",
-        "env.compose",
-        "env.compose_ccache",
-        "exec.run_logged",
-        "toolchain.ensure",
-        "artifact.build_wheels",
-        "artifact.locate",
-        "artifact.remove_bundle",
-        "artifact.read_checksum",
-        "archive.download",
-        "archive.verify_sha256",
-        "archive.verify_checksums_file",
-        "archive.extract_tar",
-        "artifact.materialize_cli",
-        "cgroup.select_concurrency",
-        "pip.install_requirements",
-        "pip.install_package",
-        "pip.uninstall",
-        "pip.build_wheel",
-        "pip.install_wheels",
-        "pip.capture_metadata",
-        "fs.remove_tree",
-        "fs.remove_file",
-        "fs.assert_dir",
-        "fs.ensure_dir",
-        "fs.prune_files",
-        "cmake.configure",
-        "cmake.build",
-        "smoke.test",
-        "publish.install",
-        "publish.record_update",
-        "publish.forget",
-        "publish.finalize",
-    }
-)
+# The vocabulary lives in primitive_vocabulary.py (extracted to keep this
+# module within its size budget); the top-level import re-exports it for
+# existing ``from ...schema import INSTALL_PRIMITIVES`` callers.
 
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 _TOKEN_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]*$")

@@ -449,7 +449,14 @@ def _audio_inspect_output_usable(text: str) -> bool:
 def _run_audio_cpp_loaders(
     cli_path: str, *, cwd: Optional[str] = None
 ) -> Tuple[Optional[dict], Optional[str]]:
-    """Run ``--list-loaders --json`` once; modern builds are hard-required."""
+    """Run ``--list-loaders --json`` once; modern builds are hard-required.
+
+    A failure keeps a short excerpt of the captured output: a binary needing a
+    newer glibc dies in the loader ("GLIBC_2.43 not found"), and activation must
+    be able to tell that apart from an old build that merely lacks the flag.
+    """
+    from backend.engines.audio_cpp.prebuilt import first_failure_line
+
     workdir = cwd or os.path.dirname(cli_path)
     env = _audio_env(cli_path)
     json_text, json_error = _run_help_argv(
@@ -461,8 +468,35 @@ def _run_audio_cpp_loaders(
     )
     payload = try_parse_json_payload(json_text)
     if payload is None:
-        return None, json_error or "audio.cpp --list-loaders --json produced no JSON"
+        detail = json_error or "audio.cpp --list-loaders --json produced no JSON"
+        excerpt = first_failure_line(json_text)
+        if excerpt and excerpt not in detail:
+            detail = f"{detail}: {excerpt}"
+        return None, detail
     return payload, None
+
+
+#: The dynamic loader's own words when a binary cannot start on this host.
+_AUDIO_CPP_EXEC_FAILURE_HINTS = (
+    "glibc",
+    "error while loading",
+    "cannot execute",
+    "exec format error",
+    "shared libraries",
+    "no such file or directory",
+)
+
+
+def audio_cpp_probe_failure_is_execution(error: Optional[str]) -> bool:
+    """True when a failed probe says the binary itself could not start.
+
+    A prebuilt linked against a newer glibc dies before ``main``, so the output
+    carries the loader's diagnostic; an old build that lacks ``--list-loaders
+    --json`` prints usage prose instead. The probe reports text rather than an
+    errno, so the loader's markers are the signal available here.
+    """
+    text = str(error or "").lower()
+    return any(hint in text for hint in _AUDIO_CPP_EXEC_FAILURE_HINTS)
 
 
 def _run_audio_cpp_inspect(

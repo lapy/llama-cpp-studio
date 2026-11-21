@@ -127,12 +127,13 @@ def _patch_environment(
 
     if patch_download:
 
-        async def fake_stream(url, dest):
+        async def fake_stream(url, dest, *, expected_sha256=""):
             calls.append(("download", url, dest))
             data = archives[url]
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             with open(dest, "wb") as handle:
                 handle.write(data)
+            return _digest(data)
 
         monkeypatch.setattr(
             "backend.engines.audio_cpp.prebuilt.stream_release_download", fake_stream
@@ -167,8 +168,8 @@ async def _run(routes_module, **overrides):
     await routes_module._prebuilt_task(**kwargs)
 
 
-SERVER = b"server-elf\n"
-CLI = b"cli-elf\n"
+SERVER = b"#!/bin/sh\necho 'audiocpp_server version v0.9.1'\n"
+CLI = b"#!/bin/sh\necho 'Usage: audiocpp_cli [options]'\n"
 
 
 @pytest.mark.asyncio
@@ -188,6 +189,7 @@ async def test_prebuilt_installs_both_binaries_from_one_archive(monkeypatch, tmp
     assert kinds == ["download", "ready", "snapshot", "activate"]
     assert pm.calls == [
         ("progress", 15, f"Downloading {ASSET}"),
+        ("progress", 70, "Checking that the prebuilt binaries run on this host"),
         ("complete", "Installed audio.cpp v0.9.1"),
         (
             "notify",
@@ -217,6 +219,9 @@ async def test_prebuilt_installs_both_binaries_from_one_archive(monkeypatch, tmp
         "host_cuda": "13.0",
         "selection_reason": "host CUDA 13.0 is newer than package CUDA 12.8",
         "architectures": [75, 80, 86, 89, 90],
+        "asset_sha256": "",
+        "download_sha256": _digest(main_tar),
+        "download_verified_by": "sha256sums",
     }
     assert row["server_binary_path"] and os.access(server, os.X_OK)
     assert os.access(cli, os.X_OK)
@@ -257,6 +262,7 @@ async def test_cuda_archive_without_cli_pulls_the_cpu_companion(monkeypatch, tmp
     assert [c for c in pm.calls if c[0] == "progress"] == [
         ("progress", 15, f"Downloading {ASSET}"),
         ("progress", 55, f"Downloading audiocpp_cli from {CLI_ASSET}"),
+        ("progress", 70, "Checking that the prebuilt binaries run on this host"),
     ]
     assert ("complete", "Installed audio.cpp v0.9.1") in pm.calls
     row = next(call for call in calls if call[0] == "ready")[2]
@@ -301,6 +307,70 @@ async def test_missing_server_fails_after_extraction_and_cleans_archive(monkeypa
     install_dir = os.path.join(install_root, "v0.9.1")
     assert os.path.isfile(os.path.join(install_dir, "pack", "README"))  # extracted first
     assert not os.path.exists(os.path.join(install_dir, ASSET))  # caller finally mirrors legacy
+
+
+@pytest.mark.asyncio
+async def test_unloadable_prebuilt_fails_before_publishing_a_row(monkeypatch, tmp_path):
+    """A prebuilt linked against a newer glibc must never reach publish_row."""
+    from backend.routes import audio_cpp_versions as routes
+
+    pm = FakePm()
+    glibc_failure = (
+        b"#!/bin/sh\n"
+        b'echo "$0: /lib/x86_64-linux-gnu/libc.so.6: version GLIBC_2.43 not found" >&2\n'
+        b"exit 1\n"
+    )
+    broken = _tar_bytes({"audiocpp_server": glibc_failure, "audiocpp_cli": CLI})
+    calls, _install_root = _patch_environment(monkeypatch, tmp_path, pm, archives={URL: broken})
+
+    await _run(routes)
+
+    failed = next(call for call in calls if call[0] == "failed")
+    assert "audiocpp_server binary cannot run on this host" in failed[3]["error"]
+    assert "GLIBC_2.43" in failed[3]["error"]
+    assert "build this release from source" in failed[3]["error"]
+    assert not [call for call in calls if call[0] in ("ready", "snapshot", "activate")]
+    assert ("fail", failed[3]["error"]) in pm.calls
+
+
+@pytest.mark.asyncio
+async def test_prebuilt_records_github_digest_verification(monkeypatch, tmp_path):
+    from backend.routes import audio_cpp_versions as routes
+
+    digest = "ab" * 32
+    pm = FakePm()
+    main_tar = _tar_bytes({"audiocpp_server": SERVER, "audiocpp_cli": CLI})
+    calls, _install_root = _patch_environment(monkeypatch, tmp_path, pm, archives={URL: main_tar})
+
+    await _run(routes, plan=_plan(sha256=digest))
+
+    row = next(call for call in calls if call[0] == "ready")[2]
+    assert row["build_config"]["asset_sha256"] == digest
+    assert row["build_config"]["download_sha256"] == _digest(main_tar)
+    assert row["build_config"]["download_verified_by"] == "github-digest"
+
+
+@pytest.mark.asyncio
+async def test_prebuilt_without_digest_or_sha256sums_is_recorded_unverified(
+    monkeypatch, tmp_path, caplog
+):
+    from backend.routes import audio_cpp_versions as routes
+
+    pm = FakePm()
+    main_tar = _tar_bytes({"audiocpp_server": SERVER, "audiocpp_cli": CLI}, with_sums=False)
+    calls, _install_root = _patch_environment(monkeypatch, tmp_path, pm, archives={URL: main_tar})
+
+    await _run(routes)
+
+    row = next(call for call in calls if call[0] == "ready")[2]
+    assert row["build_config"]["asset_sha256"] == ""
+    assert row["build_config"]["download_sha256"] == _digest(main_tar)
+    assert row["build_config"]["download_verified_by"] == "unverified"
+    assert any(
+        "UNVERIFIED" in record.getMessage()
+        for record in caplog.records
+        if record.name == "backend.engines.audio_cpp.installer"
+    )
 
 
 @pytest.mark.asyncio
@@ -351,7 +421,7 @@ async def test_cancellation_marks_cancelled_row_and_reraises(monkeypatch, tmp_pa
     pm = FakePm()
     calls, _install_root = _patch_environment(monkeypatch, tmp_path, pm, archives={})
 
-    async def cancel_midway(url, dest):
+    async def cancel_midway(url, dest, *, expected_sha256=""):
         raise asyncio.CancelledError
 
     monkeypatch.setattr("backend.engines.audio_cpp.prebuilt.stream_release_download", cancel_midway)
@@ -390,7 +460,7 @@ def test_prebuilt_recipe_shape_is_the_pinned_sequence():
     assert definition is not None
     steps = materialize_plan(definition, "prebuilt").steps
     assert [(step.id, step.primitive) for step in steps] == [
-        ("download_archive", "archive.download"),
+        ("download_archive", "prebuilt.download"),
         ("ensure_dir", "fs.ensure_dir"),
         ("extract_archive", "archive.extract_tar"),
         ("verify_checksums", "archive.verify_checksums_file"),
@@ -398,6 +468,7 @@ def test_prebuilt_recipe_shape_is_the_pinned_sequence():
         ("locate_cli", "artifact.locate"),
         ("remove_archive", "fs.remove_file"),
         ("materialize_cli", "artifact.materialize_cli"),
+        ("preflight_binaries", "prebuilt.preflight"),
         ("publish_row", "publish.install"),
     ]
 
@@ -450,7 +521,12 @@ async def test_prebuilt_runs_the_definition_plan_through_the_native_host(monkeyp
     assert captured["plan"] == [(step.id, step.primitive) for step in expected.steps]
     assert isinstance(captured["installer"], AudioCppInstaller)
     assert captured["installer"].definition.id == "audio_cpp"
-    assert captured["handlers"] == ["artifact.materialize_cli", "publish.install"]
+    assert captured["handlers"] == [
+        "artifact.materialize_cli",
+        "prebuilt.download",
+        "prebuilt.preflight",
+        "publish.install",
+    ]
     assert captured["task_id"] == TASK_ID
     assert captured["install_dir"] == os.path.join(install_root, "v0.9.1")
     assert captured["context"] == sorted(

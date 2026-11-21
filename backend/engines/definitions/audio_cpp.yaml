@@ -66,7 +66,9 @@ maturity_surfaces:
 recipes:
   prebuilt:
   - id: download_archive
-    uses: archive.download
+    # audio-local download: the resolved plan's GitHub digest is checked while
+    # streaming (the shared archive.download cannot see input.plan).
+    uses: prebuilt.download
     requires:
     - input.plan_url
     - input.download_label
@@ -94,6 +96,12 @@ recipes:
     - input.install_dir
     with:
       root_from: input.install_dir
+    # Fallback only: the GitHub asset digest (checked while streaming) already
+    # covers every byte when the release published one.
+    when:
+      equals:
+        field: archive_digest_verified
+        value: false
   - id: locate_server
     uses: artifact.locate
     requires:
@@ -133,6 +141,16 @@ recipes:
     - cli
     produces:
     - cli_final
+  - id: preflight_binaries
+    # Must run before publish_row: a prebuilt that cannot exec here (e.g. one
+    # needing a newer glibc) must never get a ready version row or activation.
+    uses: prebuilt.preflight
+    requires:
+    - input.install_dir
+    - server
+    - cli_final
+    produces:
+    - preflight
   - id: publish_row
     uses: publish.install
     requires:

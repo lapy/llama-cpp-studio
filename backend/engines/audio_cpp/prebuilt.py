@@ -12,6 +12,7 @@ import os
 import platform
 import re
 import shutil
+import subprocess
 import sys
 import tarfile
 from dataclasses import dataclass
@@ -31,6 +32,25 @@ GITHUB_ACCEPT = "application/vnd.github+json"
 _KNOWN_CUDA_ARCHITECTURES = {
     "colab": (75, 80, 86, 89, 90),
 }
+
+# A prebuilt that links a newer glibc dies in the dynamic loader before main(),
+# so the probe must be short: the binaries answer --version/--help immediately
+# when they can run at all.
+PREFLIGHT_TIMEOUT_SECONDS = 15
+
+_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
+
+# Loader/exec diagnostics worth surfacing instead of the first line of --help.
+_FAILURE_HINTS = (
+    "glibc",
+    "error while loading",
+    "cannot execute",
+    "exec format error",
+    "shared libraries",
+    "not found",
+    "no such file",
+    "permission denied",
+)
 
 _UBUNTU_ASSET = re.compile(
     r"^audio-.+-bin-ubuntu-x64-"
@@ -61,6 +81,156 @@ class PrebuiltPlan:
     reason: str
     cli_asset_name: str = ""
     cli_url: str = ""
+    # GitHub's release-asset ``digest`` field ("sha256:<hex>"); empty when the
+    # API published none, in which case the in-archive SHA256SUMS is the fallback.
+    sha256: str = ""
+    cli_sha256: str = ""
+
+
+def parse_sha256_digest(value: Any) -> str:
+    """Return the hex digest from GitHub's ``sha256:<hex>`` asset field, else ""."""
+    text = str(value or "").strip().lower()
+    if text.startswith("sha256:"):
+        text = text[len("sha256:") :].strip()
+    return text if _SHA256_HEX.match(text) else ""
+
+
+def host_glibc_version() -> str:
+    """Host C library version for ABI-mismatch diagnostics (``unknown`` off Linux)."""
+    confstr = getattr(os, "confstr", None)
+    if confstr is not None:
+        try:
+            value = str(confstr("CS_GNU_LIBC_VERSION") or "").strip()
+        except (OSError, ValueError):
+            value = ""
+        if value:
+            # confstr yields "glibc 2.39"; the message already labels it.
+            return value.split(None, 1)[1] if value.lower().startswith("glibc ") else value
+    libc_name, libc_version = platform.libc_ver()
+    if not libc_version:
+        return "unknown"
+    return libc_version if libc_name == "glibc" else f"{libc_name} {libc_version}".strip()
+
+
+def first_failure_line(text: str, *, limit: int = 240) -> str:
+    """First non-empty output line, preferring the loader's own diagnostic.
+
+    A refused prebuilt reports "GLIBC_2.43 not found" while an old-but-runnable
+    build prints usage prose; the hint list keeps the useful line from being
+    buried under benign help output.
+    """
+    lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
+    if not lines:
+        return ""
+    chosen = next(
+        (line for line in lines if any(hint in line.lower() for hint in _FAILURE_HINTS)),
+        lines[0],
+    )
+    return chosen if len(chosen) <= limit else chosen[: limit - 1].rstrip() + "\u2026"
+
+
+def preflight_env(install_dir: str, binary_paths: Sequence[str] = ()) -> Dict[str, str]:
+    """Minimal environment for a prebuilt probe: the archive's libs, not the host's.
+
+    Inheriting Studio's own ``LD_LIBRARY_PATH``/``LD_PRELOAD`` could mask a
+    missing archive library and make an unloadable release look runnable. The
+    CUDA toolkit path IS included because a CUDA prebuilt links libcudart and
+    the launch environment adds the same path; omitting it would reject a
+    prebuilt the host can actually run.
+    """
+    library_dirs: List[str] = []
+    candidates = [install_dir, *(os.path.dirname(os.path.abspath(p)) for p in binary_paths if p)]
+    for path in candidates:
+        if not path:
+            continue
+        library_dirs.append(path)
+        lib = os.path.join(path, "lib")
+        if os.path.isdir(lib):
+            library_dirs.append(lib)
+    env = {
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "HOME": os.environ.get("HOME") or "/tmp",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+    }
+    from backend.runtime_env import cuda_lib64_path, cuda_runtime_env
+
+    cuda_env = cuda_runtime_env()
+    for key in ("CUDA_HOME", "CUDA_PATH"):
+        if cuda_env.get(key):
+            env[key] = str(cuda_env[key])
+    cuda_library_dir = cuda_lib64_path() or str(cuda_env.get("LD_LIBRARY_PATH") or "")
+    if cuda_library_dir:
+        library_dirs.append(cuda_library_dir)
+    unique = list(dict.fromkeys(os.path.abspath(path) for path in library_dirs))
+    if unique:
+        env["LD_LIBRARY_PATH"] = os.pathsep.join(unique)
+    return env
+
+
+def _unrunnable_binary_message(label: str, path: str, detail: str) -> str:
+    return (
+        f"The audio.cpp {label} binary cannot run on this host: {detail} "
+        f"(host glibc: {host_glibc_version()}). The published prebuilt needs a "
+        "runtime this host does not provide, so build this release from source "
+        f"instead. Binary: {path}"
+    )
+
+
+def assert_prebuilt_binaries_runnable(
+    server_path: str, cli_path: str, *, install_dir: str = ""
+) -> Dict[str, str]:
+    """Execute both prebuilt binaries once so an ABI mismatch fails the install.
+
+    An archive can unpack cleanly and still not execute here (the v0.9.4/v0.9.5
+    Linux prebuilts need GLIBC_2.43 while Studio's base image ships 2.39). That
+    must be refused before ``publish.install`` writes a version row, otherwise
+    the failure only surfaces later as a misleading activation error.
+    """
+    checks = (
+        ("audiocpp_server", server_path, "--version"),
+        ("audiocpp_cli", cli_path, "--help"),
+    )
+    cwd = install_dir or os.path.dirname(os.path.abspath(server_path or cli_path)) or "."
+    env = preflight_env(install_dir, [server_path, cli_path])
+    for label, path, flag in checks:
+        if not path or not os.path.isfile(path):
+            raise RuntimeError(
+                f"The audio.cpp {label} binary is missing: {path or '(unset)'}; "
+                "build this release from source"
+            )
+        try:
+            process = subprocess.run(
+                [path, flag],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=PREFLIGHT_TIMEOUT_SECONDS,
+                cwd=cwd if os.path.isdir(cwd) else None,
+                env=env,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                _unrunnable_binary_message(
+                    label,
+                    path,
+                    f"timed out after {PREFLIGHT_TIMEOUT_SECONDS}s running {flag}",
+                )
+            ) from exc
+        except OSError as exc:
+            raise RuntimeError(_unrunnable_binary_message(label, path, str(exc))) from exc
+        if process.returncode != 0:
+            output = "\n".join(part for part in (process.stderr, process.stdout) if part)
+            raise RuntimeError(
+                _unrunnable_binary_message(
+                    label,
+                    path,
+                    f"exit code {process.returncode}: "
+                    f"{first_failure_line(output) or 'no diagnostic output'}",
+                )
+            )
+    return {"server": "ok", "cli": "ok"}
 
 
 def parse_cuda_version(value: Any) -> Optional[Tuple[int, int]]:
@@ -144,6 +314,7 @@ def _parse_asset(asset: Dict[str, Any]) -> Optional[dict]:
         "portable": portable,
         "architectures": architectures,
         "includes_cli": profile != "colab",
+        "sha256": parse_sha256_digest(asset.get("digest")),
     }
 
 
@@ -185,6 +356,8 @@ def _plan_from_asset(
         reason=reason,
         cli_asset_name=str((cli_asset or {}).get("name") or ""),
         cli_url=str((cli_asset or {}).get("url") or ""),
+        sha256=str(asset.get("sha256") or ""),
+        cli_sha256=str((cli_asset or {}).get("sha256") or ""),
     )
 
 
@@ -387,14 +560,16 @@ def find_named_binary(root: str, name: str) -> str:
     return ""
 
 
-def _verify_checksums(root: str) -> None:
+def _verify_checksums(root: str) -> bool:
+    """Verify a SHA256SUMS shipped inside the archive; False when it has none."""
     checksum_path = ""
     for dirpath, _, files in os.walk(root):
         if "SHA256SUMS" in files:
             checksum_path = os.path.join(dirpath, "SHA256SUMS")
             break
     if not checksum_path:
-        return
+        return False
+    verified = False
     base = os.path.dirname(checksum_path)
     with open(checksum_path, "r", encoding="utf-8") as handle:
         for line in handle:
@@ -414,13 +589,25 @@ def _verify_checksums(root: str) -> None:
                     hasher.update(chunk)
             if hasher.hexdigest().lower() != digest.lower():
                 raise RuntimeError(f"Checksum mismatch for {filename}")
+            verified = True
+    return verified
 
 
-def extract_archive(archive_path: str, dest_dir: str) -> Dict[str, str]:
+def extract_archive(
+    archive_path: str, dest_dir: str, *, digest_verified: bool = False
+) -> Dict[str, str]:
     os.makedirs(dest_dir, exist_ok=True)
     with tarfile.open(archive_path, "r:gz") as archive:
         _safe_extract_tar(archive, dest_dir)
-    _verify_checksums(dest_dir)
+    checksums_verified = _verify_checksums(dest_dir)
+    if not digest_verified and not checksums_verified:
+        # Honest installs: neither GitHub's digest nor the archive's SHA256SUMS
+        # vouched for these bytes, so never imply that something did.
+        logger.warning(
+            "audio.cpp archive %s has no published SHA-256 digest and no "
+            "SHA256SUMS; the extracted contents are unverified",
+            os.path.basename(archive_path),
+        )
     server = find_named_binary(dest_dir, "audiocpp_server")
     cli = find_named_binary(dest_dir, "audiocpp_cli")
     if not server:
@@ -431,27 +618,56 @@ def extract_archive(archive_path: str, dest_dir: str) -> Dict[str, str]:
     return {"server_binary_path": server, "cli_binary_path": cli}
 
 
-async def stream_release_download(url: str, dest_path: str) -> None:
-    """Stream one release asset to ``dest_path`` (HTTP(S) only, legacy guard)."""
+async def stream_release_download(url: str, dest_path: str, *, expected_sha256: str = "") -> str:
+    """Stream one release asset to ``dest_path`` (HTTP(S) only, legacy guard).
+
+    GitHub publishes each asset's SHA-256 in the release JSON, so the digest is
+    checked while writing: a corrupted or swapped archive is deleted and never
+    reaches extraction. Returns the computed hex digest.
+    """
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"}:
         raise RuntimeError("Refusing download from a non-HTTP URL")
-    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+    expected = parse_sha256_digest(expected_sha256)
+    os.makedirs(os.path.dirname(dest_path) or ".", exist_ok=True)
+    hasher = hashlib.sha256()
     async with httpx.AsyncClient(timeout=None, follow_redirects=True) as client:
         async with client.stream("GET", url, headers=_headers()) as response:
             response.raise_for_status()
             with open(dest_path, "wb") as handle:
                 async for chunk in response.aiter_bytes():
+                    hasher.update(chunk)
                     handle.write(chunk)
+    actual = hasher.hexdigest()
+    if expected and actual != expected:
+        try:
+            os.remove(dest_path)
+        except OSError as exc:
+            logger.warning("Could not delete mismatched archive %s: %s", dest_path, exc)
+        raise RuntimeError(
+            f"SHA-256 mismatch for {os.path.basename(dest_path)}: expected {expected}, got {actual}"
+        )
+    if not expected:
+        logger.debug(
+            "No published SHA-256 digest for %s; falling back to the archive's SHA256SUMS",
+            url,
+        )
+    return actual
 
 
-async def download_and_extract(url: str, dest_dir: str) -> Dict[str, str]:
+async def download_and_extract(
+    url: str, dest_dir: str, *, expected_sha256: str = ""
+) -> Dict[str, str]:
     archive_path = os.path.join(
         dest_dir, os.path.basename(urlparse(url).path) or "audio.cpp.tar.gz"
     )
-    await stream_release_download(url, archive_path)
+    await stream_release_download(url, archive_path, expected_sha256=expected_sha256)
     try:
-        return extract_archive(archive_path, dest_dir)
+        return extract_archive(
+            archive_path,
+            dest_dir,
+            digest_verified=bool(parse_sha256_digest(expected_sha256)),
+        )
     finally:
         if os.path.isfile(archive_path):
             os.remove(archive_path)
@@ -471,7 +687,9 @@ async def materialize_cli(binaries: Dict[str, str], plan: PrebuiltPlan, install_
         raise RuntimeError("audiocpp_cli was not in the audio.cpp archive")
     companion_dir = os.path.join(install_dir, ".cli-archive")
     try:
-        companion = await download_and_extract(plan.cli_url, companion_dir)
+        companion = await download_and_extract(
+            plan.cli_url, companion_dir, expected_sha256=plan.cli_sha256
+        )
         source = str(companion.get("cli_binary_path") or "")
         if not source or not os.path.isfile(source):
             raise RuntimeError("audiocpp_cli was not in the CPU archive for this release")
