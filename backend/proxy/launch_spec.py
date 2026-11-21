@@ -126,6 +126,59 @@ class LaunchSpec:
             "file_identities": self.file_identities,
         }
 
+    @classmethod
+    def from_document(cls, document: Mapping[str, Any]) -> "LaunchSpec":
+        """Rebuild the launch selected by a published manifest.
+
+        Process creation must use the generation the user published, not a
+        fresh compile of the current desired configuration: an engine install
+        can activate a new version while a model is running, and that must not
+        silently replace the running process. ``artifacts`` are materialized in
+        the generation directory by the manifest store, so only the argv
+        references survive here.
+        """
+        raw = document if isinstance(document, Mapping) else {}
+        model_id = str(raw.get("model_id") or "").strip()
+        engine_id = str(raw.get("engine_id") or "").strip()
+        executable = str(raw.get("executable") or "").strip()
+        argv = raw.get("argv")
+        cwd = raw.get("cwd")
+        env = raw.get("env")
+        identities = raw.get("file_identities")
+        if not model_id:
+            raise ValueError("launch manifest has no model_id")
+        if not engine_id:
+            raise ValueError("launch manifest has no engine_id")
+        if not executable:
+            raise ValueError("launch manifest has no executable")
+        if not isinstance(argv, list):
+            raise ValueError("launch manifest argv must be a list")
+        if cwd is not None and not isinstance(cwd, str):
+            raise ValueError("launch manifest cwd must be a string or null")
+        if env is not None and not isinstance(env, Mapping):
+            raise ValueError("launch manifest env must be a mapping")
+        env_set = (env or {}).get("set")
+        env_unset = (env or {}).get("unset")
+        if env_set is not None and not isinstance(env_set, Mapping):
+            raise ValueError("launch manifest env.set must be a mapping")
+        if env_unset is not None and not isinstance(env_unset, list):
+            raise ValueError("launch manifest env.unset must be a list")
+        if identities is not None and not isinstance(identities, Mapping):
+            raise ValueError("launch manifest file_identities must be a mapping")
+        return cls(
+            model_id=model_id,
+            engine_id=engine_id,
+            engine_install_id=str(raw.get("engine_install_id") or ""),
+            executable=executable,
+            argv=list(argv),
+            cwd=cwd,
+            env=EnvSpec(
+                set={str(key): str(value) for key, value in (env_set or {}).items()},
+                unset=[str(name) for name in (env_unset or [])],
+            ),
+            file_identities={str(key): dict(value) for key, value in (identities or {}).items()},
+        )
+
 
 @dataclass
 class ProxyModelSpec:

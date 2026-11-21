@@ -28,7 +28,7 @@ from backend.inference_auth import (
     verify_token,
     request_identity,
 )
-from backend.proxy.launch_spec import compile_model_runtime, manifest_document
+from backend.proxy.launch_spec import compile_model_runtime
 from backend.proxy.manifests import LaunchManifestStore
 from backend.proxy.studio.runtime_defaults import RUNTIME_DEFAULTS
 from backend.proxy.studio.dataplane import DEFAULT_MAX_BODY_BYTES, ResolvedModel, StudioDataPlane
@@ -290,18 +290,9 @@ class StudioProxyManager:
             return rows
 
     async def _launch(self, model_id: str):
-        model = await asyncio.to_thread(self._model, model_id)
-        if model is None:
-            raise ValueError(f"unknown model: {model_id}")
-        compiled = await asyncio.to_thread(compile_model_runtime, model)
-        document = manifest_document(
-            compiled.launch,
-            compiled.revision,
-            profile_digest=compiled.profile_digest,
-        )
-        self.manifests.stage(compiled.proxy.model_id, document)
-        generation = self.manifests.generation_dir(compiled.proxy.model_id, compiled.revision)
-        return compiled.launch, compiled.revision, os.path.join(generation, "artifacts")
+        from backend.proxy.studio.launch_generation import launch_for_process
+
+        return await launch_for_process(self.manifests, model_id, self._model)
 
     def _resolve(self, requested: str) -> Optional[ResolvedModel]:
         routing = getattr(self, "_routing", None)
