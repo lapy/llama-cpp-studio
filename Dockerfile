@@ -148,6 +148,9 @@ RUN apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update \
     python3.12-dev \
     # Optional: ROCm (fails gracefully if unavailable)
     && (apt-get install -y --no-install-recommends rocminfo rocm-smi || echo "ROCm unavailable") \
+    # Ubuntu 26.04's base layer ships Canonical Pebble unowned by dpkg. Studio
+    # never uses it, and Trivy flags its bundled Go stdlib; drop it.
+    && rm -f /usr/bin/pebble \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
