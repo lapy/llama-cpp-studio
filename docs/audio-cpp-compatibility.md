@@ -51,7 +51,7 @@ These fields are additive on the existing responses; no endpoint or existing key
 
 | Field                       | Type          | Meaning                                                                                                     |
 | --------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------- |
-| `engine_version`            | string / null | Installed version label (`v0.9.4`, `release-0.9.3`, `source-main-…`, …).                                     |
+| `engine_version`            | string / null | Installed version label (`v0.9.4`, `v0.9.5`, `source-main-…`, …).                                            |
 | `validated_through`         | string        | Newest validated release, always `0.9.3`.                                                                    |
 | `engine_supported`          | bool / null   | `true` within the validated range, `false` outside it, `null` when the version is unknown.                    |
 | `engine_compat_note`        | string        | Short human-readable explanation of the classification.                                                      |
@@ -67,14 +67,21 @@ Surfaced on:
 An unknown version is reported as `engine_supported: null` and never as `false`: "we did
 not look" and "we looked and it failed" are different answers.
 
+The probe behind `upstream_contract_available` is opt-in: it runs only when
+`AUDIO_CPP_UPSTREAM_CONTRACT=1`, and with the flag off nothing is read or executed. With
+the flag on, a server binary that does not implement `--describe-server`, or a checkout
+with no known contract file, simply reports `false` — no error, no retry, and no change to
+engine install, activation, or inference.
+
 ## Installing a newer engine from source
 
 When a release prebuilt does not run on the host (for example the glibc 2.43 artifacts on
 `ubuntu:24.04`), build the release from source instead:
 
 1. Open **Engines**, select audio.cpp, and set the tracking ref to the release tag
-   (`release-0.9.4`, `release-0.9.5`) or to the branch/commit under test in Build
-   settings.
+   (`v0.9.4`, `v0.9.5`) or to the branch/commit under test in Build settings. Older
+   releases used the legacy `release-X.Y[.Z]` tag form; Studio still recognizes it, but
+   current upstream tags are `vX.Y.Z`.
 2. Build from source (the same release tag registers under its tag name whether it came
    from a prebuilt or a source build).
 3. Activate the new version and run the parameter scan; the status payload then reports

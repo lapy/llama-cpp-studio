@@ -174,8 +174,10 @@ Upstream-readiness (the point of the design):
 - `fetch_upstream_contract()` detection is implemented behind
   `AUDIO_CPP_UPSTREAM_CONTRACT=1` (off by default). It probes the installed
   server with `--describe-server --json`, then a well-known contract file in
-  the checkout, and returns `None` cleanly when neither exists; the status
-  route reports `upstream_contract_available`. When #852 lands, its document
+  the checkout, and returns `None` cleanly when neither exists; a binary without
+  `--describe-server` (or a checkout without the file) is harmless — it just
+  yields no document and changes no state. The status route reports
+  `upstream_contract_available`. When #852 lands, its document
   maps onto the same descriptor with provenance `upstream`; every
   `studio`-provenance entry with upstream coverage is deleted. The descriptor
   is the seam, so the shim is throwaway per-entry, not per-layer. The composed
