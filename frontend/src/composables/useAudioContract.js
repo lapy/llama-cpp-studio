@@ -9,6 +9,7 @@ import { sessionFetch } from '@/api/sessionFetch.js'
  */
 
 export const AUDIO_CONTRACT_SCHEMA = 'audio-cpp.studio-contract/v0'
+export const AUDIO_CONTRACT_PATH = '/api/audio-cpp/contract'
 
 /**
  * The only offline facts kept on the client: Studio's generic task route and
@@ -88,7 +89,7 @@ export async function fetchAudioContract({ force = false } = {}) {
   const sequence = ++requestSequence
   const request = (async () => {
     try {
-      const response = await sessionFetch('/api/audio-cpp/contract', {
+      const response = await sessionFetch(AUDIO_CONTRACT_PATH, {
         headers: { Authorization: 'Bearer local' },
       })
       if (!response.ok) {

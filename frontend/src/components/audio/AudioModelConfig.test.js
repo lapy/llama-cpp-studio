@@ -43,6 +43,7 @@ vi.mock('@/composables/useAudioContract', async (importOriginal) => ({
 
 import AudioModelConfig from './AudioModelConfig.vue'
 import {
+  AUDIO_CONTRACT_SCHEMA,
   audioContractError,
   audioContractLoaded,
   audioContractSchemaMismatch,
@@ -995,17 +996,17 @@ describe('AudioModelConfig reference audio', () => {
   })
 
   it('reports a contract schema mismatch as a schema problem', async () => {
+    const mismatchedSchema = `${AUDIO_CONTRACT_SCHEMA}-v99`
     audioContractLoaded.value = false
     audioContractStatus.value = 200
-    audioContractError.value =
-      'Audio contract schema mismatch: expected audio-cpp.studio-contract/v0, received audio-cpp.studio-contract/v99.'
+    audioContractError.value = `Audio contract schema mismatch: expected ${AUDIO_CONTRACT_SCHEMA}, received ${mismatchedSchema}.`
     audioContractSchemaMismatch.value = true
 
     const wrapper = mountComponent()
     await flushPromises()
 
     expect(wrapper.text()).toContain('audio.cpp contract schema mismatch')
-    expect(wrapper.text()).toContain('audio-cpp.studio-contract/v99')
+    expect(wrapper.text()).toContain(mismatchedSchema)
     expect(wrapper.text()).not.toContain('build is too old')
   })
 })

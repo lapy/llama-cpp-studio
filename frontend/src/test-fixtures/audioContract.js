@@ -1,15 +1,16 @@
 /**
  * Real-shape fixtures for the two payloads the audio workspace composes from:
- * GET /api/audio-cpp/contract and GET /api/models/param-registry.
+ * the composed audio contract endpoint and the parameter registry.
  *
- * The operation rows mirror backend Operation.as_dict() field-for-field
- * (`backend/engines/audio_cpp/integration/contract_registry.py`) and the
- * envelope mirrors the route in `backend/routes/audio_cpp_versions.py`.
- * Everything here is data, so a route/body mistake in the frontend cannot be
- * hidden by a mock-shaped object.
+ * The operation rows mirror the backend Operation.as_dict() field-for-field
+ * and the envelope mirrors the contract route in the version endpoint. Every
+ * fact here is data, so a route/body mistake in the frontend cannot be hidden
+ * by a mock-shaped object.
  */
 
-export const AUDIO_CONTRACT_SCHEMA = 'audio-cpp.studio-contract/v0'
+import { AUDIO_CONTRACT_SCHEMA } from '@/composables/useAudioContract'
+
+export { AUDIO_CONTRACT_SCHEMA }
 export const AUDIO_CONTRACT_FINGERPRINT = 'f'.repeat(64)
 
 function operation({
@@ -240,7 +241,7 @@ export function audioFamilyRoutingFixture(operations = AUDIO_CONTRACT_OPERATIONS
 }
 
 /**
- * Composed contract as returned by GET /api/audio-cpp/contract.
+ * Composed contract as returned by the contract route.
  *
  * `validated_through` / `engine_supported` are optional upstream-side fields
  * from the compatibility workstream; they are only included when a test asks

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  AUDIO_CONTRACT_PATH,
   AUDIO_CONTRACT_SCHEMA,
   audioContract,
   audioContractError,
@@ -88,7 +89,7 @@ describe('useAudioContract', () => {
     await fetchAudioContract({ force: true })
 
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/audio-cpp/contract',
+      AUDIO_CONTRACT_PATH,
       expect.objectContaining({ credentials: 'include' }),
     )
     expect(fetchMock.mock.calls[0][1].headers.get('Authorization')).toBe('Bearer local')
@@ -102,16 +103,17 @@ describe('useAudioContract', () => {
   })
 
   it('keeps the offline floor and records a schema mismatch', async () => {
+    const mismatchedSchema = `${AUDIO_CONTRACT_SCHEMA}-v99`
     vi.stubGlobal(
       'fetch',
-      mockJsonResponse({ ...audioContractFixture(), schema: 'audio-cpp.studio-contract/v99' }),
+      mockJsonResponse({ ...audioContractFixture(), schema: mismatchedSchema }),
     )
 
     await fetchAudioContract({ force: true })
 
     expect(audioContractLoaded.value).toBe(false)
     expect(audioContractSchemaMismatch.value).toBe(true)
-    expect(audioContractSchema.value).toBe('audio-cpp.studio-contract/v99')
+    expect(audioContractSchema.value).toBe(mismatchedSchema)
     expect(audioContractStatus.value).toBe(200)
     expect(audioContractError.value).toContain('schema mismatch')
     expect(audioTaskEndpoint('tts')).toBe(OFFLINE_AUDIO_CONTRACT.generic_studio_path)

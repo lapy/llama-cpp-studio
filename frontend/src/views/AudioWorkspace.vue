@@ -521,6 +521,7 @@ import { requireSingleConfirmation } from '@/composables/singleConfirm'
 import { withheldConfirmation } from '@/composables/actionConfirmation'
 import { useModelStore } from '@/stores/models'
 import { useEnginesStore } from '@/stores/engines'
+import { DEFAULT_AUDIO_ENGINE_ID } from '@/engines/registry'
 import {
   audioInferenceModelId,
   extractAudioClipsFromTaskResult,
@@ -567,7 +568,10 @@ const contractError = ref('')
 const referenceAudioError = ref('')
 const engineDescriptorsLoaded = ref(false)
 const audioEngineDescriptor = computed(
-  () => (enginesStore.engineDescriptors || []).find((engine) => engine.id === 'audio_cpp') || null,
+  () =>
+    (enginesStore.engineDescriptors || []).find(
+      (engine) => engine.id === DEFAULT_AUDIO_ENGINE_ID,
+    ) || null,
 )
 const audioEngineDisabled = computed(() => audioEngineDescriptor.value?.enabled === false)
 const audioEngineMissing = computed(
@@ -935,7 +939,7 @@ async function loadAcceptedSpeechRates(modelId) {
   if (!modelId) return
   try {
     const response = await fetch(
-      `/api/models/param-registry?engine=audio_cpp&model_id=${encodeURIComponent(modelId)}`,
+      `/api/models/param-registry?engine=${encodeURIComponent(DEFAULT_AUDIO_ENGINE_ID)}&model_id=${encodeURIComponent(modelId)}`,
     )
     if (!response.ok) return
     const registry = await response.json()

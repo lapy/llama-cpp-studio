@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 
 import { audioContractFixture, audioParamRegistryFixture } from '@/test-fixtures/audioContract'
+import { DEFAULT_AUDIO_ENGINE_ID } from '@/engines/registry'
 
 const toastAdd = vi.fn()
 const push = vi.fn()
@@ -34,7 +35,7 @@ vi.mock('primevue/useconfirm', () => ({
   useConfirm: () => ({ require: (...args) => confirmRequire(...args) }),
 }))
 
-const AUDIO_ENGINE = { id: 'audio_cpp', label: 'audio.cpp', enabled: true }
+const AUDIO_ENGINE = { id: DEFAULT_AUDIO_ENGINE_ID, label: 'audio.cpp', enabled: true }
 let engineDescriptors = [AUDIO_ENGINE]
 let systemStatus = { proxy_status: { healthy: true, port: 2000 } }
 let audioQuantizations = []
@@ -78,7 +79,11 @@ vi.mock('@/composables/useAudioInferenceClient', async (importOriginal) => {
 })
 
 import AudioWorkspace from './AudioWorkspace.vue'
-import { resetAudioContract } from '@/composables/useAudioContract'
+import {
+  AUDIO_CONTRACT_PATH,
+  AUDIO_CONTRACT_SCHEMA,
+  resetAudioContract,
+} from '@/composables/useAudioContract'
 
 enableAutoUnmount(afterEach)
 
@@ -87,42 +92,37 @@ function makeAudioModels() {
     {
       id: 'audio/asr',
       display_name: 'ASR Demo',
-      format: 'audio_cpp',
-      engine: 'audio_cpp',
+      format: DEFAULT_AUDIO_ENGINE_ID,
       is_active: true,
-      config: { engine: 'audio_cpp' },
+      config: { engine: DEFAULT_AUDIO_ENGINE_ID },
     },
     {
       id: 'audio/ace',
       display_name: 'ACE-Step',
-      format: 'audio_cpp',
-      engine: 'audio_cpp',
+      format: DEFAULT_AUDIO_ENGINE_ID,
       is_active: true,
-      config: { engine: 'audio_cpp' },
+      config: { engine: DEFAULT_AUDIO_ENGINE_ID },
     },
     {
       id: 'audio/heartmula',
       display_name: 'HeartMuLa',
-      format: 'audio_cpp',
-      engine: 'audio_cpp',
+      format: DEFAULT_AUDIO_ENGINE_ID,
       is_active: true,
-      config: { engine: 'audio_cpp' },
+      config: { engine: DEFAULT_AUDIO_ENGINE_ID },
     },
     {
       id: 'audio/tts',
       display_name: 'TTS Demo',
-      format: 'audio_cpp',
-      engine: 'audio_cpp',
+      format: DEFAULT_AUDIO_ENGINE_ID,
       is_active: true,
-      config: { engine: 'audio_cpp' },
+      config: { engine: DEFAULT_AUDIO_ENGINE_ID },
     },
     {
       id: 'audio/sep',
       display_name: 'Demucs',
-      format: 'audio_cpp',
-      engine: 'audio_cpp',
+      format: DEFAULT_AUDIO_ENGINE_ID,
       is_active: true,
-      config: { engine: 'audio_cpp' },
+      config: { engine: DEFAULT_AUDIO_ENGINE_ID },
     },
   ]
 }
@@ -153,7 +153,7 @@ function errorResponse(status, detail) {
 function installFetchStub() {
   const fetchMock = vi.fn((input) => {
     const url = typeof input === 'string' ? input : input?.url || ''
-    if (url === '/api/audio-cpp/contract') {
+    if (url === AUDIO_CONTRACT_PATH) {
       return Promise.resolve(contractFailure || jsonResponse(contractPayload))
     }
     if (url.startsWith('/api/models/param-registry')) {
@@ -339,9 +339,7 @@ describe('AudioWorkspace', () => {
     fetchModels.mockReset().mockResolvedValue(undefined)
     fetchSystemStatus.mockReset().mockResolvedValue(undefined)
     fetchEngineDescriptors.mockReset().mockImplementation(async () => engineDescriptors)
-    getModelConfig
-      .mockReset()
-      .mockResolvedValue({ engine: 'audio_cpp', task: 'tts', model_alias: 'demo' })
+    getModelConfig.mockReset().mockResolvedValue({ task: 'tts', model_alias: 'demo' })
     listReferenceAudio.mockReset().mockResolvedValue([])
     startModel.mockReset()
     runAudioTask.mockReset()
@@ -377,7 +375,6 @@ describe('AudioWorkspace', () => {
     routeQuery.model = 'audio/asr'
     routeQuery.tab = 'transcribe'
     getModelConfig.mockResolvedValue({
-      engine: 'audio_cpp',
       family: 'qwen3-asr',
       task: 'asr',
       model_alias: 'asr-demo',
@@ -401,7 +398,6 @@ describe('AudioWorkspace', () => {
   it('derives the Transcribe tab from contract task_routing for a details task', async () => {
     routeQuery.model = 'audio/asr'
     getModelConfig.mockResolvedValue({
-      engine: 'audio_cpp',
       family: 'parakeet',
       task: 'transcribe_details',
       model_alias: 'parakeet-demo',
@@ -420,7 +416,6 @@ describe('AudioWorkspace', () => {
   it('derives the tab from contract family routing when the config has no task', async () => {
     routeQuery.model = 'audio/asr'
     getModelConfig.mockResolvedValue({
-      engine: 'audio_cpp',
       family: 'qwen3_asr',
       model_alias: 'asr-demo',
     })
@@ -435,7 +430,6 @@ describe('AudioWorkspace', () => {
   it('keeps the schema-driven Design form for a vdes task even though it uses speech', async () => {
     routeQuery.model = 'audio/tts'
     getModelConfig.mockResolvedValue({
-      engine: 'audio_cpp',
       family: 'omnivoice',
       task: 'vdes',
       model_alias: 'design-demo',
@@ -460,7 +454,6 @@ describe('AudioWorkspace', () => {
     routeQuery.model = 'audio/ace'
     routeQuery.tab = 'music'
     getModelConfig.mockResolvedValue({
-      engine: 'audio_cpp',
       family: 'ace_step',
       task: 'gen',
       model_alias: 'ace-demo',
@@ -504,7 +497,6 @@ describe('AudioWorkspace', () => {
     routeQuery.model = 'audio/heartmula'
     routeQuery.tab = 'music'
     getModelConfig.mockResolvedValue({
-      engine: 'audio_cpp',
       family: 'heartmula',
       task: 'gen',
       model_alias: 'heartmula-demo',
@@ -541,7 +533,6 @@ describe('AudioWorkspace', () => {
     routeQuery.model = 'audio/tts'
     routeQuery.tab = 'speech'
     getModelConfig.mockResolvedValue({
-      engine: 'audio_cpp',
       family: 'omnivoice',
       task: 'tts',
       model_alias: 'tts-demo',
@@ -587,7 +578,6 @@ describe('AudioWorkspace', () => {
         workspace_request_fields: [],
       })
     getModelConfig.mockResolvedValue({
-      engine: 'audio_cpp',
       family: 'omnivoice',
       task: 'tts',
       model_alias: 'tts-demo',
@@ -642,7 +632,6 @@ describe('AudioWorkspace', () => {
     routeQuery.model = 'audio/tts'
     routeQuery.tab = 'speech'
     getModelConfig.mockResolvedValue({
-      engine: 'audio_cpp',
       family: 'pocket_tts',
       task: 'tts',
       mode: 'streaming',
@@ -689,7 +678,6 @@ describe('AudioWorkspace', () => {
     routeQuery.model = 'audio/tts'
     routeQuery.tab = 'speech'
     getModelConfig.mockResolvedValue({
-      engine: 'audio_cpp',
       family: 'echo_tts',
       task: 'clon',
       model_alias: 'echo-demo',
@@ -714,7 +702,6 @@ describe('AudioWorkspace', () => {
         ],
       })
     getModelConfig.mockResolvedValue({
-      engine: 'audio_cpp',
       family: 'htdemucs',
       task: 'sep',
       model_alias: 'sep-demo',
@@ -974,7 +961,8 @@ describe('AudioWorkspace', () => {
   })
 
   it('renders an explicit contract schema mismatch', async () => {
-    contractPayload = { ...audioContractFixture(), schema: 'audio-cpp.studio-contract/v99' }
+    const mismatchedSchema = `${AUDIO_CONTRACT_SCHEMA}-v99`
+    contractPayload = { ...audioContractFixture(), schema: mismatchedSchema }
     routeQuery.model = 'audio/tts'
     getModelConfig.mockResolvedValue({ task: 'tts', model_alias: 'tts-demo' })
 
@@ -982,7 +970,7 @@ describe('AudioWorkspace', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Audio contract schema mismatch')
-    expect(wrapper.text()).toContain('audio-cpp.studio-contract/v99')
+    expect(wrapper.text()).toContain(mismatchedSchema)
   })
 
   it('wires tab aria-controls to the rendered panel and announces results', async () => {
