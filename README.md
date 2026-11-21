@@ -99,16 +99,16 @@ The npm backend scripts invoke `python`, so activate the environment first. Use
 | SGLang V100       | `sglang_v100`   | safetensors snapshots                                    | Dedicated source/build workflow and managed Python/CUDA. |
 | SGLang SXM2       | `sglang_sxm2`   | safetensors snapshots                                    | Dedicated source/build workflow and managed Python/CUDA. |
 | SGLang SM70       | `sglang_sm70`   | safetensors snapshots                                    | Dedicated source/build workflow and managed Python/CUDA. |
-| audio.cpp         | `audio_cpp`     | Prepared audio packages and discovered audio GGUF models | Source/CMake build; validated through 0.9.3.             |
+| audio.cpp         | `audio_cpp`     | Prepared audio packages and discovered audio GGUF models | Source/CMake build; validated through 0.9.5.             |
 
 Available tasks and hardware support depend on the installed engine and selected model.
 Studio derives controls from the engine registry, scanned executable help, and structured
 model metadata rather than assuming one runtime's options apply to another.
 
-audio.cpp is validated through `0.9.3`. Newer releases (`0.9.4`/`0.9.5` at the time of
-writing) remain installable and run unblocked, but Studio reports them as unsupported and
-does not claim their loader/inspect surface works; their Linux prebuilts require glibc
-2.43. See [audio.cpp engine compatibility](docs/audio-cpp-compatibility.md) for the matrix
+audio.cpp is validated through `0.9.5`. Newer releases remain installable and run
+unblocked, but Studio reports them as unsupported and does not claim their
+loader/inspect surface works; their Linux prebuilts may require a newer glibc
+than the host provides. See [audio.cpp engine compatibility](docs/audio-cpp-compatibility.md) for the matrix
 and the source-build path.
 
 ## Configuration and serving model

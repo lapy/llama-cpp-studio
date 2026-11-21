@@ -23,12 +23,11 @@ import re
 from typing import Any, Dict, Optional, Tuple
 
 # The newest upstream release whose Linux prebuilt and loader/inspect surface
-# were actually exercised against Studio. Upstream v0.9.5 (2026-11-14) is newer
-# and moves fast: v0.9.2 normalized route aliases/options, v0.9.3 changed
-# ``instruct``/``instructions``, and v0.9.4/v0.9.5 Linux prebuilts require
-# glibc 2.43. Those releases stay outside the validated set until this machine
-# (or CI with an ubuntu:24.04-class image) actually exercises them.
-VALIDATED_ENGINE_VERSION = "0.9.3"
+# were actually exercised against Studio. v0.9.5 was validated end-to-end on a
+# source build and its Linux prebuilt was exercised on the Ubuntu 26.04 image
+# (glibc 2.43); v0.9.4 remains inside that range. Release 0.9.6 and later stay
+# outside the validated set until they are exercised the same way.
+VALIDATED_ENGINE_VERSION = "0.9.5"
 
 # Studio activation hard-requires ``--list-loaders --json``
 # (``activation.assert_activation_supported``), which upstream added in 0.9.1.
@@ -96,7 +95,7 @@ def engine_compatibility(version: Any) -> Dict[str, Any]:
             False,
             "unsupported",
             f"audio.cpp {parsed} is newer than the newest validated release ({validated}); "
-            "runs unblocked, but 0.9.4+ Linux prebuilts need glibc 2.43.",
+            "runs unblocked, but its surface has not been validated by Studio.",
         )
     if number < _version_tuple(MINIMUM_ENGINE_VERSION):
         return _result(

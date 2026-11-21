@@ -11,11 +11,12 @@ later replace it without a second redesign.
 ## Status as of 2026-11-21
 
 Upstream is at `v0.9.5` (released 2026-11-14) and moves fast. Since the
-validated `0.9.3` line: `0.9.2` normalized route aliases/options, `0.9.3`
-changed `instruct`/`instructions`, `0.9.4` made malformed request options a
-`400`, and the `0.9.4`/`0.9.5` Linux prebuilts require **glibc 2.43** — an ABI
-break for hosts on older libc (`ubuntu:24.04` ships glibc 2.39), so those
-prebuilts cannot run there. Source builds remain the fallback.
+previously validated `0.9.3` line: `0.9.4` made malformed request options a
+`400`, and `0.9.5` added inline `voice_ref`, `models-root`, and explicit
+model-variant routing. `0.9.5` is now the validated ceiling: its source build
+and Linux prebuilt were exercised (loader/inspect, a real CPU inference run) on
+the Ubuntu 26.04 image. The 0.9.4/0.9.5 Linux prebuilts need **glibc 2.43**;
+the 26.04 image provides it, and older hosts fall back to a source build.
 
 - **M1–M4 delivered** (registry/composer, single-source routing, composition +
   drift warnings, activation speed fixes). The milestone list below records
@@ -32,7 +33,7 @@ prebuilts cannot run there. Source builds remain the fallback.
   `backend/engines/audio_cpp/compatibility.py`, the `validated_through` /
   `engine_supported` / `engine_compat_note` fields on status, contract, and
   version rows, and `docs/audio-cpp-compatibility.md`. Studio validates through
-  `0.9.3`; newer releases stay installable and run unblocked but are reported
+  `0.9.5`; newer releases stay installable and run unblocked but are reported
   unsupported.
 - **Canary in review (not merged).** The audio.cpp canary work is a separate
   PR; it is not part of the delivered status recorded here.
@@ -45,7 +46,7 @@ The five gaps from the issue, restated as questions Studio must answer from data
 4. How is each request encoded (JSON / multipart / streaming / audio artifacts)?
 5. What response, error, and stream-event shapes must a client handle?
 
-## What Studio has today (measured against the v0.9.1 prebuilt and the local `linux-cpu-local` build; the loader/inspect surface is validated through 0.9.3)
+## What Studio has today (measured against the v0.9.1 prebuilt and the local `linux-cpu-local` build; the loader/inspect surface is validated through 0.9.5)
 
 Studio already derives most of gaps 1–2 from engine-owned data and does it well:
 
@@ -196,7 +197,7 @@ Upstream-readiness (the point of the design):
   (`backend/tests/audio_profile_fixtures.py::V091_LIST_LOADERS_JSON`,
   `backend/tests/test_audio_cpp_integration_contract.py`). The fixture is
   historical capture data; the loader/inspect surface it represents is
-  validated through 0.9.3.
+  validated through 0.9.5.
 - ✅ **M2 — Single-source routing.** Proxy handlers (`audio_openai_proxy.py`)
   and `proxy_routing.resolve_audio_upstream_target` resolve via the registry
   (`_native_path(op_id)`, `is_native_api_path`, `TASKS_RUN_ALIAS`).

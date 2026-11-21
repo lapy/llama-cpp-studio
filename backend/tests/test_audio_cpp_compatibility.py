@@ -128,12 +128,20 @@ def test_parse_engine_version_rejects_non_releases(raw):
 def test_validated_ceiling_is_pinned():
     # Changing the ceiling is a compatibility decision: update this pin, the
     # durable matrix, and the way the release was actually exercised.
-    assert VALIDATED_ENGINE_VERSION == "0.9.3"
+    assert VALIDATED_ENGINE_VERSION == "0.9.5"
     assert MINIMUM_ENGINE_VERSION == "0.9.1"
 
 
 def test_engine_at_or_inside_the_ceiling_is_supported():
-    for raw in ("v0.9.3", "release-0.9.3", "0.9.3", "v0.9.2", "v0.9.1"):
+    for raw in (
+        "v0.9.5",
+        "release-0.9.5",
+        "v0.9.4",
+        "release-0.9.4",
+        "0.9.3",
+        "v0.9.2",
+        "v0.9.1",
+    ):
         compat = engine_compatibility(raw)
         assert compat["supported"] is True, raw
         assert compat["status"] == "supported"
@@ -142,7 +150,7 @@ def test_engine_at_or_inside_the_ceiling_is_supported():
 
 
 def test_engine_newer_than_the_ceiling_is_unsupported():
-    for raw in ("v0.9.4", "release-0.9.4", "v0.9.5", "v0.9.5-cuda"):
+    for raw in ("v0.9.6", "release-0.9.6", "v0.10.0", "v0.10.0-cuda"):
         compat = engine_compatibility(raw)
         assert compat["supported"] is False, raw
         assert compat["status"] == "unsupported"
@@ -166,7 +174,7 @@ def test_unknown_engine_is_neither_supported_nor_unsupported():
 
 
 def test_compatibility_fields_are_api_shaped():
-    fields = compatibility_fields("v0.9.4")
+    fields = compatibility_fields("v0.10.0")
     assert fields["validated_through"] == VALIDATED_ENGINE_VERSION
     assert fields["engine_supported"] is False
     assert VALIDATED_ENGINE_VERSION in fields["engine_compat_note"]
@@ -181,10 +189,10 @@ def test_compatibility_fields_are_api_shaped():
 @pytest.mark.parametrize(
     ("version", "expected_supported"),
     [
+        ("v0.9.5", True),
+        ("release-0.9.4", True),
         ("v0.9.3", True),
-        ("release-0.9.2", True),
-        ("v0.9.4", False),
-        ("v0.9.5", False),
+        ("v0.10.0", False),
         ("source-main-1730000000", None),
     ],
 )
@@ -219,7 +227,7 @@ def test_status_without_active_engine_is_unknown(client, store, monkeypatch):
 
 
 def test_contract_reports_engine_compatibility(client, store, tmp_path, monkeypatch):
-    _add_audio_version(store, tmp_path, "v0.9.4")
+    _add_audio_version(store, tmp_path, "v0.10.0")
     descriptor = {
         "schema": "audio-cpp.studio-contract/v0",
         "operations": [],
@@ -243,7 +251,7 @@ def test_contract_reports_engine_compatibility(client, store, tmp_path, monkeypa
     r = client.get("/api/audio-cpp/contract")
     assert r.status_code == 200
     data = r.json()
-    assert data["engine_version"] == "v0.9.4"
+    assert data["engine_version"] == "v0.10.0"
     assert data["validated_through"] == VALIDATED_ENGINE_VERSION
     assert data["engine_supported"] is False
     assert VALIDATED_ENGINE_VERSION in data["engine_compat_note"]
@@ -258,12 +266,12 @@ def test_contract_without_active_engine_still_returns_409(client, store):
 
 
 def test_version_rows_expose_engine_compatibility(client, store, tmp_path):
-    _add_audio_version(store, tmp_path, "v0.9.4")
+    _add_audio_version(store, tmp_path, "v0.10.0")
 
     r = client.get("/api/llama-versions")
     assert r.status_code == 200
-    row = next(item for item in r.json() if item["id"] == "audio_cpp:v0.9.4")
-    assert row["engine_version"] == "v0.9.4"
+    row = next(item for item in r.json() if item["id"] == "audio_cpp:v0.10.0")
+    assert row["engine_version"] == "v0.10.0"
     assert row["validated_through"] == VALIDATED_ENGINE_VERSION
     assert row["engine_supported"] is False
     assert VALIDATED_ENGINE_VERSION in row["engine_compat_note"]

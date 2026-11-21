@@ -7,7 +7,7 @@ instead of implying support.
 
 The backend owns the decision in
 [`backend/engines/audio_cpp/compatibility.py`](../backend/engines/audio_cpp/compatibility.py):
-`VALIDATED_ENGINE_VERSION = "0.9.3"` is the newest release whose Linux prebuilt and
+`VALIDATED_ENGINE_VERSION = "0.9.5"` is the newest release whose Linux prebuilt and
 `--list-loaders --json` / model `--inspect` surface were actually exercised against
 Studio. Change it only after exercising the next release on a real install (see
 [Updating the ceiling](#updating-the-ceiling)).
@@ -16,11 +16,10 @@ Studio. Change it only after exercising the next release on a real install (see
 
 | audio.cpp version                        | Status      | Meaning                                                                                                                                                    |
 | ---------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0.9.3`                                   | supported   | Validated ceiling. Route aliases/options were normalized in 0.9.2 and `instruct`/`instructions` handling changed in 0.9.3; both were exercised at this level. |
-| `0.9.1` – `0.9.2`                         | supported   | At or below the ceiling. 0.9.1 is the minimum build Studio can activate because it introduced the structured `--list-loaders --json` surface.               |
+| `0.9.5`                                   | supported   | Validated ceiling. Source-build and prebuilt loader/inspect, real inference, and the new task surface were exercised; the prebuilt needs glibc 2.43 (the 26.04 image provides it). |
+| `0.9.1` – `0.9.4`                         | supported   | At or below the ceiling. 0.9.1 is the minimum build Studio can activate because it introduced the structured `--list-loaders --json` surface.               |
 | below `0.9.1`                             | unsupported | Cannot activate in Studio (no structured loader JSON). Reported unsupported rather than "older than the ceiling".                                           |
-| `0.9.4`                                   | unsupported | Not validated. Malformed request options became a `400`; Linux prebuilts require glibc 2.43, which the `ubuntu:24.04` image (glibc 2.39) does not provide. |
-| `0.9.5`                                   | unsupported | Not validated. Same glibc 2.43 prebuilt requirement as 0.9.4.                                                                                              |
+| `0.9.6` and newer                         | unsupported | Not validated. Still installs and runs unblocked, but its surface is outside the exercised set until the ceiling is deliberately bumped.                    |
 | branch, commit, or local build label      | unknown     | Studio cannot map the label to a release, so it makes no claim in either direction.                                                                        |
 | no active version                         | unknown     | Nothing is installed/active to classify.                                                                                                                    |
 
@@ -29,17 +28,23 @@ request because of this classification. It means the surface is outside what was
 validated, so failures are not treated as Studio regressions until the release is
 exercised. The engine UI may show the note; the API always carries it.
 
+## Linux prebuilt note
+
+Linux prebuilts for v0.9.4 and v0.9.5 link **glibc 2.43**. The Studio image is Ubuntu
+26.04 (glibc 2.43), so they run as shipped; on an older host (for example `ubuntu:24.04`,
+glibc 2.39) the install preflight rejects the archive and points at a source build. This
+is an artifact-toolchain limit, not an engine or Studio shim regression.
+
 ## Upstream movement after the ceiling
 
 Upstream is at `v0.9.5` (2026-11-14) and releases frequently. The changes that matter to
-Studio's integration surface since the validated line:
+Studio's integration surface since the previously validated line:
 
 - **0.9.2** — normalized route aliases and option spellings.
-- **0.9.3** — changed `instruct`/`instructions` handling (validated here).
+- **0.9.3** — changed `instruct`/`instructions` handling.
 - **0.9.4** — malformed request options now return `400` instead of being tolerated.
-- **0.9.4 / 0.9.5** — Linux prebuilts require **glibc 2.43**, so hosts with older libc
-  (including `ubuntu:24.04`, glibc 2.39) cannot load them. This is an ABI problem in the
-  prebuilt artifacts, not a Studio shim bug; use a source build (below) on those hosts.
+- **0.9.5** — inline `voice_ref`, `models-root`, and explicit model-variant routing;
+  validated end-to-end, including a real CPU inference run.
 
 Upstream issue [0xShug0/audio.cpp#852](https://github.com/0xShug0/audio.cpp/issues/852)
 (machine-readable integration contract) remains open without a maintainer commitment to a
@@ -52,7 +57,7 @@ These fields are additive on the existing responses; no endpoint or existing key
 | Field                       | Type          | Meaning                                                                                                     |
 | --------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------- |
 | `engine_version`            | string / null | Installed version label (`v0.9.4`, `v0.9.5`, `source-main-…`, …).                                            |
-| `validated_through`         | string        | Newest validated release, always `0.9.3`.                                                                    |
+| `validated_through`         | string        | Newest validated release, always `0.9.5`.                                                                    |
 | `engine_supported`          | bool / null   | `true` within the validated range, `false` outside it, `null` when the version is unknown.                    |
 | `engine_compat_note`        | string        | Short human-readable explanation of the classification.                                                      |
 | `upstream_contract_available` | bool        | Status only. Whether the opt-in audio.cpp#852 probe found a contract document for the active install.       |
@@ -97,7 +102,7 @@ Studio's supported runtime backends remain CPU and CUDA.
 
 A bare branch, commit SHA, or local build label has no release version Studio can compare
 against the ceiling. Studio records `status: "unknown"`, `engine_supported: null`, and a
-note; it does not guess that a branch tip is newer or older than 0.9.3, and it does not
+note; it does not guess that a branch tip is newer or older than 0.9.5, and it does not
 downgrade it to unsupported. If you want a branch under test to count as validated,
 exercise it and record the release it corresponds to.
 
