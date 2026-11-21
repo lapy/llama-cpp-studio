@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import signal
 import sys
 
 import httpx
@@ -75,10 +76,123 @@ async def test_registry_reuses_generation_and_kills_process_group(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_registry_swaps_revision_then_drains_old_generation(monkeypatch):
+async def test_manager_launches_published_generation_after_desired_change(tmp_path, monkeypatch):
+    """Engine installs activate desired versions; process creation follows the pointer."""
+    from backend.proxy.launch_spec import CompiledModel, ProxyModelSpec, manifest_document
+    from backend.proxy.manifests import LaunchManifestStore
+    from backend.proxy.studio.manager import StudioProxyManager
+
+    def compiled(marker: str, revision_char: str) -> CompiledModel:
+        return CompiledModel(
+            launch=LaunchSpec(
+                model_id="demo",
+                engine_id="fake",
+                engine_install_id=marker,
+                executable=sys.executable,
+                argv=["-c", f"print({marker!r})"],
+                cwd=None,
+                env=EnvSpec(),
+            ),
+            proxy=ProxyModelSpec(
+                model_id="demo",
+                catalog_id="demo",
+                engine_id="fake",
+                aliases=[],
+                filters=None,
+                use_model_name=None,
+            ),
+            revision=revision_char * 64,
+            engine_command="",
+            launcher_command="",
+        )
+
+    old = compiled("old-engine", "a")
+    new = compiled("new-engine", "b")
+    # Launch selection does not involve accounting; its PID probe is unavailable
+    # on every test host (os.kill(pid, 0) sends a console event on Windows).
+    monkeypatch.setattr("backend.proxy.studio.accounting.get_accounting", lambda: None)
+    # Directory fsync needs a POSIX directory descriptor; it is irrelevant to
+    # which generation is selected.
+    monkeypatch.setattr("backend.proxy.manifests._fsync_dir", lambda path: None)
+    manager = StudioProxyManager(port=1)
+    manager.manifests = LaunchManifestStore(str(tmp_path / "runtime"))
+    monkeypatch.setattr(manager, "_model", lambda model_id: {"id": model_id})
+    try:
+        desired = {"compiled": old}
+        monkeypatch.setattr(
+            "backend.proxy.studio.launch_generation.compile_model_runtime",
+            lambda model: desired["compiled"],
+        )
+
+        # First genuine start publishes exactly what it launches.
+        launch, revision, artifact_dir = await manager._launch("demo")
+        assert revision == old.revision
+        assert launch.engine_install_id == "old-engine"
+        assert manager.manifests.read_pointer("demo").revision == revision
+        assert artifact_dir == os.path.join(
+            manager.manifests.generation_dir("demo", revision), "artifacts"
+        )
+        assert os.path.isdir(artifact_dir)
+
+        # An install completed and activated a new engine version. Desired now
+        # compiles to the new engine, but the published process is still old.
+        desired["compiled"] = new
+        launch, revision, _ = await manager._launch("demo")
+        assert revision == old.revision
+        assert launch.engine_install_id == "old-engine"
+
+        # An explicit apply publishes the new generation; the next start uses it.
+        manager.manifests.stage(
+            new.proxy.model_id,
+            manifest_document(new.launch, new.revision),
+        )
+        manager.manifests.publish(new.proxy.model_id, new.revision)
+        launch, revision, _ = await manager._launch("demo")
+        assert revision == new.revision
+        assert launch.engine_install_id == "new-engine"
+    finally:
+        # Close the upstream client only; accounting flush is orthogonal to this
+        # launch-selection contract and uses PID probes that are unavailable on
+        # every test host.
+        await manager.dataplane.client.aclose()
+        await manager.registry.close()
+
+
+@pytest.mark.asyncio
+async def test_registry_keeps_live_generation_when_revision_changes(monkeypatch):
+    """Desired revision changes must not replace a live engine.
+
+    An engine install activates a new version in the background; the model is
+    still running on the previous one. Replacing it on the next request starts
+    a second engine while the first owns the GPU, which fails as 502 while the
+    healthy process is still deployed.
+    """
     revision = {"value": "a"}
+    launches = []
+    # Windows has no process groups; the registry only needs to terminate this
+    # test's single child, so a plain kill is enough there.
+    if not hasattr(os, "killpg"):
+
+        def _kill(pid, sig):
+            try:
+                os.kill(pid, sig)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+        monkeypatch.setattr(
+            "backend.proxy.studio.registry.os.killpg",
+            _kill,
+            raising=False,
+        )
+    if not hasattr(signal, "SIGKILL"):
+        monkeypatch.setattr(
+            "backend.proxy.studio.registry.signal.SIGKILL",
+            signal.SIGTERM,
+            raising=False,
+        )
 
     async def factory(model):
+        launches.append(revision["value"])
         return _spec(model, revision["value"])
 
     registry = ProcessRegistry(factory, readiness_timeout=1, drain_timeout=1)
@@ -89,16 +203,20 @@ async def test_registry_swaps_revision_then_drains_old_generation(monkeypatch):
     monkeypatch.setattr(registry, "_wait_ready", ready)
     old = await registry.acquire("demo")
     revision["value"] = "b"
+    still_old = await registry.acquire("demo")
+    assert still_old is old
+    assert old.draining is False
+    assert old.process.poll() is None
+    assert launches == ["a"]
+
+    # An explicit stop + start is the only path to the new published revision.
+    registry.release(old)
+    await registry.stop("demo")
+    assert old.process.poll() is not None
     new = await registry.acquire("demo")
     assert new is not old
-    assert old.draining is True
-    assert old.process.poll() is None
-    registry.release(old)
-    for _ in range(50):
-        if old.process.poll() is not None:
-            break
-        await asyncio.sleep(0.02)
-    assert old.process.poll() is not None
+    assert new.revision == "b" * 64
+    assert launches == ["a", "b"]
     registry.release(new)
     await registry.close()
 

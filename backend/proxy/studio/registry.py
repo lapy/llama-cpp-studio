@@ -570,10 +570,16 @@ class ProcessRegistry:
             if self._closed:
                 raise RegistryError("proxy registry is closed")
             self._ensure_capacity(model_id)
-            spec, revision, artifact_dir = await self._launch_factory(model_id)
+            # A live generation keeps its launch. Desired/published changes are
+            # applied by stopping this process first (restart_now, reload,
+            # unload); demand must never replace a healthy engine underneath
+            # in-flight work. This also means an engine version install cannot
+            # make the next proxied request try to start a second engine while
+            # the first still owns the GPU.
             current = self.active(model_id)
-            if current and current.revision == revision and not current.draining:
+            if current is not None and not current.draining:
                 return current
+            spec, revision, artifact_dir = await self._launch_factory(model_id)
             self._ensure_capacity(model_id)
             replacement = await self._start(spec, revision, artifact_dir)
             old = self._active.get(model_id)
