@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
+import { nextTick } from 'vue'
 
 const { fetchStorageInventory, previewStorageCleanup, applyStorageCleanup } = vi.hoisted(() => ({
   fetchStorageInventory: vi.fn(),
@@ -65,7 +66,7 @@ function category(overrides = {}) {
   }
 }
 
-function inventoryFixture(categories = [category()]) {
+function inventoryFixture(categories = [category()], overrides = {}) {
   return {
     schema_version: 1,
     generated_at: '2026-11-22T20:00:00+00:00',
@@ -87,23 +88,74 @@ function inventoryFixture(categories = [category()]) {
       notes: [],
     },
     categories,
+    ...overrides,
   }
 }
 
-function mountPanel() {
+function planFixture(overrides = {}) {
+  return {
+    plan_id: 'a'.repeat(64),
+    category: 'models',
+    category_label: 'Model files',
+    keep_history: null,
+    units: [{ id: 'unit-1', label: 'voice-models/orphan', bytes: 4096 }],
+    refused: [
+      {
+        id: 'unit-2',
+        label: 'voice-models/keep',
+        bytes: 4096,
+        code: 'CATALOG_MODEL',
+        message: 'A catalog model uses this directory.',
+      },
+    ],
+    reclaimable_bytes: 4096,
+    confirmation_phrase: 'DELETE 1 MODEL DIRECTORIES',
+    scope_cap_units: 200,
+    expires_at: '2026-11-22T20:05:00+00:00',
+    notice: 'Review the selected units.',
+    ...overrides,
+  }
+}
+
+function mountPanel(options = {}) {
   return mount(StoragePanel, {
+    ...options,
     global: {
       stubs: {
+        Button: {
+          props: ['label', 'disabled', 'loading'],
+          template: '<button :disabled="disabled">{{ label }}</button>',
+        },
         RouterLink: {
           props: ['to'],
           template: '<a :href="to"><slot /></a>',
         },
         Dialog: {
           props: ['visible', 'header', 'modal'],
-          template: '<div v-if="visible" role="dialog" :aria-label="header"><slot /></div>',
+          emits: ['hide', 'update:visible'],
+          template:
+            '<div v-if="visible" role="dialog" :aria-label="header"><slot /><slot name="footer" /></div>',
+        },
+        InputText: {
+          inheritAttrs: false,
+          props: ['modelValue'],
+          emits: ['update:modelValue'],
+          template:
+            '<input v-bind="$attrs" :value="modelValue" @input="$emit(`update:modelValue`, $event.target.value)" />',
+        },
+        Checkbox: {
+          props: ['modelValue', 'binary', 'disabled'],
+          emits: ['update:modelValue'],
+          template:
+            '<input type="checkbox" :checked="modelValue" :disabled="disabled" @change="$emit(`update:modelValue`, $event.target.checked)" />',
+        },
+        Tag: {
+          props: ['value', 'severity'],
+          template: '<span class="p-tag">{{ value }}</span>',
         },
         LoadingState: true,
       },
+      ...(options.global || {}),
     },
   })
 }
@@ -112,6 +164,27 @@ describe('StoragePanel', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
+  })
+
+  it('renders one page section with the shared refresh action', async () => {
+    fetchStorageInventory.mockResolvedValueOnce(inventoryFixture())
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const section = wrapper.get('#storage')
+    expect(section.classes()).toContain('page-section')
+    expect(section.get('.page-section__title').text()).toBe('Storage')
+    const refresh = section
+      .get('.page-section__actions')
+      .findAll('button')
+      .find((button) => button.text() === 'Refresh storage')
+    expect(refresh).toBeTruthy()
+
+    fetchStorageInventory.mockResolvedValueOnce(inventoryFixture())
+    await refresh.trigger('click')
+    await flushPromises()
+    expect(fetchStorageInventory).toHaveBeenCalledTimes(2)
+    expect(fetchStorageInventory).toHaveBeenLastCalledWith({ refresh: true })
   })
 
   it('renders measured categories, blocked reasons, manage links and unit disclosure', async () => {
@@ -150,7 +223,7 @@ describe('StoragePanel', () => {
     const wrapper = mountPanel()
     await flushPromises()
 
-    expect(wrapper.get('#storage-heading').text()).toBe('Storage')
+    expect(wrapper.get('.storage-category h3').text()).toBe('Model files')
     expect(wrapper.get('.storage-path').text()).toBe('/srv/studio/data')
     expect(wrapper.text()).toContain('Model files')
     expect(wrapper.text()).toContain('Engine installs')
@@ -163,33 +236,16 @@ describe('StoragePanel', () => {
     expect(links).toContain('/engines')
     expect(wrapper.text()).toContain('Show 2 units for Model files')
     expect(wrapper.get('.storage-share').attributes('aria-label')).toContain('Model files is')
+    expect(wrapper.get('.state-banner--warning').text()).toContain(
+      'This storage is managed by another Studio surface.',
+    )
   })
 
   it('previews, requires the confirmation checkbox and reports a partial cleanup', async () => {
     fetchStorageInventory
       .mockResolvedValueOnce(inventoryFixture())
       .mockResolvedValueOnce(inventoryFixture())
-    previewStorageCleanup.mockResolvedValueOnce({
-      plan_id: 'a'.repeat(64),
-      category: 'models',
-      category_label: 'Model files',
-      keep_history: null,
-      units: [{ id: 'unit-1', label: 'voice-models/orphan', bytes: 4096 }],
-      refused: [
-        {
-          id: 'unit-2',
-          label: 'voice-models/keep',
-          bytes: 4096,
-          code: 'CATALOG_MODEL',
-          message: 'A catalog model uses this directory.',
-        },
-      ],
-      reclaimable_bytes: 4096,
-      confirmation_phrase: 'DELETE 1 MODEL DIRECTORIES',
-      scope_cap_units: 200,
-      expires_at: '2026-11-22T20:05:00+00:00',
-      notice: 'Review the selected units.',
-    })
+    previewStorageCleanup.mockResolvedValueOnce(planFixture())
     applyStorageCleanup.mockResolvedValueOnce({
       plan_id: 'a'.repeat(64),
       category: 'models',
@@ -215,14 +271,18 @@ describe('StoragePanel', () => {
     await flushPromises()
 
     expect(previewStorageCleanup).toHaveBeenCalledWith({ category: 'models' })
-    expect(wrapper.text()).toContain('DELETE 1 MODEL DIRECTORIES')
-    expect(wrapper.text()).toContain('These units are refused and will stay')
-    const deleteButton = wrapper.get(
+    const dialog = wrapper.get('[role="dialog"]')
+    expect(dialog.attributes('aria-label')).toBe('Confirm cleanup for Model files')
+    expect(dialog.text()).toContain('DELETE 1 MODEL DIRECTORIES')
+    expect(dialog.text()).toContain('These units are refused and will stay')
+    const deleteButton = dialog.get(
       'button[aria-label="Delete the selected units from Model files"]',
     )
     expect(deleteButton.attributes('disabled')).toBeDefined()
 
     await wrapper.get('.storage-confirm input[type="checkbox"]').setValue(true)
+    await nextTick()
+    expect(deleteButton.attributes('disabled')).toBeUndefined()
     await deleteButton.trigger('click')
     await flushPromises()
 
@@ -236,19 +296,7 @@ describe('StoragePanel', () => {
 
   it('shows an apply failure inside the confirmation dialog', async () => {
     fetchStorageInventory.mockResolvedValueOnce(inventoryFixture())
-    previewStorageCleanup.mockResolvedValueOnce({
-      plan_id: 'c'.repeat(64),
-      category: 'models',
-      category_label: 'Model files',
-      keep_history: null,
-      units: [{ id: 'unit-1', label: 'voice-models/orphan', bytes: 4096 }],
-      refused: [],
-      reclaimable_bytes: 4096,
-      confirmation_phrase: 'DELETE 1 MODEL DIRECTORIES',
-      scope_cap_units: 200,
-      expires_at: '2026-11-22T20:05:00+00:00',
-      notice: 'Review the selected units.',
-    })
+    previewStorageCleanup.mockResolvedValueOnce(planFixture({ plan_id: 'c'.repeat(64) }))
     applyStorageCleanup.mockRejectedValueOnce({
       response: { data: { detail: { message: 'The cleanup could not start.' } } },
     })
@@ -264,7 +312,34 @@ describe('StoragePanel', () => {
     await flushPromises()
 
     const dialog = wrapper.get('[role="dialog"]')
-    expect(dialog.get('[role="alert"]').text()).toBe('The cleanup could not start.')
+    expect(dialog.get('[role="alert"]').get('.state-banner__message').text()).toBe(
+      'The cleanup could not start.',
+    )
+  })
+
+  it('returns focus to the review action after the confirmation closes', async () => {
+    fetchStorageInventory.mockResolvedValueOnce(inventoryFixture())
+    previewStorageCleanup.mockResolvedValueOnce(planFixture())
+    const wrapper = mountPanel({ attachTo: document.body })
+    await flushPromises()
+
+    const review = wrapper.get('button[aria-label="Review cleanup for Model files"]')
+    review.element.focus()
+    await review.trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(true)
+
+    const cancel = wrapper
+      .get('[role="dialog"]')
+      .findAll('button')
+      .find((button) => button.text() === 'Cancel cleanup')
+    await cancel.trigger('click')
+    await flushPromises()
+    await nextTick()
+
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    expect(document.activeElement).toBe(review.element)
+    wrapper.unmount()
   })
 
   it('passes the history keep count to the preview', async () => {
@@ -311,14 +386,53 @@ describe('StoragePanel', () => {
     })
   })
 
-  it('shows a stable error when the inventory cannot be loaded', async () => {
+  it('offers a scan from the empty state', async () => {
+    fetchStorageInventory.mockResolvedValueOnce(undefined).mockResolvedValueOnce(inventoryFixture())
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const empty = wrapper.get('.page-empty')
+    expect(empty.text()).toContain('No storage inventory yet')
+    const scan = empty.findAll('button').find((button) => button.text() === 'Scan storage')
+    expect(scan).toBeTruthy()
+
+    await scan.trigger('click')
+    await flushPromises()
+    expect(fetchStorageInventory).toHaveBeenLastCalledWith({ refresh: true })
+    expect(wrapper.find('.page-empty').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Model files')
+  })
+
+  it('warns when the scan is partial and offers a rescan', async () => {
+    const partial = inventoryFixture([category()])
+    partial.scan.quality = 'partial'
+    fetchStorageInventory.mockResolvedValueOnce(partial)
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const warning = wrapper.get('.state-banner--warning')
+    expect(warning.text()).toContain('This scan is partial')
+    expect(warning.text()).toContain('Refresh scan')
+  })
+
+  it('shows a stable error with retry when the inventory cannot be loaded', async () => {
     fetchStorageInventory.mockRejectedValueOnce(new Error('private filesystem detail'))
     const wrapper = mountPanel()
     await flushPromises()
 
-    expect(wrapper.get('[role="alert"]').text()).toBe(
+    const banner = wrapper.get('[role="alert"]')
+    expect(banner.get('.state-banner__message').text()).toBe(
       'Storage usage could not be loaded. Retry the scan.',
     )
     expect(wrapper.text()).not.toContain('private filesystem detail')
+
+    fetchStorageInventory.mockResolvedValueOnce(inventoryFixture())
+    const retry = banner.findAll('button').find((button) => button.text() === 'Retry')
+    await retry.trigger('click')
+    await flushPromises()
+
+    expect(fetchStorageInventory).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Model files')
   })
 })

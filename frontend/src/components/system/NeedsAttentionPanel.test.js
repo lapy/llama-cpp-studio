@@ -65,6 +65,11 @@ function mountPanel() {
   return mount(NeedsAttentionPanel, {
     global: {
       stubs: {
+        Button: {
+          props: ['label', 'disabled', 'loading'],
+          template: '<button :disabled="disabled">{{ label }}</button>',
+        },
+        LoadingState: true,
         LogOutput: {
           props: ['lines', 'loading', 'emptyMessage'],
           template: '<div class="log-output-stub">{{ (lines || []).join("\\n") }}</div>',
@@ -83,6 +88,26 @@ describe('NeedsAttentionPanel', () => {
     setActivePinia(createPinia())
     toastAdd.mockReset()
     vi.mocked(axios.get).mockReset()
+  })
+
+  it('renders one page section with a refresh action', async () => {
+    mockAttention([])
+
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const section = wrapper.get('#attention')
+    expect(section.classes()).toContain('page-section')
+    expect(section.get('.page-section__title').text()).toBe('Operations needing attention')
+    expect(section.attributes('aria-busy')).toBe('false')
+    const refresh = section
+      .get('.page-section__actions')
+      .findAll('button')
+      .find((button) => button.text() === 'Refresh')
+    expect(refresh).toBeTruthy()
+    await refresh.trigger('click')
+    await flushPromises()
+    expect(axios.get).toHaveBeenCalledTimes(2)
   })
 
   it('renders status, reason, timestamp and only backend-supported actions', async () => {
@@ -108,17 +133,19 @@ describe('NeedsAttentionPanel', () => {
     )
   })
 
-  it('shows a quiet empty state when nothing needs attention', async () => {
+  it('shows a quiet success state when nothing needs attention', async () => {
     mockAttention([])
 
     const wrapper = mountPanel()
     await flushPromises()
 
     expect(wrapper.text()).toContain('No interrupted operations.')
+    const banner = wrapper.get('.state-banner--success')
+    expect(banner.attributes('role')).toBe('status')
     expect(wrapper.findAll('.attention-item')).toHaveLength(0)
   })
 
-  it('shows a readable error and toasts it instead of an empty state', async () => {
+  it('shows a readable error with a retry action instead of an empty state', async () => {
     vi.mocked(axios.get).mockRejectedValue({
       response: { data: { detail: 'Operation records could not be read.' } },
     })
@@ -126,7 +153,8 @@ describe('NeedsAttentionPanel', () => {
     const wrapper = mountPanel()
     await flushPromises()
 
-    expect(wrapper.get('[role="alert"]').text()).toBe('Operation records could not be read.')
+    const banner = wrapper.get('[role="alert"]')
+    expect(banner.get('.state-banner__message').text()).toBe('Operation records could not be read.')
     expect(wrapper.text()).not.toContain('No interrupted operations.')
     expect(toastAdd).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -134,6 +162,14 @@ describe('NeedsAttentionPanel', () => {
         summary: 'Could not check interrupted operations',
       }),
     )
+
+    mockAttention([safeRow()])
+    await buttonByText(banner, 'Retry').trigger('click')
+    await flushPromises()
+
+    expect(axios.get).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Build llama.cpp (never started)')
   })
 
   it('loads retained logs for one operation when View logs is clicked', async () => {

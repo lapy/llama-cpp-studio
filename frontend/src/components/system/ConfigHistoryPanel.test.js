@@ -23,6 +23,20 @@ const entry = {
   reason: 'before model update',
 }
 
+function mountPanel() {
+  return mount(ConfigHistoryPanel, {
+    global: {
+      stubs: {
+        Button: {
+          props: ['label', 'disabled', 'loading'],
+          template: '<button :disabled="disabled">{{ label }}</button>',
+        },
+        LoadingState: true,
+      },
+    },
+  })
+}
+
 describe('ConfigHistoryPanel', () => {
   beforeEach(() => {
     listConfigurationHistory.mockReset().mockResolvedValue([entry])
@@ -38,8 +52,25 @@ describe('ConfigHistoryPanel', () => {
     })
   })
 
+  it('renders one page section with a refresh action', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const section = wrapper.get('#history')
+    expect(section.classes()).toContain('page-section')
+    expect(section.get('.page-section__title').text()).toBe('Recent changes')
+    const refresh = section
+      .get('.page-section__actions')
+      .findAll('button')
+      .find((button) => button.text() === 'Refresh history')
+    expect(refresh).toBeTruthy()
+    await refresh.trigger('click')
+    await flushPromises()
+    expect(listConfigurationHistory).toHaveBeenCalledTimes(2)
+  })
+
   it('compares a revision and selectively restores the changed model', async () => {
-    const wrapper = mount(ConfigHistoryPanel)
+    const wrapper = mountPanel()
     await flushPromises()
 
     expect(listConfigurationHistory).toHaveBeenCalledTimes(1)
@@ -60,11 +91,36 @@ describe('ConfigHistoryPanel', () => {
     expect(wrapper.get('[role="status"]').text()).toContain('restored')
   })
 
-  it('shows a stable error when history cannot be loaded', async () => {
-    listConfigurationHistory.mockRejectedValueOnce(new Error('private filesystem detail'))
-    const wrapper = mount(ConfigHistoryPanel)
+  it('shows an empty state with a next action when nothing is recorded', async () => {
+    listConfigurationHistory.mockResolvedValueOnce([])
+    const wrapper = mountPanel()
     await flushPromises()
 
-    expect(wrapper.get('[role="alert"]').text()).toBe('Configuration history could not be loaded.')
+    expect(wrapper.text()).toContain('No configuration changes recorded yet')
+    const scan = wrapper.get('.page-empty').find('button')
+    expect(scan.text()).toBe('Refresh history')
+    await scan.trigger('click')
+    await flushPromises()
+    expect(listConfigurationHistory).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain('Model settings')
+  })
+
+  it('shows a stable error with a retry action when history cannot be loaded', async () => {
+    listConfigurationHistory.mockRejectedValueOnce(new Error('private filesystem detail'))
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const banner = wrapper.get('[role="alert"]')
+    expect(banner.get('.state-banner__message').text()).toBe(
+      'Configuration history could not be loaded.',
+    )
+    expect(wrapper.text()).not.toContain('private filesystem detail')
+
+    listConfigurationHistory.mockResolvedValueOnce([entry])
+    const retry = banner.findAll('button').find((button) => button.text() === 'Retry')
+    await retry.trigger('click')
+    await flushPromises()
+    expect(listConfigurationHistory).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
   })
 })
