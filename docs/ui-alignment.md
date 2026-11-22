@@ -633,7 +633,10 @@ was needed there. Their visible chrome stays governed by
 1. This branch (`ws/ui-foundation`) delivers primitives, tokens, the audit, and
    the NotFound/shell reference. It does not touch feature pages.
 2. WS1/WS2 build new panels (GPU admission, Storage) with `PageSection`,
-   `SectionTabs`, `StateBanner`, `PageToolbar` from the start.
+   `SectionTabs`, `StateBanner`, `PageToolbar` from the start. If a feature
+   branch was cut before this foundation merges, its new panels are treated as
+   page-local sections and migrated by the corresponding `ws/ui-pages-*`
+   branch, like every other section.
 3. `ws/ui-pages-models`, `ws/ui-pages-engines`,
    `ws/ui-pages-proxy-audio` migrate pages after feature branches land, using
    NotFound and the documented reference as the pattern.
