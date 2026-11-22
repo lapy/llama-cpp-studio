@@ -210,7 +210,12 @@
           />
         </template>
       </StateBanner>
-      <pre v-if="testResult" class="connect-result" role="status">{{ testResult }}</pre>
+      <pre
+        v-if="testResult"
+        class="connect-result"
+        role="status"
+        aria-label="Connection test result"
+        >{{ testResult }}</pre>
     </div>
     <template #footer>
       <div class="dialog-actions">

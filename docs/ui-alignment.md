@@ -1,7 +1,9 @@
 # UI alignment foundation
 
-Status: WS5a foundation complete; page migrations pending (WS5b `ws/ui-pages-*`).
-Branch: `ws/ui-foundation` from `feat/single-operator-hardening`.
+Status: **complete** — foundation and all routed-page migrations are integrated
+on `feat/single-operator-hardening`. Branch history: `ws/ui-foundation`, then
+`ws/ui-pages-models`, `ws/ui-pages-config`, `ws/ui-pages-engines`,
+`ws/ui-pages-system` and `ws/ui-pages-proxy-audio`.
 
 This document is the visual and structural consistency contract for Studio's
 routed pages. It complements [`frontend-standards.md`](frontend-standards.md),
@@ -27,31 +29,74 @@ page migrations land. Treat them as evidence for the audit, not stable anchors.
 Every routed page must satisfy these ten rules. "Primitive" names the shared
 implementation a page uses.
 
-| # | Rule | Primitive |
-| --- | --- | --- |
-| 1 | **Page shell.** Every routed page uses `page-shell` (or `page-shell--wide` for table-heavy workspaces) and exactly one `PageHeader` with title, description, optional meta and actions. One primary action per page. | `page-shell`, `PageHeader` |
-| 2 | **Sections.** All page sections use one `PageSection` pattern: heading, optional description, optional meta/actions, consistent padding/gap/border. No page-local `system-card`/`proxy-card`/`ev-section` lookalikes after migration. | `PageSection`, `.page-section*` |
-| 3 | **State.** Loading uses `LoadingState`; empty uses `EmptyState` with a next action; stale/error banners use the shared `state-banner` (or `StateBanner`) with retry. No silent blank panels. | `LoadingState`, `EmptyState`, `StateBanner` |
-| 4 | **Controls.** PrimeVue components with shared sizes; one primary button per section; icon-only buttons have `aria-label`s; labels are sentence case and consistent (`Save`, `Save settings`, `Retry`, `Refresh`). | PrimeVue + shared sizes |
-| 5 | **Tables and toolbars.** One toolbar pattern (search, filters, summary, actions), one table density, labelled action columns, empty/loading inside the table shell, horizontal scroll contained. | `PageToolbar`, `.table-shell*` |
-| 6 | **Forms.** Shared field spacing and label/hint/error placement, two columns at desktop and one at mobile, consistent save bar and unsaved-change prompt. | `.page-form*` |
-| 7 | **Dialogs.** Shared header/body/footer structure, width scale, focus return, destructive confirmation, one-time secret treatment. | `dialog-width-*`, `.dialog-stack`, `.dialog-actions` |
-| 8 | **Type and color.** Page `h1`, section `h2`, sub-section `h3`; tokens only; both themes; no hardcoded colors; consistent icon sizes and empty-state illustrations. | tokens, `PageSection` heading levels |
-| 9 | **Responsive.** No horizontal overflow at 320/390 px; actions remain reachable; tables scroll locally; touch targets meet the standards. | shared media rules |
-| 10 | **Usefulness.** Every page answers: what is this, what is the primary action, what state am I in, what do I do next. Empty and failed states always offer the next step. | `PageHeader`, `EmptyState`, `StateBanner` |
+| #   | Rule                                                                                                                                                                                                                                  | Primitive                                            |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| 1   | **Page shell.** Every routed page uses `page-shell` (or `page-shell--wide` for table-heavy workspaces) and exactly one `PageHeader` with title, description, optional meta and actions. One primary action per page.                  | `page-shell`, `PageHeader`                           |
+| 2   | **Sections.** All page sections use one `PageSection` pattern: heading, optional description, optional meta/actions, consistent padding/gap/border. No page-local `system-card`/`proxy-card`/`ev-section` lookalikes after migration. | `PageSection`, `.page-section*`                      |
+| 3   | **State.** Loading uses `LoadingState`; empty uses `EmptyState` with a next action; stale/error banners use the shared `state-banner` (or `StateBanner`) with retry. No silent blank panels.                                          | `LoadingState`, `EmptyState`, `StateBanner`          |
+| 4   | **Controls.** PrimeVue components with shared sizes; one primary button per section; icon-only buttons have `aria-label`s; labels are sentence case and consistent (`Save`, `Save settings`, `Retry`, `Refresh`).                     | PrimeVue + shared sizes                              |
+| 5   | **Tables and toolbars.** One toolbar pattern (search, filters, summary, actions), one table density, labelled action columns, empty/loading inside the table shell, horizontal scroll contained.                                      | `PageToolbar`, `.table-shell*`                       |
+| 6   | **Forms.** Shared field spacing and label/hint/error placement, two columns at desktop and one at mobile, consistent save bar and unsaved-change prompt.                                                                              | `.page-form*`                                        |
+| 7   | **Dialogs.** Shared header/body/footer structure, width scale, focus return, destructive confirmation, one-time secret treatment.                                                                                                     | `dialog-width-*`, `.dialog-stack`, `.dialog-actions` |
+| 8   | **Type and color.** Page `h1`, section `h2`, sub-section `h3`; tokens only; both themes; no hardcoded colors; consistent icon sizes and empty-state illustrations.                                                                    | tokens, `PageSection` heading levels                 |
+| 9   | **Responsive.** No horizontal overflow at 320/390 px; actions remain reachable; tables scroll locally; touch targets meet the standards.                                                                                              | shared media rules                                   |
+| 10  | **Usefulness.** Every page answers: what is this, what is the primary action, what state am I in, what do I do next. Empty and failed states always offer the next step.                                                              | `PageHeader`, `EmptyState`, `StateBanner`            |
+
+## Page migration record
+
+| Page             | Integrated changes                                                                                                                                                                                                                         | Evidence                                                                                                                                                  |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Models           | Shared `StateBanner`/`PageToolbar`/`table-shell`; extracted `LibraryToolbar` and `LibraryListView`; shared Hugging Face token notice/dialog; first-model section; lazy cold-path chunks.                                                   | 8 targeted files / 85 tests; full frontend suite; `/models` cold budget 247,036 B ≤ 280,000; `ui-refactor` Models journeys.                               |
+| Search           | `PageHeader` result/import actions; `PageToolbar` filters; `PageSection` results; shared empty/loading/error states; extracted variant/install/audio/token dialogs.                                                                        | Targeted Search suites; `ui-refactor` Search journey; 320/390 checks in standards.                                                                        |
+| ModelConfig      | Descriptor-driven `SectionTabs` with Overview / Runtime / engine tabs / Names / Launch; new read-only `ModelConfigNamesSummary`; shared `PageToolbar` save bar, `StateBanner` states, dialog/form patterns; 3,740 lines (was 3,820).       | 11 targeted files / 94 tests; Chromium model journey 19/19; targeted axe 8 scans / 0 violations; 18 screenshots at 320/390/1440 both themes, no overflow. |
+| Engines          | `PageSection`/`PageToolbar`/`SectionTabs`/state/dialog patterns across the card grid, filters, version table, install/build/update dialogs and notes; extracted structure tests.                                                           | 10 engine component/view files / 92 tests; full frontend suite; `EnginesView.structure.test.js`.                                                          |
+| Proxy            | Tabs on `SectionTabs`; sections on `PageSection`; lifecycle/filter rows on `PageToolbar`; banners on `StateBanner`; request table in `table-shell`; extracted overview, keys, requests and activity panels; ProxyView 3,039 → 1,212 lines. | 10 files / 126 tests; full frontend suite; `proxy.spec` 12/12 Chromium; standards axe 5/5; 320/390/1440 screenshots.                                      |
+| System           | One `PageHeader`, five `SectionTabs` links (Hardware / Storage / Diagnostics / Backup & restore / Change history), each a `PageSection`; StoragePanel normalized; HardwarePanel split into metrics + CUDA panels.                          | 6 targeted files / 46 tests; full frontend suite; dev-box targeted run; module budget reduced.                                                            |
+| Audio            | `PageHeader` description; compact model/context section; pill `SectionTabs`; task panels and results as `PageSection`; `StateBanner` replaces ad-hoc notices; new transcript panel.                                                        | Audio/proxy files / 126 tests; full frontend suite; `standards` and `ui-refactor` Audio journeys.                                                         |
+| NotFound / shell | Foundation reference migration: shared `PageHeader`/`EmptyState`/`StateBanner` and route-failure handling.                                                                                                                                 | Foundation unit tests; `recovery.spec`.                                                                                                                   |
+
+Shared-contract repairs found by the page wave:
+
+- `_patterns.css`: `.page-section__heading-group` now resets to `flex: 0 0 auto`
+  when the header stacks at ≤640 px. Without it, every migrated section
+  reserved ~200 px of empty header height on mobile.
+- `useRovingTabs`: scrolls the newly focused tab into the scrollport, restoring
+  the keyboard contract for clipped tab strips at narrow widths.
+- `GpuAdmissionPanel`: the `role="status"` live region wraps the `<dl>` instead
+  of being placed on it, fixing `aria-allowed-role`/`dlitem` axe failures.
+
+## Screenshot review
+
+Integrated Chromium review at 320/390/1440 px in both themes (headless; the
+PrimeUI development-license badge is a local build artifact, not a page
+element):
+
+| Page        | Reviewed states                                                  | Result                                                                                                              |
+| ----------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Models      | library table/cards, filters, empty and stale banners            | One header, one primary action, contained table scroll, consistent cards                                            |
+| Search      | initial, results, empty, error, dialogs                          | Toolbar and result sections match Models; dialogs share header/footer                                               |
+| ModelConfig | Overview, Names, Runtime filters, Launch/save bar                | One tab strip, one save bar, no overflow; Names panel is the single identity explanation                            |
+| Engines     | cards, filters, versions, install/build dialogs                  | One header, sectioned cards/table, consistent dialog widths and actions                                             |
+| Proxy       | Overview, Requests, Events, Access keys, Settings & routing      | Consistent tab strip, metric cards, table shell and dialog stack; GPU admission card uses the same section language |
+| System      | Hardware, Storage, Diagnostics, Backup & restore, Change history | Five sections share tab, heading, action and card geometry                                                          |
+| Audio       | model/context bar, task tabs, speech and transcript panels       | Task tabs and sections match the rest of the workspace; stacked fields at 390 px                                    |
+| NotFound    | route failure                                                    | Shared shell, meaningful heading, return action                                                                     |
+
+No page-local card/section lookalike remains for a migrated page. The review did
+not treat screenshots produced by unrelated test runs as intentional changes.
 
 ## Page outcomes required by the plan
 
-| Page | Required outcome |
-| --- | --- |
-| Models | Clear library/table switch, toolbar, first-model CTA, running/attention states, consistent row actions |
-| Search | Filter/toolbar consistency, result cards/table, empty/loading/error, import action |
-| ModelConfig | Section nav (Engine / Runtime / Names / Launch), Names & routing summary, consistent save/review bar |
-| Engines | Card overview + version table consistency, install/build dialogs, filters, empty states |
-| Proxy | Tabs, overview/settings/keys, shared sections, GPU admission card, request table |
-| System | Shared section tabs, Hardware/Storage/Diagnostics/Backup/History visual parity |
-| Audio | Model/context header, task tabs/panels, result states, voice/reference controls |
-| NotFound | Shared shell, meaningful heading, route back to Models |
+| Page        | Required outcome                                                                                       |
+| ----------- | ------------------------------------------------------------------------------------------------------ |
+| Models      | Clear library/table switch, toolbar, first-model CTA, running/attention states, consistent row actions |
+| Search      | Filter/toolbar consistency, result cards/table, empty/loading/error, import action                     |
+| ModelConfig | Section nav (Engine / Runtime / Names / Launch), Names & routing summary, consistent save/review bar   |
+| Engines     | Card overview + version table consistency, install/build dialogs, filters, empty states                |
+| Proxy       | Tabs, overview/settings/keys, shared sections, GPU admission card, request table                       |
+| System      | Shared section tabs, Hardware/Storage/Diagnostics/Backup/History visual parity                         |
+| Audio       | Model/context header, task tabs/panels, result states, voice/reference controls                        |
+| NotFound    | Shared shell, meaningful heading, route back to Models                                                 |
 
 ## Foundation primitives
 
@@ -64,17 +109,17 @@ All primitives live in `frontend/src/components/common/` and are global CSS in
 
 `PageSection.vue` replaces every hand-built section/card.
 
-| Prop / slot | Behavior |
-| --- | --- |
-| `title` | Section `h2` (default). Wires `aria-labelledby` on the `<section>`. |
-| `headingTag` | `h1`–`h6`; use `h3` for a sub-section inside a section. |
+| Prop / slot   | Behavior                                                                                  |
+| ------------- | ----------------------------------------------------------------------------------------- |
+| `title`       | Section `h2` (default). Wires `aria-labelledby` on the `<section>`.                       |
+| `headingTag`  | `h1`–`h6`; use `h3` for a sub-section inside a section.                                   |
 | `description` | Muted one-line section purpose. Keep it to a sentence; detail belongs in an info control. |
-| `id` | Anchor target for deep links (for example `#storage`). The heading id is `<id>-title`. |
-| `variant` | `default` card, `plain` (no surface, for a page-level band), `compact` (dense panels). |
-| `#title` | Custom heading markup; the component then does not invent `aria-labelledby`. |
-| `#meta` | Tags/status next to the heading. |
-| `#actions` | Section-level actions; one primary action per section. |
-| default slot | Body; becomes `.page-section__body`. |
+| `id`          | Anchor target for deep links (for example `#storage`). The heading id is `<id>-title`.    |
+| `variant`     | `default` card, `plain` (no surface, for a page-level band), `compact` (dense panels).    |
+| `#title`      | Custom heading markup; the component then does not invent `aria-labelledby`.              |
+| `#meta`       | Tags/status next to the heading.                                                          |
+| `#actions`    | Section-level actions; one primary action per section.                                    |
+| default slot  | Body; becomes `.page-section__body`.                                                      |
 
 CSS: `.page-section`, `.page-section--plain`, `.page-section--compact`,
 `.page-section__header`, `.page-section__heading-group`, `.page-section__title`,
@@ -155,14 +200,14 @@ failure surfaces; the heading validator accepts `h1`–`h6`.
 Added to `_variables.css` (theme-independent; colors continue to use the
 existing semantic tokens):
 
-| Token | Purpose |
-| --- | --- |
-| `--text-lg`, `--text-xl`, `--text-2xl` | Complete the existing `xs/sm/base` scale |
-| `--section-radius`, `--section-padding`, `--section-gap`, `--section-header-gap` | Section geometry |
-| `--section-title-size`, `--section-title-weight`, `--subsection-title-size` | Section type scale |
-| `--toolbar-radius`, `--toolbar-padding`, `--toolbar-gap`, `--toolbar-control-height` | Toolbar geometry |
-| `--form-gap`, `--form-column-gap` | Form rhythm |
-| `--table-radius`, `--table-header-bg` | Table shell |
+| Token                                                                                | Purpose                                  |
+| ------------------------------------------------------------------------------------ | ---------------------------------------- |
+| `--text-lg`, `--text-xl`, `--text-2xl`                                               | Complete the existing `xs/sm/base` scale |
+| `--section-radius`, `--section-padding`, `--section-gap`, `--section-header-gap`     | Section geometry                         |
+| `--section-title-size`, `--section-title-weight`, `--subsection-title-size`          | Section type scale                       |
+| `--toolbar-radius`, `--toolbar-padding`, `--toolbar-gap`, `--toolbar-control-height` | Toolbar geometry                         |
+| `--form-gap`, `--form-column-gap`                                                    | Form rhythm                              |
+| `--table-radius`, `--table-header-bg`                                                | Table shell                              |
 
 Rules 8 still applies: page migrations must use these tokens and existing
 color/status tokens, never raw hex values or one-off pixel scales.
@@ -662,7 +707,7 @@ Foundation (this branch):
 - [x] App-shell route failure migrated to `EmptyState` with tests.
 - [x] `docs/ui-alignment.md` records the audit, rules and checklist.
 - [x] Existing routes, API shapes and URL state untouched.
-- [ ] Page migrations (tracked by the follow-up workstreams).
+- [x] Page migrations (Models, Search, ModelConfig, Engines, Proxy, System, Audio).
 
 Per-page migration acceptance (apply to each of Models, Search, ModelConfig,
 Engines, Proxy, System, Audio):
@@ -687,11 +732,14 @@ Engines, Proxy, System, Audio):
 
 Release acceptance (from the plan, unchanged):
 
-- [ ] Unit tests for the migrated pages/components.
-- [ ] Browser journeys and accessibility checks pass.
-- [ ] No page-local duplicate section styles remain after all page migrations.
-- [ ] No horizontal overflow at the plan's widths.
-- [ ] Screenshot review table recorded in the integration PR.
+- [x] Unit tests for the migrated pages/components.
+- [ ] Browser journeys and accessibility checks pass. Chromium journeys and the
+      `standards` axe run pass locally; the full integrated Firefox/WebKit run is
+      recorded with the release evidence.
+- [x] No page-local duplicate section styles remain after all page migrations.
+- [x] No horizontal overflow at the plan's widths in the captured Chromium
+      reviews (320/390/1440; Models, ModelConfig, Proxy, Audio).
+- [x] Screenshot review table recorded in the integration PR.
 
 ## Verification
 

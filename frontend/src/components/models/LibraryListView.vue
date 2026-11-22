@@ -167,6 +167,7 @@ defineEmits([
   font-size: 0.82rem;
   font-variant-numeric: tabular-nums;
   text-align: right;
+  padding-right: 0.75rem;
   white-space: nowrap;
 }
 
@@ -227,6 +228,45 @@ defineEmits([
   background: var(--bg-secondary);
   color: var(--status-error);
   cursor: pointer;
+}
+
+@media (max-width: 1100px) {
+  .library-list thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .library-list__row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'model model'
+      'state size'
+      'actions actions';
+    gap: 0.4rem 0.75rem;
+    padding: 0.7rem 0.8rem;
+  }
+
+  .library-list__model {
+    grid-area: model;
+  }
+
+  .library-list__state {
+    grid-area: state;
+  }
+
+  .library-list__size {
+    grid-area: size;
+    text-align: right;
+  }
+
+  .library-list__actions {
+    grid-area: actions;
+  }
 }
 
 @media (max-width: 640px) {

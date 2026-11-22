@@ -411,7 +411,7 @@ test('withholds the checklist while descriptors are delayed, then advances', asy
   await held
   await expect(page.locator('#setup-checklist-title')).toHaveCount(0)
   releaseEngines()
-  await expect(page.getByRole('heading', { name: 'Download a model' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Find a model' })).toBeVisible()
   await expectNoHorizontalOverflow(page)
   expect(errors).toEqual([])
 })
@@ -421,9 +421,10 @@ test('keeps engine preparation incomplete when descriptors fail, then recovers o
 }) => {
   const state = { enginesMode: 'fail-once', enginesCalls: 0, installed: false }
   const errors = await openLibrary(page, state)
-  await expect(page.getByRole('heading', { name: 'Check your engine' })).toBeVisible()
+  await page.getByRole('button', { name: 'Show all steps' }).click()
+  await expect(page.getByText('Check your engine', { exact: true })).toBeVisible()
   await page.reload()
-  await expect(page.getByRole('heading', { name: 'Download a model' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Find a model' })).toBeVisible()
   await expectNoHorizontalOverflow(page)
   expect(errors).toEqual([])
 })
@@ -495,7 +496,10 @@ function downloadTask(taskId, status, huggingfaceId = 'org/demo') {
 
 async function openSearch(page, state) {
   const errors = await openLibrary(page, state)
-  await page.getByRole('button', { name: 'Search and download' }).click()
+  await page
+    .locator('.first-model')
+    .getByRole('link', { name: 'Search models', exact: true })
+    .click()
   await page.getByRole('textbox', { name: 'Search models', exact: true }).fill('demo')
   await page.getByRole('button', { name: 'Search', exact: true }).click()
   return errors
@@ -522,8 +526,11 @@ test('install, configure, apply, start, and connect under fixture control', asyn
     sseEvents: [],
   }
   const errors = await openLibrary(page, state)
-  await expect(page.getByRole('heading', { name: 'Download a model' })).toBeVisible()
-  await page.getByRole('button', { name: 'Search and download' }).click()
+  await expect(page.getByRole('heading', { name: 'Find a model' })).toBeVisible()
+  await page
+    .locator('.first-model')
+    .getByRole('link', { name: 'Search models', exact: true })
+    .click()
   await page.getByRole('textbox', { name: 'Search models', exact: true }).fill('demo')
   await page.getByRole('button', { name: 'Search', exact: true }).click()
   const download = page.getByRole('button', { name: 'Download' })
@@ -559,10 +566,11 @@ test('install, configure, apply, start, and connect under fixture control', asyn
   await page.getByRole('button', { name: 'Connect Demo' }).click()
   const connect = page.getByRole('dialog', { name: 'Connect' })
   const send = connect.getByRole('button', { name: 'Send test' })
+  const result = connect.getByRole('status', { name: 'Connection test result' })
   await send.click()
-  await expect(connect.getByRole('status')).toHaveText('endpoint offline')
+  await expect(result).toHaveText('endpoint offline')
   await send.click()
-  await expect(connect.getByRole('status')).toHaveText('pong')
+  await expect(result).toHaveText('pong')
   await expect(page.getByText('Model started')).toBeVisible()
   await expectNoHorizontalOverflow(page)
   expect(errors).toEqual([])
