@@ -1,11 +1,12 @@
 <template>
-  <div class="engine-versions-block">
-    <div class="engine-versions-block__heading">{{ heading }}</div>
+  <PageSection class="engine-versions-block" variant="plain" heading-tag="h3" :title="heading">
     <slot />
-  </div>
+  </PageSection>
 </template>
 
 <script setup>
+import PageSection from '@/components/common/PageSection.vue'
+
 defineProps({
   heading: { type: String, default: 'Installed versions' },
 })
@@ -13,17 +14,10 @@ defineProps({
 
 <style scoped>
 .engine-versions-block {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
+  margin: 0;
 }
 
-.engine-versions-block__heading {
-  font-size: var(--text-xs);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-secondary);
-  margin: 0;
+.engine-versions-block :deep(.page-section__header) {
+  margin-bottom: 0.35rem;
 }
 </style>

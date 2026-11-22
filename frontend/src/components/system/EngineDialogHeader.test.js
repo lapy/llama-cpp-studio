@@ -30,6 +30,22 @@ function mountHeader() {
 }
 
 describe('EngineDialogHeader', () => {
+  it('renders the dialog title as the heading PrimeVue labels the dialog with', () => {
+    const wrapper = mount(EngineDialogHeader, {
+      props: { title: 'llama.cpp', headingId: 'dialog-header-1' },
+    })
+
+    const heading = wrapper.get('h2.engine-dialog-header__title')
+    expect(heading.text()).toBe('llama.cpp')
+    expect(heading.attributes('id')).toBe('dialog-header-1')
+  })
+
+  it('omits the id when no heading id is supplied', () => {
+    const wrapper = mount(EngineDialogHeader, { props: { title: 'llama.cpp' } })
+
+    expect(wrapper.get('h2.engine-dialog-header__title').attributes('id')).toBeUndefined()
+  })
+
   it('keeps the title and primary action in the header row', () => {
     const wrapper = mountHeader()
     expect(wrapper.get('.engine-dialog-header__title').text()).toBe('audio.cpp')

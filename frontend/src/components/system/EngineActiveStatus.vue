@@ -1,26 +1,29 @@
 <template>
-  <div v-if="hasContent" class="engine-active-status">
+  <dl v-if="hasContent" class="engine-active-status">
     <div
       v-for="(row, idx) in visibleRows"
       :key="`${row.label}-${idx}`"
       class="engine-active-status__row"
     >
-      <span
+      <dt
         class="engine-active-status__label"
         :class="{ 'engine-active-status__label--error': row.error }"
-        >{{ row.label }}</span
       >
-      <Tag
-        v-if="row.tag"
-        :value="row.tag"
-        :severity="row.tagSeverity || 'info'"
-        v-tooltip.bottom="row.tagTooltip || undefined"
-      />
-      <code v-if="row.code != null && row.code !== ''">{{ row.code }}</code>
-      <span v-else-if="row.text">{{ row.text }}</span>
+        {{ row.label }}
+      </dt>
+      <dd class="engine-active-status__value">
+        <Tag
+          v-if="row.tag"
+          :value="row.tag"
+          :severity="row.tagSeverity || 'info'"
+          v-tooltip.bottom="row.tagTooltip || undefined"
+        />
+        <code v-if="row.code != null && row.code !== ''">{{ row.code }}</code>
+        <span v-else-if="row.text">{{ row.text }}</span>
+      </dd>
     </div>
     <slot />
-  </div>
+  </dl>
 </template>
 
 <script setup>
@@ -54,6 +57,7 @@ const hasContent = computed(() => visibleRows.value.length > 0 || Boolean(slots.
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
+  margin: 0;
 }
 
 .engine-active-status__row {
@@ -61,22 +65,32 @@ const hasContent = computed(() => visibleRows.value.length > 0 || Boolean(slots.
   flex-wrap: wrap;
   align-items: center;
   gap: 0.4rem 0.55rem;
-  font-size: 0.8125rem;
-  line-height: 1.4;
   color: var(--text-primary);
+  font-size: var(--text-sm);
+  line-height: 1.4;
 }
 
 .engine-active-status__label {
-  color: var(--text-secondary);
   flex-shrink: 0;
+  color: var(--text-secondary);
+  font-weight: 400;
 }
 
 .engine-active-status__label--error {
-  color: var(--accent-red, #ef4444);
+  color: var(--status-error);
 }
 
-.engine-active-status__row code {
+.engine-active-status__value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  min-width: 0;
+}
+
+.engine-active-status__value code {
+  overflow-wrap: anywhere;
   font-size: var(--text-xs);
-  word-break: break-all;
 }
 </style>

@@ -1,57 +1,73 @@
+?
 <template>
   <div class="engines-view page-shell page-shell--relaxed page-shell--wide">
     <PageHeader
       title="Engines"
-      description="Install a runtime, activate a version, and choose compatible models."
-    />
+      description="Studio installs and versions each runtime separately. Open an engine card to install a build, activate a version, check upstream for updates, or change its build settings."
+    >
+      <template #meta>
+        <Tag :value="engineCountLabel" severity="secondary" />
+      </template>
+      <template #actions>
+        <Button
+          label="Refresh"
+          icon="pi pi-refresh"
+          severity="secondary"
+          outlined
+          size="small"
+          :loading="overviewRefreshing"
+          @click="refreshEnginesOverview"
+        />
+      </template>
+    </PageHeader>
 
-    <!-- ── Engines Overview ───────────────────────────────── -->
-    <section class="ev-section engine-catalog">
-      <div class="ev-section-header">
-        <button
-          type="button"
-          class="ev-section-header__toggle interactive-row"
+    <!-- ── Engines overview ───────────────────────────────── -->
+    <PageSection
+      id="runtime-engines"
+      title="Runtime engines"
+      description="Filter by task or hardware, then choose an engine to manage its installed versions."
+      variant="plain"
+    >
+      <template #actions>
+        <Button
+          :icon="enginesExpanded ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
+          text
+          severity="secondary"
+          size="small"
+          :aria-label="enginesExpanded ? 'Collapse runtime engines' : 'Expand runtime engines'"
           :aria-expanded="enginesExpanded"
-          aria-controls="ev-section-engines-body"
+          aria-controls="engine-catalog-body"
           @click="enginesExpanded = !enginesExpanded"
-        >
-          <div class="ev-section-title">
-            <i class="pi pi-server" aria-hidden="true" />
-            <h2>Runtime engines</h2>
-          </div>
-          <i
-            :class="[
-              'pi',
-              'ev-section-chevron',
-              enginesExpanded ? 'pi-chevron-up' : 'pi-chevron-down',
-            ]"
-            aria-hidden="true"
-          />
-        </button>
-        <div class="ev-section-actions">
-          <Button
-            icon="pi pi-refresh"
-            text
-            severity="secondary"
-            size="small"
-            aria-label="Refresh engines"
-            @click="refreshEnginesOverview"
-          />
-        </div>
-      </div>
+        />
+      </template>
       <Transition name="ev-collapse">
-        <div v-if="enginesExpanded" id="ev-section-engines-body" class="ev-section-body">
+        <div v-show="enginesExpanded" id="engine-catalog-body" class="engine-catalog__body">
           <EngineFiltersBar
             v-model:task="engineTaskFilter"
             v-model:hardware="engineHardwareFilter"
+            :summary="engineFilterSummary"
             @reset="resetEngineFilters"
           />
-          <div class="engine-grid">
+          <LoadingState v-if="overviewLoading" message="Loading runtime engines…" />
+          <EmptyState
+            v-else-if="!visibleEngineCardCount"
+            icon="pi pi-filter-slash"
+            title="No engines match these filters"
+            description="The task and hardware filters hide every runtime Studio can install right now."
+          >
+            <Button
+              label="Reset filters"
+              icon="pi pi-filter-slash"
+              severity="secondary"
+              outlined
+              @click="resetEngineFilters"
+            />
+          </EmptyState>
+          <div v-else class="engine-grid">
             <EngineCard
-              v-for="card in engineSummaryCards"
+              v-for="card in visibleEngineCards"
               :key="card.id"
               :style="{ order: presentation(card.id).order }"
-              v-show="presentation(card.id).visible"
               :disabled="card.disabled"
               v-tooltip.top="card.tooltip"
               @open="card.disabled ? undefined : openEngineModal(card.id)"
@@ -70,11 +86,11 @@
           </div>
         </div>
       </Transition>
-    </section>
+    </PageSection>
 
     <Dialog v-model:visible="engineDialogVisible" modal maximizable class="dialog-width-lg">
-      <template #header>
-        <EngineDialogHeader v-if="nativeDialog" :title="nativeDialog.title">
+      <template #header="{ headerId }">
+        <EngineDialogHeader v-if="nativeDialog" :title="nativeDialog.title" :heading-id="headerId">
           <template #leading>
             <span :class="['engine-mark', nativeDialog.markClass]" aria-hidden="true">{{
               nativeDialog.markText
@@ -133,7 +149,11 @@
             />
           </template>
         </EngineDialogHeader>
-        <EngineDialogHeader v-else-if="venvDialogHeader" :title="venvDialogHeader.title">
+        <EngineDialogHeader
+          v-else-if="venvDialogHeader"
+          :title="venvDialogHeader.title"
+          :heading-id="headerId"
+        >
           <template #leading>
             <i :class="`pi ${venvDialogHeader.icon}`" aria-hidden="true" />
           </template>
@@ -197,6 +217,7 @@
         <EngineDialogHeader
           v-else-if="ENGINE_DESCRIPTORS[selectedEngine]?.configPanel === 'audio'"
           title="audio.cpp"
+          :heading-id="headerId"
         >
           <template #leading>
             <span class="engine-mark engine-mark--audio" aria-hidden="true">A</span>
@@ -255,135 +276,134 @@
           </template>
         </EngineDialogHeader>
       </template>
-      <section v-if="nativeDialog" class="ev-section ev-section--modal">
-        <div class="ev-section-body engine-modal-body">
-          <EngineBuildSettingsHint
-            v-if="nativeDialog.hintEngineKey"
-            :key="nativeDialog.hintKey"
-            :engine-key="nativeDialog.hintEngineKey"
-            @open-settings="nativeDialog.onOpenSettings()"
+      <div v-if="nativeDialog" class="dialog-stack engine-modal-body">
+        <EngineBuildSettingsHint
+          v-if="nativeDialog.hintEngineKey"
+          :key="nativeDialog.hintKey"
+          :engine-key="nativeDialog.hintEngineKey"
+          @open-settings="nativeDialog.onOpenSettings()"
+        />
+        <StateBanner
+          v-if="nativeDialog.noteRaw"
+          severity="info"
+          role="note"
+          class="engine-modal-note"
+        >
+          {{ nativeDialog.noteRaw }}
+        </StateBanner>
+        <EngineCheckUpdatesCta
+          :loading="nativeDialog.checking"
+          :hint="nativeDialog.checkHint"
+          @check="nativeDialog.onCheck()"
+        />
+        <EngineUpdateBanner
+          :available="!!nativeDialog.updateInfo?.update_available"
+          :checked="!!nativeDialog.updateInfo"
+          :latest-version="nativeDialog.updateInfo?.latest_version"
+          :current-version="nativeDialog.updateInfo?.current_version"
+          :link-url="nativeDialog.updateInfo?.release_url"
+          :link-label="nativeDialog.updateLinkLabel"
+          :updating="nativeDialog.updating"
+          :update-tooltip="nativeDialog.updateTooltip"
+          @update="nativeDialog.onUpdate()"
+        />
+        <EngineInstallPanel :subtitle="nativeDialog.installSubtitle">
+          <Button
+            v-for="btn in nativeDialog.installButtons"
+            :key="btn.label"
+            :label="btn.label"
+            :icon="btn.icon"
+            :severity="btn.severity"
+            outlined
+            :loading="btn.loading"
+            :disabled="btn.disabled"
+            @click="btn.onClick()"
           />
-          <p v-if="nativeDialog.noteRaw" class="build-note build-note--info">
-            {{ nativeDialog.noteRaw }}
-          </p>
-          <EngineCheckUpdatesCta
-            :loading="nativeDialog.checking"
-            :hint="nativeDialog.checkHint"
-            @check="nativeDialog.onCheck()"
+        </EngineInstallPanel>
+        <EngineActiveStatus :rows="nativeDialog.statusRows" />
+        <EngineVersionsBlock>
+          <VersionTable
+            :versions="nativeDialog.versions"
+            :activating="activating"
+            :activating-message="activatingMessage"
+            :syncing="syncingVersion"
+            :retrying="retryingVersion"
+            :deleting="deletingVersion"
+            :can-verify="nativeDialog.canVerify"
+            :empty-message="nativeDialog.emptyMessage"
+            @activate="activateVersion"
+            @sync="syncVersion"
+            @retry="retryVersion"
+            @edit-config="openVersionBuildConfig"
+            @verify="verifyEngineVersion"
+            @delete="confirmDeleteVersion"
           />
-          <EngineUpdateBanner
-            :available="!!nativeDialog.updateInfo?.update_available"
-            :checked="!!nativeDialog.updateInfo"
-            :latest-version="nativeDialog.updateInfo?.latest_version"
-            :current-version="nativeDialog.updateInfo?.current_version"
-            :link-url="nativeDialog.updateInfo?.release_url"
-            :link-label="nativeDialog.updateLinkLabel"
-            :updating="nativeDialog.updating"
-            :update-tooltip="nativeDialog.updateTooltip"
-            @update="nativeDialog.onUpdate()"
-          />
-          <EngineInstallPanel :subtitle="nativeDialog.installSubtitle">
-            <Button
-              v-for="btn in nativeDialog.installButtons"
-              :key="btn.label"
-              :label="btn.label"
-              :icon="btn.icon"
-              :severity="btn.severity"
-              outlined
-              :loading="btn.loading"
-              :disabled="btn.disabled"
-              @click="btn.onClick()"
-            />
-          </EngineInstallPanel>
-          <EngineActiveStatus :rows="nativeDialog.statusRows" />
-          <EngineVersionsBlock>
-            <VersionTable
-              :versions="nativeDialog.versions"
-              :activating="activating"
-              :activating-message="activatingMessage"
-              :syncing="syncingVersion"
-              :retrying="retryingVersion"
-              :deleting="deletingVersion"
-              :can-verify="nativeDialog.canVerify"
-              :empty-message="nativeDialog.emptyMessage"
-              @activate="activateVersion"
-              @sync="syncVersion"
-              @retry="retryVersion"
-              @edit-config="openVersionBuildConfig"
-              @verify="verifyEngineVersion"
-              @delete="confirmDeleteVersion"
-            />
-          </EngineVersionsBlock>
-        </div>
-      </section>
+        </EngineVersionsBlock>
+      </div>
 
-      <section v-else-if="venvDialog" class="ev-section ev-section--modal">
-        <div class="ev-section-body engine-modal-body">
-          <EngineBuildSettingsHint
-            :key="venvDialog.hintKey"
-            :engine-key="venvDialog.engineId"
-            @open-settings="venvDialog.onOpenSettings()"
+      <div v-else-if="venvDialog" class="dialog-stack engine-modal-body">
+        <EngineBuildSettingsHint
+          :key="venvDialog.hintKey"
+          :engine-key="venvDialog.engineId"
+          @open-settings="venvDialog.onOpenSettings()"
+        />
+        <EngineCheckUpdatesCta
+          :loading="venvDialog.checking"
+          :hint="venvDialog.checkHint"
+          @check="venvDialog.onCheck()"
+        />
+        <EngineUpdateBanner
+          :available="!!venvDialog.updateInfo?.update_available"
+          :checked="!!venvDialog.updateInfo"
+          :latest-version="
+            venvDialog.updateInfo?.latest_version ? `v${venvDialog.updateInfo.latest_version}` : ''
+          "
+          :current-version="
+            venvDialog.updateInfo?.current_version
+              ? `v${venvDialog.updateInfo.current_version}`
+              : 'none'
+          "
+          :link-url="venvDialog.updateLinkUrl"
+          :link-label="venvDialog.updateLinkLabel"
+          :updating="venvDialog.updating"
+          :update-tooltip="venvDialog.updateTooltip"
+          @update="venvDialog.onUpdate()"
+        />
+        <EngineNote v-if="venvDialog.note">{{ venvDialog.note }}</EngineNote>
+        <EngineInstallPanel :subtitle="venvDialog.installSubtitle">
+          <Button
+            :label="venvDialog.installPrimaryLabel"
+            icon="pi pi-download"
+            severity="success"
+            outlined
+            @click="venvDialog.onInstallPrimary()"
           />
-          <EngineCheckUpdatesCta
-            :loading="venvDialog.checking"
-            :hint="venvDialog.checkHint"
-            @check="venvDialog.onCheck()"
+          <Button
+            label="From source"
+            icon="pi pi-code"
+            severity="info"
+            outlined
+            @click="venvDialog.onInstallSource()"
           />
-          <EngineUpdateBanner
-            :available="!!venvDialog.updateInfo?.update_available"
-            :checked="!!venvDialog.updateInfo"
-            :latest-version="
-              venvDialog.updateInfo?.latest_version
-                ? `v${venvDialog.updateInfo.latest_version}`
-                : ''
-            "
-            :current-version="
-              venvDialog.updateInfo?.current_version
-                ? `v${venvDialog.updateInfo.current_version}`
-                : 'none'
-            "
-            :link-url="venvDialog.updateLinkUrl"
-            :link-label="venvDialog.updateLinkLabel"
-            :updating="venvDialog.updating"
-            :update-tooltip="venvDialog.updateTooltip"
-            @update="venvDialog.onUpdate()"
+        </EngineInstallPanel>
+        <EngineActiveStatus :rows="venvDialog.statusRows" />
+        <EngineVersionsBlock>
+          <VersionTable
+            :versions="venvDialog.versions"
+            :activating="activating"
+            :activating-message="activatingMessage"
+            :syncing="syncingVersion"
+            :retrying="retryingVersion"
+            :deleting="deletingVersion"
+            empty-message="No versions yet. Install one using the options above."
+            @activate="activateVersion"
+            @sync="syncVersion"
+            @retry="retryVersion"
+            @edit-config="openVersionBuildConfig"
+            @delete="confirmDeleteVersion"
           />
-          <EngineNote v-if="venvDialog.note">{{ venvDialog.note }}</EngineNote>
-          <EngineInstallPanel :subtitle="venvDialog.installSubtitle">
-            <Button
-              :label="venvDialog.installPrimaryLabel"
-              icon="pi pi-download"
-              severity="success"
-              outlined
-              @click="venvDialog.onInstallPrimary()"
-            />
-            <Button
-              label="From source"
-              icon="pi pi-code"
-              severity="info"
-              outlined
-              @click="venvDialog.onInstallSource()"
-            />
-          </EngineInstallPanel>
-          <EngineActiveStatus :rows="venvDialog.statusRows" />
-          <EngineVersionsBlock>
-            <VersionTable
-              :versions="venvDialog.versions"
-              :activating="activating"
-              :activating-message="activatingMessage"
-              :syncing="syncingVersion"
-              :retrying="retryingVersion"
-              :deleting="deletingVersion"
-              empty-message="No versions yet. Install one using the options above."
-              @activate="activateVersion"
-              @sync="syncVersion"
-              @retry="retryVersion"
-              @edit-config="openVersionBuildConfig"
-              @delete="confirmDeleteVersion"
-            />
-          </EngineVersionsBlock>
-        </div>
-      </section>
+        </EngineVersionsBlock>
+      </div>
 
       <SglangEnginePanel
         v-else-if="sglangPanelEngineId"
@@ -392,94 +412,90 @@
         :engine-id="sglangPanelEngineId"
       />
 
-      <section
+      <div
         v-else-if="ENGINE_DESCRIPTORS[selectedEngine]?.configPanel === 'audio'"
-        class="ev-section ev-section--modal"
+        class="dialog-stack engine-modal-body"
       >
-        <div class="ev-section-body engine-modal-body">
-          <EngineBuildSettingsHint
-            :key="`audio-hint-${hintRevAudio}`"
-            :engine-key="audioEngineId"
-            @open-settings="openAudioCppBuildSettings"
-          />
-          <EngineCheckUpdatesCta :loading="checkingAudioCpp" @check="checkAudioCppUpdates" />
-          <EngineUpdateBanner
-            :available="!!audioCppUpdateInfo?.update_available"
-            :checked="!!audioCppUpdateInfo"
-            :latest-version="formatEngineUpdateVersion(audioCppUpdateInfo?.latest_version)"
-            :current-version="
-              audioCppUpdateInfo?.tracking_ref || audioCppStatus?.tracking_ref || ''
-            "
-            :link-url="
-              audioCppUpdateInfo?.latest_release?.html_url ||
-              audioCppUpdateInfo?.latest_commit?.html_url ||
-              ''
-            "
-            :link-label="
-              audioCppUpdateInfo?.latest_release?.html_url ? 'View release' : 'View commit'
-            "
-            :updating="audioCppUpdating"
-            :update-tooltip="audioCppUpdateTooltip"
-            @update="updateAudioCpp"
-          >
-            <template #message>
-              <template v-if="audioCppUpdateInfo?.latest_release?.tag_name">
-                Update available (release
-                <strong>{{ formatEngineUpdateVersion(audioCppUpdateInfo.latest_version) }}</strong
-                >)
-              </template>
-              <template v-else>
-                Update available on
-                <strong>{{
-                  audioCppUpdateInfo?.tracking_ref || audioCppStatus?.tracking_ref || 'tracked ref'
-                }}</strong
-                >:
-                <strong>{{ formatEngineUpdateVersion(audioCppUpdateInfo?.latest_version) }}</strong>
-              </template>
+        <EngineBuildSettingsHint
+          :key="`audio-hint-${hintRevAudio}`"
+          :engine-key="audioEngineId"
+          @open-settings="openAudioCppBuildSettings"
+        />
+        <EngineCheckUpdatesCta :loading="checkingAudioCpp" @check="checkAudioCppUpdates" />
+        <EngineUpdateBanner
+          :available="!!audioCppUpdateInfo?.update_available"
+          :checked="!!audioCppUpdateInfo"
+          :latest-version="formatEngineUpdateVersion(audioCppUpdateInfo?.latest_version)"
+          :current-version="audioCppUpdateInfo?.tracking_ref || audioCppStatus?.tracking_ref || ''"
+          :link-url="
+            audioCppUpdateInfo?.latest_release?.html_url ||
+            audioCppUpdateInfo?.latest_commit?.html_url ||
+            ''
+          "
+          :link-label="
+            audioCppUpdateInfo?.latest_release?.html_url ? 'View release' : 'View commit'
+          "
+          :updating="audioCppUpdating"
+          :update-tooltip="audioCppUpdateTooltip"
+          @update="updateAudioCpp"
+        >
+          <template #message>
+            <template v-if="audioCppUpdateInfo?.latest_release?.tag_name">
+              Update available (release
+              <strong>{{ formatEngineUpdateVersion(audioCppUpdateInfo.latest_version) }}</strong
+              >)
             </template>
-          </EngineUpdateBanner>
+            <template v-else>
+              Update available on
+              <strong>{{
+                audioCppUpdateInfo?.tracking_ref || audioCppStatus?.tracking_ref || 'tracked ref'
+              }}</strong
+              >:
+              <strong>{{ formatEngineUpdateVersion(audioCppUpdateInfo?.latest_version) }}</strong>
+            </template>
+          </template>
+        </EngineUpdateBanner>
 
-          <EngineInstallPanel
-            subtitle="Add a new build from the latest release or any git repo. Each build is a version you can activate."
-          >
-            <Button
-              label="From release"
-              icon="pi pi-tag"
-              severity="success"
-              outlined
-              :loading="audioCppReleaseInstalling"
-              :disabled="audioCppReleaseInstalling || audioCppSourceInstalling"
-              @click="installAudioLatestRelease"
-            />
-            <Button
-              label="From source"
-              icon="pi pi-code"
-              severity="info"
-              outlined
-              :loading="audioCppSourceInstalling"
-              :disabled="audioCppReleaseInstalling || audioCppSourceInstalling"
-              @click="openAudioCppSourceDialog"
-            />
-          </EngineInstallPanel>
-          <EngineActiveStatus :rows="audioCppActiveStatusRows" />
-          <EngineVersionsBlock>
-            <VersionTable
-              :versions="enginesStore.audioCppVersions"
-              :activating="activating"
-              :activating-message="activatingMessage"
-              :syncing="syncingVersion"
-              :retrying="retryingVersion"
-              :deleting="deletingVersion"
-              empty-message="No versions yet. Install one using the options above."
-              @activate="activateVersion"
-              @sync="syncVersion"
-              @retry="retryVersion"
-              @edit-config="openVersionBuildConfig"
-              @delete="confirmDeleteVersion"
-            />
-          </EngineVersionsBlock>
-        </div>
-      </section>
+        <EngineInstallPanel
+          subtitle="Add a new build from the latest release or any git repo. Each build is a version you can activate."
+        >
+          <Button
+            label="From release"
+            icon="pi pi-tag"
+            severity="success"
+            outlined
+            :loading="audioCppReleaseInstalling"
+            :disabled="audioCppReleaseInstalling || audioCppSourceInstalling"
+            @click="installAudioLatestRelease"
+          />
+          <Button
+            label="From source"
+            icon="pi pi-code"
+            severity="info"
+            outlined
+            :loading="audioCppSourceInstalling"
+            :disabled="audioCppReleaseInstalling || audioCppSourceInstalling"
+            @click="openAudioCppSourceDialog"
+          />
+        </EngineInstallPanel>
+        <EngineActiveStatus :rows="audioCppActiveStatusRows" />
+        <EngineVersionsBlock>
+          <VersionTable
+            :versions="enginesStore.audioCppVersions"
+            :activating="activating"
+            :activating-message="activatingMessage"
+            :syncing="syncingVersion"
+            :retrying="retryingVersion"
+            :deleting="deletingVersion"
+            empty-message="No versions yet. Install one using the options above."
+            @activate="activateVersion"
+            @sync="syncVersion"
+            @retry="retryVersion"
+            @edit-config="openVersionBuildConfig"
+            @delete="confirmDeleteVersion"
+          />
+        </EngineVersionsBlock>
+      </div>
     </Dialog>
 
     <!-- ── LMDeploy Build Settings Dialog ─────────────────── -->
@@ -568,11 +584,16 @@
       modal
       class="dialog-width-sm"
     >
-      <div class="dialog-body">
-        <p v-if="verifyLoading">Checking llama-server, llama-cli, and llama-quantize…</p>
-        <p v-else-if="verifyError" role="alert">{{ verifyError }}</p>
+      <div class="dialog-stack">
+        <LoadingState
+          v-if="verifyLoading"
+          inline
+          small
+          message="Checking llama-server, llama-cli, and llama-quantize…"
+        />
+        <StateBanner v-else-if="verifyError" severity="error">{{ verifyError }}</StateBanner>
         <template v-else-if="verifyResult">
-          <p>
+          <p class="verify-summary">
             {{
               verifyResult.all_available
                 ? 'All required commands are present.'
@@ -588,7 +609,14 @@
         </template>
       </div>
       <template #footer>
-        <Button label="Close" severity="secondary" outlined @click="verifyDialogVisible = false" />
+        <div class="dialog-actions">
+          <Button
+            label="Close"
+            severity="secondary"
+            outlined
+            @click="verifyDialogVisible = false"
+          />
+        </div>
       </template>
     </Dialog>
 
@@ -654,23 +682,37 @@
       modal
       class="dialog-width-sm"
     >
-      <div class="dialog-body">
-        <div class="form-field">
-          <label>Version</label>
-          <InputText v-model="lmdeployPipVersion" placeholder="Blank = latest" class="w-full" />
-          <small>Leave blank to install the latest from PyPI.</small>
+      <div class="dialog-stack">
+        <div class="page-form page-form--single">
+          <div class="page-form__field">
+            <label class="page-form__label" :for="lmPipVersionFieldId">Version</label>
+            <InputText
+              :id="lmPipVersionFieldId"
+              v-model="lmdeployPipVersion"
+              placeholder="Blank = latest"
+              class="w-full"
+            />
+            <p class="page-form__hint">Leave blank to install the latest from PyPI.</p>
+          </div>
         </div>
       </div>
       <template #footer>
-        <Button label="Cancel" severity="secondary" outlined @click="lmPipDialogVisible = false" />
-        <Button
-          label="Install"
-          icon="pi pi-download"
-          severity="success"
-          :loading="lmdeployInstalling"
-          :disabled="lmdeployInstalling"
-          @click="installLmdeployPip"
-        />
+        <div class="dialog-actions">
+          <Button
+            label="Cancel"
+            severity="secondary"
+            outlined
+            @click="lmPipDialogVisible = false"
+          />
+          <Button
+            label="Install"
+            icon="pi pi-download"
+            severity="success"
+            :loading="lmdeployInstalling"
+            :disabled="lmdeployInstalling"
+            @click="installLmdeployPip"
+          />
+        </div>
       </template>
     </Dialog>
 
@@ -694,31 +736,41 @@
       modal
       class="dialog-width-sm"
     >
-      <div class="dialog-body">
-        <div class="form-field">
-          <label>Release version</label>
-          <InputText v-model="ovllmReleaseVersion" placeholder="Blank = latest" class="w-full" />
-          <small
-            >Leave blank to install the latest GitHub release. Downloads prebuilt CUDA 12.8
-            wheels.</small
-          >
+      <div class="dialog-stack">
+        <div class="page-form page-form--single">
+          <div class="page-form__field">
+            <label class="page-form__label" :for="ovllmReleaseVersionFieldId"
+              >Release version</label
+            >
+            <InputText
+              :id="ovllmReleaseVersionFieldId"
+              v-model="ovllmReleaseVersion"
+              placeholder="Blank = latest"
+              class="w-full"
+            />
+            <p class="page-form__hint">
+              Leave blank to install the latest GitHub release. Downloads prebuilt CUDA 12.8 wheels.
+            </p>
+          </div>
         </div>
       </div>
       <template #footer>
-        <Button
-          label="Cancel"
-          severity="secondary"
-          outlined
-          @click="ovllmReleaseDialogVisible = false"
-        />
-        <Button
-          label="Install"
-          icon="pi pi-download"
-          severity="success"
-          :loading="onecatVllmInstalling"
-          :disabled="onecatVllmInstalling"
-          @click="installOnecatVllmRelease"
-        />
+        <div class="dialog-actions">
+          <Button
+            label="Cancel"
+            severity="secondary"
+            outlined
+            @click="ovllmReleaseDialogVisible = false"
+          />
+          <Button
+            label="Install"
+            icon="pi pi-download"
+            severity="success"
+            :loading="onecatVllmInstalling"
+            :disabled="onecatVllmInstalling"
+            @click="installOnecatVllmRelease"
+          />
+        </div>
       </template>
     </Dialog>
 
@@ -752,6 +804,10 @@ import Tag from 'primevue/tag'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
 import PageHeader from '@/components/common/PageHeader.vue'
+import PageSection from '@/components/common/PageSection.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
+import LoadingState from '@/components/common/LoadingState.vue'
+import StateBanner from '@/components/common/StateBanner.vue'
 import EngineDialogHeader from '@/components/system/EngineDialogHeader.vue'
 import EngineCheckUpdatesCta from '@/components/system/EngineCheckUpdatesCta.vue'
 import EngineBuildSettingsHint from '@/components/system/EngineBuildSettingsHint.vue'
@@ -870,6 +926,12 @@ async function refreshDocumentSave() {
 
 // ── System metrics ─────────────────────────────────────────
 const enginesExpanded = ref(true)
+// First catalog load only: the page shows LoadingState until the descriptor,
+// version and status fetches settle, then never blocks the section again.
+const overviewLoading = ref(true)
+const overviewRefreshing = ref(false)
+const lmPipVersionFieldId = 'engine-lmdeploy-pip-version'
+const ovllmReleaseVersionFieldId = 'engine-onecat-release-version'
 
 const engineDialogVisible = ref(false)
 const selectedEngine = ref('llama_cpp')
@@ -973,24 +1035,38 @@ function refreshEngineDialogStatus(engineKey) {
   return enginesStore.fetchLlamaVersions()
 }
 
+async function loadEnginesOverview() {
+  overviewLoading.value = true
+  try {
+    await enginesStore.fetchAll()
+  } finally {
+    overviewLoading.value = false
+  }
+}
+
 async function refreshEnginesOverview() {
-  await Promise.allSettled([
-    enginesStore.fetchEngineDescriptors(),
-    enginesStore.fetchLlamaVersions(),
-    enginesStore.fetchServerBackedStatuses(),
-    enginesStore.fetchLmdeployStatus(),
-    enginesStore.fetchOnecatVllmStatus(),
-    enginesStore.fetchSglangStatus('sglang'),
-    enginesStore.fetchSglangStatus('sglang_v100'),
-    enginesStore.fetchSglangStatus('vllm'),
-    enginesStore.fetchAudioCppStatus(),
-    checkLlamaCppUpdates(),
-    checkIkLlamaUpdates(),
-    checkUnslothLlamaUpdates(),
-    checkLmdeployUpdates(),
-    checkOnecatVllmUpdates(),
-    checkAudioCppUpdates(),
-  ])
+  overviewRefreshing.value = true
+  try {
+    await Promise.allSettled([
+      enginesStore.fetchEngineDescriptors(),
+      enginesStore.fetchLlamaVersions(),
+      enginesStore.fetchServerBackedStatuses(),
+      enginesStore.fetchLmdeployStatus(),
+      enginesStore.fetchOnecatVllmStatus(),
+      enginesStore.fetchSglangStatus('sglang'),
+      enginesStore.fetchSglangStatus('sglang_v100'),
+      enginesStore.fetchSglangStatus('vllm'),
+      enginesStore.fetchAudioCppStatus(),
+      checkLlamaCppUpdates(),
+      checkIkLlamaUpdates(),
+      checkUnslothLlamaUpdates(),
+      checkLmdeployUpdates(),
+      checkOnecatVllmUpdates(),
+      checkAudioCppUpdates(),
+    ])
+  } finally {
+    overviewRefreshing.value = false
+  }
 }
 
 /** Short label for cards/headers; put full `version` in title/tooltip. */
@@ -1165,6 +1241,29 @@ function presentation(engineId) {
     visible: !descriptor || engineMatchesFilters(descriptor, filters),
   }
 }
+
+// Cards the current filters keep on the page; the empty state only appears
+// when nothing at all is left to open.
+const visibleEngineCards = computed(() =>
+  engineSummaryCards.value.filter((card) => presentation(card.id).visible),
+)
+const visibleEngineCardCount = computed(
+  () => visibleEngineCards.value.length + serverBackedEngineDescriptors.value.length,
+)
+const installedEngineCount = computed(
+  () => engineSummaryCards.value.filter((card) => card.count > 0).length,
+)
+const engineCountLabel = computed(
+  () => `${installedEngineCount.value} of ${engineSummaryCards.value.length} engines installed`,
+)
+const engineFilterSummary = computed(() => {
+  const total = engineSummaryCards.value.length
+  const shown = visibleEngineCards.value.length
+  if (engineTaskFilter.value === 'all' && engineHardwareFilter.value === 'all') {
+    return `${total} engines`
+  }
+  return `${shown} of ${total} engines match`
+})
 
 function cmakeBackendBadge(version) {
   const cfg = version?.build_config || {}
@@ -3716,7 +3815,7 @@ watch(audioCppBuildDialogVisible, (visible) => {
 })
 
 onMounted(() => {
-  enginesStore.fetchAll()
+  void loadEnginesOverview()
   unsubscribeTaskUpdated = progressStore.subscribe('task_updated', async (task) => {
     if (task?.status !== 'completed' && task?.status !== 'failed') return
 
@@ -3797,588 +3896,70 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* layout: .page-shell.page-shell--relaxed */
-
-/* ── Collapse transition ─────────────────────────────── */
-.ev-collapse-enter-active,
-.ev-collapse-leave-active {
-  transition: all 0.2s ease;
-  overflow: hidden;
-}
-.ev-collapse-enter-from,
-.ev-collapse-leave-to {
-  max-height: 0;
-  opacity: 0;
-}
-.ev-collapse-enter-to,
-.ev-collapse-leave-from {
-  max-height: 600px;
-  opacity: 1;
-}
-
-/* ── Section ─────────────────────────────────────────── */
-.ev-section {
-  background: color-mix(in srgb, var(--bg-card) 94%, transparent);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-xl);
-  overflow: hidden;
-  box-shadow: var(--shadow-sm);
-}
-
-.ev-section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  background: color-mix(in srgb, var(--bg-surface) 76%, transparent);
-  border-bottom: 1px solid var(--border-primary);
-  user-select: none;
-}
-
-.ev-section-header__toggle {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  min-width: 0;
-  margin: 0;
-  padding: 0.75rem 0 0.75rem 1.25rem;
-  border: none;
-  background: transparent;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-  text-align: left;
-}
-
-.ev-section-chevron {
-  flex-shrink: 0;
-  margin-right: 0.5rem;
-  color: var(--text-secondary);
-}
-
-.ev-section-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.45rem 1.25rem 0.45rem 0;
-  flex-shrink: 0;
-}
-
-.ev-section-title {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex: 1;
+/* The catalog is the page's primary content: the shared PageSection is plain,
+   and the card/toolbar/state chrome comes from the shared primitives. */
+.engines-view {
   min-width: 0;
 }
 
-/* Modal subpanels: title + actions (no toggle button) */
-.ev-section-header > .ev-section-title:first-child {
-  padding: 0.75rem 0 0.75rem 1.25rem;
+.engine-catalog__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--section-gap);
+  min-width: 0;
 }
 
-.ev-section-title h2 {
-  font-size: 1rem;
-  font-weight: 600;
-  margin: 0;
-  line-height: 1.25;
-  color: var(--text-primary);
-}
-
-:deep(.engine-mark) {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 1.8rem;
-  height: 1.8rem;
-  padding: 0 0.45rem;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-xs);
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: 0.04em;
-  color: var(--text-secondary);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-primary);
-}
-
-.ev-section-body {
-  padding: 1.25rem;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--accent-blue) 3%, transparent),
-    transparent 12rem
-  );
-}
-
-/* ── Engines overview ───────────────────────────────────── */
 .engine-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
-  gap: 0.85rem;
-}
-
-:deep(.engine-card) {
-  display: flex;
-  flex-direction: column;
-  min-height: 11.5rem;
-  appearance: none;
-  border: 1px solid var(--border-primary);
-  background: var(--bg-card);
-  border-radius: var(--radius-lg);
-  padding: 1rem;
-  text-align: left;
-  color: inherit;
-  cursor: pointer;
-  box-shadow: var(--shadow-sm);
-  transition:
-    border-color 0.15s ease,
-    transform 0.15s ease,
-    background 0.15s ease;
-}
-
-:deep(.engine-card):hover {
-  border-color: var(--accent-cyan);
-  background: var(--bg-surface);
-  box-shadow: var(--shadow-sm);
-}
-
-:deep(.engine-card-cta) {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  align-self: flex-start;
-  margin-top: auto;
-  padding-top: 0.9rem;
-  color: var(--accent-cyan);
-  font-size: var(--text-xs);
-  font-weight: 700;
-}
-
-:deep(.engine-card-cta)::after {
-  content: '\2192';
-  transition: transform var(--transition-fast);
-}
-
-:deep(.engine-card:hover .engine-card-cta)::after {
-  transform: translateX(0.2rem);
-}
-
-:deep(.engine-card):focus {
-  outline: none;
-}
-
-:deep(.engine-card):focus-visible {
-  outline: 2px solid var(--accent-cyan);
-  outline-offset: 2px;
-}
-
-:deep(.engine-card-head) {
-  display: flex;
-  align-items: flex-start;
-  justify-content: flex-start;
-  gap: 0.75rem;
-}
-
-:deep(.engine-card-version-line) {
-  min-width: 0;
-  max-width: 100%;
-  margin-bottom: 0.45rem;
-}
-
-:deep(.engine-card-version-line .p-tag) {
-  max-width: 100%;
-}
-
-:deep(.engine-card-version-line .p-tag-value) {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.engine-dialog-tag-clip {
-  display: inline-flex;
-  min-width: 0;
-  max-width: min(16rem, 42vw);
-  vertical-align: middle;
-}
-
-.engine-dialog-tag-clip :deep(.p-tag) {
-  max-width: 100%;
-}
-
-.engine-dialog-tag-clip :deep(.p-tag-value) {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-:deep(.engine-card-title) {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  min-width: 0;
-}
-
-:deep(.engine-card-name) {
-  font-size: 1rem;
-  font-weight: 680;
-}
-
-:deep(.engine-card-meta) {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  margin-top: 0.1rem;
-}
-
-:deep(.engine-card-icon) {
-  display: inline-grid;
-  place-items: center;
-  font-size: 0.875rem;
-  color: var(--text-secondary);
-  width: 1.8rem;
-  height: 1.8rem;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-sm);
-  background: var(--bg-tertiary);
-  flex-shrink: 0;
-}
-
-:deep(.engine-card-body) {
-  margin-top: 0.8rem;
-}
-
-:deep(.engine-card-status) {
-  font-size: 0.82rem;
-  color: var(--text-secondary);
-}
-
-:deep(.engine-card-status--warning) {
-  color: var(--status-warning);
-  font-weight: 600;
-}
-
-/* ── Actions ─────────────────────────────────────────── */
-.ev-actions {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  flex-wrap: wrap;
-  margin-bottom: 0.75rem;
-}
-
-.ev-subsection {
-  margin-top: 1.25rem;
-}
-.ev-subsection h4 {
-  font-size: var(--text-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-secondary, #9ca3af);
-  margin: 0 0 0.5rem;
-}
-
-.ev-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.form-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.form-row label {
-  font-size: 0.875rem;
-  width: 88px;
-  flex-shrink: 0;
-  color: var(--text-secondary);
-}
-
-.form-input {
-  flex: 1;
-}
-.form-input-short {
-  width: 140px;
-}
-
-/* ── Status details ──────────────────────────────────── */
-.status-detail {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.875rem;
-  margin-bottom: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.detail-label {
-  color: var(--text-secondary);
-  flex-shrink: 0;
-}
-
-.detail-label.detail-label--error {
-  color: var(--status-error);
-}
-.ml {
-  margin-left: 0.75rem;
-}
-
-code {
-  background: var(--bg-surface);
-  padding: 0.1em 0.4em;
-  border-radius: 0.25rem;
-  font-size: 0.8rem;
-  font-family: monospace;
-  word-break: break-all;
-}
-
-/* ── Version list (CUDA / table-like) ───────────────── */
-.ev-version-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  margin-bottom: 0.75rem;
-}
-
-.ev-version-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
-  font-size: 0.875rem;
-}
-
-.ev-version-row .version-name {
-  flex: 1;
-  margin: 0;
-}
-
-.empty-state-mini {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem;
-  color: var(--text-secondary);
-  font-size: 0.875rem;
-  margin-bottom: 0.75rem;
-}
-
-.empty-state-mini i {
-  color: var(--text-muted);
-}
-
-.cuda-version-select {
-  min-width: 160px;
-}
-.lm-version-input {
-  width: 220px;
-}
-
-/* ── Update banners ──────────────────────────────────── */
-.update-banner,
-.update-current {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  border-radius: var(--radius-md);
-  font-size: 0.875rem;
-  margin-bottom: 0.75rem;
-}
-
-.update-banner {
-  background: var(--status-warning-soft);
-  border: 1px solid rgba(245, 158, 11, 0.3);
-  color: var(--status-warning);
-}
-
-.update-current {
-  background: var(--status-success-soft);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  color: var(--status-success);
-}
-
-.update-link {
-  color: inherit;
-  margin-left: 0.5rem;
-  text-decoration: underline;
-  opacity: 0.8;
-}
-
-/* ── Dialog ──────────────────────────────────────────── */
-.dialog-body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.dialog-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 2rem 0;
-  color: var(--text-secondary);
-}
-
-.engine-modal-body {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  padding-top: 0.35rem;
-}
-
-.ev-section--modal {
-  border: 0;
-  background: transparent;
-}
-
-.form-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.form-field label {
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--text-secondary);
-}
-
-.form-field small {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-}
-.optional {
-  font-weight: 400;
-  opacity: 0.6;
-}
-
-.asset-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  max-height: 240px;
-  overflow-y: auto;
-}
-
-.asset-option {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.4rem 0.6rem;
-  border-radius: var(--radius-md, 0.5rem);
-  cursor: pointer;
-  border: 1px solid transparent;
-  transition: background 0.15s;
-}
-
-.asset-option:hover {
-  background: var(--bg-surface);
-}
-.asset-option.selected {
-  background: var(--bg-surface);
-  border-color: var(--accent-cyan);
-}
-
-.asset-name {
-  flex: 1;
-  font-size: 0.8rem;
-  font-family: monospace;
-}
-.asset-size {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-}
-
-.build-note {
-  font-size: 0.8rem;
-  padding: 0.5rem 0.6rem;
-  border-radius: 6px;
-  margin-bottom: 0.5rem;
-}
-.build-note--info {
-  background: var(--status-info-soft);
-  color: var(--text-primary);
-  border: 1px solid var(--border-primary);
-}
-.build-note strong {
-  font-weight: 600;
-}
-
-@media (max-width: 768px) {
-  .ev-section-body {
-    padding: 0.85rem;
-  }
-
-  .ev-section-header__toggle {
-    flex: 1 1 12rem;
-    padding-left: 0.85rem;
-  }
-
-  .ev-section-actions {
-    padding-right: 0.65rem;
-    margin-left: auto;
-  }
-}
-
-/* The catalog is the page's primary content, without another enclosing card. */
-.engine-catalog {
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  overflow: visible;
-}
-.engine-catalog > .ev-section-header {
-  background: transparent;
-  border-bottom: 0;
-}
-.engine-catalog .ev-section-header__toggle {
-  padding-left: 0;
-}
-.engine-catalog .ev-section-actions {
-  padding-right: 0;
-}
-.engine-catalog .ev-section-body {
-  padding: 0;
-  background: transparent;
-}
-.engine-catalog .engine-filters {
-  padding: 0 0 1.25rem;
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-}
-.engine-catalog .engine-grid {
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr));
   gap: 0.75rem;
+  min-width: 0;
+}
+
+/* Banners inside the engine dialog stack use the shared dialog rhythm. */
+.engine-modal-note,
+.engine-modal-body :deep(.state-banner) {
+  margin-bottom: 0;
+}
+
+.engine-modal-note {
+  font-size: var(--text-sm);
+}
+
+.verify-summary {
+  margin: 0;
+  font-size: var(--text-sm);
 }
 
 .verify-commands {
-  list-style: none;
-  margin: 0.75rem 0 0;
-  padding: 0;
   display: grid;
   gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .verify-commands code {
   display: block;
   margin-top: 0.15rem;
+  overflow-wrap: anywhere;
   font-size: var(--text-xs);
-  word-break: break-all;
+}
+
+/* Collapse transition; the global reduced-motion rule disables it. */
+.ev-collapse-enter-active,
+.ev-collapse-leave-active {
+  transition: opacity 0.15s ease;
+}
+
+.ev-collapse-enter-from,
+.ev-collapse-leave-to {
+  opacity: 0;
+}
+
+@media (max-width: 640px) {
+  .engine-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>

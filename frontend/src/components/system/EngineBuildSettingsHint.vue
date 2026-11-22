@@ -1,28 +1,25 @@
 <template>
-  <div v-if="visible" class="engine-build-settings-hint" role="status">
-    <div class="engine-build-settings-hint__row">
-      <i class="pi pi-cog engine-build-settings-hint__icon" aria-hidden="true" />
-      <div class="engine-build-settings-hint__copy">
-        <span class="engine-build-settings-hint__title">Set build settings first</span>
-        <p class="engine-build-settings-hint__text">{{ description }}</p>
-      </div>
-    </div>
-    <div class="engine-build-settings-hint__actions">
+  <StateBanner v-if="visible" class="engine-build-settings-hint" severity="info">
+    <span class="engine-build-settings-hint__title">Set build settings first</span>
+    <p class="engine-build-settings-hint__text">{{ description }}</p>
+    <template #actions>
       <Button
         label="Open build settings"
         icon="pi pi-external-link"
         size="small"
         severity="info"
+        outlined
         @click="onOpenSettings"
       />
       <Button label="Got it" text size="small" severity="secondary" @click="dismiss" />
-    </div>
-  </div>
+    </template>
+  </StateBanner>
 </template>
 
 <script setup>
 import { computed, ref, onMounted } from 'vue'
 import Button from 'primevue/button'
+import StateBanner from '@/components/common/StateBanner.vue'
 import { engineBuildHint } from '../../engines/registry.js'
 
 const props = defineProps({
@@ -91,60 +88,21 @@ onMounted(() => {
 
 <style scoped>
 .engine-build-settings-hint {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  padding: 0.85rem 1rem;
-  margin-bottom: 0.75rem;
-  border-radius: var(--radius-lg);
-  border: 1px solid rgba(96, 165, 250, 0.35);
-  background: rgba(96, 165, 250, 0.07);
-}
-
-.engine-build-settings-hint__row {
-  display: flex;
-  gap: 0.65rem;
-  align-items: flex-start;
-  min-width: 0;
-}
-
-.engine-build-settings-hint__icon {
-  font-size: 1.15rem;
-  color: var(--accent-cyan, #60a5fa);
-  flex-shrink: 0;
-  margin-top: 0.1rem;
-}
-
-.engine-build-settings-hint__copy {
-  min-width: 0;
+  margin-bottom: 0;
 }
 
 .engine-build-settings-hint__title {
   display: block;
-  font-size: 0.9rem;
-  font-weight: 600;
+  margin-bottom: 0.15rem;
   color: var(--text-primary);
-  margin-bottom: 0.25rem;
+  font-size: var(--text-sm);
+  font-weight: 650;
 }
 
 .engine-build-settings-hint__text {
   margin: 0;
-  font-size: 0.8125rem;
-  line-height: 1.45;
   color: var(--text-secondary);
-}
-
-.engine-build-settings-hint__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.35rem;
-  padding-left: 0.1rem;
-}
-
-@media (min-width: 480px) {
-  .engine-build-settings-hint__actions {
-    padding-left: 1.85rem;
-  }
+  font-size: var(--text-sm);
+  line-height: 1.45;
 }
 </style>
