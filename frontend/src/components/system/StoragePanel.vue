@@ -14,7 +14,9 @@
       </button>
     </div>
 
-    <p v-if="store.error" class="storage-error" role="alert">{{ store.error }}</p>
+    <p v-if="store.error && !store.plan" class="storage-error" role="alert">
+      {{ store.error }}
+    </p>
     <p v-if="store.status" class="storage-status" role="status" aria-live="polite">
       {{ store.status }}
     </p>
@@ -177,6 +179,7 @@
 
     <Dialog v-model:visible="confirmVisible" modal :header="planHeader" class="storage-dialog">
       <div v-if="store.plan" class="storage-plan">
+        <p v-if="store.error" class="storage-error" role="alert">{{ store.error }}</p>
         <p>
           {{ formatBytesIEC(store.plan.reclaimable_bytes) }} from
           {{ store.plan.units.length }}

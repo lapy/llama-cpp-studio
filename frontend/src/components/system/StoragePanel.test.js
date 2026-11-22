@@ -234,6 +234,39 @@ describe('StoragePanel', () => {
     expect(wrapper.text()).toContain('Some units were removed; the rest stayed.')
   })
 
+  it('shows an apply failure inside the confirmation dialog', async () => {
+    fetchStorageInventory.mockResolvedValueOnce(inventoryFixture())
+    previewStorageCleanup.mockResolvedValueOnce({
+      plan_id: 'c'.repeat(64),
+      category: 'models',
+      category_label: 'Model files',
+      keep_history: null,
+      units: [{ id: 'unit-1', label: 'voice-models/orphan', bytes: 4096 }],
+      refused: [],
+      reclaimable_bytes: 4096,
+      confirmation_phrase: 'DELETE 1 MODEL DIRECTORIES',
+      scope_cap_units: 200,
+      expires_at: '2026-11-22T20:05:00+00:00',
+      notice: 'Review the selected units.',
+    })
+    applyStorageCleanup.mockRejectedValueOnce({
+      response: { data: { detail: { message: 'The cleanup could not start.' } } },
+    })
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('button[aria-label="Review cleanup for Model files"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('.storage-confirm input[type="checkbox"]').setValue(true)
+    await wrapper
+      .get('button[aria-label="Delete the selected units from Model files"]')
+      .trigger('click')
+    await flushPromises()
+
+    const dialog = wrapper.get('[role="dialog"]')
+    expect(dialog.get('[role="alert"]').text()).toBe('The cleanup could not start.')
+  })
+
   it('passes the history keep count to the preview', async () => {
     fetchStorageInventory.mockResolvedValueOnce(
       inventoryFixture([
