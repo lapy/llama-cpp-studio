@@ -145,7 +145,8 @@ const sortOptions = [
 
 <style scoped>
 .library-toolbar__select {
-  min-width: 9rem;
+  flex: 0 0 11rem;
+  min-width: 0;
 }
 
 .library-toolbar__secondary {
@@ -167,6 +168,7 @@ const sortOptions = [
 
 @media (max-width: 640px), (pointer: coarse) {
   .library-toolbar__select {
+    flex: 1 1 auto;
     width: 100%;
   }
 
