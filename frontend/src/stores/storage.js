@@ -19,6 +19,18 @@ function outcomeStatus(result) {
   return 'Nothing was removed. Resolve the listed refusals and preview again.'
 }
 
+function isInventoryPayload(value) {
+  return (
+    value &&
+    typeof value === 'object' &&
+    value.filesystem &&
+    typeof value.filesystem === 'object' &&
+    value.scan &&
+    typeof value.scan === 'object' &&
+    Array.isArray(value.categories)
+  )
+}
+
 export const useStorageStore = defineStore('storage', () => {
   const inventory = ref(null)
   const loading = ref(false)
@@ -42,7 +54,15 @@ export const useStorageStore = defineStore('storage', () => {
     loading.value = true
     error.value = ''
     try {
-      inventory.value = await fetchStorageInventory({ refresh })
+      const payload = await fetchStorageInventory({ refresh })
+      if (payload == null) {
+        inventory.value = null
+        return
+      }
+      if (!isInventoryPayload(payload)) {
+        throw new Error('Storage inventory response was invalid')
+      }
+      inventory.value = payload
     } catch (requestError) {
       error.value = failureMessage(
         requestError,

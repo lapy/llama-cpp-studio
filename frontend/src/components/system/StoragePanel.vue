@@ -61,7 +61,7 @@
         </div>
       </dl>
 
-      <StateBanner v-if="store.inventory.scan.quality === 'partial'" severity="warning">
+      <StateBanner v-if="store.inventory.scan?.quality === 'partial'" severity="warning">
         This scan is partial: sizes may be lower than reality. Refresh after the current activity
         finishes for a complete measurement.
         <template #actions>
@@ -76,7 +76,7 @@
           />
         </template>
       </StateBanner>
-      <StateBanner v-else-if="store.inventory.scan.cached" severity="info">
+      <StateBanner v-else-if="store.inventory.scan?.cached" severity="info">
         Served from the 10 second scan cache. Refresh for a new walk.
       </StateBanner>
 

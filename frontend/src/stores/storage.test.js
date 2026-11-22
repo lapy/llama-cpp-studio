@@ -91,6 +91,16 @@ describe('storage store', () => {
     expect(store.error).toBe('Storage usage could not be loaded. Retry the scan.')
   })
 
+  it('rejects a malformed inventory payload instead of rendering a broken page', async () => {
+    fetchStorageInventory.mockResolvedValueOnce('<html>not an inventory</html>')
+    const store = useStorageStore()
+
+    await store.loadInventory()
+
+    expect(store.inventory).toBeNull()
+    expect(store.error).toBe('Storage usage could not be loaded. Retry the scan.')
+  })
+
   it('previews a cleanup and forwards the history keep count', async () => {
     previewStorageCleanup.mockResolvedValueOnce(planFixture())
     const store = useStorageStore()
