@@ -59,7 +59,7 @@ scrape_configs:
 | `studio_proxy_requests_streaming` | gauge | proxy accounting summary | Responses streaming now. |
 | `studio_proxy_latency_p50_ms` / `p95` | gauge | proxy accounting summary | Completed-request latency in the stats window. |
 | `studio_proxy_ttft_p50_ms` / `p95` | gauge | proxy accounting summary | Time-to-first-token in the stats window. |
-| `studio_proxy_usage_unknown_total` | counter | proxy accounting summary | Requests without measurable usage. |
+| `studio_proxy_usage_unknown_total` | counter | proxy accounting summary | Requests whose usage was unknown or only reserved in the stats window. |
 | `studio_proxy_stats_since_timestamp_seconds` | gauge | proxy accounting summary | Start of the statistics window (reset changes it). |
 | `studio_models_loaded` | gauge | proxy registry snapshot | Generations ready to serve now. |
 | `studio_models_starting` | gauge | proxy registry snapshot | Generations loading now. |
@@ -95,6 +95,8 @@ scrape_configs:
   without GPU families instead of waiting on `nvidia-smi`/NVML.
 - **No work is started by a scrape.** The endpoint does not start the proxy,
   load a model, scan a catalog, flush accounting rows, or write configuration.
+  A cold GPU cache may schedule the existing background refresh, but the
+  scrape neither waits for it nor reports its result.
 - **Counters are process/window scoped.** Operation and audit counters reset
   when the process restarts. Proxy counters reset when the operator resets the
   proxy statistics window (`POST /api/proxy/stats/reset`), which also moves

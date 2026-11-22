@@ -162,10 +162,11 @@ def request_is_authenticated(request: Request) -> bool:
 def request_actor_kind(request: Request) -> str:
     """How a management caller authenticated, for the mutation audit trail.
 
-    ``session`` and ``token`` are verified credentials; ``local`` is the
-    configured local trust (loopback, or a Compose bridge peer when Studio runs
-    in the container). Anything else is ``anonymous``: it is either about to be
-    rejected or carries only an inference credential on a ``/v1`` route.
+    ``session`` and ``token`` are verified credentials; ``local`` is the local
+    access mode's configured trust (loopback, or a Compose bridge peer when
+    Studio runs in the container). Anything else is ``anonymous``: it is either
+    about to be rejected or carries only an inference credential on a ``/v1``
+    route.
     """
     if _session_csrf(request) is not None:
         return "session"

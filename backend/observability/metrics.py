@@ -274,7 +274,7 @@ def _add_proxy_metrics(text: _MetricsText, summary: Any) -> None:
     text.metric(
         "studio_proxy_usage_unknown_total",
         "counter",
-        "Requests whose token usage could not be measured in the stats window.",
+        "Requests whose token usage was unknown or only reserved in the stats window.",
         [(None, summary.get("unknown_usage"))],
     )
 
