@@ -13,7 +13,7 @@
 # Those are model/launch choices, not registered defaults; the profile sets
 # only the SM70-safe environment and model/port bindings.
 schema_version: 2
-id: revolte
+id: revolta
 extends:
 - text_generation_tasks
 - python_venv_safetensors
@@ -40,7 +40,7 @@ recipes:
     uses: prereqs.resolve_version
     with:
       channel: pypi
-      package: revolte
+      package: revolta
     produces:
     - version
   - id: create_venv
@@ -56,7 +56,7 @@ recipes:
     - version
     - input.force_reinstall
     with:
-      package: revolte
+      package: revolta
       version_from: version
       extra_args:
       - --extra-index-url
@@ -224,7 +224,7 @@ recipes:
     - input.venv_path
     with:
       packages:
-      - revolte
+      - revolta
       - vllm
       stage: remove
       append: false
@@ -258,16 +258,16 @@ recipes:
 lifecycle:
   binary_name: python
   distribution_names:
-  - revolte
+  - revolta
   - vllm
-  root_name: revolte
-  log_name: revolte_install.log
+  root_name: revolta
+  log_name: revolta_install.log
   default_repo_url: https://github.com/Leonccaa/ReVolta.git
   default_branch: main
   version_setting_key: release_version
   update_source:
     kind: pypi
-    package: revolte
+    package: revolta
   prefer_source_install: false
   status_fallback:
     installed_at: null
@@ -371,4 +371,4 @@ settings_defaults:
   source_branch: main
   release_version: ''
 data_dirs:
-- revolte
+- revolta

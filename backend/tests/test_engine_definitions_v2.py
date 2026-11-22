@@ -95,7 +95,7 @@ def test_default_shadow_registry_untouched_by_reference_directory():
         "sglang_sxm2": {"source", "sync", "remove", "remove_version"},
         # ReVolta is a release-first vLLM fork; its source/sync flows are the
         # shared editable-checkout vocabulary, and removal is venv-scoped.
-        "revolte": {"release", "source", "sync", "remove", "remove_version"},
+        "revolta": {"release", "source", "sync", "remove", "remove_version"},
         # 1Cat-vLLM executes all four flows: the release wheel-URL install,
         # the venv-scoped removal, and the wheel-forge source/sync plans
         # (rust bootstrap + conditional flash-attention stay composite
