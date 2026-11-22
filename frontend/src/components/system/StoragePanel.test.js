@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+﻿import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
@@ -150,7 +150,7 @@ describe('StoragePanel', () => {
     expect(wrapper.get('.storage-path').text()).toBe('/srv/studio/data')
     expect(wrapper.text()).toContain('Model files')
     expect(wrapper.text()).toContain('Engine installs')
-    expect(wrapper.text()).toContain('4 KiB reclaimable')
+    expect(wrapper.text()).toContain('4.0 KiB reclaimable')
     expect(wrapper.text()).toContain('A catalog model uses this directory')
     expect(wrapper.text()).toContain('This storage is managed by another Studio surface.')
     expect(wrapper.text()).toContain('Report only')
@@ -224,7 +224,7 @@ describe('StoragePanel', () => {
 
     expect(applyStorageCleanup).toHaveBeenCalledWith('a'.repeat(64))
     expect(wrapper.text()).toContain('Cleanup partial')
-    expect(wrapper.text()).toContain('4 KiB freed')
+    expect(wrapper.text()).toContain('4.0 KiB freed')
     expect(wrapper.text()).toContain('Removed audio-cpp/orphan')
     expect(wrapper.text()).toContain('audio-cpp/keep: A catalog model uses this directory.')
     expect(wrapper.text()).toContain('Some units were removed; the rest stayed.')
