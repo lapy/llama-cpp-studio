@@ -248,6 +248,33 @@ def test_retained_launch_reference_refuses_the_delete(tmp_path, monkeypatch):
     assert orphan.exists()
 
 
+def test_jit_cache_roots_are_deletable(tmp_path, monkeypatch):
+    data, store = _seed_storage(tmp_path, monkeypatch)
+    _build_tree(tmp_path, data)
+    _add_models(store, data)
+
+    preview = _preview("jit_caches")
+    labels = {unit["label"] for unit in preview["units"]}
+    engine_caches = {label for label in labels if label.endswith("/demo/caches")}
+    assert len(engine_caches) == 1
+    assert labels - engine_caches == {
+        "build-workspaces/workspace-1",
+        "ccache",
+        "CUDA installer cache",
+    }
+
+    result = cleanup.apply_cleanup(preview["plan_id"], confirm=True)
+
+    assert result["outcome"] == "completed"
+    assert result["freed_bytes"] == 70 + 5 + 7 + 9
+    assert not (data / "ccache").exists()
+    assert not (data / "temp" / "cuda_installers").exists()
+    assert not (data / "build-workspaces" / "workspace-1").exists()
+    assert not (data / "llama-cpp" / "demo" / "caches").exists()
+    # Installed engine files stay; only the regenerable cache subtree is gone.
+    assert (data / "llama-cpp" / "demo" / "server").exists()
+
+
 def test_target_validation_refuses_symlinks_and_escapes(tmp_path, monkeypatch):
     data, store = _seed_storage(tmp_path, monkeypatch)
     models_root = data / "models"

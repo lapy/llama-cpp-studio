@@ -980,7 +980,9 @@ def _scan_jit_caches(
             label="ccache",
             kind="ccache",
             key="ccache",
-            root=ccache,
+            # The unit path is the cache root itself, so the validated root is
+            # its parent: a cleanup target is never a storage root.
+            root=os.path.dirname(ccache),
             blocked=(
                 _blocked(
                     CODE_BUILD_IN_PROGRESS,
@@ -998,7 +1000,7 @@ def _scan_jit_caches(
             label="CUDA installer cache",
             kind="cuda_installer_cache",
             key="cuda-installers",
-            root=installer_cache,
+            root=os.path.dirname(installer_cache),
             blocked=(
                 _blocked(
                     CODE_CUDA_INSTALL_IN_PROGRESS,
