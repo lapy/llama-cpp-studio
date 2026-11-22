@@ -20,7 +20,7 @@ def _seed_storage(tmp_path, monkeypatch):
     data = tmp_path / "data"
     (data / "config").mkdir(parents=True)
     monkeypatch.setenv("STUDIO_DATA_DIR", str(data))
-    monkeypatch.setenv("HUGGINGFACE_HUB_CACHE", str(tmp_path / "hf-cache" / "hub"))
+    monkeypatch.setenv("HUGGINGFACE_HUB_CACHE", str(data / "hf-cache" / "hub"))
     monkeypatch.setenv("STUDIO_CCACHE_DIR", str(tmp_path / "ccache"))
     store = data_store.DataStore(config_dir=str(data / "config"))
     monkeypatch.setattr(data_store, "_store", store)
@@ -37,7 +37,7 @@ def _build_tree(tmp_path, data):
     _write(models / "reference-audio" / "clip.wav", 20)
     _write(models / "community-voices" / "voice.wav", 30)
 
-    hub = root / "hf-cache" / "hub"
+    hub = data / "hf-cache" / "hub"
     _write(hub / "models--org--keep" / "blobs" / "a", 60)
     _write(hub / "models--org--orphan" / "blobs" / "b", 40)
 
@@ -208,7 +208,7 @@ def test_symlinked_directories_are_not_followed(tmp_path, monkeypatch):
     data, store = _seed_storage(tmp_path, monkeypatch)
     victim = tmp_path / "victim"
     _write(victim / "secret.bin", 4096)
-    hub = tmp_path / "hf-cache" / "hub"
+    hub = data / "hf-cache" / "hub"
     hub.mkdir(parents=True)
     link = hub / "models--org--evil"
     try:
