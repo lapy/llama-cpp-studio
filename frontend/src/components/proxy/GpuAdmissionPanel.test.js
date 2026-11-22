@@ -59,7 +59,7 @@ function mountPanel(props = {}) {
 describe('GpuAdmissionPanel', () => {
   it('shows the probe state and the last admission decision with its evidence', () => {
     const wrapper = mountPanel()
-    expect(wrapper.get('#proxy-vram-heading').text()).toBe('GPU admission')
+    expect(wrapper.get('#proxy-vram-title').text()).toBe('GPU admission')
     expect(wrapper.text()).toContain('Probe ready')
     expect(wrapper.text()).toContain('demo · 8,000 MiB')
     expect(wrapper.text()).toContain('16,384 MiB settings')
@@ -131,6 +131,6 @@ describe('GpuAdmissionPanel', () => {
     expect(wrapper.get('input[aria-label="VRAM safety margin MiB"]').exists()).toBe(true)
     expect(wrapper.get('#vram-model-0').attributes('id')).toBe('vram-model-0')
     expect(wrapper.get('button[aria-label="Remove VRAM estimate"]').exists()).toBe(true)
-    expect(wrapper.get('.vram-state').attributes('role')).toBe('status')
+    expect(wrapper.get('[role="status"] .vram-state').exists()).toBe(true)
   })
 })

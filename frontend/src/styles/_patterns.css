@@ -110,6 +110,12 @@
     align-items: stretch;
   }
 
+  /* The row layout sizes the heading group from its inline content; once the
+     header stacks, a fixed 14rem basis would become a tall empty block. */
+  .page-section__heading-group {
+    flex: 0 0 auto;
+  }
+
   .page-section__actions {
     justify-content: flex-start;
   }

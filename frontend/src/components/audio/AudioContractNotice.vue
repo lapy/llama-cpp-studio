@@ -1,41 +1,34 @@
 <template>
-  <Message
+  <StateBanner
     v-if="failureKind === 'schema-mismatch'"
     severity="error"
-    :closable="false"
     class="config-scan-message"
   >
-    <div class="config-message__body">
-      <strong>audio.cpp contract schema mismatch.</strong>
-      {{ audioContractError }} Studio will not guess at routing it does not understand; forms stay
-      disabled until Studio and the engine agree on the contract schema.
-    </div>
-  </Message>
+    <strong>audio.cpp contract schema mismatch.</strong>
+    {{ audioContractError }} Studio will not guess at routing it does not understand; forms stay
+    disabled until Studio and the engine agree on the contract schema.
+  </StateBanner>
 
-  <Message
+  <StateBanner
     v-else-if="failureKind === 'no-engine'"
-    severity="warn"
-    :closable="false"
+    severity="warning"
     class="config-scan-message"
   >
-    <div class="config-message__body">
-      <strong>No active modern audio.cpp engine.</strong>
-      Studio needs an active v0.9.1 or newer audio.cpp version with JSON loader listing. Activate
-      one on the Engines page and let its parameter scan finish; forms appear once it does. ({{
-        audioContractError
-      }})
-    </div>
-  </Message>
+    <strong>No active modern audio.cpp engine.</strong>
+    Studio needs an active v0.9.1 or newer audio.cpp version with JSON loader listing. Activate one
+    on the Engines page and let its parameter scan finish; forms appear once it does. ({{
+      audioContractError
+    }})
+  </StateBanner>
 
-  <Message
+  <StateBanner
     v-else-if="failureKind === 'unreachable'"
     severity="error"
-    :closable="false"
     class="config-scan-message"
   >
-    <div class="config-message__body">
-      <strong>Could not load the audio.cpp integration contract.</strong>
-      {{ audioContractError }} This is a connection or server error, not a build-version signal.
+    <strong>Could not load the audio.cpp integration contract.</strong>
+    {{ audioContractError }} This is a connection or server error, not a build-version signal.
+    <template #actions>
       <Button
         label="Retry contract"
         icon="pi pi-refresh"
@@ -43,17 +36,16 @@
         severity="secondary"
         outlined
         :loading="contractRetrying"
-        class="config-message__action"
         @click="retryContract"
       />
-    </div>
-  </Message>
+    </template>
+  </StateBanner>
 </template>
 
 <script setup>
 import { computed, ref } from 'vue'
 import Button from 'primevue/button'
-import Message from 'primevue/message'
+import StateBanner from '@/components/common/StateBanner.vue'
 import {
   audioContractError,
   audioContractLoaded,

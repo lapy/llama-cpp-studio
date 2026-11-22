@@ -1,19 +1,15 @@
 <template>
-  <section class="proxy-card gpu-admission-panel" aria-labelledby="proxy-vram-heading">
-    <div class="section-head">
-      <div>
-        <h2 id="proxy-vram-heading">GPU admission</h2>
-        <p>
-          Refuse a start that cannot fit before a process spawns. Enforce rejects only a known
-          deficit from an override or an observed load; weights-only estimates and failed probes
-          admit with a visible decision. NVIDIA only; CPU mode is skipped.
-        </p>
-      </div>
+  <PageSection
+    id="proxy-vram"
+    title="GPU admission"
+    description="Refuse a start that cannot fit before a process spawns. Enforce rejects only a known deficit from an override or an observed load; weights-only estimates and failed probes admit with a visible decision. NVIDIA only; CPU mode is skipped."
+  >
+    <template #meta>
       <Tag :value="probeLabel" :severity="probeSeverity" />
-    </div>
+    </template>
 
-    <div class="settings-grid compact-fields">
-      <label>
+    <div class="page-form vram-controls">
+      <label class="page-form__label">
         Mode
         <select
           class="field"
@@ -25,9 +21,9 @@
           <option value="warn">Warn — admit and record the deficit</option>
           <option value="enforce">Enforce — refuse a known deficit</option>
         </select>
-        <small class="hint">Applied live; takes effect on the next model start.</small>
+        <small class="page-form__hint">Applied live; takes effect on the next model start.</small>
       </label>
-      <label>
+      <label class="page-form__label">
         Safety margin per GPU (MiB)
         <input
           class="field"
@@ -41,14 +37,14 @@
             emit('update:margin', $event.target.value === '' ? null : Number($event.target.value))
           "
         />
-        <small class="hint">Reserved headroom subtracted on every selected GPU.</small>
+        <small class="page-form__hint">Reserved headroom subtracted on every selected GPU.</small>
       </label>
     </div>
 
     <div class="vram-estimates">
       <div class="vram-estimates-head">
-        <h3>Per-model estimates</h3>
-        <p>
+        <h3 class="page-subheading">Per-model estimates</h3>
+        <p class="page-section__description">
           Overrides win over observed ready-time measurements and the model file-size lower bound.
           They are gateway settings, not a model configuration field.
         </p>
@@ -108,41 +104,44 @@
       </div>
     </div>
 
-    <dl class="vram-state" role="status" aria-live="polite">
-      <div>
-        <dt>Probe</dt>
-        <dd>
-          {{ probeLabel }}
-          <small v-if="probe.at">· {{ formatStamp(probe.at) }}</small>
-          <small v-if="probe.error">· {{ probe.error }}</small>
-        </dd>
-      </div>
-      <div>
-        <dt>Observed estimates</dt>
-        <dd>{{ observedLabel }}</dd>
-      </div>
-      <div>
-        <dt>Last decision</dt>
-        <dd>
-          <template v-if="lastAdmission">
-            <Tag
-              :value="lastAdmission.decision"
-              :severity="decisionSeverity(lastAdmission.decision)"
-            />
-            <span class="vram-decision-detail">{{ decisionDetail(lastAdmission) }}</span>
-          </template>
-          <span v-else>No admission decision recorded yet.</span>
-        </dd>
-      </div>
-    </dl>
+    <div class="vram-status" role="status" aria-live="polite">
+      <dl class="vram-state">
+        <div>
+          <dt>Probe</dt>
+          <dd>
+            {{ probeLabel }}
+            <small v-if="probe.at">· {{ formatStamp(probe.at) }}</small>
+            <small v-if="probe.error">· {{ probe.error }}</small>
+          </dd>
+        </div>
+        <div>
+          <dt>Observed estimates</dt>
+          <dd>{{ observedLabel }}</dd>
+        </div>
+        <div>
+          <dt>Last decision</dt>
+          <dd>
+            <template v-if="lastAdmission">
+              <Tag
+                :value="lastAdmission.decision"
+                :severity="decisionSeverity(lastAdmission.decision)"
+              />
+              <span class="vram-decision-detail">{{ decisionDetail(lastAdmission) }}</span>
+            </template>
+            <span v-else>No admission decision recorded yet.</span>
+          </dd>
+        </div>
+      </dl>
+    </div>
     <p v-if="lastAdmission?.reason" class="vram-reason">{{ lastAdmission.reason }}</p>
-  </section>
+  </PageSection>
 </template>
 
 <script setup>
 import { computed } from 'vue'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
+import PageSection from '@/components/common/PageSection.vue'
 
 const MAX_ESTIMATE_MIB = 4194304
 
@@ -238,42 +237,26 @@ function formatStamp(value) {
 </script>
 
 <style scoped>
-.gpu-admission-panel {
+/* Labels wrap their control for the accessible name. */
+.page-form > label {
   display: grid;
-  gap: 1rem;
-  min-width: 0;
-  border: 1px solid var(--border-primary);
-  background: var(--bg-card);
+  gap: 0.35rem;
+  align-content: start;
 }
 
-.section-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-
-.section-head h2 {
-  margin: 0;
-  font-size: 1.05rem;
-}
-
-.section-head p,
-.vram-estimates-head p,
-.vram-reason {
-  color: var(--text-secondary);
-  margin: 0.3rem 0 0;
+.page-form > label .field {
+  font-weight: 400;
 }
 
 .vram-estimates {
   display: grid;
   gap: 0.6rem;
+  min-width: 0;
 }
 
-.vram-estimates-head h3 {
-  margin: 0;
-  font-size: 0.95rem;
+.vram-estimates-head {
+  display: grid;
+  gap: 0.25rem;
 }
 
 .vram-row {
@@ -288,7 +271,7 @@ function formatStamp(value) {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
   gap: 0.8rem;
   margin: 0;
-  font-size: 0.82rem;
+  font-size: var(--text-sm);
 }
 
 .vram-state dt {
@@ -296,16 +279,22 @@ function formatStamp(value) {
 }
 
 .vram-state dd {
-  margin: 0.2rem 0 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.35rem;
+  margin: 0.2rem 0 0;
   overflow-wrap: anywhere;
 }
 
 .vram-decision-detail {
   font-variant-numeric: tabular-nums;
+}
+
+.vram-reason {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
 }
 
 @media (max-width: 640px) {

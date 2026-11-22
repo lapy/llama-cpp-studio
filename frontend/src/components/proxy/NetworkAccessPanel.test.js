@@ -13,7 +13,7 @@ const network = {
 describe('NetworkAccessPanel', () => {
   it('renders the read-only binding details', () => {
     const wrapper = mount(NetworkAccessPanel, { props: { network } })
-    expect(wrapper.get('#proxy-network-heading').text()).toBe('Network')
+    expect(wrapper.get('#proxy-network-title').text()).toBe('Network')
     expect(wrapper.text()).toContain('127.0.0.1')
     expect(wrapper.text()).toContain('loopback default')
     expect(wrapper.text()).toContain('2000')
