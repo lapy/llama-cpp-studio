@@ -1,5 +1,5 @@
 {
-  "engine_count": 11,
+  "engine_count": 12,
   "engine_id_literals": {
     "1cat_vllm": {
       "engines_home": [
@@ -16,7 +16,7 @@
           "file": "backend/engines/metrics_flags.py",
           "lines": [
             24,
-            71
+            72
           ]
         },
         {
@@ -40,22 +40,22 @@
           "file": "frontend/src/stores/engines.venv.test.js",
           "lines": [
             58,
-            92,
-            103,
-            134,
-            149,
-            169,
-            183,
-            203,
-            223,
-            236,
-            237,
-            238,
-            264,
-            281,
-            305,
-            308,
-            309
+            91,
+            101,
+            132,
+            146,
+            166,
+            179,
+            198,
+            218,
+            231,
+            232,
+            233,
+            259,
+            276,
+            299,
+            302,
+            303
           ]
         },
         {
@@ -82,12 +82,12 @@
           "lines": [
             156,
             305,
-            525,
-            529,
-            533,
-            537,
-            541,
-            545
+            524,
+            528,
+            532,
+            536,
+            540,
+            544
           ]
         },
         {
@@ -97,11 +97,11 @@
             805,
             937,
             955,
-            1088,
-            3234,
-            3621,
-            3640,
-            3778
+            1081,
+            3225,
+            3612,
+            3631,
+            3764
           ]
         },
         {
@@ -152,7 +152,7 @@
           "file": "backend/routes/llama_versions.py",
           "lines": [
             234,
-            263
+            262
           ]
         },
         {
@@ -194,35 +194,35 @@
           "file": "backend/engines/scan/scanner.py",
           "lines": [
             344,
-            459,
-            485,
-            494,
-            515,
-            521,
-            720,
-            867,
-            892,
+            466,
+            519,
+            528,
+            549,
+            555,
+            754,
             901,
-            915,
-            941,
-            948,
-            955,
-            1018,
-            1063
+            926,
+            935,
+            949,
+            975,
+            982,
+            989,
+            1052,
+            1097
           ]
         },
         {
           "count": 8,
           "file": "backend/engines/lifecycle.py",
           "lines": [
-            60,
-            383,
-            430,
-            435,
-            437,
+            61,
+            384,
+            431,
+            436,
             438,
-            521,
-            627
+            439,
+            522,
+            628
           ]
         },
         {
@@ -258,8 +258,16 @@
           "file": "backend/engines/audio_cpp/installer.py",
           "lines": [
             3,
-            42,
-            64
+            49,
+            71
+          ]
+        },
+        {
+          "count": 2,
+          "file": "backend/engines/audio_cpp/integration/contract_registry.py",
+          "lines": [
+            44,
+            415
           ]
         },
         {
@@ -308,13 +316,6 @@
         },
         {
           "count": 1,
-          "file": "backend/engines/audio_cpp/integration/contract_registry.py",
-          "lines": [
-            20
-          ]
-        },
-        {
-          "count": 1,
           "file": "backend/engines/audio_cpp/integration/upstream_adapter.py",
           "lines": [
             16
@@ -330,51 +331,22 @@
       ],
       "outside_engines": [
         {
-          "count": 23,
-          "file": "frontend/src/views/AudioWorkspace.test.js",
-          "lines": [
-            37,
-            38,
-            40,
-            45,
-            46,
-            48,
-            53,
-            54,
-            56,
-            61,
-            62,
-            64,
-            69,
-            70,
-            72,
-            231,
-            259,
-            303,
-            346,
-            392,
-            452,
-            500,
-            519
-          ]
-        },
-        {
           "count": 13,
           "file": "frontend/src/stores/engines.venv.test.js",
           "lines": [
-            127,
-            128,
-            175,
-            189,
-            212,
-            229,
-            268,
-            287,
-            329,
-            468,
-            470,
-            472,
-            477
+            125,
+            126,
+            171,
+            184,
+            207,
+            224,
+            263,
+            281,
+            318,
+            457,
+            459,
+            461,
+            466
           ]
         },
         {
@@ -415,29 +387,29 @@
           "file": "backend/routes/llama_versions.py",
           "lines": [
             171,
-            249,
+            248,
+            252,
             253,
-            254,
-            269,
-            468,
-            822,
-            832,
-            1568
+            267,
+            466,
+            820,
+            830,
+            1566
           ]
         },
         {
           "count": 9,
           "file": "frontend/src/components/audio/AudioModelConfig.test.js",
           "lines": [
-            83,
-            148,
-            257,
+            91,
+            156,
             266,
-            372,
-            420,
-            490,
-            566,
-            604
+            275,
+            381,
+            429,
+            499,
+            575,
+            613
           ]
         },
         {
@@ -452,7 +424,7 @@
             189,
             194,
             199,
-            314
+            313
           ]
         },
         {
@@ -497,11 +469,11 @@
           "count": 5,
           "file": "frontend/src/engines/registry.js",
           "lines": [
-            318,
-            325,
-            326,
-            332,
-            341
+            289,
+            296,
+            297,
+            303,
+            312
           ]
         },
         {
@@ -548,10 +520,10 @@
           "count": 4,
           "file": "frontend/e2e/fixtures/payloads.mjs",
           "lines": [
-            145,
-            146,
-            149,
-            170
+            10,
+            12,
+            185,
+            193
           ]
         },
         {
@@ -568,9 +540,9 @@
           "count": 3,
           "file": "backend/proxy/launch_spec.py",
           "lines": [
-            334,
-            357,
-            690
+            387,
+            410,
+            743
           ]
         },
         {
@@ -579,7 +551,7 @@
           "lines": [
             6,
             11,
-            42
+            12
           ]
         },
         {
@@ -734,13 +706,6 @@
         },
         {
           "count": 1,
-          "file": "frontend/src/composables/useAudioContract.test.js",
-          "lines": [
-            44
-          ]
-        },
-        {
-          "count": 1,
           "file": "frontend/src/utils/audioModel.js",
           "lines": [
             10
@@ -755,16 +720,9 @@
         },
         {
           "count": 1,
-          "file": "frontend/src/views/AudioWorkspace.vue",
-          "lines": [
-            745
-          ]
-        },
-        {
-          "count": 1,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            1120
+            1112
           ]
         },
         {
@@ -790,15 +748,15 @@
           "file": "backend/engines/lifecycle.py",
           "lines": [
             51,
-            327,
             328,
-            332,
+            329,
             333,
-            408,
-            416,
-            509,
-            564,
-            616
+            334,
+            409,
+            417,
+            510,
+            565,
+            617
           ]
         },
         {
@@ -809,11 +767,11 @@
             4,
             55,
             578,
-            1188,
-            1496,
-            1503,
-            1556,
-            1561
+            1205,
+            1513,
+            1520,
+            1573,
+            1578
           ]
         },
         {
@@ -937,75 +895,75 @@
             642,
             645,
             921,
-            1085,
-            1116,
-            1548,
-            1606,
-            1623,
-            1696,
-            1713,
-            1729,
-            1734,
-            1788,
-            1881,
-            2050,
-            2183,
-            2184,
+            1078,
+            1108,
+            1539,
+            1597,
+            1614,
+            1687,
+            1704,
+            1720,
+            1725,
+            1779,
+            1872,
+            2041,
+            2174,
+            2175,
+            2189,
+            2190,
+            2194,
             2198,
-            2199,
-            2203,
-            2207,
-            2255,
-            2267,
-            2270,
-            2349,
-            2350,
-            2356,
-            2362,
-            2380,
-            2403,
-            2413,
-            3409,
-            3460,
-            3463,
-            3467,
-            3474,
-            3477,
-            3500,
-            3501
+            2246,
+            2258,
+            2261,
+            2340,
+            2341,
+            2347,
+            2353,
+            2371,
+            2394,
+            2404,
+            3400,
+            3451,
+            3454,
+            3458,
+            3465,
+            3468,
+            3491,
+            3492
           ]
         },
         {
           "count": 27,
           "file": "frontend/src/stores/engines.venv.test.js",
           "lines": [
-            114,
-            117,
-            118,
-            156,
-            166,
-            180,
-            198,
-            212,
+            112,
+            115,
+            116,
+            153,
+            163,
+            176,
+            193,
+            207,
+            210,
             215,
-            220,
-            268,
-            297,
-            411,
-            446,
-            447,
-            455,
-            456,
-            464,
-            469,
-            474,
+            263,
+            291,
+            400,
+            435,
+            436,
+            444,
+            445,
+            453,
+            458,
+            463,
+            475,
+            476,
+            477,
+            479,
+            485,
             486,
-            487,
-            488,
-            490,
-            496,
-            497,
-            499
+            488
           ]
         },
         {
@@ -1013,27 +971,27 @@
           "file": "backend/routes/llama_versions.py",
           "lines": [
             225,
-            260,
-            444,
-            467,
-            505,
-            518,
+            259,
+            442,
+            465,
+            503,
+            516,
+            559,
             561,
-            563,
+            574,
             576,
-            578,
-            607,
-            648,
-            702,
-            703,
-            748,
-            881,
-            927,
-            978,
-            1009,
-            1231,
-            2043,
-            2135
+            605,
+            646,
+            700,
+            701,
+            746,
+            879,
+            925,
+            976,
+            1007,
+            1229,
+            2041,
+            2133
           ]
         },
         {
@@ -1054,14 +1012,14 @@
             271,
             279,
             291,
-            335,
-            366,
-            375,
-            381,
-            386,
-            392,
-            398,
-            692
+            334,
+            365,
+            374,
+            380,
+            385,
+            391,
+            397,
+            691
           ]
         },
         {
@@ -1097,8 +1055,8 @@
             93,
             97,
             102,
-            636,
-            658
+            610,
+            632
           ]
         },
         {
@@ -1271,29 +1229,29 @@
             55,
             72,
             83,
-            1215,
-            1221,
-            1228,
-            1244,
-            1295,
-            1354,
-            1379,
-            1387,
-            1466,
-            1492,
-            1533,
-            1549,
-            1552,
-            1570,
-            1573,
-            1575,
-            1577,
-            1580,
-            1593,
-            1622,
-            1645,
-            1711,
-            1755
+            1232,
+            1238,
+            1245,
+            1261,
+            1312,
+            1371,
+            1396,
+            1404,
+            1483,
+            1509,
+            1550,
+            1566,
+            1569,
+            1587,
+            1590,
+            1592,
+            1594,
+            1597,
+            1610,
+            1639,
+            1662,
+            1728,
+            1772
           ]
         },
         {
@@ -1301,13 +1259,13 @@
           "file": "backend/engines/lifecycle.py",
           "lines": [
             50,
-            330,
-            334,
-            408,
-            415,
-            508,
-            564,
-            616
+            331,
+            335,
+            409,
+            416,
+            509,
+            565,
+            617
           ]
         },
         {
@@ -1475,28 +1433,28 @@
           "lines": [
             572,
             875,
-            1084,
-            1115,
-            1588,
-            1632,
-            1649,
-            1665,
-            1848,
-            1866,
-            2050,
-            2183,
-            2255,
-            2267,
-            2350,
-            2380,
-            2413,
-            3418,
-            3425,
-            3431,
-            3457,
-            3458,
-            3513,
-            3519
+            1077,
+            1107,
+            1579,
+            1623,
+            1640,
+            1656,
+            1839,
+            1857,
+            2041,
+            2174,
+            2246,
+            2258,
+            2341,
+            2371,
+            2404,
+            3409,
+            3416,
+            3422,
+            3448,
+            3449,
+            3504,
+            3510
           ]
         },
         {
@@ -1504,56 +1462,56 @@
           "file": "backend/routes/llama_versions.py",
           "lines": [
             224,
-            259,
-            467,
-            505,
-            560,
+            258,
+            465,
+            503,
+            558,
+            559,
             561,
-            563,
-            575,
+            573,
+            574,
             576,
-            578,
-            608,
-            705,
-            927,
-            978,
-            1009,
-            1139,
-            1231,
-            1592,
+            606,
+            703,
+            925,
+            976,
+            1007,
+            1137,
+            1229,
+            1590,
+            1607,
             1609,
-            1611,
-            1826,
-            2108,
-            2135
+            1824,
+            2106,
+            2133
           ]
         },
         {
           "count": 22,
           "file": "frontend/src/stores/engines.venv.test.js",
           "lines": [
-            113,
-            155,
-            165,
-            179,
-            198,
-            212,
-            215,
-            219,
-            268,
-            297,
-            328,
-            411,
-            444,
-            457,
+            111,
+            152,
+            162,
+            175,
+            193,
+            207,
+            210,
+            214,
+            263,
+            291,
+            317,
+            400,
+            433,
+            446,
+            447,
+            453,
             458,
-            464,
-            469,
-            474,
-            490,
-            492,
-            504,
-            508
+            463,
+            479,
+            481,
+            493,
+            497
           ]
         },
         {
@@ -1600,14 +1558,14 @@
             271,
             279,
             291,
-            335,
-            366,
-            375,
-            381,
-            386,
-            392,
-            398,
-            692
+            334,
+            365,
+            374,
+            380,
+            385,
+            391,
+            397,
+            691
           ]
         },
         {
@@ -1667,7 +1625,7 @@
             71,
             97,
             118,
-            629
+            603
           ]
         },
         {
@@ -1777,9 +1735,9 @@
           "count": 3,
           "file": "frontend/e2e/fixtures/payloads.mjs",
           "lines": [
-            39,
-            132,
-            180
+            44,
+            154,
+            255
           ]
         },
         {
@@ -1999,16 +1957,16 @@
             804,
             936,
             954,
-            1087,
-            1118,
-            2976,
-            2986,
-            2997,
-            3019,
-            3580,
-            3597,
-            3601,
-            3616
+            1080,
+            1110,
+            2967,
+            2977,
+            2988,
+            3010,
+            3571,
+            3588,
+            3592,
+            3607
           ]
         },
         {
@@ -2016,18 +1974,18 @@
           "file": "frontend/src/stores/engines.venv.test.js",
           "lines": [
             49,
-            93,
-            104,
-            135,
-            142,
-            168,
-            182,
-            202,
-            222,
-            263,
-            280,
-            303,
-            419
+            92,
+            102,
+            133,
+            140,
+            165,
+            178,
+            197,
+            217,
+            258,
+            275,
+            297,
+            408
           ]
         },
         {
@@ -2072,12 +2030,12 @@
             152,
             296,
             304,
-            499,
-            503,
-            507,
-            511,
-            515,
-            519
+            498,
+            502,
+            506,
+            510,
+            514,
+            518
           ]
         },
         {
@@ -2118,7 +2076,7 @@
           "file": "backend/routes/llama_versions.py",
           "lines": [
             233,
-            262
+            261
           ]
         },
         {
@@ -2211,16 +2169,16 @@
           "file": "backend/engines/capabilities.py",
           "lines": [
             27,
-            123,
-            124
+            132,
+            133
           ]
         },
         {
           "count": 2,
           "file": "backend/engines/metrics_flags.py",
           "lines": [
-            34,
-            72
+            39,
+            73
           ]
         },
         {
@@ -2267,19 +2225,19 @@
           "lines": [
             45,
             67,
-            94,
-            137,
-            144,
-            170,
-            184,
-            205,
-            224,
+            93,
+            135,
+            142,
+            167,
+            180,
+            200,
+            219,
+            240,
+            242,
             245,
-            247,
-            250,
-            285,
-            326,
-            422
+            279,
+            315,
+            411
           ]
         },
         {
@@ -2296,9 +2254,9 @@
             181,
             192,
             196,
-            314,
-            450,
-            512
+            285,
+            424,
+            486
           ]
         },
         {
@@ -2306,13 +2264,13 @@
           "file": "frontend/src/stores/engines.js",
           "lines": [
             298,
-            311,
-            550,
-            554,
-            558,
-            562,
-            566,
-            570
+            310,
+            549,
+            553,
+            557,
+            561,
+            565,
+            569
           ]
         },
         {
@@ -2335,8 +2293,8 @@
             938,
             956,
             983,
-            1089,
-            3645
+            1082,
+            3636
           ]
         },
         {
@@ -2364,7 +2322,7 @@
           "file": "backend/routes/llama_versions.py",
           "lines": [
             235,
-            264
+            263
           ]
         },
         {
@@ -2452,16 +2410,16 @@
           "count": 2,
           "file": "backend/engines/capabilities.py",
           "lines": [
-            132,
-            133
+            141,
+            142
           ]
         },
         {
           "count": 2,
           "file": "backend/engines/metrics_flags.py",
           "lines": [
-            39,
-            73
+            44,
+            74
           ]
         },
         {
@@ -2493,23 +2451,23 @@
           "lines": [
             45,
             68,
-            95,
-            102,
-            133,
-            145,
-            171,
-            185,
-            191,
-            192,
-            206,
-            225,
-            247,
-            250,
-            254,
-            282,
-            312,
-            313,
-            314
+            94,
+            100,
+            131,
+            143,
+            168,
+            181,
+            186,
+            187,
+            201,
+            220,
+            242,
+            245,
+            249,
+            277,
+            306,
+            307,
+            308
           ]
         },
         {
@@ -2523,17 +2481,6 @@
             124,
             143,
             196
-          ]
-        },
-        {
-          "count": 5,
-          "file": "frontend/src/engines/registry.js",
-          "lines": [
-            203,
-            207,
-            225,
-            236,
-            265
           ]
         },
         {
@@ -2552,10 +2499,10 @@
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
             984,
-            1038,
-            1049,
-            1090,
-            3650
+            1035,
+            1044,
+            1083,
+            3641
           ]
         },
         {
@@ -2567,6 +2514,16 @@
             62,
             291,
             375
+          ]
+        },
+        {
+          "count": 4,
+          "file": "frontend/src/engines/registry.js",
+          "lines": [
+            203,
+            207,
+            225,
+            236
           ]
         },
         {
@@ -2593,7 +2550,7 @@
           "file": "backend/routes/llama_versions.py",
           "lines": [
             236,
-            265
+            264
           ]
         },
         {
@@ -2634,11 +2591,11 @@
           "file": "backend/engines/lifecycle.py",
           "lines": [
             52,
-            176,
-            440,
-            445,
-            449,
-            515
+            177,
+            441,
+            446,
+            450,
+            516
           ]
         },
         {
@@ -2701,22 +2658,22 @@
           "count": 16,
           "file": "frontend/src/stores/engines.venv.test.js",
           "lines": [
-            115,
-            121,
+            113,
+            119,
+            120,
             122,
-            124,
-            125,
-            157,
-            167,
-            181,
-            198,
-            221,
-            252,
-            255,
-            268,
-            449,
-            510,
-            514
+            123,
+            154,
+            164,
+            177,
+            193,
+            216,
+            247,
+            250,
+            263,
+            438,
+            499,
+            503
           ]
         },
         {
@@ -2742,8 +2699,8 @@
             123,
             124,
             127,
-            643,
-            659
+            617,
+            633
           ]
         },
         {
@@ -2751,12 +2708,12 @@
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
             935,
-            1086,
-            1117,
-            3412,
-            3503,
-            3506,
-            3785
+            1079,
+            1109,
+            3403,
+            3494,
+            3497,
+            3771
           ]
         },
         {
@@ -2764,9 +2721,9 @@
           "file": "backend/routes/llama_versions.py",
           "lines": [
             226,
-            261,
-            468,
-            1540
+            260,
+            466,
+            1538
           ]
         },
         {
@@ -2822,13 +2779,14 @@
     "vllm": {
       "engines_home": [
         {
-          "count": 4,
+          "count": 5,
           "file": "backend/engines/capabilities.py",
           "lines": [
             26,
             106,
             107,
-            121
+            121,
+            129
           ]
         },
         {
@@ -2866,7 +2824,7 @@
           "count": 1,
           "file": "backend/engines/lifecycle.py",
           "lines": [
-            59
+            60
           ]
         },
         {
@@ -2883,24 +2841,24 @@
           "file": "frontend/src/stores/engines.venv.test.js",
           "lines": [
             45,
-            71,
-            98,
-            136,
-            143,
-            174,
-            188,
-            204,
-            228,
-            239,
-            250,
-            253,
-            277,
-            278,
-            286,
-            306,
-            308,
-            309,
-            327
+            70,
+            96,
+            134,
+            141,
+            170,
+            183,
+            199,
+            223,
+            234,
+            245,
+            248,
+            272,
+            273,
+            280,
+            300,
+            302,
+            303,
+            316
           ]
         },
         {
@@ -2909,16 +2867,16 @@
           "lines": [
             14,
             15,
-            290,
-            291,
-            294,
-            295,
-            296,
-            302,
-            307,
-            313,
-            437,
-            449
+            261,
+            262,
+            265,
+            266,
+            267,
+            273,
+            278,
+            284,
+            408,
+            423
           ]
         },
         {
@@ -2967,11 +2925,11 @@
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
             985,
-            1044,
-            1055,
-            1093,
-            3631,
-            3665
+            1039,
+            1048,
+            1085,
+            3622,
+            3651
           ]
         },
         {
@@ -3002,8 +2960,8 @@
           "lines": [
             300,
             301,
-            312,
-            548
+            311,
+            547
           ]
         },
         {
@@ -3027,8 +2985,8 @@
           "count": 2,
           "file": "backend/routes/llama_versions.py",
           "lines": [
-            239,
-            268
+            238,
+            266
           ]
         },
         {
@@ -3362,19 +3320,20 @@
         "source_repo": "https://github.com/InternLM/lmdeploy.git"
       }
     },
+    "revolta": {
+      "source": "backend/venv_install_settings.py:default_install_settings",
+      "values": {
+        "release_version": "",
+        "source_branch": "main",
+        "source_repo": "https://github.com/Leonccaa/ReVolta.git"
+      }
+    },
     "sglang": {
       "source": "backend/venv_install_settings.py:default_install_settings",
       "values": {
         "pip_version": "",
         "source_branch": "main",
         "source_repo": "https://github.com/sgl-project/sglang.git"
-      }
-    },
-    "sglang_sm70": {
-      "source": "backend/venv_install_settings.py:default_install_settings",
-      "values": {
-        "source_branch": "main",
-        "source_repo": "https://github.com/lapy/sglang-sm70.git"
       }
     },
     "sglang_sxm2": {
@@ -3390,6 +3349,11 @@
         "source_branch": "main",
         "source_repo": "https://github.com/haohervchb/sglang-V100.git"
       }
+    },
+    "strata": {
+      "note": "prebuilt installs have no persisted settings surface",
+      "source": null,
+      "values": {}
     },
     "unsloth_llama": {
       "note": "prebuilt installs have no persisted settings surface",
@@ -3535,51 +3499,44 @@
         "GET /api/lmdeploy/status"
       ]
     },
+    "revolta": {},
     "sglang": {
       "cancel": [
-        "POST /api/sglang-sm70/cancel",
         "POST /api/sglang-sxm2/cancel",
         "POST /api/sglang-v100/cancel",
         "POST /api/sglang/cancel"
       ],
       "check_updates": [
-        "GET /api/sglang-sm70/check-updates",
         "GET /api/sglang-sxm2/check-updates",
         "GET /api/sglang-v100/check-updates",
         "GET /api/sglang/check-updates"
       ],
       "delete": [
-        "POST /api/sglang-sm70/remove",
         "POST /api/sglang-sxm2/remove",
         "POST /api/sglang-v100/remove",
         "POST /api/sglang/remove"
       ],
       "install_release": [
-        "POST /api/sglang-sm70/install",
         "POST /api/sglang-sxm2/install",
         "POST /api/sglang-v100/install",
         "POST /api/sglang/install"
       ],
       "install_source": [
-        "POST /api/sglang-sm70/install-source",
         "POST /api/sglang-sxm2/install-source",
         "POST /api/sglang-v100/install-source",
         "POST /api/sglang/install-source"
       ],
       "settings": [
-        "GET,PUT /api/sglang-sm70/build-settings",
         "GET,PUT /api/sglang-sxm2/build-settings",
         "GET,PUT /api/sglang-v100/build-settings",
         "GET,PUT /api/sglang/build-settings"
       ],
       "status": [
-        "GET /api/sglang-sm70/status",
         "GET /api/sglang-sxm2/status",
         "GET /api/sglang-v100/status",
         "GET /api/sglang/status"
       ]
     },
-    "sglang_sm70": {},
     "sglang_sxm2": {},
     "sglang_v100": {
       "cancel": [
@@ -3604,6 +3561,7 @@
         "GET /api/sglang-v100/status"
       ]
     },
+    "strata": {},
     "unsloth_llama": {
       "cancel": [
         "POST /api/unsloth-llama/cancel"
@@ -3865,6 +3823,49 @@
       ],
       "ui_kind": "venv"
     },
+    "revolta": {
+      "active_path_fields": [
+        "venv_path"
+      ],
+      "artifact_formats": [
+        "safetensors"
+      ],
+      "cpu_supported": false,
+      "experimental": true,
+      "gpu_archs": [
+        "sm70"
+      ],
+      "id": "revolta",
+      "input_modalities": [
+        "image",
+        "text",
+        "video"
+      ],
+      "install_kind": "python_venv",
+      "label": "ReVolta",
+      "maturity_surfaces": {
+        "nvidia_sm70": "specialized"
+      },
+      "output_modalities": [
+        "embedding",
+        "score",
+        "text"
+      ],
+      "package_kinds": [
+        "hf_snapshot"
+      ],
+      "repository_source": "ReVolta",
+      "runtime_kind": "vllm",
+      "scanner_kind": "vllm_help",
+      "supports_embeddings": true,
+      "tasks": [
+        "embeddings",
+        "reranking",
+        "text-generation",
+        "text2text-generation"
+      ],
+      "ui_kind": "venv"
+    },
     "sglang": {
       "active_path_fields": [
         "venv_path"
@@ -3899,49 +3900,6 @@
         "hf_snapshot"
       ],
       "repository_source": "SGLang",
-      "runtime_kind": "sglang",
-      "scanner_kind": "sglang_help",
-      "supports_embeddings": true,
-      "tasks": [
-        "embeddings",
-        "reranking",
-        "text-generation",
-        "text2text-generation"
-      ],
-      "ui_kind": "sglang"
-    },
-    "sglang_sm70": {
-      "active_path_fields": [
-        "venv_path"
-      ],
-      "artifact_formats": [
-        "safetensors"
-      ],
-      "cpu_supported": false,
-      "experimental": true,
-      "gpu_archs": [
-        "sm70"
-      ],
-      "id": "sglang_sm70",
-      "input_modalities": [
-        "image",
-        "text",
-        "video"
-      ],
-      "install_kind": "python_venv",
-      "label": "SGLang SM70",
-      "maturity_surfaces": {
-        "nvidia_sm70": "specialized"
-      },
-      "output_modalities": [
-        "embedding",
-        "score",
-        "text"
-      ],
-      "package_kinds": [
-        "hf_snapshot"
-      ],
-      "repository_source": "SGLang-SM70",
       "runtime_kind": "sglang",
       "scanner_kind": "sglang_help",
       "supports_embeddings": true,
@@ -4038,6 +3996,55 @@
         "text2text-generation"
       ],
       "ui_kind": "sglang"
+    },
+    "strata": {
+      "active_path_fields": [
+        "binary_path"
+      ],
+      "artifact_formats": [
+        "prepared_bundle"
+      ],
+      "cpu_supported": false,
+      "experimental": true,
+      "gpu_archs": [
+        "gfx1100",
+        "gfx1101",
+        "gfx1151",
+        "gfx1200",
+        "gfx1201",
+        "sm120",
+        "sm86",
+        "sm89"
+      ],
+      "id": "strata",
+      "input_modalities": [
+        "image",
+        "text"
+      ],
+      "install_kind": "prebuilt",
+      "label": "Strata",
+      "maturity_surfaces": {
+        "amd_consumer": "experimental",
+        "apple_silicon": "experimental",
+        "nvidia_consumer": "experimental"
+      },
+      "output_modalities": [
+        "text"
+      ],
+      "package_kinds": [
+        "prepared_bundle"
+      ],
+      "repository_source": "Strata",
+      "runtime_kind": "strata",
+      "scanner_kind": "llama_help",
+      "supports_embeddings": false,
+      "tasks": [
+        "embeddings",
+        "reranking",
+        "text-generation",
+        "text2text-generation"
+      ],
+      "ui_kind": "native"
     },
     "unsloth_llama": {
       "active_path_fields": [
@@ -4147,18 +4154,19 @@
       "install_release": "POST /api/lmdeploy/install -> object",
       "status": "GET /api/lmdeploy/status -> object"
     },
+    "revolta": {},
     "sglang": {
       "check_updates": "GET /api/sglang/check-updates -> object",
       "install_release": "POST /api/sglang/install -> object",
       "status": "GET /api/sglang/status -> object"
     },
-    "sglang_sm70": {},
     "sglang_sxm2": {},
     "sglang_v100": {
       "check_updates": "GET /api/sglang-v100/check-updates -> object",
       "install_release": "POST /api/sglang-v100/install -> object",
       "status": "GET /api/sglang-v100/status -> object"
     },
+    "strata": {},
     "unsloth_llama": {
       "check_updates": "GET /api/unsloth-llama/check-updates -> object",
       "install_release": "POST /api/unsloth-llama/install -> object"
@@ -5651,92 +5659,6 @@
         "GET",
         "PUT"
       ],
-      "path": "/api/sglang-sm70/build-settings",
-      "responses": {
-        "GET": "object",
-        "PUT": "object"
-      }
-    },
-    {
-      "engines": [
-        "sglang"
-      ],
-      "methods": [
-        "POST"
-      ],
-      "path": "/api/sglang-sm70/cancel",
-      "responses": {
-        "POST": "object"
-      }
-    },
-    {
-      "engines": [
-        "sglang"
-      ],
-      "methods": [
-        "GET"
-      ],
-      "path": "/api/sglang-sm70/check-updates",
-      "responses": {
-        "GET": "object"
-      }
-    },
-    {
-      "engines": [
-        "sglang"
-      ],
-      "methods": [
-        "POST"
-      ],
-      "path": "/api/sglang-sm70/install",
-      "responses": {
-        "POST": "object"
-      }
-    },
-    {
-      "engines": [
-        "sglang"
-      ],
-      "methods": [
-        "POST"
-      ],
-      "path": "/api/sglang-sm70/install-source",
-      "responses": {
-        "POST": "object"
-      }
-    },
-    {
-      "engines": [
-        "sglang"
-      ],
-      "methods": [
-        "POST"
-      ],
-      "path": "/api/sglang-sm70/remove",
-      "responses": {
-        "POST": "object"
-      }
-    },
-    {
-      "engines": [
-        "sglang"
-      ],
-      "methods": [
-        "GET"
-      ],
-      "path": "/api/sglang-sm70/status",
-      "responses": {
-        "GET": "object"
-      }
-    },
-    {
-      "engines": [
-        "sglang"
-      ],
-      "methods": [
-        "GET",
-        "PUT"
-      ],
       "path": "/api/sglang-sxm2/build-settings",
       "responses": {
         "GET": "object",
@@ -6223,7 +6145,47 @@
       "methods": [
         "POST"
       ],
+      "path": "/v1/tasks/batch",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
       "path": "/v1/tasks/run",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/v1/tasks/stream",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/v1/tasks/unload_all_models",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/v1/tasks/unload_models",
       "responses": {
         "POST": "unknown"
       }
@@ -6252,10 +6214,11 @@
     "ik_llama",
     "llama_cpp",
     "lmdeploy",
+    "revolta",
     "sglang",
-    "sglang_sm70",
     "sglang_sxm2",
     "sglang_v100",
+    "strata",
     "unsloth_llama",
     "vllm"
   ]
