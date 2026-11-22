@@ -110,4 +110,10 @@ const dirty = computed(() => Object.values(props.filters).some((value) => value 
   min-width: 0;
   margin: 0;
 }
+
+/* Search and the apply/reset actions share the first toolbar row; the filter
+   fields flow underneath so the dense control row wraps as one unit. */
+.request-filters :deep(.page-toolbar__group) {
+  flex: 1 1 100%;
+}
 </style>

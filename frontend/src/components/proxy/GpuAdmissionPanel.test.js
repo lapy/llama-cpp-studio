@@ -131,6 +131,6 @@ describe('GpuAdmissionPanel', () => {
     expect(wrapper.get('input[aria-label="VRAM safety margin MiB"]').exists()).toBe(true)
     expect(wrapper.get('#vram-model-0').attributes('id')).toBe('vram-model-0')
     expect(wrapper.get('button[aria-label="Remove VRAM estimate"]').exists()).toBe(true)
-    expect(wrapper.get('.vram-state').attributes('role')).toBe('status')
+    expect(wrapper.get('[role="status"] .vram-state').exists()).toBe(true)
   })
 })

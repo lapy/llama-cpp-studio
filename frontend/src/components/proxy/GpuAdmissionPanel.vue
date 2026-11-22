@@ -104,33 +104,35 @@
       </div>
     </div>
 
-    <dl class="vram-state" role="status" aria-live="polite">
-      <div>
-        <dt>Probe</dt>
-        <dd>
-          {{ probeLabel }}
-          <small v-if="probe.at">· {{ formatStamp(probe.at) }}</small>
-          <small v-if="probe.error">· {{ probe.error }}</small>
-        </dd>
-      </div>
-      <div>
-        <dt>Observed estimates</dt>
-        <dd>{{ observedLabel }}</dd>
-      </div>
-      <div>
-        <dt>Last decision</dt>
-        <dd>
-          <template v-if="lastAdmission">
-            <Tag
-              :value="lastAdmission.decision"
-              :severity="decisionSeverity(lastAdmission.decision)"
-            />
-            <span class="vram-decision-detail">{{ decisionDetail(lastAdmission) }}</span>
-          </template>
-          <span v-else>No admission decision recorded yet.</span>
-        </dd>
-      </div>
-    </dl>
+    <div class="vram-status" role="status" aria-live="polite">
+      <dl class="vram-state">
+        <div>
+          <dt>Probe</dt>
+          <dd>
+            {{ probeLabel }}
+            <small v-if="probe.at">· {{ formatStamp(probe.at) }}</small>
+            <small v-if="probe.error">· {{ probe.error }}</small>
+          </dd>
+        </div>
+        <div>
+          <dt>Observed estimates</dt>
+          <dd>{{ observedLabel }}</dd>
+        </div>
+        <div>
+          <dt>Last decision</dt>
+          <dd>
+            <template v-if="lastAdmission">
+              <Tag
+                :value="lastAdmission.decision"
+                :severity="decisionSeverity(lastAdmission.decision)"
+              />
+              <span class="vram-decision-detail">{{ decisionDetail(lastAdmission) }}</span>
+            </template>
+            <span v-else>No admission decision recorded yet.</span>
+          </dd>
+        </div>
+      </dl>
+    </div>
     <p v-if="lastAdmission?.reason" class="vram-reason">{{ lastAdmission.reason }}</p>
   </PageSection>
 </template>

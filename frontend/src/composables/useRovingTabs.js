@@ -16,5 +16,8 @@ export function onRovingTabKeydown(event) {
   event.preventDefault()
   const target = tabs[next]
   target.focus()
+  // A scrolling tab strip keeps the newly focused tab fully inside its own
+  // scrollport; native focus scrolling can leave the edge clipped.
+  target.scrollIntoView?.({ block: 'nearest', inline: 'center' })
   target.click()
 }
