@@ -5,15 +5,12 @@
     aria-live="polite"
     :aria-busy="loading ? 'true' : 'false'"
   >
-    <div v-if="hasContent" class="config-card">
-      <div class="section-label">{{ title }}</div>
-      <Message v-if="error" severity="error" :closable="false" class="config-scan-message">
-        {{ error }}
-      </Message>
+    <PageSection v-if="hasContent" :title="title">
+      <StateBanner v-if="error" severity="error" icon="">{{ error }}</StateBanner>
       <div v-for="clip in clips" :key="clip.id" class="task-audio-clip">
-        <div v-if="clip.label && clips.length > 1" class="section-hint">{{ clip.label }}</div>
+        <div v-if="clip.label && clips.length > 1" class="page-subheading">{{ clip.label }}</div>
         <audio :src="clip.url" controls class="audio-player" />
-        <div class="audio-actions">
+        <div class="clip-actions">
           <Button
             :label="downloadLabel(clip)"
             icon="pi pi-download"
@@ -25,14 +22,15 @@
         </div>
       </div>
       <pre v-if="text" class="audio-transcript">{{ text }}</pre>
-    </div>
+    </PageSection>
   </div>
 </template>
 
 <script setup>
 import { computed } from 'vue'
 import Button from 'primevue/button'
-import Message from 'primevue/message'
+import PageSection from '@/components/common/PageSection.vue'
+import StateBanner from '@/components/common/StateBanner.vue'
 
 const props = defineProps({
   title: { type: String, default: 'Result' },
@@ -55,7 +53,7 @@ function downloadLabel(clip) {
 </script>
 
 <style scoped>
-.audio-actions {
+.clip-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -69,24 +67,24 @@ function downloadLabel(clip) {
 }
 
 .audio-transcript {
+  max-height: 20rem;
   margin: 0.75rem 0 0;
   padding: 0.75rem;
-  border-radius: var(--radius-md, 0.5rem);
-  border: 1px solid var(--border-primary, #2a2f45);
-  background: rgba(0, 0, 0, 0.2);
+  overflow: auto;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg-surface) 65%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--text-sm);
+  line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 0.85rem;
-  line-height: 1.45;
-  max-height: 20rem;
-  overflow: auto;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .task-audio-clip + .task-audio-clip {
   margin-top: 1rem;
   padding-top: 0.85rem;
-  border-top: 1px solid var(--border-primary, #2a2f45);
+  border-top: 1px solid var(--border-primary);
 }
 
 .task-audio-clip:first-of-type {

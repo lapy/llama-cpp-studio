@@ -258,8 +258,9 @@ const mountStubs = {
   },
   LoadingState: true,
   PageHeader: {
-    props: ['title'],
-    template: '<header><h1>{{ title }}</h1><slot name="meta" /><slot name="actions" /></header>',
+    props: ['title', 'description'],
+    template:
+      '<header class="page-header"><h1 class="page-title">{{ title }}</h1><p v-if="description" class="page-header__description">{{ description }}</p><slot name="meta" /><slot name="actions" /></header>',
   },
   EmptyState: {
     props: ['title', 'description', 'icon'],
@@ -389,7 +390,7 @@ describe('AudioWorkspace', () => {
     expect(fetchSystemStatus).toHaveBeenCalled()
     expect(fetchEngineDescriptors).toHaveBeenCalled()
     expect(getModelConfig).toHaveBeenCalledWith('audio/asr')
-    const tabLabels = wrapper.findAll('.config-section-tab').map((node) => node.text())
+    const tabLabels = wrapper.findAll('.section-tabs__tab').map((node) => node.text())
     expect(tabLabels.some((label) => label.includes('Transcribe'))).toBe(true)
     expect(tabLabels.some((label) => label.includes('Speech'))).toBe(false)
     expect(wrapper.text()).toContain('Non-WAV formats are converted to WAV')
@@ -408,7 +409,7 @@ describe('AudioWorkspace', () => {
 
     // The local presentation table has no transcribe_details row; only the
     // contract's task_routing -> transcriptions_details operation maps it.
-    const tabLabels = wrapper.findAll('.config-section-tab').map((node) => node.text())
+    const tabLabels = wrapper.findAll('.section-tabs__tab').map((node) => node.text())
     expect(tabLabels).toEqual(['Transcribe'])
     expect(wrapper.find('#audio-speech-text').exists()).toBe(false)
   })
@@ -423,7 +424,7 @@ describe('AudioWorkspace', () => {
     const wrapper = mountWorkspace()
     await flushPromises()
 
-    const tabLabels = wrapper.findAll('.config-section-tab').map((node) => node.text())
+    const tabLabels = wrapper.findAll('.section-tabs__tab').map((node) => node.text())
     expect(tabLabels).toEqual(['Transcribe'])
   })
 
@@ -444,7 +445,7 @@ describe('AudioWorkspace', () => {
     const wrapper = mountWorkspace()
     await flushPromises()
 
-    const tabLabels = wrapper.findAll('.config-section-tab').map((node) => node.text())
+    const tabLabels = wrapper.findAll('.section-tabs__tab').map((node) => node.text())
     expect(tabLabels).toEqual(['Design'])
     expect(wrapper.find('#audio-task-text').exists()).toBe(true)
     expect(wrapper.find('#audio-speech-text').exists()).toBe(false)
@@ -913,7 +914,7 @@ describe('AudioWorkspace', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-testid="audio-engine-version"]').text()).toContain('v0.9.7')
-    const drift = wrapper.get('details.contract-drift')
+    const drift = wrapper.get('.contract-drift')
     expect(drift.attributes('role')).toBe('status')
     expect(drift.get('summary').text()).toContain('Engine contract drift (1)')
     expect(drift.text()).toContain('/v1/future/route')
@@ -971,6 +972,36 @@ describe('AudioWorkspace', () => {
 
     expect(wrapper.text()).toContain('Audio contract schema mismatch')
     expect(wrapper.text()).toContain(mismatchedSchema)
+  })
+
+  it('renders the shared page header, one model-context section, and pill task tabs', async () => {
+    routeQuery.model = 'audio/tts'
+    routeQuery.tab = 'speech'
+    getModelConfig.mockResolvedValue({ task: 'tts', model_alias: 'tts-demo' })
+
+    const wrapper = mountWorkspace()
+    await flushPromises()
+
+    const header = wrapper.get('.page-header')
+    expect(header.get('h1').text()).toBe('Audio')
+    expect(header.get('.page-header__description').text()).toContain('audio.cpp model')
+
+    const modelContext = wrapper
+      .findAll('.page-section')
+      .find((node) => node.text().includes('Model context'))
+    expect(modelContext).toBeTruthy()
+    expect(modelContext.find('.page-toolbar').exists()).toBe(true)
+
+    const tablist = wrapper.get('[role="tablist"]')
+    expect(tablist.attributes('aria-label')).toBe('Audio tasks')
+    expect(tablist.classes()).toContain('section-tabs--pills')
+    const tab = wrapper.get('[role="tab"]')
+    expect(tab.attributes('aria-selected')).toBe('true')
+    expect(tab.attributes('aria-controls')).toBe('audio-panel-speech')
+
+    // Task panels are shared sections with a real heading hierarchy.
+    const speechPanel = wrapper.get('#audio-panel-speech')
+    expect(speechPanel.get('h2').text()).toBe('Speech')
   })
 
   it('wires tab aria-controls to the rendered panel and announces results', async () => {
@@ -1078,6 +1109,9 @@ describe('AudioWorkspace', () => {
     const wrapper = mountWorkspace()
     await flushPromises()
 
+    expect(wrapper.get('.state-banner--warning').text()).toContain(
+      'Start this model and wait for a verified running state',
+    )
     await wrapper.find('button[data-label="Start"]').trigger('click')
     await flushPromises()
 

@@ -99,6 +99,7 @@ function statusPayload() {
 
 function mountView() {
   return mount(ProxyView, {
+    attachTo: document.body,
     global: {
       stubs: {
         RouterLink: {
@@ -106,7 +107,11 @@ function mountView() {
           props: ['to'],
           template: '<a class="model-link"><slot /></a>',
         },
-        Dialog: { props: ['visible'], template: '<div v-if="visible"><slot /></div>' },
+        Dialog: {
+          props: ['visible', 'header'],
+          template:
+            '<div v-if="visible" class="dialog-stub" :data-header="header"><slot /><slot name="footer" /></div>',
+        },
         Button: {
           props: ['label', 'disabled'],
           emits: ['click'],
@@ -240,6 +245,8 @@ describe('ProxyView', () => {
       expect(reads()).toBe(2)
       expect(wrapper.text()).toContain('demo')
       expect(wrapper.text()).toContain('Connection interrupted')
+      expect(wrapper.get('.state-banner--error').text()).toContain('Connection unavailable')
+      expect(wrapper.get('.state-banner--error').text()).toContain('Retry')
       await vi.advanceTimersByTimeAsync(9999)
       expect(reads()).toBe(2)
       await vi.advanceTimersByTimeAsync(1)
@@ -523,6 +530,7 @@ describe('ProxyView', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('The proxy is stopped')
+    expect(wrapper.get('.state-banner--warning').text()).toContain('The proxy is stopped')
     await clickButton(wrapper, 'Start proxy')
     expect(axios.post).toHaveBeenCalledWith('/api/proxy/lifecycle/start')
     wrapper.unmount()
@@ -657,6 +665,95 @@ describe('ProxyView', () => {
     expect(bar.attributes('data-value')).toBe('43')
     wrapper.unmount()
   })
+
+  it('renders one section tablist with roving keyboard selection and wired panels', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const tablist = wrapper.get('[role="tablist"]')
+    expect(tablist.attributes('aria-label')).toBe('Proxy sections')
+    const tabs = wrapper.findAll('[role="tab"]')
+    expect(tabs).toHaveLength(5)
+    expect(tabs[0].attributes('aria-selected')).toBe('true')
+    expect(tabs[0].attributes('aria-controls')).toBe('proxy-panel-overview')
+    expect(wrapper.get('[role="tabpanel"]').attributes('id')).toBe('proxy-panel-overview')
+
+    tabs[0].element.focus()
+    await tabs[0].trigger('keydown', { key: 'ArrowRight' })
+    await flushPromises()
+    expect(tabs[1].attributes('aria-selected')).toBe('true')
+    expect(document.activeElement).toBe(tabs[1].element)
+    expect(wrapper.get('[role="tabpanel"]').attributes('id')).toBe('proxy-panel-requests')
+    expect(wrapper.get('[role="tabpanel"]').attributes('aria-labelledby')).toBe(
+      'proxy-tab-requests',
+    )
+
+    await tabs[1].trigger('keydown', { key: 'End' })
+    expect(tabs[4].attributes('aria-selected')).toBe('true')
+    wrapper.unmount()
+  })
+
+  it('renders every proxy tab as shared sections with page headings', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    // Overview cards and the fleet live inside shared PageSection surfaces.
+    expect(wrapper.findAll('.page-section').length).toBeGreaterThanOrEqual(2)
+    expect(wrapper.get('#proxy-traffic-title').text()).toBe('Recent traffic')
+
+    await clickButton(wrapper, 'Settings & routing')
+    expect(wrapper.get('#proxy-vram-title').text()).toBe('GPU admission')
+    expect(wrapper.get('#proxy-network-title').text()).toBe('Network')
+    const headings = wrapper.findAll('h2').map((node) => node.text())
+    expect(headings).toContain('Serving limits')
+    expect(headings).toContain('Routing')
+
+    await clickButton(wrapper, 'Access keys')
+    expect(wrapper.get('.key-list').text()).toContain('Production')
+    expect(wrapper.get('.key-row').text()).toContain('sk-studio-test')
+    wrapper.unmount()
+  })
+
+  it('states an empty activity log with a next step instead of a blank panel', async () => {
+    const payload = statusPayload()
+    payload.activity = []
+    vi.mocked(axios.get).mockImplementation((url) =>
+      Promise.resolve({ data: String(url).includes('keys') ? { keys: [] } : payload }),
+    )
+    const wrapper = mountView()
+    await flushPromises()
+    await clickButton(wrapper, 'Events')
+
+    const empty = wrapper
+      .findAll('.empty-stub')
+      .find((node) => node.text().includes('No proxy activity'))
+    expect(empty).toBeTruthy()
+    wrapper.unmount()
+  })
+
+  it('keeps request empty state inside the shared table shell', async () => {
+    const payload = statusPayload()
+    payload.requests = []
+    payload.request_total = 0
+    vi.mocked(axios.get).mockImplementation((url) =>
+      Promise.resolve({
+        data: String(url).includes('/requests')
+          ? { total: 0, requests: [] }
+          : String(url).includes('keys')
+            ? { keys: [] }
+            : payload,
+      }),
+    )
+    const wrapper = mountView()
+    await flushPromises()
+    await clickButton(wrapper, 'Requests')
+
+    expect(wrapper.find('.table-shell').exists()).toBe(true)
+    expect(wrapper.find('.table-shell__scroll').exists()).toBe(true)
+    expect(wrapper.find('.table-shell__state').text()).toContain('No requests recorded yet')
+    expect(wrapper.findAll('button').some((button) => button.text() === 'Refresh')).toBe(true)
+    wrapper.unmount()
+  })
 })
 
 describe('Proxy monitoring', () => {
@@ -701,7 +798,7 @@ describe('Proxy monitoring', () => {
     expect(wrapper.find('.vram-notice').text()).toContain('7,168 MiB available')
     expect(wrapper.text()).toContain('8,000 MiB observed')
     await clickButton(wrapper, 'Settings & routing')
-    expect(wrapper.get('#proxy-vram-heading').text()).toBe('GPU admission')
+    expect(wrapper.get('#proxy-vram-title').text()).toBe('GPU admission')
     expect(wrapper.text()).toContain('Probe ready')
     expect(wrapper.text()).toContain('demo · 8,000 MiB')
     wrapper.unmount()

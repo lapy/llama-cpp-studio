@@ -1,6 +1,9 @@
 <template>
   <div class="audio-workspace page-shell page-shell--relaxed page-shell--wide">
-    <PageHeader title="Audio">
+    <PageHeader
+      title="Audio"
+      description="Run speech, transcription, and audio tasks on an audio.cpp model, then play or download the result."
+    >
       <template #meta>
         <Tag v-if="selectedConfig?.family" :value="selectedConfig.family" severity="secondary" />
         <Tag
@@ -88,42 +91,58 @@
     </EmptyState>
 
     <template v-else>
-      <div v-if="workspaceError" class="state-banner" role="alert">
-        {{ workspaceError }}<Button label="Retry" size="small" @click="refreshWorkspace" />
-      </div>
-      <div v-if="configError" class="state-banner" role="alert">
-        {{ configError
-        }}<Button label="Retry configuration" size="small" @click="refreshWorkspace" />
-      </div>
-      <div v-if="contractError" class="state-banner" role="alert">
+      <StateBanner v-if="workspaceError" severity="error" icon="">
+        {{ workspaceError }}
+        <template #actions>
+          <Button label="Retry" size="small" @click="refreshWorkspace" />
+        </template>
+      </StateBanner>
+      <StateBanner v-if="configError" severity="error" icon="">
+        {{ configError }}
+        <template #actions>
+          <Button label="Retry configuration" size="small" @click="refreshWorkspace" />
+        </template>
+      </StateBanner>
+      <StateBanner v-if="contractError" severity="error" icon="">
         {{ contractError }}
-        <Button label="Retry capabilities" size="small" @click="loadWorkspaceData(true)" />
-      </div>
-      <details v-if="driftWarnings.length" class="state-banner contract-drift" role="status">
-        <summary>Engine contract drift ({{ driftWarnings.length }})</summary>
-        <ul>
-          <li v-for="(warning, index) in driftWarnings" :key="`drift-${index}`">{{ warning }}</li>
-        </ul>
-      </details>
-      <Message
-        v-if="contractValidationHint"
-        severity="info"
-        :closable="false"
+        <template #actions>
+          <Button label="Retry capabilities" size="small" @click="loadWorkspaceData(true)" />
+        </template>
+      </StateBanner>
+      <StateBanner
+        v-if="driftWarnings.length"
+        severity="warning"
         role="status"
-        class="config-scan-message"
+        class="contract-drift"
       >
+        <details>
+          <summary>Engine contract drift ({{ driftWarnings.length }})</summary>
+          <ul>
+            <li v-for="(warning, index) in driftWarnings" :key="`drift-${index}`">
+              {{ warning }}
+            </li>
+          </ul>
+        </details>
+      </StateBanner>
+      <StateBanner v-if="contractValidationHint" severity="info" role="status">
         {{ contractValidationHint }}
-      </Message>
-      <div v-if="referenceAudioError" class="state-banner" role="alert">
-        {{ referenceAudioError
-        }}<Button
-          label="Retry reference audio"
-          size="small"
-          @click="loadReferenceAudio(selectedModelId)"
-        />
-      </div>
-      <div class="config-card config-card--compact">
-        <div class="section-label">Model</div>
+      </StateBanner>
+      <StateBanner v-if="referenceAudioError" severity="error" icon="">
+        {{ referenceAudioError }}
+        <template #actions>
+          <Button
+            label="Retry reference audio"
+            size="small"
+            @click="loadReferenceAudio(selectedModelId)"
+          />
+        </template>
+      </StateBanner>
+
+      <PageSection
+        variant="compact"
+        title="Model context"
+        description="The model, engine build, and API id this workspace runs against."
+      >
         <div class="audio-model-bar">
           <Select
             v-model="selectedModelId"
@@ -144,68 +163,54 @@
             >audio.cpp {{ contractEngineVersion }}</code
           >
         </div>
-        <p v-if="needsReferenceHint" class="config-muted-hint audio-model-hint">
-          <span v-if="!referenceAudioOptions.length">No reference audio yet.</span>
-          <Button
-            v-if="!communityVoicesReady"
-            label="Download preset voices"
-            size="small"
-            severity="secondary"
-            :loading="communityVoicesInstalling"
-            @click="installCommunityVoices"
-          />
-          <Button
-            label="Add reference audio"
-            size="small"
-            severity="secondary"
-            :loading="referenceAudioUploading"
-            @click="openReferenceUpload"
-          />
-          <input
-            ref="referenceUploadInput"
-            type="file"
-            accept=".wav,audio/wav,audio/*"
-            class="sr-only"
-            aria-label="Reference audio file"
-            @change="onReferenceAudioSelected"
-          />
-        </p>
-      </div>
+        <PageToolbar v-if="needsReferenceHint" plain label="Reference audio">
+          <template #summary>
+            <span v-if="!referenceAudioOptions.length">No reference audio yet.</span>
+            <span v-else>{{ referenceAudioOptions.length }} reference clips available.</span>
+          </template>
+          <template #actions>
+            <Button
+              v-if="!communityVoicesReady"
+              label="Download preset voices"
+              size="small"
+              severity="secondary"
+              :loading="communityVoicesInstalling"
+              @click="installCommunityVoices"
+            />
+            <Button
+              label="Add reference audio"
+              size="small"
+              severity="secondary"
+              :loading="referenceAudioUploading"
+              @click="openReferenceUpload"
+            />
+            <input
+              ref="referenceUploadInput"
+              type="file"
+              accept=".wav,audio/wav,audio/*"
+              class="sr-only"
+              aria-label="Reference audio file"
+              @change="onReferenceAudioSelected"
+            />
+          </template>
+        </PageToolbar>
+      </PageSection>
 
-      <div class="config-section-tabs" role="tablist" aria-label="Audio tasks">
-        <button
-          v-for="tab in visibleTabs"
-          :key="tab.id"
-          type="button"
-          :id="`audio-tab-${tab.id}`"
-          role="tab"
-          class="config-section-tab"
-          :class="{ selected: activeTab === tab.id }"
-          :aria-selected="activeTab === tab.id"
-          :aria-controls="activeTab === tab.id ? `audio-panel-${tab.id}` : undefined"
-          :tabindex="activeTab === tab.id ? 0 : -1"
-          @click="activeTab = tab.id"
-          @keydown="onRovingTabKeydown"
-        >
-          <span class="engine-option-label">
-            <i :class="tab.icon" aria-hidden="true" />
-            <span class="engine-name">{{ tab.label }}</span>
-          </span>
-        </button>
-      </div>
+      <SectionTabs
+        v-model="activeTab"
+        :items="visibleTabs"
+        id-prefix="audio"
+        variant="pills"
+        responsive-grid
+        aria-label="Audio tasks"
+      />
 
-      <Message
-        v-if="selectedModel && !selectedModel.is_active"
-        severity="warn"
-        :closable="false"
-        class="config-scan-message"
+      <StateBanner
+        v-if="selectedModel && !selectedModel.is_active && !selectedRuntimeState.actionable"
+        severity="warning"
       >
-        {{
-          selectedRuntimeState.actionable
-            ? ''
-            : 'Start this model and wait for a verified running state before inference.'
-        }}
-      </Message>
+        Start this model and wait for a verified running state before inference.
+      </StateBanner>
 
       <!-- Speech -->
       <div
@@ -216,8 +221,10 @@
         tabindex="0"
         class="config-tab-panel audio-task-layout"
       >
-        <div class="config-card">
-          <div class="section-label">Speech</div>
+        <PageSection
+          title="Speech"
+          description="Synthesize text with the selected voice preset or a reference clip."
+        >
           <div class="param-field">
             <label class="param-field__label" for="audio-speech-text">Text</label>
             <Textarea
@@ -278,10 +285,10 @@
               />
             </div>
           </div>
-          <p v-if="speechStreamingAvailable && speechStream" class="config-muted-hint">
+          <p v-if="speechStreamingAvailable && speechStream" class="page-form__hint">
             Play speech as it is generated. Enable streaming mode in the model configuration first.
           </p>
-          <div class="audio-actions">
+          <div class="page-form__actions">
             <Button
               :label="speechStream && speechStreamingAvailable ? 'Speak' : 'Generate'"
               icon="pi pi-volume-up"
@@ -307,14 +314,14 @@
               @click="openConfig"
             />
           </div>
-        </div>
+        </PageSection>
         <AudioResultPanel
           :error="speechError"
           :clips="resultAudioClips"
           :loading="speechLoading"
           @download="onDownloadClip"
         />
-        <p v-if="speechStreamTiming" class="config-muted-hint">{{ speechStreamTiming }}</p>
+        <p v-if="speechStreamTiming" class="page-form__hint">{{ speechStreamTiming }}</p>
       </div>
 
       <!-- Transcribe -->
@@ -326,12 +333,10 @@
         tabindex="0"
         class="config-tab-panel audio-task-layout"
       >
-        <div class="config-card">
-          <div class="section-label">Transcribe</div>
-          <p class="config-muted-hint">
-            Upload or record audio. Non-WAV formats are converted to WAV at the file's sample rate
-            and channel count. Several files are sent together as one batch of up to 32.
-          </p>
+        <PageSection
+          title="Transcribe"
+          description="Upload or record audio. Non-WAV formats are converted to WAV at the file's sample rate and channel count. Several files are sent together as one batch of up to 32."
+        >
           <div class="param-field section-params">
             <label class="param-field__label" for="audio-asr-file">Audio</label>
             <input
@@ -343,7 +348,7 @@
               class="sr-only"
               @change="onAsrFile"
             />
-            <div class="audio-actions audio-actions--flush">
+            <div class="audio-file-actions">
               <Button
                 label="Choose files"
                 icon="pi pi-upload"
@@ -389,8 +394,8 @@
               />
             </div>
           </div>
-          <div class="audio-actions">
-            <label>
+          <div class="page-form__actions">
+            <label class="audio-checkbox-field">
               <input v-model="asrDetails" type="checkbox" :disabled="asrFiles.length > 1" />
               Include timestamps and speaker labels when available
             </label>
@@ -414,27 +419,14 @@
               @click="cancelAsr"
             />
           </div>
-        </div>
-        <div
-          v-if="asrError || asrText || asrBatchResults.length || asrLoading"
-          class="config-card"
-          role="status"
-          aria-live="polite"
-          :aria-busy="asrLoading ? 'true' : 'false'"
-        >
-          <div class="section-label">Transcript</div>
-          <Message v-if="asrError" severity="error" :closable="false" class="config-scan-message">
-            {{ asrError }}
-          </Message>
-          <ul v-if="asrBatchResults.length" class="asr-batch-results">
-            <li v-for="(row, index) in asrBatchResults" :key="`${row.name}-${index}`">
-              <strong>{{ row.name }}</strong>
-              <pre class="audio-transcript">{{ row.text }}</pre>
-            </li>
-          </ul>
-          <pre v-else-if="asrText" class="audio-transcript">{{ asrText }}</pre>
-          <pre v-if="asrMetadata" class="audio-transcript">{{ asrMetadata }}</pre>
-        </div>
+        </PageSection>
+        <AudioTranscriptPanel
+          :error="asrError"
+          :loading="asrLoading"
+          :text="asrText"
+          :metadata="asrMetadata"
+          :batch-results="asrBatchResults"
+        />
       </div>
 
       <div
@@ -445,12 +437,14 @@
         tabindex="0"
         class="config-tab-panel audio-task-layout"
       >
-        <div class="config-card">
-          <div class="section-label">{{ taskLabel }}</div>
-          <Message v-if="!workspaceFields.length" severity="info" :closable="false">
+        <PageSection :title="taskLabel">
+          <StateBanner v-if="!workspaceFields.length" severity="info">
             The active engine has not provided request fields for this model. Scan the model in
             Configure to discover its inputs.
-          </Message>
+            <template #actions>
+              <Button label="Open configuration" size="small" @click="openConfig" />
+            </template>
+          </StateBanner>
           <div v-for="field in workspaceFields" :key="field.key" class="param-field">
             <label class="param-field__label" :for="`audio-task-${field.key}`">
               {{ field.label || field.key }}{{ field.required ? ' *' : '' }}
@@ -462,11 +456,9 @@
               :options="field.options || []"
               :disabled="taskLoading"
             />
-            <small v-if="field.description" class="config-muted-hint">{{
-              field.description
-            }}</small>
+            <small v-if="field.description" class="page-form__hint">{{ field.description }}</small>
           </div>
-          <div class="audio-actions">
+          <div class="page-form__actions">
             <Button
               :label="taskAction"
               icon="pi pi-play"
@@ -484,7 +476,7 @@
               @click="cancelTask"
             />
           </div>
-        </div>
+        </PageSection>
         <AudioResultPanel
           :error="taskError"
           :clips="resultAudioClips"
@@ -510,13 +502,16 @@ import Select from 'primevue/select'
 import ToggleSwitch from 'primevue/toggleswitch'
 import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
-import Message from 'primevue/message'
-import PageHeader from '@/components/common/PageHeader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import LoadingState from '@/components/common/LoadingState.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import PageSection from '@/components/common/PageSection.vue'
+import PageToolbar from '@/components/common/PageToolbar.vue'
+import SectionTabs from '@/components/common/SectionTabs.vue'
+import StateBanner from '@/components/common/StateBanner.vue'
 import AudioResultPanel from '@/components/audio/AudioResultPanel.vue'
 import AudioParamField from '@/components/audio/AudioParamField.vue'
-import { onRovingTabKeydown } from '@/composables/useRovingTabs'
+import AudioTranscriptPanel from '@/components/audio/AudioTranscriptPanel.vue'
 import { requireSingleConfirmation } from '@/composables/singleConfirm'
 import { withheldConfirmation } from '@/composables/actionConfirmation'
 import { useModelStore } from '@/stores/models'
@@ -1611,66 +1606,8 @@ function pickDefined(obj, keys) {
   min-width: 12rem;
 }
 
-.audio-model-hint {
-  margin-top: 0.65rem;
-}
-
-.audio-inline-link {
-  padding: 0 !important;
-  vertical-align: baseline;
-}
-
-.audio-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.85rem;
-}
-
-.audio-actions--flush {
-  margin-top: 0.35rem;
-}
-
-.asr-file-list,
-.asr-batch-results {
-  list-style: none;
-  margin: 0.4rem 0 0;
-  padding: 0;
-  display: grid;
-  gap: 0.25rem;
-}
-
-.asr-file-list li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  min-height: 2rem;
-  font-size: 0.85rem;
-}
-
-.asr-file-list button {
-  border: 0;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  font: inherit;
-  min-height: 2rem;
-}
-
-.asr-batch-results strong {
-  font-size: 0.85rem;
-}
-
-@media (max-width: 768px) {
-  .audio-model-dropdown {
-    flex: 1 1 100%;
-    min-width: 0;
-    max-width: none;
-  }
-}
-
+/* The two-column task layout is an audio-specific exception: the engine form
+   and its result panel read as a pair on desktop and stack on narrow screens. */
 @media (min-width: 900px) {
   .audio-task-layout:has(> :nth-child(2)) {
     display: grid;
@@ -1680,38 +1617,68 @@ function pickDefined(obj, keys) {
   }
 }
 
-.audio-player {
-  display: block;
-  width: 100%;
+.audio-file-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-.task-audio-clip + .task-audio-clip {
-  margin-top: 1rem;
-  padding-top: 0.85rem;
-  border-top: 1px solid var(--border-primary, #2a2f45);
+.audio-checkbox-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.125rem;
+  font-size: var(--text-sm);
 }
 
-.task-audio-clip .audio-actions {
-  margin-top: 0.5rem;
+.asr-file-list {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.asr-file-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 2rem;
+  font-size: var(--text-sm);
+}
+
+.asr-file-list button {
+  min-height: 2rem;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
 }
 
 .audio-transcript {
+  max-height: 20rem;
   margin: 0;
   padding: 0.75rem;
-  border-radius: var(--radius-md, 0.5rem);
-  border: 1px solid var(--border-primary, #2a2f45);
-  background: rgba(0, 0, 0, 0.2);
+  overflow: auto;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg-surface) 65%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--text-sm);
+  line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 0.85rem;
-  line-height: 1.45;
-  max-height: 20rem;
-  overflow: auto;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
-.contract-drift {
-  display: block;
+.contract-drift details {
+  min-width: 0;
+}
+
+.contract-drift summary {
+  cursor: pointer;
 }
 
 .contract-drift ul {
@@ -1723,5 +1690,23 @@ function pickDefined(obj, keys) {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+}
+
+@media (max-width: 768px) {
+  .audio-model-dropdown {
+    flex: 1 1 100%;
+    min-width: 0;
+    max-width: none;
+  }
+}
+
+@media (max-width: 640px), (pointer: coarse) {
+  .audio-checkbox-field {
+    min-height: 2.75rem;
+  }
+
+  .asr-file-list button {
+    min-height: 2.75rem;
+  }
 }
 </style>

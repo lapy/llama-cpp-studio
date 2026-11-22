@@ -1,12 +1,13 @@
 <template>
-  <section class="traffic-overview" aria-labelledby="traffic-heading">
-    <div class="traffic-heading">
-      <div>
-        <h2 id="traffic-heading">Recent traffic</h2>
-        <p>Last 30 minutes · newest 100 records</p>
-      </div>
+  <PageSection
+    id="proxy-traffic"
+    heading-tag="h3"
+    title="Recent traffic"
+    description="Last 30 minutes · newest 100 records"
+  >
+    <template #meta>
       <span class="sample-count">{{ total }} sampled</span>
-    </div>
+    </template>
     <svg class="traffic-chart" viewBox="0 0 600 100" role="img" :aria-labelledby="chartId">
       <title :id="chartId">
         {{ total }} retained HTTP requests in the last 30 minutes. {{ totals.success }} successful,
@@ -45,10 +46,11 @@
         <b>{{ totals.pending }}</b></span
       >
     </div>
-  </section>
+  </PageSection>
 </template>
 <script setup>
 import { computed, useId } from 'vue'
+import PageSection from '@/components/common/PageSection.vue'
 const props = defineProps({
   requests: { type: Array, default: () => [] },
   now: { type: Number, required: true },
@@ -104,34 +106,11 @@ function bucketLabel(index) {
 }
 </script>
 <style scoped>
-.traffic-overview {
+/* The empty label sits over the chart surface inside the shared section body. */
+:deep(.page-section__body) {
   position: relative;
-  padding: 1rem 1.1rem;
-  min-width: 0;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-lg);
-  background: var(--bg-card);
 }
-.traffic-heading {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 0.75rem;
-}
-.traffic-heading h2 {
-  margin: 0;
-  font-size: 0.9rem;
-}
-.traffic-heading p {
-  margin: 0.25rem 0 0;
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-}
-.sample-count {
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-  white-space: nowrap;
-}
+
 .traffic-chart {
   display: block;
   width: 100%;
@@ -142,6 +121,11 @@ function bucketLabel(index) {
   fill: none;
   stroke: var(--border-primary);
   stroke-dasharray: 3 5;
+}
+.sample-count {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  white-space: nowrap;
 }
 .traffic-bar--success,
 .legend-dot--success {
@@ -198,6 +182,6 @@ function bucketLabel(index) {
   right: 0;
   text-align: center;
   color: var(--text-secondary);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 </style>
