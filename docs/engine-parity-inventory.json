@@ -1,5 +1,5 @@
 {
-  "engine_count": 12,
+  "engine_count": 11,
   "engine_id_literals": {
     "1cat_vllm": {
       "engines_home": [
@@ -175,7 +175,7 @@
           "count": 1,
           "file": "backend/main.py",
           "lines": [
-            491
+            504
           ]
         },
         {
@@ -215,14 +215,14 @@
           "count": 8,
           "file": "backend/engines/lifecycle.py",
           "lines": [
-            61,
-            384,
-            431,
-            436,
+            60,
+            383,
+            430,
+            435,
+            437,
             438,
-            439,
-            522,
-            628
+            521,
+            627
           ]
         },
         {
@@ -540,9 +540,9 @@
           "count": 3,
           "file": "backend/proxy/launch_spec.py",
           "lines": [
-            387,
-            410,
-            743
+            406,
+            429,
+            762
           ]
         },
         {
@@ -748,15 +748,15 @@
           "file": "backend/engines/lifecycle.py",
           "lines": [
             51,
+            327,
             328,
-            329,
+            332,
             333,
-            334,
-            409,
-            417,
-            510,
-            565,
-            617
+            408,
+            416,
+            509,
+            564,
+            616
           ]
         },
         {
@@ -1145,8 +1145,8 @@
           "count": 2,
           "file": "backend/main.py",
           "lines": [
-            446,
-            484
+            458,
+            496
           ]
         },
         {
@@ -1191,7 +1191,7 @@
           "count": 1,
           "file": "backend/routes/engine_versions.py",
           "lines": [
-            87
+            88
           ]
         },
         {
@@ -1259,13 +1259,13 @@
           "file": "backend/engines/lifecycle.py",
           "lines": [
             50,
-            331,
-            335,
-            409,
-            416,
-            509,
-            565,
-            617
+            330,
+            334,
+            408,
+            415,
+            508,
+            564,
+            616
           ]
         },
         {
@@ -1744,8 +1744,8 @@
           "count": 2,
           "file": "backend/main.py",
           "lines": [
-            446,
-            484
+            458,
+            496
           ]
         },
         {
@@ -1829,7 +1829,7 @@
           "count": 1,
           "file": "backend/routes/engine_versions.py",
           "lines": [
-            87
+            88
           ]
         },
         {
@@ -2115,7 +2115,7 @@
           "count": 1,
           "file": "backend/main.py",
           "lines": [
-            490
+            503
           ]
         },
         {
@@ -2129,7 +2129,7 @@
           "count": 1,
           "file": "backend/proxy/studio/registry.py",
           "lines": [
-            101
+            126
           ]
         },
         {
@@ -2329,7 +2329,7 @@
           "count": 1,
           "file": "backend/main.py",
           "lines": [
-            493
+            506
           ]
         },
         {
@@ -2343,7 +2343,7 @@
           "count": 1,
           "file": "backend/proxy/studio/registry.py",
           "lines": [
-            101
+            126
           ]
         },
         {
@@ -2591,11 +2591,11 @@
           "file": "backend/engines/lifecycle.py",
           "lines": [
             52,
-            177,
-            441,
-            446,
-            450,
-            516
+            176,
+            440,
+            445,
+            449,
+            515
           ]
         },
         {
@@ -2824,7 +2824,7 @@
           "count": 1,
           "file": "backend/engines/lifecycle.py",
           "lines": [
-            60
+            59
           ]
         },
         {
@@ -2993,7 +2993,7 @@
           "count": 1,
           "file": "backend/main.py",
           "lines": [
-            492
+            505
           ]
         },
         {
@@ -3014,7 +3014,7 @@
           "count": 1,
           "file": "backend/proxy/studio/registry.py",
           "lines": [
-            101
+            126
           ]
         },
         {
@@ -3350,11 +3350,6 @@
         "source_repo": "https://github.com/haohervchb/sglang-V100.git"
       }
     },
-    "strata": {
-      "note": "prebuilt installs have no persisted settings surface",
-      "source": null,
-      "values": {}
-    },
     "unsloth_llama": {
       "note": "prebuilt installs have no persisted settings surface",
       "source": null,
@@ -3561,7 +3556,6 @@
         "GET /api/sglang-v100/status"
       ]
     },
-    "strata": {},
     "unsloth_llama": {
       "cancel": [
         "POST /api/unsloth-llama/cancel"
@@ -3997,55 +3991,6 @@
       ],
       "ui_kind": "sglang"
     },
-    "strata": {
-      "active_path_fields": [
-        "binary_path"
-      ],
-      "artifact_formats": [
-        "prepared_bundle"
-      ],
-      "cpu_supported": false,
-      "experimental": true,
-      "gpu_archs": [
-        "gfx1100",
-        "gfx1101",
-        "gfx1151",
-        "gfx1200",
-        "gfx1201",
-        "sm120",
-        "sm86",
-        "sm89"
-      ],
-      "id": "strata",
-      "input_modalities": [
-        "image",
-        "text"
-      ],
-      "install_kind": "prebuilt",
-      "label": "Strata",
-      "maturity_surfaces": {
-        "amd_consumer": "experimental",
-        "apple_silicon": "experimental",
-        "nvidia_consumer": "experimental"
-      },
-      "output_modalities": [
-        "text"
-      ],
-      "package_kinds": [
-        "prepared_bundle"
-      ],
-      "repository_source": "Strata",
-      "runtime_kind": "strata",
-      "scanner_kind": "llama_help",
-      "supports_embeddings": false,
-      "tasks": [
-        "embeddings",
-        "reranking",
-        "text-generation",
-        "text2text-generation"
-      ],
-      "ui_kind": "native"
-    },
     "unsloth_llama": {
       "active_path_fields": [
         "binary_path"
@@ -4166,7 +4111,6 @@
       "install_release": "POST /api/sglang-v100/install -> object",
       "status": "GET /api/sglang-v100/status -> object"
     },
-    "strata": {},
     "unsloth_llama": {
       "check_updates": "GET /api/unsloth-llama/check-updates -> object",
       "install_release": "POST /api/unsloth-llama/install -> object"
@@ -5038,6 +4982,16 @@
     {
       "engines": [],
       "methods": [
+        "GET"
+      ],
+      "path": "/api/metrics",
+      "responses": {
+        "GET": "string"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
         "POST"
       ],
       "path": "/api/model-catalog/import",
@@ -5594,6 +5548,16 @@
       "methods": [
         "GET"
       ],
+      "path": "/api/proxy/vram",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
       "path": "/api/ready",
       "responses": {
         "GET": "unknown"
@@ -5929,6 +5893,36 @@
     {
       "engines": [],
       "methods": [
+        "POST"
+      ],
+      "path": "/api/storage/cleanup/apply",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/storage/cleanup/preview",
+      "responses": {
+        "POST": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/storage/inventory",
+      "responses": {
+        "GET": "unknown"
+      }
+    },
+    {
+      "engines": [],
+      "methods": [
         "GET"
       ],
       "path": "/api/system-stats",
@@ -6218,7 +6212,6 @@
     "sglang",
     "sglang_sxm2",
     "sglang_v100",
-    "strata",
     "unsloth_llama",
     "vllm"
   ]

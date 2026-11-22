@@ -218,6 +218,8 @@ Submit to `POST /api/benchmarks/run` for a running compatible model. Read result
 
 Error shapes vary by endpoint: FastAPI validation errors use `detail`; service errors can also carry `code`, `error`, revision/state tokens, operation IDs, or persistence commitment information. A task cancellation acknowledgement and an uncertain persistence response require their corresponding state checks.
 
+A proxy cold start refused by GPU admission returns `409` with `code: "INSUFFICIENT_VRAM"` and a detail object containing the model, decision, estimate source/confidence, per-device free/required/deficit values and remediation. Storage cleanup uses `400` for an unknown category, missing unit, report-only category or missing confirmation, and `409` for a stale plan, an oversized scope or a concurrent cleanup (`STORAGE_PLAN_STALE`, `STORAGE_SCOPE_TOO_LARGE`, `ACTION_IN_FLIGHT`).
+
 ## Management endpoint catalog
 
 The catalog includes every documented OpenAPI operation. The response column lists schema-declared success responses; additional service outcomes follow the endpoint's implementation. A body described as `object` accepts a route-specific JSON contract. Path/query parameters and request schemas follow the tables.
@@ -375,6 +377,15 @@ The catalog includes every documented OpenAPI operation. The response column lis
 | POST   | `/api/lmdeploy/remove`         | Remove              | —          | object or null (application/json) | 200: object |
 | GET    | `/api/lmdeploy/status`         | Status              | —          | —                                 | 200: object |
 
+### metrics
+
+| Method | Path           | Operation  | Parameters | Request body | Success     |
+| ------ | -------------- | ---------- | ---------- | ------------ | ----------- |
+| GET    | `/api/metrics` | Get Metrics | —          | —            | 200: string |
+
+`GET /api/metrics` returns Prometheus text. It is management-authorized and is
+intended for a trusted scrape; it is not part of the inference origin.
+
 ### model catalog
 
 | Method | Path                                        | Operation            | Parameters              | Request body              | Success  |
@@ -453,6 +464,7 @@ still performs the normal model validation and routing-name collision checks.
 | Method | Path                                   | Operation              | Parameters                                                                                                                                                                                           | Request body                         | Success  |
 | ------ | -------------------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | -------- |
 | GET    | `/api/proxy`                           | Get Proxy Admin        | —                                                                                                                                                                                                    | —                                    | 200: any |
+| GET    | `/api/proxy/vram`                      | Get Proxy Vram         | —                                                                                                                                                                                                    | —                                    | 200: any |
 | POST   | `/api/proxy/lifecycle/{action}`        | Proxy Lifecycle        | `action` path required                                                                                                                                                                               | —                                    | 200: any |
 | DELETE | `/api/proxy/models/{model_id}/logs`    | Clear Proxy Model Logs | `model_id` path required                                                                                                                                                                             | —                                    | 204      |
 | GET    | `/api/proxy/models/{model_id}/logs`    | Get Proxy Model Logs   | `model_id` path required; `search` query optional; `level` query optional; `download` query optional; `limit` query optional                                                                         | —                                    | 200: any |
@@ -504,6 +516,22 @@ still performs the normal model validation and routing-name collision checks.
 | GET    | `/api/settings/inference`   | Get Inference Settings | —          | —                         | 200: any |
 | PUT    | `/api/settings/inference`   | Put Inference Settings | —          | object (application/json) | 200: any |
 | GET    | `/api/status`               | Get System Status      | —          | —                         | 200: any |
+
+### storage
+
+| Method | Path                          | Operation              | Parameters               | Request body                        | Success  |
+| ------ | ----------------------------- | ---------------------- | ------------------------ | ----------------------------------- | -------- |
+| GET    | `/api/storage/inventory`      | Storage Inventory      | `refresh` query optional | —                                   | 200: any |
+| POST   | `/api/storage/cleanup/preview` | Storage Cleanup Preview | —                        | StorageCleanupPreviewBody (JSON)    | 200: any |
+| POST   | `/api/storage/cleanup/apply`   | Storage Cleanup Apply   | —                        | StorageCleanupApplyBody (JSON)      | 200: any |
+
+`StorageCleanupPreviewBody` carries `category`, `unit_ids` (opaque ids, up to
+200; empty means all cleanable units) and `keep_history` (1–100).
+`StorageCleanupApplyBody` carries the preview `plan_id` and `confirm: true`.
+Apply refuses a stale plan, a category that is report-only, an oversized scope,
+or a concurrent cleanup. Response bodies are documented in
+[storage governance](storage-governance.md); the generated OpenAPI document is
+authoritative for field-level schemas.
 
 ### unsloth-llama
 
@@ -684,9 +712,13 @@ Fields use OpenAPI types/constraints plus service-supported values for runtime m
 | `peak_observed_gpu_memory_bytes` | integer or null | yes      | —       | —           |
 | `prompt`                         | string          | yes      | —       | —           |
 | `proxy_name`                     | string          | yes      | —       | —           |
+| `repeats`                        | integer         | no       | 1       | —           |
+| `runs`                           | array           | no       | —       | —           |
+| `aggregate`                      | object or null  | no       | —       | —           |
 | `time_to_first_token_ms`         | number          | yes      | —       | —           |
 | `tokens_per_second`              | number or null  | yes      | —       | —           |
 | `total_seconds`                  | number          | yes      | —       | —           |
+| `warmup`                         | integer         | no       | 0       | —           |
 
 ### BenchmarkRunBody
 
@@ -695,6 +727,8 @@ Fields use OpenAPI types/constraints plus service-supported values for runtime m
 | `max_tokens` | integer | no       | 64                                           | minimum: 1.0; maximum: 512.0  |
 | `model_id`   | string  | yes      | —                                            | minLength: 1; maxLength: 300  |
 | `prompt`     | string  | no       | "Reply with a short description of the sky." | minLength: 1; maxLength: 1000 |
+| `repeats`    | integer | no       | 1                                            | minimum: 1.0; maximum: 5.0    |
+| `warmup`     | integer | no       | 0                                            | minimum: 0.0; maximum: 3.0    |
 
 ### Body_upload_model_reference_audio_api_models__model_id__reference_audio_post
 
@@ -811,6 +845,9 @@ Fields use OpenAPI types/constraints plus service-supported values for runtime m
 | `request_timeout_seconds`     | number or null                   | no       | —       | —                                       |
 | `routing_aliases`             | map of string or array of string | no       | —       | —                                       |
 | `stream_idle_timeout_seconds` | number or null                   | no       | —       | —                                       |
+| `vram_admission`              | `off` / `warn` / `enforce`       | no       | off     | —                                       |
+| `vram_estimates`              | map of string to integer         | no       | —       | —                                       |
+| `vram_safety_margin_mib`      | integer                          | no       | 1024    | minimum: 0.0; maximum: 1048576.0        |
 
 ### ReleaseSummary
 

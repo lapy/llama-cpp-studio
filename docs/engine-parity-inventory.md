@@ -5,10 +5,10 @@ behavior migration. Inputs to the parity checklist for
 `docs/config-driven-engine-refactoring-plan.md` (Phase 1). See the JSON twin
 for machine consumption.
 
-- Engines: 12
-- `/api` routes: 177
+- Engines: 11
+- `/api` routes: 182
 - Scanner kinds dispatched: audio_cpp, llama_help
-- Shadow definitions loaded: 12
+- Shadow definitions loaded: 11
 
 ## Hardcoded engine-ID literals (outside `backend/engines/` homes)
 
@@ -28,7 +28,6 @@ where a specialized id nests in a family id (`sglang_v100` also matches
 | `sglang` | 69 | 19 | `frontend/src/stores/engines.venv.test.js` (15), `frontend/src/engines/registry.js` (13), `frontend/src/stores/engines.js` (8), `frontend/src/views/EnginesView.tasks.test.js` (6) |
 | `sglang_sxm2` | 0 | 0 |  |
 | `sglang_v100` | 59 | 13 | `frontend/src/stores/engines.venv.test.js` (19), `frontend/src/components/system/SglangEnginePanel.test.js` (7), `frontend/src/views/EnginesView.tasks.test.js` (5), `frontend/src/views/EnginesView.vue` (5) |
-| `strata` | 0 | 0 |  |
 | `unsloth_llama` | 54 | 11 | `frontend/src/stores/engines.venv.test.js` (16), `frontend/src/views/EnginesView.tasks.test.js` (8), `frontend/src/engines/registry.js` (7), `frontend/src/views/EnginesView.vue` (7) |
 | `vllm` | 89 | 20 | `frontend/src/stores/engines.venv.test.js` (19), `frontend/src/engines/registry.js` (12), `frontend/src/composables/engineReadiness.test.js` (10), `frontend/src/views/EnginesView.tasks.test.js` (7) |
 
@@ -49,7 +48,6 @@ difference) before its legacy router can retire.
 | `sglang` | 3 | 3 | 0 | 0 | 3 | 0 | 3 | 3 | 0 | 3 | 0 | settings |
 | `sglang_sxm2` | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | `sglang_v100` | 1 | 1 | 0 | 0 | 1 | 0 | 1 | 1 | 0 | 1 | 0 | settings |
-| `strata` | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | `unsloth_llama` | 1 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 1 | 0 | 0 |
 | `vllm` | 2 | 2 | 0 | 0 | 2 | 0 | 2 | 2 | 0 | 2 | 0 | settings |
 
@@ -69,7 +67,6 @@ before legacy routers retire; today they differ per engine.
 | `sglang` | `GET /api/sglang/check-updates -> object` | `GET /api/sglang/status -> object` | `POST /api/sglang/install -> object` | — |
 | `sglang_sxm2` | — | — | — | — |
 | `sglang_v100` | `GET /api/sglang-v100/check-updates -> object` | `GET /api/sglang-v100/status -> object` | `POST /api/sglang-v100/install -> object` | — |
-| `strata` | — | — | — | — |
 | `unsloth_llama` | `GET /api/unsloth-llama/check-updates -> object` | — | `POST /api/unsloth-llama/install -> object` | — |
 | `vllm` | `GET /api/vllm/check-updates -> object` | `GET /api/vllm/status -> object` | `POST /api/vllm/install -> object` | — |
 
@@ -89,7 +86,6 @@ Persisted defaults each engine must keep producing after migration
 | `sglang` | `backend/venv_install_settings.py:default_install_settings` | `pip_version`, `source_branch`, `source_repo` |
 | `sglang_sxm2` | `backend/venv_install_settings.py:default_install_settings` | `source_branch`, `source_repo` |
 | `sglang_v100` | `backend/venv_install_settings.py:default_install_settings` | `source_branch`, `source_repo` |
-| `strata` | `—` | prebuilt installs have no persisted settings surface |
 | `unsloth_llama` | `—` | prebuilt installs have no persisted settings surface |
 | `vllm` | `backend/venv_install_settings.py:default_install_settings` | `pip_version`, `source_branch`, `source_repo` |
 
@@ -169,6 +165,7 @@ Persisted defaults each engine must keep producing after migration
 | `/api/lmdeploy/install-source` | POST → object | lmdeploy |
 | `/api/lmdeploy/remove` | POST → object | lmdeploy |
 | `/api/lmdeploy/status` | GET → object | lmdeploy |
+| `/api/metrics` | GET → string | — |
 | `/api/model-catalog/import` | POST → unknown | — |
 | `/api/model-catalog/install` | POST → unknown | — |
 | `/api/model-catalog/search` | POST → unknown | — |
@@ -223,6 +220,7 @@ Persisted defaults each engine must keep producing after migration
 | `/api/proxy/requests/{request_id}/replay` | POST → unknown | — |
 | `/api/proxy/settings` | PUT → unknown | — |
 | `/api/proxy/stats/reset` | POST → unknown | — |
+| `/api/proxy/vram` | GET → unknown | — |
 | `/api/ready` | GET → unknown | — |
 | `/api/runtime/apply-launch` | POST → unknown | — |
 | `/api/runtime/pending` | GET → unknown | — |
@@ -251,6 +249,9 @@ Persisted defaults each engine must keep producing after migration
 | `/api/sglang/remove` | POST → object | sglang |
 | `/api/sglang/status` | GET → object | sglang |
 | `/api/status` | GET → unknown | — |
+| `/api/storage/cleanup/apply` | POST → unknown | — |
+| `/api/storage/cleanup/preview` | POST → unknown | — |
+| `/api/storage/inventory` | GET → unknown | — |
 | `/api/system-stats` | GET → unknown | — |
 | `/api/tasks/dismiss` | POST → unknown | — |
 | `/api/unsloth-llama/cancel` | POST → object | unsloth_llama |

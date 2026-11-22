@@ -218,8 +218,88 @@
         "title": "BackupReconcileResponse",
         "type": "object"
       },
+      "BenchmarkAggregate": {
+        "properties": {
+          "time_to_first_token_ms": {
+            "$ref": "#/components/schemas/BenchmarkAggregateStats"
+          },
+          "tokens_per_second": {
+            "$ref": "#/components/schemas/BenchmarkAggregateStats"
+          },
+          "total_seconds": {
+            "$ref": "#/components/schemas/BenchmarkAggregateStats"
+          }
+        },
+        "required": [
+          "time_to_first_token_ms",
+          "total_seconds",
+          "tokens_per_second"
+        ],
+        "title": "BenchmarkAggregate",
+        "type": "object"
+      },
+      "BenchmarkAggregateStats": {
+        "properties": {
+          "max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min"
+          },
+          "p50": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50"
+          },
+          "p95": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95"
+          }
+        },
+        "title": "BenchmarkAggregateStats",
+        "type": "object"
+      },
       "BenchmarkResponse": {
         "properties": {
+          "aggregate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BenchmarkAggregate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "completion_tokens": {
             "anyOf": [
               {
@@ -369,6 +449,11 @@
             "title": "Proxy Name",
             "type": "string"
           },
+          "repeats": {
+            "default": 1,
+            "title": "Repeats",
+            "type": "integer"
+          },
           "request_effective_tokens_per_second": {
             "anyOf": [
               {
@@ -379,6 +464,13 @@
               }
             ],
             "title": "Request Effective Tokens Per Second"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/BenchmarkRunResult"
+            },
+            "title": "Runs",
+            "type": "array"
           },
           "schema_version": {
             "default": 1,
@@ -414,6 +506,11 @@
           "total_seconds": {
             "title": "Total Seconds",
             "type": "number"
+          },
+          "warmup": {
+            "default": 0,
+            "title": "Warmup",
+            "type": "integer"
           }
         },
         "required": [
@@ -456,12 +553,72 @@
             "minLength": 1,
             "title": "Prompt",
             "type": "string"
+          },
+          "repeats": {
+            "default": 1,
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Repeats",
+            "type": "integer"
+          },
+          "warmup": {
+            "default": 0,
+            "maximum": 3.0,
+            "minimum": 0.0,
+            "title": "Warmup",
+            "type": "integer"
           }
         },
         "required": [
           "model_id"
         ],
         "title": "BenchmarkRunBody",
+        "type": "object"
+      },
+      "BenchmarkRunResult": {
+        "description": "One measured run; extra stored detail is not part of the API promise.",
+        "properties": {
+          "completion_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Tokens"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "time_to_first_token_ms": {
+            "title": "Time To First Token Ms",
+            "type": "number"
+          },
+          "tokens_per_second": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tokens Per Second"
+          },
+          "total_seconds": {
+            "title": "Total Seconds",
+            "type": "number"
+          }
+        },
+        "required": [
+          "index",
+          "time_to_first_token_ms",
+          "total_seconds"
+        ],
+        "title": "BenchmarkRunResult",
         "type": "object"
       },
       "Body_upload_model_reference_audio_api_models__model_id__reference_audio_post": {
@@ -1197,6 +1354,30 @@
               }
             ],
             "title": "Stream Idle Timeout Seconds"
+          },
+          "vram_admission": {
+            "default": "off",
+            "enum": [
+              "off",
+              "warn",
+              "enforce"
+            ],
+            "title": "Vram Admission",
+            "type": "string"
+          },
+          "vram_estimates": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Vram Estimates",
+            "type": "object"
+          },
+          "vram_safety_margin_mib": {
+            "default": 1024,
+            "maximum": 1048576.0,
+            "minimum": 0.0,
+            "title": "Vram Safety Margin Mib",
+            "type": "integer"
           }
         },
         "title": "ProxySettingsBody",
@@ -1388,6 +1569,69 @@
           "token"
         ],
         "title": "SessionLogin",
+        "type": "object"
+      },
+      "StorageCleanupApplyBody": {
+        "properties": {
+          "confirm": {
+            "default": false,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "plan_id": {
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "Plan Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan_id"
+        ],
+        "title": "StorageCleanupApplyBody",
+        "type": "object"
+      },
+      "StorageCleanupPreviewBody": {
+        "properties": {
+          "category": {
+            "enum": [
+              "models",
+              "hf_cache",
+              "engine_installs",
+              "cuda_toolkits",
+              "jit_caches",
+              "history_backups",
+              "accounting_db"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "keep_history": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keep History"
+          },
+          "unit_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Unit Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "category"
+        ],
+        "title": "StorageCleanupPreviewBody",
         "type": "object"
       },
       "TemplateCreateBody": {
@@ -4656,6 +4900,28 @@
         ]
       }
     },
+    "/api/metrics": {
+      "get": {
+        "description": "Expose Studio's operational state as Prometheus text.\n\nManagement-authorized like the rest of ``/api``. Values come from existing\nin-process state and cached observations; unknown values are omitted. The\nresponse is the Prometheus text format (version 0.0.4).",
+        "operationId": "get_metrics_api_metrics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Prometheus metrics for the management process",
+        "tags": [
+          "observability"
+        ]
+      }
+    },
     "/api/model-catalog/import": {
       "post": {
         "operationId": "import_audio_bundle_api_model_catalog_import_post",
@@ -7355,6 +7621,26 @@
         ]
       }
     },
+    "/api/proxy/vram": {
+      "get": {
+        "description": "GPU admission observation: mode, probe, estimates and last decision.\n\nRead-only and additive. The probe is never run here; it reports the last\ncached probe so the page load cannot block on NVML or nvidia-smi.",
+        "operationId": "get_proxy_vram_api_proxy_vram_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Proxy Vram",
+        "tags": [
+          "proxy"
+        ]
+      }
+    },
     "/api/ready": {
       "get": {
         "description": "Readiness. First-run with no engine installed is ready; a required proxy failure is not.",
@@ -8515,6 +8801,128 @@
         "summary": "Get System Status",
         "tags": [
           "status"
+        ]
+      }
+    },
+    "/api/storage/cleanup/apply": {
+      "post": {
+        "description": "Apply a previewed plan after re-scanning and revalidating every unit.",
+        "operationId": "storage_cleanup_apply_api_storage_cleanup_apply_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StorageCleanupApplyBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Storage Cleanup Apply",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/storage/cleanup/preview": {
+      "post": {
+        "description": "Resolve opaque unit ids into a short-lived, guarded cleanup plan.",
+        "operationId": "storage_cleanup_preview_api_storage_cleanup_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StorageCleanupPreviewBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Storage Cleanup Preview",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/storage/inventory": {
+      "get": {
+        "description": "Return the cached (or freshly scanned) storage inventory.",
+        "operationId": "storage_inventory_api_storage_inventory_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "refresh",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Refresh",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Storage Inventory",
+        "tags": [
+          "storage"
         ]
       }
     },
