@@ -31,6 +31,11 @@ vi.mock('axios', () => ({
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn().mockResolvedValue(undefined) }),
+  RouterLink: {
+    name: 'RouterLink',
+    props: ['to'],
+    template: '<a :href="to"><slot /></a>',
+  },
   useRoute: () => ({ name: 'search', query: {} }),
 }))
 
@@ -91,6 +96,10 @@ function mountModelSearch() {
         },
         InputText: true,
         Select: true,
+        RouterLink: {
+          props: ['to'],
+          template: '<a :href="to"><slot /></a>',
+        },
         LoadingState: true,
         EmptyState: true,
       },
