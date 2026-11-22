@@ -229,6 +229,89 @@ ledger, because doing so would reset budgets. It is local operational state,
 separate from portable configuration exports. Use one local data volume; this
 SQLite implementation is not a distributed quota service.
 
+## GPU admission
+
+A cold start can be refused before a process is spawned when the selected GPUs
+cannot hold the model. The check is a preflight sanity check, not a memory
+fitter: llama.cpp auto-fit still owns the context and layer-count decision (see
+[runtime auto-fit](runtime-auto-fit.md)). Admission never changes a launch
+argument and never adds a model-configuration field; its settings live on the
+proxy.
+
+Three live-applied proxy settings control it (no proxy restart, no engine
+reload; they take effect on the next start):
+
+| Setting | Values | Default | Meaning |
+| --- | --- | --- | --- |
+| `vram_admission` | `off`, `warn`, `enforce` | `off` | Preflight mode. `off` keeps the previous behavior: no probe, no decision, no activity. |
+| `vram_safety_margin_mib` | 0..1048576 MiB | `1024` | Headroom reserved on every selected GPU. |
+| `vram_estimates` | proxy model id -> 1..4194304 MiB, max 500 | `{}` | Operator estimates. They are gateway settings, not model configuration. |
+
+Estimates are resolved in one order and always keep their evidence:
+
+1. `settings` - an operator override (high confidence).
+2. `observed` - the last uncontended ready-time used-memory delta for that model
+   (medium confidence). It is measured in this Studio process and survives a
+   proxy restart; a full Studio restart starts with no observations.
+3. `file_size` - the model payload size, a weights-only lower bound (low
+   confidence; real residency adds KV cache, compute buffers and overhead).
+4. `unknown` - nothing comparable, including a model whose size Studio cannot
+   see.
+
+Enforcement is deliberately asymmetric:
+
+- `enforce` refuses **only a known deficit** from an override or an observation,
+  after subtracting the safety margin and in-flight reservations on the selected
+  devices.
+- A deficit computed from the weights-only bound warns and admits, because a
+  lower bound cannot prove that a start fails.
+- An unknown estimate or a failed GPU probe admits with an `unknown` decision.
+  Admission never invents a rejection from missing data.
+- `warn` records the same decision and admits.
+- CPU mode and non-NVIDIA vendors are skipped: this release covers NVIDIA only.
+
+The device set comes from the compiled LaunchSpec (`CUDA_VISIBLE_DEVICES`), never
+from engine-id dispatch. Numeric ids map to probe device indexes, UUIDs map
+through the cached GPU inventory, and an identity that cannot be mapped makes the
+check `unknown` instead of guessing. A multi-device start is preflighted per
+device; in-flight reservations are split evenly across their device set so the
+aggregate headroom stays exact. A reservation is released when the model is
+ready (the probe then already reflects its residency) and on teardown.
+
+A refused start maps to HTTP `409` with a stable code and the full decision:
+
+```json
+{
+  "error": "Estimate 16384 MiB (settings) exceeds 7168 MiB available after the 1024 MiB safety margin; refusing to start demo.",
+  "code": "INSUFFICIENT_VRAM",
+  "detail": {
+    "decision": "rejected",
+    "model": "demo",
+    "estimate_mib": 16384,
+    "estimate_source": "settings",
+    "available_mib": 7168,
+    "deficit_mib": 9216,
+    "devices": [
+      { "index": 0, "free_mib": 8192, "reserved_mib": 0, "margin_mib": 1024, "available_mib": 7168 }
+    ]
+  }
+}
+```
+
+Existing `429` (queue/max loaded) and `502` (engine failure) bodies are unchanged.
+`GET /api/proxy/vram` reports the current mode, the last cached probe,
+configured and observed estimates, in-flight reservations, and the last
+admission decision. `GET /api/proxy` carries the same snapshot under `vram`, and
+catalog rows gain `vram_estimate` (`{mib, source}` or `null`). Running rows gain
+`vram`, the ready-time observation for that generation (`estimate_mib`,
+`estimate_source`, `observed_mib`, `quality`, per-device deltas). Activity types
+`vram_warning`, `vram_rejected` and `vram_unverified` appear in the proxy
+activity ring.
+
+The GPU probe runs on the shared blocking pool, never on the event loop; page
+reads report the last cached probe. Probe failure is an `unknown` decision, not
+a crash and not a refusal.
+
 ## Overload and timeouts
 
 The queue limit bounds requests waiting for global/model slots. The effective
