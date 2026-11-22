@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+﻿import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 const { fetchStorageInventory, previewStorageCleanup, applyStorageCleanup } = vi.hoisted(() => ({
@@ -53,7 +53,7 @@ function planFixture() {
     category: 'models',
     category_label: 'Model files',
     keep_history: null,
-    units: [{ id: 'u1', label: 'audio-cpp/orphan', bytes: 30 }],
+    units: [{ id: 'u1', label: 'voice-models/orphan', bytes: 30 }],
     refused: [],
     reclaimable_bytes: 30,
     confirmation_phrase: 'DELETE 1 MODEL DIRECTORIES',
@@ -110,9 +110,9 @@ describe('storage store', () => {
       category_label: 'Model files',
       outcome: 'partial',
       freed_bytes: 20,
-      removed: [{ id: 'u1', label: 'audio-cpp/orphan', bytes: 20 }],
+      removed: [{ id: 'u1', label: 'voice-models/orphan', bytes: 20 }],
       failed: [
-        { id: 'u2', label: 'audio-cpp/busy', bytes: 10, code: 'RUNNING_MODEL', message: 'x' },
+        { id: 'u2', label: 'voice-models/busy', bytes: 10, code: 'RUNNING_MODEL', message: 'x' },
       ],
       notice: 'Some units were removed.',
     })

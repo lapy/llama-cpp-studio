@@ -19,7 +19,7 @@ import StoragePanel from './StoragePanel.vue'
 function unit(overrides = {}) {
   return {
     id: 'unit-1',
-    label: 'audio-cpp/orphan',
+    label: 'voice-models/orphan',
     kind: 'model_payload',
     bytes: 4096,
     cleanable: true,
@@ -51,7 +51,7 @@ function category(overrides = {}) {
       unit(),
       unit({
         id: 'unit-2',
-        label: 'audio-cpp/keep',
+        label: 'voice-models/keep',
         bytes: 4096,
         cleanable: false,
         blocked: {
@@ -130,7 +130,7 @@ describe('StoragePanel', () => {
           units: [
             unit({
               id: 'engine-1',
-              label: 'llama_cpp/demo',
+              label: 'native/demo',
               kind: 'engine_install',
               cleanable: false,
               blocked: {
@@ -170,11 +170,11 @@ describe('StoragePanel', () => {
       category: 'models',
       category_label: 'Model files',
       keep_history: null,
-      units: [{ id: 'unit-1', label: 'audio-cpp/orphan', bytes: 4096 }],
+      units: [{ id: 'unit-1', label: 'voice-models/orphan', bytes: 4096 }],
       refused: [
         {
           id: 'unit-2',
-          label: 'audio-cpp/keep',
+          label: 'voice-models/keep',
           bytes: 4096,
           code: 'CATALOG_MODEL',
           message: 'A catalog model uses this directory.',
@@ -192,11 +192,11 @@ describe('StoragePanel', () => {
       category_label: 'Model files',
       outcome: 'partial',
       freed_bytes: 4096,
-      removed: [{ id: 'unit-1', label: 'audio-cpp/orphan', bytes: 4096 }],
+      removed: [{ id: 'unit-1', label: 'voice-models/orphan', bytes: 4096 }],
       failed: [
         {
           id: 'unit-2',
-          label: 'audio-cpp/keep',
+          label: 'voice-models/keep',
           bytes: 4096,
           code: 'CATALOG_MODEL',
           message: 'A catalog model uses this directory.',
@@ -225,8 +225,8 @@ describe('StoragePanel', () => {
     expect(applyStorageCleanup).toHaveBeenCalledWith('a'.repeat(64))
     expect(wrapper.text()).toContain('Cleanup partial')
     expect(wrapper.text()).toContain('4.0 KiB freed')
-    expect(wrapper.text()).toContain('Removed audio-cpp/orphan')
-    expect(wrapper.text()).toContain('audio-cpp/keep: A catalog model uses this directory.')
+    expect(wrapper.text()).toContain('Removed voice-models/orphan')
+    expect(wrapper.text()).toContain('voice-models/keep: A catalog model uses this directory.')
     expect(wrapper.text()).toContain('Some units were removed; the rest stayed.')
   })
 
