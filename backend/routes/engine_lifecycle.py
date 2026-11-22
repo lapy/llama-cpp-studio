@@ -20,8 +20,11 @@ engines register the shared installer machinery; the three native
 llama-family engines register per-verb overrides delegating to their own
 route functions (see ``EngineLifecycle`` docstring) — verbs they do not
 implement answer 405 rather than being faked (no per-engine ``status``, no
-engine-wide ``remove``). The audio engine stays on its flag-gated,
-drift-aware router as the plan's declared extension (see matrix §7).
+engine-wide ``remove``). A YAML-only native engine (``native_host`` plus a
+``lifecycle`` block) registers the native host installer and serves the same
+generic verbs with no legacy prefix. The audio engine stays on its
+flag-gated, drift-aware router as the plan's declared extension (see
+matrix §7).
 """
 
 from typing import Any, Dict, Optional

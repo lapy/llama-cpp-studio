@@ -98,6 +98,8 @@ code:
 - `GET|PUT /api/engines/{engine_id}/build-settings`
 - `GET /api/engines/{engine_id}/status`
 - `POST /api/engines/{engine_id}/{install,install-source,remove,cancel}`
+  (`install-source` only when the definition declares a `source` recipe;
+  otherwise 405)
 - `GET /api/engines/{engine_id}/check-updates` (when `lifecycle.update_source`
   is declared; otherwise 405)
 - `GenericVenvInstaller` executes the declared recipes through shared
@@ -107,6 +109,31 @@ code:
   `serverBackedDescriptor` / `presentationForEngine` (label, verbs, generic
   card/dialog) using `generic_lifecycle`, `generic_verbs` and `ui_kind`.
 
+### Native (install-dir) engines
+
+An engine that installs a directory tree instead of a Python virtualenv declares
+`native_host` (`cmake_source`, `audio_cpp` or `release_assets`) and, when it is
+a YAML-only engine, a `lifecycle` block plus its `recipes`. Startup then builds
+the same generic `EngineLifecycle` record, but the installer comes from
+`get_native_installer(engine_id)` — the host named by the definition, not the
+venv installer and never an engine-id branch. The record serves the same verbs
+over `/api/engines/{engine_id}` with no legacy `/api/<segment>` prefix:
+
+| Verb | Native plan |
+| --- | --- |
+| `install` | the declared `release` recipe through the host |
+| `status` / `cancel` / `remove` | the host's install-dir lifecycle |
+| `build-settings` | the declared `settings_defaults` surface |
+| `check-updates` | only when `lifecycle.update_source` is declared |
+| `install-source` | only when a `source` recipe is declared; otherwise 405 |
+
+The installer is resolved lazily and cached on the record, so an in-flight
+operation and its cancellation task are the same host instance for every
+request. A `native_host` that cannot be resolved is a loud error, never a
+silent fallback to the venv installer. `docs/strata-engine.md` records the
+planned Strata integration as the worked example: it declares no engine today
+because its Terminal-owned model preparation has no host yet.
+
 ## 3. What still requires code — declared mechanisms, not engine ids
 
 - `install_kind`, `runtime_kind` and `scanner_kind` are **closed vocabularies**
@@ -115,6 +142,9 @@ code:
   protocol, native build host or help parser — needs one shared, kind-keyed
   implementation. Engine-id branches are never the correct extension point; see
   [engine host and presentation boundaries](engine-host-and-presentation-boundaries.md).
+  Concretely, a new `native_host` value is one host factory in
+  `backend/engines/adapters.py` (`_NATIVE_HOST_FACTORIES`) plus the shared host
+  class; definitions then select it by name.
 - The frontend `ENGINE_DESCRIPTORS` table is static for shipped engines (icons,
   copy, specialty panels) and doubles as the offline fallback. It is not
   required for a new engine; specialty UI for a new presentation family needs a
