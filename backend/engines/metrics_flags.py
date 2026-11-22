@@ -31,6 +31,11 @@ MANAGED_METRIC_ARGS: Mapping[str, tuple[str, ...]] = {
         "--enable-force-include-usage",
         "--kv-cache-metrics",
     ),
+    "revolta": (
+        "--enable-prompt-tokens-details",
+        "--enable-force-include-usage",
+        "--kv-cache-metrics",
+    ),
     "sglang": (
         "--enable-cache-report",
         "--enable-metrics",
@@ -63,6 +68,7 @@ OWNED_LOG_ARGS: Mapping[str, tuple[str, ...]] = {
     "ik_llama": ("--log-disable", "--log-file"),
     "unsloth_llama": ("--log-disable", "--log-file"),
     "vllm": ("--log-config-file", "--disable-log-stats"),
+    "revolta": ("--log-config-file", "--disable-log-stats"),
     "1cat_vllm": ("--log-config-file", "--disable-log-stats"),
     "sglang": ("--log-level", "--log-level-http", "--log-requests-target"),
     "sglang_v100": ("--log-level", "--log-level-http", "--log-requests-target"),

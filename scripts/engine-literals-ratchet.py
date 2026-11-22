@@ -73,7 +73,7 @@ AREA_CAPS: Dict[str, int] = {
     # 2026-11-11: 68 -> 69. The third SM70 fork joined as one descriptor reusing
     # the SM70 panel variant — one identity site; its versionsKey/managerKey
     # derive from the id.
-    "frontend/src/engines/": 69,
+    "frontend/src/engines/": 68,
     # 2026-11-15: 323 -> 325. CUDA activation adds one reviewed API endpoint
     # call site in engines.js; the ratchet's token set matches the shared
     # versions URL prefix for two engine ids.

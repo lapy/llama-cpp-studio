@@ -35,6 +35,8 @@ The footer shows compact application/service status and a link to System. Activi
 | `sglang`        | SGLang            | safetensors/Hugging Face snapshot                        | Managed Python environment; SGLang server and discovered runtime profiles.               |
 | `sglang_v100`   | SGLang V100       | safetensors/Hugging Face snapshot                        | Source installation in a managed Python environment with a V100-specific build workflow. |
 | `sglang_sxm2`   | SGLang SXM2       | safetensors/Hugging Face snapshot                        | Source installation in a managed Python environment with a V100-SXM2 build workflow.     |
+| `revolta`       | ReVolta           | safetensors/Hugging Face snapshot                        | Managed Python environment; SM70-only release wheel from `Leonccaa/ReVolta`.            |
+| `strata`        | Strata            | Strata model profiles                                    | Experimental registration; the Strata Terminal owns engine installation and model preparation. |
 | `audio_cpp`     | audio.cpp         | Prepared audio packages and discovered GGUF audio models | Source/CMake build; model-scoped `audiocpp_server`; validated through 0.9.5.             |
 
 The shared engine registry describes artifact formats, package kinds, tasks, input/output modalities, installation type, scanner type, active path fields, and capability hints. Compatibility requires a suitable installed runtime and model; a registry task label does not certify every model/build combination.
@@ -48,6 +50,8 @@ audio.cpp reports a compatibility ceiling of `0.9.5`: a newer version still inst
 Source-based engines accept repository and tracking-ref settings. Saved build settings control supported CMake flags and engine-specific options. A version can carry its own build configuration; source synchronization uses that configuration when present. Custom repositories retain their own identity and source-sync workflow. Unsloth installations select a published artifact appropriate to the detected host and verify its checksum.
 
 Python engines use Studio-managed environments. Their settings include release/package selection and source repository/ref choices where supported by the installer. Source installation uses the selected repository and engine-specific build environment. The SM70 SGLang engines (`sglang_v100`, `sglang_sxm2`) each use their dedicated source workflow, a managed Python environment, and Studio-managed CUDA 12.8; each installer supplies the selected fork's dependency/build steps while Studio supplies host-tool and CUDA paths.
+
+ReVolta is a release-first V100/SM70 vLLM fork distributed as the `revolta` wheel; its import name and CLI stay `vllm`, so Studio reuses the vLLM runtime mechanism, parameter scanner and managed build environment. Strata is registered as an experimental native engine: its Terminal installs the per-backend engine and prepares model run profiles outside Studio, so the registry currently declares its identity, prepared-profile artifact contract and hardware policy without offering a Studio install or launch action.
 
 Engine activation and explicit rescanning populate the parameter catalog. Source build, Python package installation, and prebuilt installation have different hardware and dependency requirements; installer errors and build logs provide the concrete result.
 

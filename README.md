@@ -98,6 +98,8 @@ The npm backend scripts invoke `python`, so activate the environment first. Use
 | SGLang            | `sglang`        | safetensors snapshots                                    | Managed Python environment.                              |
 | SGLang V100       | `sglang_v100`   | safetensors snapshots                                    | Dedicated source/build workflow and managed Python/CUDA. |
 | SGLang SXM2       | `sglang_sxm2`   | safetensors snapshots                                    | Dedicated source/build workflow and managed Python/CUDA. |
+| ReVolta           | `revolta`       | safetensors snapshots                                    | Managed Python environment; V100/SM70 release wheel.     |
+| Strata            | `strata`        | Strata model profiles                                    | Experimental registration; the Strata Terminal owns install/model preparation. |
 | audio.cpp         | `audio_cpp`     | Prepared audio packages and discovered audio GGUF models | Source/CMake build; validated through 0.9.5.             |
 
 Available tasks and hardware support depend on the installed engine and selected model.

@@ -120,6 +120,15 @@ ENGINE_CAPABILITIES: Mapping[str, EngineCapabilities] = {
         count_adapter="vllm_tokenize",
         notes=("Do not inherit mainline vLLM per-request timing without a build probe.",),
     ),
+    "revolta": EngineCapabilities(
+        engine="revolta",
+        family=VLLM_FAMILY,
+        protocols=_VLLM_PROTOCOLS,
+        count_adapter="vllm_tokenize",
+        notes=(
+            "SM70-only vLLM fork; probe per build rather than inheriting mainline timing.",
+        ),
+    ),
     "sglang": EngineCapabilities(
         engine="sglang",
         family=SGLANG_FAMILY,
