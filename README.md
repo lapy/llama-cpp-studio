@@ -373,6 +373,11 @@ describe exact inclusion, preview, and recovery behavior.
 takes effect at listener restart; the public URL supplies client examples and connection
 details. TLS termination belongs at the deployment's reverse proxy.
 
+Studio is a single-operator, single-host deployment. See the
+[single-operator deployment guide](docs/single-operator-deployment.md) for the security
+boundary, GPU/toolkit practice, storage and backup policy, operating routine and incident
+checklist.
+
 ## Quality gates
 
 ```bash
