@@ -21,7 +21,7 @@ def _seed_storage(tmp_path, monkeypatch):
     (data / "config").mkdir(parents=True)
     monkeypatch.setenv("STUDIO_DATA_DIR", str(data))
     monkeypatch.setenv("HUGGINGFACE_HUB_CACHE", str(data / "hf-cache" / "hub"))
-    monkeypatch.setenv("STUDIO_CCACHE_DIR", str(tmp_path / "ccache"))
+    monkeypatch.setenv("STUDIO_CCACHE_DIR", str(data / "ccache"))
     store = data_store.DataStore(config_dir=str(data / "config"))
     monkeypatch.setattr(data_store, "_store", store)
     storage_inventory.clear_storage_inventory_cache()
