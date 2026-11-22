@@ -215,6 +215,13 @@
   text-align: center;
 }
 
+/* Pills are compact on desktop but keep the touch target minimum. */
+@media (max-width: 640px), (pointer: coarse) {
+  .section-tabs--pills .section-tabs__tab {
+    min-height: 2.75rem;
+  }
+}
+
 @media (max-width: 600px) {
   .section-tabs--responsive-grid {
     display: grid;
@@ -300,6 +307,14 @@
     flex: 1 1 auto;
     width: 100%;
     margin-left: 0;
+  }
+
+  /* Dense toolbar controls still meet the touch target minimum. */
+  .page-toolbar .p-button,
+  .page-toolbar .p-inputtext,
+  .page-toolbar .p-select,
+  .page-toolbar .field {
+    min-height: 2.75rem;
   }
 }
 
