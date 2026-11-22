@@ -6,92 +6,101 @@
     class="build-settings-dialog dialog-width-md"
     @update:visible="$emit('update:visible', $event)"
   >
-    <div class="dialog-body build-settings-body">
+    <div class="dialog-stack build-settings-body">
       <PersistenceAlert :notice="notice" @retry="$emit('retry')" @refresh="$emit('refresh')" />
-      <p class="build-note build-note--info">{{ note }}</p>
-      <div class="form-field">
-        <label>{{ versionLabel }} <span class="optional">(optional)</span></label>
-        <InputText
-          :model-value="form[versionKey] || ''"
-          :placeholder="versionPlaceholder"
-          class="w-full"
-          @update:model-value="$emit('field', versionKey, $event)"
-        />
-        <small>{{ versionHint }}</small>
-      </div>
-      <div class="form-field">
-        <label>Source repo URL</label>
-        <InputText
-          :model-value="form.source_repo || ''"
-          :placeholder="repoPlaceholder"
-          class="w-full"
-          @update:model-value="$emit('field', 'source_repo', $event)"
-        />
-      </div>
-      <div class="form-field">
-        <label>Source branch</label>
-        <InputText
-          :model-value="form.source_branch || ''"
-          placeholder="main"
-          class="w-full"
-          @update:model-value="$emit('field', 'source_branch', $event)"
-        />
-      </div>
-      <div v-if="compatibility?.show" class="form-field compatibility-options">
-        <label>Compatibility</label>
-        <small class="compatibility-note">{{ compatibility.note }}</small>
-        <label
-          v-for="option in compatibility.options"
-          :key="option.key"
-          class="compatibility-option"
-        >
-          <Checkbox
-            :model-value="Boolean(form[option.key])"
-            binary
-            @update:model-value="$emit('field', option.key, $event)"
+      <StateBanner severity="info" role="note" class="build-settings-note">{{ note }}</StateBanner>
+      <div class="page-form">
+        <div class="page-form__field">
+          <label class="page-form__label" :for="versionFieldId">
+            {{ versionLabel }} (optional)
+          </label>
+          <InputText
+            :id="versionFieldId"
+            :model-value="form[versionKey] || ''"
+            :placeholder="versionPlaceholder"
+            class="w-full"
+            @update:model-value="$emit('field', versionKey, $event)"
           />
-          <span>
-            {{ option.label }}
-            <small v-if="option.hint" class="compatibility-hint">{{ option.hint }}</small>
-          </span>
-        </label>
+          <p class="page-form__hint">{{ versionHint }}</p>
+        </div>
+        <div class="page-form__field">
+          <label class="page-form__label" :for="repoFieldId">Source repo URL</label>
+          <InputText
+            :id="repoFieldId"
+            :model-value="form.source_repo || ''"
+            :placeholder="repoPlaceholder"
+            class="w-full"
+            @update:model-value="$emit('field', 'source_repo', $event)"
+          />
+        </div>
+        <div class="page-form__field">
+          <label class="page-form__label" :for="branchFieldId">Source branch</label>
+          <InputText
+            :id="branchFieldId"
+            :model-value="form.source_branch || ''"
+            placeholder="main"
+            class="w-full"
+            @update:model-value="$emit('field', 'source_branch', $event)"
+          />
+        </div>
+        <fieldset v-if="compatibility?.show" class="page-form__field page-form__field--full">
+          <legend class="page-form__label">Compatibility</legend>
+          <p class="page-form__hint">{{ compatibility.note }}</p>
+          <label
+            v-for="option in compatibility.options"
+            :key="option.key"
+            class="compatibility-option"
+          >
+            <Checkbox
+              :model-value="Boolean(form[option.key])"
+              binary
+              @update:model-value="$emit('field', option.key, $event)"
+            />
+            <span>
+              {{ option.label }}
+              <span class="page-form__hint">{{ option.hint }}</span>
+            </span>
+          </label>
+        </fieldset>
       </div>
-      <div v-if="extraNote" class="form-field">
-        <small>{{ extraNote }}</small>
-      </div>
+      <p v-if="extraNote" class="page-form__hint">{{ extraNote }}</p>
     </div>
     <template #footer>
-      <Button
-        label="Cancel"
-        severity="secondary"
-        outlined
-        @click="$emit('update:visible', false)"
-      />
-      <Button
-        label="Save settings"
-        icon="pi pi-save"
-        severity="secondary"
-        :loading="saving"
-        :disabled="saveDisabled"
-        @click="$emit('save')"
-      />
-      <Button
-        :label="installLabel"
-        icon="pi pi-code"
-        severity="info"
-        :loading="installLoading"
-        @click="$emit('install')"
-      />
+      <div class="dialog-actions">
+        <Button
+          label="Cancel"
+          severity="secondary"
+          outlined
+          @click="$emit('update:visible', false)"
+        />
+        <Button
+          label="Save settings"
+          icon="pi pi-save"
+          severity="secondary"
+          :loading="saving"
+          :disabled="saveDisabled"
+          @click="$emit('save')"
+        />
+        <Button
+          :label="installLabel"
+          icon="pi pi-code"
+          severity="info"
+          :loading="installLoading"
+          @click="$emit('install')"
+        />
+      </div>
     </template>
   </Dialog>
 </template>
 
 <script setup>
+import { useId } from 'vue'
 import Button from 'primevue/button'
 import Checkbox from 'primevue/checkbox'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
 import PersistenceAlert from '@/components/common/PersistenceAlert.vue'
+import StateBanner from '@/components/common/StateBanner.vue'
 
 defineProps({
   visible: { type: Boolean, default: false },
@@ -113,22 +122,33 @@ defineProps({
 })
 
 defineEmits(['update:visible', 'field', 'save', 'install', 'retry', 'refresh'])
+
+const idSuffix = useId()
+const versionFieldId = `engine-settings-version-${idSuffix}`
+const repoFieldId = `engine-settings-repo-${idSuffix}`
+const branchFieldId = `engine-settings-branch-${idSuffix}`
 </script>
 
 <style scoped>
-.compatibility-note {
-  display: block;
-  margin-bottom: 0.5rem;
-  color: var(--text-color-secondary);
+.build-settings-note {
+  margin-bottom: 0;
+  font-size: var(--text-sm);
 }
+
+fieldset.page-form__field {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+fieldset legend.page-form__label {
+  padding: 0;
+}
+
 .compatibility-option {
   display: flex;
   gap: 0.5rem;
   align-items: flex-start;
   margin: 0.4rem 0;
-}
-.compatibility-hint {
-  display: block;
-  color: var(--text-color-secondary);
 }
 </style>

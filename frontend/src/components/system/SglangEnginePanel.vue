@@ -1,5 +1,5 @@
 <template>
-  <section class="sglang-panel">
+  <section class="sglang-panel dialog-stack">
     <EngineBuildSettingsHint
       :key="`${engineId}-${hintRevision}`"
       :engine-key="engineId"
@@ -94,30 +94,55 @@
       modal
       class="dialog-width-md"
     >
-      <div class="dialog-body">
+      <div class="dialog-stack">
         <PersistenceAlert :notice="saveNotice" @retry="saveSettings" @refresh="refreshSettings" />
-        <div v-if="!isV100" class="form-field">
-          <label>Default PyPI version <span class="optional">(optional)</span></label>
-          <InputText v-model="form.pip_version" placeholder="Blank = latest" class="w-full" />
-        </div>
-        <div class="form-field">
-          <label>Source repo URL</label>
-          <InputText v-model="form.source_repo" :placeholder="defaultRepo" class="w-full" />
-        </div>
-        <div class="form-field">
-          <label>Source branch</label>
-          <InputText v-model="form.source_branch" placeholder="main" class="w-full" />
+        <div class="page-form page-form--single">
+          <div v-if="!isV100" class="page-form__field">
+            <label class="page-form__label" :for="`sglang-${engineId}-pip-version`">
+              Default PyPI version (optional)
+            </label>
+            <InputText
+              :id="`sglang-${engineId}-pip-version`"
+              v-model="form.pip_version"
+              placeholder="Blank = latest"
+              class="w-full"
+            />
+          </div>
+          <div class="page-form__field">
+            <label class="page-form__label" :for="`sglang-${engineId}-source-repo`">
+              Source repo URL
+            </label>
+            <InputText
+              :id="`sglang-${engineId}-source-repo`"
+              v-model="form.source_repo"
+              :placeholder="defaultRepo"
+              class="w-full"
+            />
+          </div>
+          <div class="page-form__field">
+            <label class="page-form__label" :for="`sglang-${engineId}-source-branch`">
+              Source branch
+            </label>
+            <InputText
+              :id="`sglang-${engineId}-source-branch`"
+              v-model="form.source_branch"
+              placeholder="main"
+              class="w-full"
+            />
+          </div>
         </div>
       </div>
       <template #footer>
-        <Button label="Cancel" severity="secondary" outlined @click="settingsVisible = false" />
-        <Button
-          label="Save settings"
-          icon="pi pi-save"
-          :loading="saving"
-          :disabled="saveHeld"
-          @click="saveSettings"
-        />
+        <div class="dialog-actions">
+          <Button label="Cancel" severity="secondary" outlined @click="settingsVisible = false" />
+          <Button
+            label="Save settings"
+            icon="pi pi-save"
+            :loading="saving"
+            :disabled="saveHeld"
+            @click="saveSettings"
+          />
+        </div>
       </template>
     </Dialog>
 
@@ -128,28 +153,40 @@
       modal
       class="dialog-width-sm"
     >
-      <div class="dialog-body">
-        <div class="form-field">
-          <label>Version</label>
-          <InputText v-model="pipVersion" placeholder="Blank = latest" class="w-full" />
-          <small v-if="isVllm"
-            >Installs the selected official vLLM release in a fresh Studio virtual
-            environment.</small
-          >
-          <small v-else
-            >Pre-release dependencies are allowed, matching upstream installation guidance.</small
-          >
+      <div class="dialog-stack">
+        <div class="page-form page-form--single">
+          <div class="page-form__field">
+            <label class="page-form__label" :for="`sglang-${engineId}-pip-install-version`">
+              Version
+            </label>
+            <InputText
+              :id="`sglang-${engineId}-pip-install-version`"
+              v-model="pipVersion"
+              placeholder="Blank = latest"
+              class="w-full"
+            />
+            <p class="page-form__hint">
+              <template v-if="isVllm">
+                Installs the selected official vLLM release in a fresh Studio virtual environment.
+              </template>
+              <template v-else>
+                Pre-release dependencies are allowed, matching upstream installation guidance.
+              </template>
+            </p>
+          </div>
         </div>
       </div>
       <template #footer>
-        <Button label="Cancel" severity="secondary" outlined @click="pipVisible = false" />
-        <Button
-          label="Install"
-          icon="pi pi-download"
-          severity="success"
-          :loading="installing"
-          @click="installPip"
-        />
+        <div class="dialog-actions">
+          <Button label="Cancel" severity="secondary" outlined @click="pipVisible = false" />
+          <Button
+            label="Install"
+            icon="pi pi-download"
+            severity="success"
+            :loading="installing"
+            @click="installPip"
+          />
+        </div>
       </template>
     </Dialog>
 
@@ -159,29 +196,47 @@
       modal
       class="dialog-width-md"
     >
-      <div class="dialog-body">
-        <div class="form-field">
-          <label>Repo URL</label>
-          <InputText v-model="sourceRepo" :placeholder="defaultRepo" class="w-full" />
+      <div class="dialog-stack">
+        <div class="page-form page-form--single">
+          <div class="page-form__field">
+            <label class="page-form__label" :for="`sglang-${engineId}-source-install-repo`">
+              Repo URL
+            </label>
+            <InputText
+              :id="`sglang-${engineId}-source-install-repo`"
+              v-model="sourceRepo"
+              :placeholder="defaultRepo"
+              class="w-full"
+            />
+          </div>
+          <div class="page-form__field">
+            <label class="page-form__label" :for="`sglang-${engineId}-source-install-branch`">
+              Branch
+            </label>
+            <InputText
+              :id="`sglang-${engineId}-source-install-branch`"
+              v-model="sourceBranch"
+              placeholder="main"
+              class="w-full"
+            />
+          </div>
         </div>
-        <div class="form-field">
-          <label>Branch</label>
-          <InputText v-model="sourceBranch" placeholder="main" class="w-full" />
-        </div>
-        <small v-if="isV100">
+        <p v-if="isV100" class="page-form__hint">
           Runs the fork's SM70 build and validation flow in a Studio-managed Python environment.
           Install CUDA 12.8 from the NVIDIA CUDA engine card first.
-        </small>
+        </p>
       </div>
       <template #footer>
-        <Button label="Cancel" severity="secondary" outlined @click="sourceVisible = false" />
-        <Button
-          :label="isV100 ? 'Build' : 'Install'"
-          icon="pi pi-code"
-          severity="info"
-          :loading="installing"
-          @click="installSource"
-        />
+        <div class="dialog-actions">
+          <Button label="Cancel" severity="secondary" outlined @click="sourceVisible = false" />
+          <Button
+            :label="isV100 ? 'Build' : 'Install'"
+            icon="pi pi-code"
+            severity="info"
+            :loading="installing"
+            @click="installSource"
+          />
+        </div>
       </template>
     </Dialog>
   </section>
@@ -622,10 +677,8 @@ onMounted(refresh)
 </script>
 
 <style scoped>
+/* Panel body inside the engine dialog; spacing comes from .dialog-stack. */
 .sglang-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
   padding: 1rem 1.25rem 1.25rem;
 }
 </style>

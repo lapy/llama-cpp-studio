@@ -4,7 +4,7 @@
       <span v-if="$slots.leading" class="engine-dialog-header__leading">
         <slot name="leading" />
       </span>
-      <span class="engine-dialog-header__title">{{ title }}</span>
+      <h2 :id="headingId || undefined" class="engine-dialog-header__title">{{ title }}</h2>
       <span v-if="$slots.tags" class="engine-dialog-header__tags">
         <slot name="tags" />
       </span>
@@ -42,6 +42,12 @@ import Button from 'primevue/button'
 
 defineProps({
   title: { type: String, required: true },
+  /**
+   * Id for the dialog title heading. PrimeVue labels the dialog with its
+   * generated header id, so pass the slot's `headerId` to keep the dialog's
+   * accessible name pointing at this heading instead of a missing element.
+   */
+  headingId: { type: String, default: '' },
 })
 
 const moreOpen = ref(false)
@@ -110,11 +116,29 @@ onUnmounted(() => {
 
 .engine-dialog-header__leading :deep(.pi) {
   font-size: 1.25rem;
-  color: var(--accent-cyan);
+  color: var(--accent-primary);
+}
+
+/* Engine monogram marks for the native llama-family dialogs. */
+.engine-dialog-header__leading :deep(.engine-mark) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.8rem;
+  height: 1.8rem;
+  padding: 0 0.45rem;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.04em;
 }
 
 .engine-dialog-header__title {
-  font-size: 1.25rem;
+  font-size: var(--text-xl);
   font-weight: 600;
   line-height: 1.3;
   margin: 0;
@@ -133,8 +157,20 @@ onUnmounted(() => {
 }
 
 .engine-dialog-header__tags :deep(.engine-dialog-tag-clip) {
+  display: inline-flex;
   min-width: 0;
   max-width: 100%;
+}
+
+.engine-dialog-header__tags :deep(.p-tag) {
+  max-width: 100%;
+}
+
+.engine-dialog-header__tags :deep(.p-tag-value) {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .engine-dialog-header__actions {
@@ -148,12 +184,12 @@ onUnmounted(() => {
 
 .engine-dialog-header__actions :deep(.p-button),
 .engine-dialog-header__actions :deep(.p-button .p-button-icon) {
-  color: var(--text-secondary, rgba(255, 255, 255, 0.6));
+  color: var(--text-secondary);
 }
 
 .engine-dialog-header__actions :deep(.p-button:enabled:hover),
 .engine-dialog-header__actions :deep(.p-button:enabled:hover .p-button-icon) {
-  color: var(--text-primary, rgba(255, 255, 255, 0.87));
+  color: var(--text-primary);
 }
 
 .engine-dialog-header__more {
@@ -193,7 +229,7 @@ onUnmounted(() => {
 
 @media (max-width: 768px) {
   .engine-dialog-header__title {
-    font-size: 1.05rem;
+    font-size: var(--text-lg);
   }
 
   .engine-dialog-header__tags {
@@ -246,7 +282,7 @@ onUnmounted(() => {
 
   .engine-dialog-header__more.is-open .engine-dialog-header__more-items :deep(.p-button-label) {
     display: inline;
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     font-weight: 500;
     line-height: 1.3;
     text-align: left;

@@ -12,8 +12,8 @@
       </div>
     </EngineCard>
 
-    <Dialog v-model:visible="visible" :header="label" modal :style="{ width: '36rem' }">
-      <div class="generic-engine-dialog">
+    <Dialog v-model:visible="visible" :header="label" modal class="dialog-width-md">
+      <div class="dialog-stack generic-engine-dialog">
         <div class="generic-engine-status">
           <div v-for="line in statusLines" :key="line.label">
             <span class="generic-engine-key">{{ line.label }}</span>
@@ -26,13 +26,13 @@
               label="Cancel"
               size="small"
               severity="secondary"
+              outlined
               @click="cancelOperation"
             />
           </div>
         </div>
 
-        <template v-if="serves('install')">
-          <h4>Install a release</h4>
+        <PageSection v-if="serves('install')" variant="plain" title="Install a release">
           <div class="generic-engine-row">
             <InputText
               v-model="versionInput"
@@ -44,16 +44,16 @@
               label="Check updates"
               size="small"
               severity="secondary"
+              outlined
               :loading="checking"
               @click="checkUpdates"
             />
             <Button label="Install" size="small" :disabled="busy" @click="installRelease" />
           </div>
-          <div v-if="updateText" class="generic-engine-updates">{{ updateText }}</div>
-        </template>
+          <p v-if="updateText" class="generic-engine-updates">{{ updateText }}</p>
+        </PageSection>
 
-        <template v-if="serves('install-source')">
-          <h4>Install from source</h4>
+        <PageSection v-if="serves('install-source')" variant="plain" title="Install from source">
           <div class="generic-engine-row">
             <InputText
               v-model="repoInput"
@@ -65,62 +65,93 @@
               label="Install source"
               size="small"
               severity="secondary"
+              outlined
               :disabled="busy"
               @click="installSource"
             />
           </div>
-        </template>
+        </PageSection>
 
-        <h4>Versions</h4>
-        <ul v-if="versionRows.length" class="generic-engine-versions">
-          <li v-for="row in versionRows" :key="row.id || row.version">
-            <strong>{{ row.version }}</strong>
-            <span> — {{ row.build_status || 'unknown' }}</span>
-            <span v-if="row.error"> ({{ row.error }})</span>
-            <span v-if="row.is_active" class="generic-engine-active">active</span>
-            <Button
-              v-else
-              label="Use"
-              size="small"
-              text
-              :disabled="busy"
-              @click="activateVersionRow(row)"
-            />
-          </li>
-        </ul>
-        <div v-else class="generic-engine-empty">No versions installed yet.</div>
+        <PageSection variant="plain" title="Versions">
+          <ul v-if="versionRows.length" class="generic-engine-versions">
+            <li v-for="row in versionRows" :key="row.id || row.version">
+              <strong>{{ row.version }}</strong>
+              <span> — {{ row.build_status || 'unknown' }}</span>
+              <span v-if="row.error"> ({{ row.error }})</span>
+              <span v-if="row.is_active" class="generic-engine-active">active</span>
+              <Button
+                v-else
+                label="Use"
+                size="small"
+                text
+                :disabled="busy"
+                @click="activateVersionRow(row)"
+              />
+            </li>
+          </ul>
+          <EmptyState
+            v-else
+            heading-tag="h3"
+            title="No versions installed yet"
+            description="Install a release or a source build to create the first version."
+          />
+        </PageSection>
 
-        <template v-if="serves('build-settings')">
-          <h4>Settings</h4>
-          <div class="generic-engine-row">
-            <InputText
-              v-model="pipVersion"
-              placeholder="pinned pip version"
-              aria-label="Pinned version"
-            />
-            <InputText
-              v-model="sourceRepo"
-              placeholder="default source repo"
-              aria-label="Default source repo"
-            />
-            <InputText
-              v-model="sourceBranch"
-              placeholder="default branch"
-              aria-label="Default branch"
-            />
-            <Button label="Save settings" size="small" severity="secondary" @click="saveSettings" />
+        <PageSection v-if="serves('build-settings')" variant="plain" title="Settings">
+          <div class="page-form">
+            <div class="page-form__field">
+              <label class="page-form__label" :for="`${engineId}-pip-version`"
+                >Pinned pip version</label
+              >
+              <InputText
+                :id="`${engineId}-pip-version`"
+                v-model="pipVersion"
+                placeholder="pinned pip version"
+              />
+            </div>
+            <div class="page-form__field">
+              <label class="page-form__label" :for="`${engineId}-source-repo`"
+                >Default source repo</label
+              >
+              <InputText
+                :id="`${engineId}-source-repo`"
+                v-model="sourceRepo"
+                placeholder="default source repo"
+              />
+            </div>
+            <div class="page-form__field">
+              <label class="page-form__label" :for="`${engineId}-source-branch`"
+                >Default branch</label
+              >
+              <InputText
+                :id="`${engineId}-source-branch`"
+                v-model="sourceBranch"
+                placeholder="default branch"
+              />
+            </div>
           </div>
-        </template>
+          <div class="dialog-actions">
+            <Button
+              label="Save settings"
+              size="small"
+              severity="secondary"
+              outlined
+              @click="saveSettings"
+            />
+          </div>
+        </PageSection>
       </div>
       <template #footer>
-        <Button
-          v-if="serves('remove')"
-          label="Remove engine"
-          severity="danger"
-          text
-          :disabled="busy"
-          @click="removeEngine"
-        />
+        <div class="dialog-actions">
+          <Button
+            v-if="serves('remove')"
+            label="Remove engine"
+            severity="danger"
+            text
+            :disabled="busy"
+            @click="removeEngine"
+          />
+        </div>
       </template>
     </Dialog>
   </section>
@@ -144,6 +175,8 @@ import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
+import EmptyState from '@/components/common/EmptyState.vue'
+import PageSection from '@/components/common/PageSection.vue'
 import EngineCard from '@/components/engines/EngineCard.vue'
 import { versionDeleteRetry } from '@/composables/actionConfirmation'
 import { useEnginesStore } from '@/stores/engines'
@@ -408,52 +441,76 @@ onBeforeUnmount(stopPolling)
 }
 
 .generic-engine-badge {
-  font-size: 0.72rem;
   padding: 0.1rem 0.5rem;
-  border-radius: 999px;
   border: 1px solid currentcolor;
+  border-radius: 999px;
+  font-size: var(--text-xs);
 }
+
 .generic-engine-badge[data-state='ok'] {
-  color: var(--p-green-600, #16a34a);
+  color: var(--status-success);
 }
+
 .generic-engine-badge[data-state='busy'] {
-  color: var(--p-orange-500, #f97316);
+  color: var(--status-warning);
 }
+
 .generic-engine-badge[data-state='off'] {
-  color: var(--p-text-muted-color, #6b7280);
+  color: var(--text-secondary);
 }
+
 .generic-engine-lines {
-  font-size: 0.85rem;
-  color: var(--p-text-muted-color, #6b7280);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
 }
+
 .generic-engine-dialog {
+  min-width: 0;
+}
+
+.generic-engine-status {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.25rem;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
 }
-.generic-engine-row {
+
+.generic-engine-operation {
   display: flex;
-  gap: 0.5rem;
   flex-wrap: wrap;
   align-items: center;
+  gap: 0.5rem;
 }
+
+.generic-engine-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .generic-engine-key {
   margin-right: 0.35rem;
   opacity: 0.75;
 }
+
 .generic-engine-versions {
   margin: 0;
   padding-left: 1.1rem;
+  font-size: var(--text-sm);
 }
+
 .generic-engine-active {
   margin-left: 0.5rem;
-  font-size: 0.72rem;
+  color: var(--status-success);
+  font-size: var(--text-xs);
   text-transform: uppercase;
-  color: var(--p-green-600, #16a34a);
 }
-.generic-engine-empty,
+
 .generic-engine-updates {
-  font-size: 0.85rem;
-  color: var(--p-text-muted-color, #6b7280);
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
 }
 </style>

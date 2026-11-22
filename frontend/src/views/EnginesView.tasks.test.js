@@ -774,7 +774,7 @@ describe('EnginesView task integration', () => {
     let body = wrapper.find('.engine-modal-body')
     expect(body.exists()).toBe(true)
     expect(body.find('engine-build-settings-hint-stub').exists(), 'llama hint').toBe(true)
-    expect(body.find('.build-note--info').exists(), 'llama no note').toBe(false)
+    expect(body.find('.engine-modal-note').exists(), 'llama no note').toBe(false)
     expect(body.find('[data-testid="audio-check-updates"]').attributes('data-hint')).toBe(
       'Compare the installed ref to the latest stable release (vX.Y.Z).',
     )
@@ -817,8 +817,8 @@ describe('EnginesView task integration', () => {
     body = wrapper.find('.engine-modal-body')
     expect(body.exists()).toBe(true)
     expect(body.find('engine-build-settings-hint-stub').exists(), 'unsloth no hint').toBe(false)
-    expect(body.find('.build-note--info').exists(), 'unsloth note').toBe(true)
-    expect(body.find('.build-note--info').text()).toContain('not Unsloth Studio')
+    expect(body.find('.engine-modal-note').exists(), 'unsloth note').toBe(true)
+    expect(body.find('.engine-modal-note').text()).toContain('not Unsloth Studio')
     expect(body.find('[data-testid="audio-check-updates"]').attributes('data-hint')).toBe(
       'Compare the active mix tag to the latest unslothai/llama.cpp prebuilt.',
     )
