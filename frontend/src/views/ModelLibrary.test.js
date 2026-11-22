@@ -18,6 +18,9 @@ import {
 } from '@/components/models/lazyLibraryUi'
 
 const fetchModels = vi.fn().mockResolvedValue(undefined)
+// Async component chunks are transformed on first use; a cold Vite run can
+// take several seconds before the placeholder is replaced.
+const ASYNC_UI_WAIT = { timeout: 5000 }
 const fetchSafetensorsModels = vi.fn().mockResolvedValue(undefined)
 const fetchHuggingfaceTokenStatus = vi.fn().mockResolvedValue(undefined)
 const toastAdd = vi.fn()
@@ -96,7 +99,7 @@ async function flushWithFakeTimers() {
 async function mountLibraryWithToolbar() {
   const wrapper = mountLibrary()
   await flushPromises()
-  await vi.waitFor(() => expect(wrapper.find('#library-search').exists()).toBe(true))
+  await vi.waitFor(() => expect(wrapper.find('#library-search').exists()).toBe(true), ASYNC_UI_WAIT)
   return wrapper
 }
 
@@ -317,7 +320,7 @@ describe('ModelLibrary running glow', () => {
   it('shows first-model onboarding with starter search deep links when the library is empty', async () => {
     const wrapper = mountLibrary()
     await flushPromises()
-    await vi.waitFor(() => expect(wrapper.find('.first-model').exists()).toBe(true))
+    await vi.waitFor(() => expect(wrapper.find('.first-model').exists()).toBe(true), ASYNC_UI_WAIT)
 
     const panel = wrapper.get('.first-model')
     expect(panel.text()).toContain('Add your first model')
@@ -782,7 +785,10 @@ describe('ModelLibrary running glow', () => {
       .findAll('button')
       .find((button) => button.text() === 'List')
       .trigger('click')
-    await vi.waitFor(() => expect(wrapper.findAll('.library-list__row')).toHaveLength(2))
+    await vi.waitFor(
+      () => expect(wrapper.findAll('.library-list__row')).toHaveLength(2),
+      ASYNC_UI_WAIT,
+    )
     await wrapper.get('input[aria-label="Select all visible models"]').setValue(true)
     await flushPromises()
     expect(wrapper.get('input[aria-label="Select Alpha"]').element.checked).toBe(true)
@@ -934,7 +940,10 @@ describe('ModelLibrary running glow', () => {
     ]
     const wrapper = mountLibrary()
     await flushPromises()
-    await vi.waitFor(() => expect(wrapper.find('.huggingface-token-notice').exists()).toBe(true))
+    await vi.waitFor(
+      () => expect(wrapper.find('.huggingface-token-notice').exists()).toBe(true),
+      ASYNC_UI_WAIT,
+    )
 
     const notice = wrapper.get('.huggingface-token-notice')
     expect(notice.text()).toContain('Hugging Face token')
