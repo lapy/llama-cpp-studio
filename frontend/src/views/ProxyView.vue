@@ -790,6 +790,9 @@
             >{{ summary.dropped_history }} request records could not be retained while history
             storage was unavailable.</Message
           >
+          <Message v-if="vramNotice" :severity="vramNotice.severity" :closable="false">
+            <span class="vram-notice">{{ vramNotice.text }}</span>
+          </Message>
           <details class="overview-analysis" :open="!compactOverview">
             <summary>
               <i class="pi pi-chart-bar" aria-hidden="true" />Traffic &amp; gateway health<span
@@ -985,6 +988,10 @@
                     <dt>Started</dt>
                     <dd>{{ formatTime(item.created_at) }}</dd>
                   </div>
+                  <div v-if="item.vram">
+                    <dt>VRAM</dt>
+                    <dd>{{ vramSummary(item.vram, number) }}</dd>
+                  </div>
                 </dl>
               </details>
               <div class="runtime-actions">
@@ -1042,42 +1049,17 @@
           />
         </section>
 
-        <section
+        <GpuAdmissionPanel
           v-show="activeTab === 'settings'"
-          class="proxy-card"
-          aria-labelledby="proxy-network-heading"
-        >
-          <div class="section-head">
-            <div>
-              <h2 id="proxy-network-heading">Network</h2>
-              <p>
-                Read-only view of how the inference port is bound. Listen host comes from
-                STUDIO_PROXY_LISTEN; terminate TLS at a reverse proxy.
-              </p>
-            </div>
-          </div>
-          <dl class="network">
-            <div>
-              <dt>Listen host</dt>
-              <dd>
-                <code>{{ network.listen_host || '—' }}</code>
-                <small>{{ network.listen_source }}</small>
-              </dd>
-            </div>
-            <div>
-              <dt>Port</dt>
-              <dd>{{ network.port ?? '—' }}</dd>
-            </div>
-            <div>
-              <dt>Public URL</dt>
-              <dd>{{ network.public_url || 'Same origin (default)' }}</dd>
-            </div>
-            <div>
-              <dt>TLS</dt>
-              <dd>{{ network.tls_note }}</dd>
-            </div>
-          </dl>
-        </section>
+          v-model:mode="draft.vram_admission"
+          v-model:margin="draft.vram_safety_margin_mib"
+          :rows="vramRows"
+          :catalog="catalog"
+          :snapshot="vramSnapshot"
+          @update:rows="vramRows = $event"
+        />
+
+        <NetworkAccessPanel v-show="activeTab === 'settings'" :network="network" />
 
         <section
           v-show="activeTab === 'events'"
@@ -1221,8 +1203,11 @@ import FreshnessStatus from '@/components/common/FreshnessStatus.vue'
 import RequestFiltersBar from '@/components/proxy/RequestFiltersBar.vue'
 import RequestInspectorPanel from '@/components/proxy/RequestInspectorPanel.vue'
 import ProxyCaptureToggle from '@/components/proxy/ProxyCaptureToggle.vue'
+import GpuAdmissionPanel from '@/components/proxy/GpuAdmissionPanel.vue'
+import NetworkAccessPanel from '@/components/proxy/NetworkAccessPanel.vue'
 import { ENGINE_LOG_LEVELS, MAX_ENGINE_LOG_LINES } from '@/utils/proxyLogLevels'
 import { copyText } from '@/utils/clipboard'
+import { vramEstimatePairs, vramNotice as vramNoticeFor, vramSummary } from '@/utils/vramAdmission'
 import {
   formatBuildIdentity,
   formatTime,
@@ -1494,6 +1479,7 @@ const error = ref(''),
   running = ref([]),
   activity = ref([])
 const catalog = ref([]),
+  vramSnapshot = ref({}),
   network = ref({})
 const configuredBackend = ref(''),
   activeBackend = ref('')
@@ -1528,6 +1514,7 @@ const keyExpires = ref(''),
   keyRateLimit = ref(null),
   keyModels = ref('')
 const aliasRows = ref([])
+const vramRows = ref([])
 const draft = reactive({
   max_queue_size: 100,
   stream_idle_timeout_seconds: null,
@@ -1550,6 +1537,8 @@ const draft = reactive({
   readiness_timeout_seconds: 2700,
   drain_timeout_seconds: 30,
   default_model: null,
+  vram_admission: 'off',
+  vram_safety_margin_mib: 1024,
 })
 let timer
 const baseline = ref('')
@@ -1615,6 +1604,9 @@ function activitySeverity(type) {
       starting: 'info',
       loading_progress: 'info',
       drain_timeout: 'warn',
+      vram_warning: 'warn',
+      vram_rejected: 'danger',
+      vram_unverified: 'info',
       stopped: 'secondary',
     }[type] || 'secondary'
   )
@@ -1625,6 +1617,7 @@ function activityText(item) {
   if (item.type === 'loading_progress' && item.loading_progress != null)
     bits.push(`${Math.round(item.loading_progress)}% loaded`)
   if (item.type === 'stopped' && item.draining) bits.push('while draining')
+  if (item.type.startsWith('vram_') && item.reason) bits.push(item.reason)
   if (item.pid) bits.push(`pid ${item.pid}`)
   return bits.join(' · ') || item.type
 }
@@ -1655,10 +1648,14 @@ function aliasPairs() {
   }
   return aliases
 }
+function vramPairs() {
+  return vramEstimatePairs(vramRows.value)
+}
 function snapshot() {
-  return JSON.stringify({ settings: { ...draft }, aliases: aliasPairs() })
+  return JSON.stringify({ settings: { ...draft }, aliases: aliasPairs(), vram: vramPairs() })
 }
 const dirty = computed(() => loaded.value && snapshot() !== baseline.value)
+const vramNotice = computed(() => vramNoticeFor(vramSnapshot.value, number))
 
 const { leavePromptVisible, finishLeave, confirmDiscard } = useDraftGuard(() => dirty.value)
 async function saveBeforeLeaving() {
@@ -1708,6 +1705,10 @@ async function performRefresh({ quiet = false, discardDraft = false } = {}, sign
           targets: (Array.isArray(targets) ? targets : [targets]).join(', '),
         }),
       )
+      vramRows.value = Object.entries(data.settings?.vram_estimates || {}).map(([model, mib]) => ({
+        model,
+        mib,
+      }))
       baseline.value = snapshot()
     }
     if (
@@ -1731,6 +1732,7 @@ async function performRefresh({ quiet = false, discardDraft = false } = {}, sign
     running.value = data.running || []
     activity.value = data.activity || []
     catalog.value = data.catalog || []
+    vramSnapshot.value = data.vram || {}
     network.value = data.network || {}
     configuredBackend.value = data.configured_backend || data.settings?.backend || ''
     activeBackend.value = data.active_backend || ''
@@ -1770,10 +1772,14 @@ async function saveSettings() {
     const { data } = await axios.put(
       '/api/proxy/settings',
       Object.fromEntries(
-        Object.entries({ ...draft, routing_aliases: aliasPairs() }).map(([key, value]) => [
-          key,
-          value === '' ? null : value,
-        ]),
+        Object.entries({
+          ...draft,
+          vram_safety_margin_mib: Number.isFinite(Number(draft.vram_safety_margin_mib))
+            ? Number(draft.vram_safety_margin_mib)
+            : 1024,
+          routing_aliases: aliasPairs(),
+          vram_estimates: vramPairs(),
+        }).map(([key, value]) => [key, value === '' ? null : value]),
       ),
     )
     restartRequired.value = Boolean(data.restart_required)
@@ -2961,23 +2967,6 @@ td {
 .activity-text {
   min-width: 0;
   overflow-wrap: anywhere;
-}
-.network {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
-  gap: 1rem;
-  margin: 0;
-  font-size: 0.85rem;
-}
-.network div {
-  display: grid;
-  gap: 0.2rem;
-}
-.network dt {
-  color: var(--text-secondary);
-}
-.network dd {
-  margin: 0;
 }
 
 @media (max-width: 800px) {

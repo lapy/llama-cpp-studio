@@ -5,10 +5,6 @@ from __future__ import annotations
 import asyncio
 import os
 import threading
-import hashlib
-import json
-from dataclasses import dataclass
-from types import MappingProxyType
 from typing import Any, Optional
 
 import uvicorn
@@ -30,12 +26,21 @@ from backend.inference_auth import (
 )
 from backend.proxy.launch_spec import compile_model_runtime
 from backend.proxy.manifests import LaunchManifestStore
-from backend.proxy.studio.runtime_defaults import RUNTIME_DEFAULTS
+from backend.proxy.studio.runtime_defaults import (
+    RUNTIME_DEFAULTS,
+    positive_float,
+    positive_int,
+)
 from backend.proxy.studio.dataplane import DEFAULT_MAX_BODY_BYTES, ResolvedModel, StudioDataPlane
 from backend.proxy.studio.registry import ProcessRegistry
+from backend.proxy.studio.routing import RoutingSnapshot
+from backend.proxy.studio.vram import VramAdmission
 
 logger = get_logger(__name__)
 _instance: Optional["StudioProxyManager"] = None
+# The coercion helpers moved to ``runtime_defaults`` with their siblings.
+_positive_int = positive_int
+_positive_float = positive_float
 
 
 def configured_proxy_backend() -> str:
@@ -51,29 +56,6 @@ def get_studio_proxy_manager() -> "StudioProxyManager":
     return _instance
 
 
-@dataclass(frozen=True)
-class RoutingSnapshot:
-    aliases: object
-    default_model: str
-    revision: str
-
-    @classmethod
-    def build(cls, settings):
-        aliases = {
-            str(alias): tuple(
-                str(target).strip()
-                for target in (targets if isinstance(targets, list) else [targets])
-                if str(target).strip()
-            )
-            for alias, targets in (settings.get("routing_aliases") or {}).items()
-        }
-        default = str(settings.get("default_model") or "").strip()
-        revision = hashlib.sha256(
-            json.dumps({"aliases": aliases, "default": default}, sort_keys=True).encode()
-        ).hexdigest()[:16]
-        return cls(MappingProxyType(aliases), default, revision)
-
-
 class StudioProxyManager:
     def __init__(self, port: int) -> None:
         self.port = int(port)
@@ -87,6 +69,9 @@ class StudioProxyManager:
         self._route_lock = threading.Lock()
         self._catalog_lock = threading.RLock()
         self._compiled_cache = None
+        # Admission state outlives a proxy restart (observed estimates and the
+        # last decision stay visible); a full Studio restart starts empty.
+        self.vram = VramAdmission(model_info=self._vram_model_info)
         self._build_runtime()
 
     def _build_runtime(self) -> None:
@@ -113,6 +98,7 @@ class StudioProxyManager:
             max_body = DEFAULT_MAX_BODY_BYTES
         if max_body <= 0:
             max_body = DEFAULT_MAX_BODY_BYTES
+        self.vram.apply_settings(settings)
         self.registry = ProcessRegistry(
             self._launch,
             idle_ttl=idle_ttl if idle_ttl and idle_ttl > 0 else None,
@@ -121,6 +107,7 @@ class StudioProxyManager:
             max_loaded_models=_positive_int(settings, "max_loaded_models"),
             per_model_concurrency=_positive_int(settings, "per_model_concurrency"),
             queue_timeout=_positive_float(settings, "queue_timeout_seconds", 30),
+            admission=self.vram,
         )
         self.registry.set_launch_observer(self._receipt)
         from backend.proxy.studio.accounting import get_accounting
@@ -158,6 +145,18 @@ class StudioProxyManager:
                 self._routing = snapshot
                 self._route_cursor.clear()
         return snapshot.revision
+
+    def apply_vram_settings(self, settings) -> None:
+        """Live-apply admission settings: no proxy restart, no engine reload."""
+        admission = getattr(self, "vram", None)
+        if admission is not None:
+            admission.apply_settings(settings)
+
+    def vram_snapshot(self) -> dict:
+        admission = getattr(self, "vram", None)
+        if admission is None:
+            return {"mode": "off", "probe": {"status": "never"}, "last_admission": None}
+        return admission.snapshot()
 
     def runtime_restart_required(self, settings):
         return settings.get("proxy_port", self.port) != self.port or any(
@@ -348,11 +347,13 @@ class StudioProxyManager:
 
     def _catalog(self) -> list[dict]:
         rows = []
+        admission = getattr(self, "vram", None)
         for model, compiled in self._compiled_models():
             proxy = compiled.proxy
             capabilities = proxy.capabilities if isinstance(proxy.capabilities, dict) else {}
             huggingface_id = str(model.get("huggingface_id") or "")
             publisher = huggingface_id.split("/", 1)[0] if "/" in huggingface_id else "studio"
+            file_size = model.get("file_size") or 0
             rows.append(
                 {
                     "id": proxy.model_id,
@@ -367,10 +368,17 @@ class StudioProxyManager:
                     "quantization": str(model.get("quantization") or ""),
                     "format": str(model.get("format") or model.get("model_format") or ""),
                     "model_type": str(model.get("model_type") or ""),
-                    "file_size": model.get("file_size") or 0,
+                    "file_size": file_size,
                     "downloaded_at": model.get("downloaded_at"),
                     "context_length": capabilities.get("context"),
                     "capabilities": capabilities or None,
+                    # Additive, read-only: estimate evidence for admission. It is
+                    # never an input to the model configuration.
+                    "vram_estimate": (
+                        admission.catalog_estimate(proxy.model_id, file_size)
+                        if admission is not None
+                        else None
+                    ),
                 }
             )
         return rows
@@ -417,21 +425,11 @@ class StudioProxyManager:
             None,
         )
 
+    async def _vram_model_info(self, model_id: str) -> Optional[dict[str, Any]]:
+        """Model row for the estimate lookup, resolved off the event loop."""
+        from backend.concurrency import run_blocking
 
-def _positive_int(settings: dict, key: str) -> Optional[int]:
-    try:
-        value = int(settings.get(key))
-    except (TypeError, ValueError):
-        return None
-    return value if value > 0 else None
-
-
-def _positive_float(settings: dict, key: str, default: Optional[float]) -> Optional[float]:
-    try:
-        value = float(settings.get(key, default))
-    except (TypeError, ValueError):
-        return default
-    return value if value > 0 else default
+        return await run_blocking(self._model, model_id)
 
 
 def _start_ticks(pid: int) -> str:

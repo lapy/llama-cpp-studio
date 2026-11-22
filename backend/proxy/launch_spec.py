@@ -264,6 +264,25 @@ def redact_env_map(values: Mapping[str, str]) -> Dict[str, str]:
     return {key: redact_env_value(key, value) for key, value in values.items()}
 
 
+def launch_device_selection(spec: "LaunchSpec") -> Optional[Tuple[str, ...]]:
+    """CUDA device selection of a compiled launch, or ``None`` for CPU mode.
+
+    Reads the launch's existing environment contract so proxy admission does not
+    re-interpret ``CUDA_VISIBLE_DEVICES`` itself. ``("all",)`` marks an inherit
+    launch that pins no narrower selection than its parent process; otherwise
+    the tuple holds the selected numeric ids or UUIDs in launch order.
+    """
+    if "CUDA_VISIBLE_DEVICES" in spec.env.unset:
+        return None
+    raw = str(spec.env.set.get("CUDA_VISIBLE_DEVICES") or "").strip()
+    if not raw or raw.lower() == "all":
+        return ("all",)
+    tokens = tuple(part.strip() for part in raw.split(",") if part.strip())
+    if not tokens or tokens == ("-1",):
+        return None
+    return tokens
+
+
 def format_argv(executable: str, argv: Sequence[ArgvItem]) -> str:
     from backend.proxy.commands import _shell_join
 
