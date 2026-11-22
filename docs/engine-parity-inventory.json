@@ -94,14 +94,14 @@
           "count": 8,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            805,
-            937,
-            955,
-            1081,
-            3225,
-            3612,
-            3631,
-            3764
+            861,
+            999,
+            1017,
+            1157,
+            3324,
+            3711,
+            3730,
+            3863
           ]
         },
         {
@@ -159,8 +159,8 @@
           "count": 2,
           "file": "frontend/src/components/system/VersionTable.test.js",
           "lines": [
-            111,
-            315
+            166,
+            370
           ]
         },
         {
@@ -182,7 +182,7 @@
           "count": 1,
           "file": "frontend/src/views/ModelConfig.test.js",
           "lines": [
-            711
+            712
           ]
         }
       ]
@@ -353,17 +353,17 @@
           "count": 11,
           "file": "frontend/src/views/ModelConfig.audioProfiles.test.js",
           "lines": [
-            53,
-            73,
-            189,
-            191,
-            329,
-            468,
-            470,
-            519,
-            585,
-            648,
-            679
+            54,
+            74,
+            190,
+            192,
+            330,
+            495,
+            497,
+            546,
+            612,
+            675,
+            706
           ]
         },
         {
@@ -457,12 +457,12 @@
           "count": 6,
           "file": "frontend/src/components/system/VersionTable.test.js",
           "lines": [
-            78,
-            90,
-            96,
-            211,
-            221,
-            249
+            133,
+            145,
+            151,
+            266,
+            276,
+            304
           ]
         },
         {
@@ -500,20 +500,20 @@
           "count": 4,
           "file": "frontend/src/views/ModelSearch.catalog.test.js",
           "lines": [
-            96,
-            97,
-            104,
-            703
+            101,
+            102,
+            109,
+            716
           ]
         },
         {
           "count": 4,
           "file": "frontend/src/views/ModelSearch.vue",
           "lines": [
-            960,
-            1336,
-            1365,
-            3096
+            787,
+            1149,
+            1178,
+            2863
           ]
         },
         {
@@ -722,21 +722,14 @@
           "count": 1,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            1112
+            1188
           ]
         },
         {
           "count": 1,
           "file": "frontend/src/views/ModelConfig.vue",
           "lines": [
-            1056
-          ]
-        },
-        {
-          "count": 1,
-          "file": "frontend/e2e/ui-refactor.spec.mjs",
-          "lines": [
-            101
+            1159
           ]
         }
       ]
@@ -890,47 +883,47 @@
           "count": 41,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            636,
-            641,
-            642,
-            645,
-            921,
-            1078,
-            1108,
-            1539,
-            1597,
-            1614,
-            1687,
-            1704,
-            1720,
-            1725,
-            1779,
-            1872,
-            2041,
-            2174,
-            2175,
-            2189,
-            2190,
-            2194,
-            2198,
-            2246,
-            2258,
-            2261,
-            2340,
-            2341,
-            2347,
-            2353,
-            2371,
-            2394,
-            2404,
-            3400,
-            3451,
-            3454,
-            3458,
-            3465,
-            3468,
-            3491,
-            3492
+            664,
+            669,
+            670,
+            673,
+            983,
+            1154,
+            1184,
+            1638,
+            1696,
+            1713,
+            1786,
+            1803,
+            1819,
+            1824,
+            1878,
+            1971,
+            2140,
+            2273,
+            2274,
+            2288,
+            2289,
+            2293,
+            2297,
+            2345,
+            2357,
+            2360,
+            2439,
+            2440,
+            2446,
+            2452,
+            2470,
+            2493,
+            2503,
+            3499,
+            3550,
+            3553,
+            3557,
+            3564,
+            3567,
+            3590,
+            3591
           ]
         },
         {
@@ -1136,9 +1129,9 @@
           "count": 3,
           "file": "frontend/src/views/ModelConfig.test.js",
           "lines": [
-            744,
             745,
-            757
+            746,
+            758
           ]
         },
         {
@@ -1153,8 +1146,8 @@
           "count": 2,
           "file": "frontend/src/components/system/VersionTable.test.js",
           "lines": [
-            191,
-            204
+            246,
+            259
           ]
         },
         {
@@ -1212,7 +1205,7 @@
           "count": 1,
           "file": "frontend/src/views/ModelSearch.catalog.test.js",
           "lines": [
-            170
+            175
           ]
         }
       ]
@@ -1431,30 +1424,30 @@
           "count": 24,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            572,
-            875,
-            1077,
-            1107,
-            1579,
-            1623,
-            1640,
-            1656,
-            1839,
-            1857,
-            2041,
-            2174,
-            2246,
-            2258,
-            2341,
-            2371,
-            2404,
-            3409,
-            3416,
-            3422,
-            3448,
-            3449,
-            3504,
-            3510
+            592,
+            937,
+            1153,
+            1183,
+            1678,
+            1722,
+            1739,
+            1755,
+            1938,
+            1956,
+            2140,
+            2273,
+            2345,
+            2357,
+            2440,
+            2470,
+            2503,
+            3508,
+            3515,
+            3521,
+            3547,
+            3548,
+            3603,
+            3609
           ]
         },
         {
@@ -1516,33 +1509,6 @@
         },
         {
           "count": 21,
-          "file": "frontend/src/components/system/VersionTable.test.js",
-          "lines": [
-            38,
-            58,
-            72,
-            128,
-            145,
-            151,
-            163,
-            169,
-            183,
-            185,
-            227,
-            238,
-            262,
-            292,
-            298,
-            304,
-            331,
-            340,
-            346,
-            357,
-            366
-          ]
-        },
-        {
-          "count": 21,
           "file": "frontend/src/stores/engines.js",
           "lines": [
             69,
@@ -1569,24 +1535,50 @@
           ]
         },
         {
+          "count": 20,
+          "file": "frontend/src/components/system/VersionTable.test.js",
+          "lines": [
+            93,
+            113,
+            183,
+            200,
+            206,
+            218,
+            224,
+            238,
+            240,
+            282,
+            293,
+            317,
+            347,
+            353,
+            359,
+            386,
+            395,
+            401,
+            412,
+            421
+          ]
+        },
+        {
           "count": 15,
           "file": "frontend/src/views/ModelConfig.test.js",
           "lines": [
-            205,
-            207,
-            296,
-            312,
-            314,
-            358,
-            360,
-            373,
-            375,
-            403,
-            456,
-            458,
-            553,
-            555,
-            737
+            206,
+            208,
+            297,
+            313,
+            315,
+            359,
+            361,
+            374,
+            376,
+            404,
+            457,
+            459,
+            554,
+            556,
+            738
           ]
         },
         {
@@ -1646,10 +1638,10 @@
           "lines": [
             55,
             57,
-            241,
-            256,
-            270,
-            278
+            242,
+            257,
+            271,
+            279
           ]
         },
         {
@@ -1726,9 +1718,9 @@
           "count": 3,
           "file": "frontend/src/views/ModelConfig.vue",
           "lines": [
-            2126,
-            2512,
-            2516
+            2245,
+            2631,
+            2635
           ]
         },
         {
@@ -1864,7 +1856,7 @@
           "count": 1,
           "file": "frontend/src/components/system/VersionTable.vue",
           "lines": [
-            81
+            105
           ]
         },
         {
@@ -1885,14 +1877,14 @@
           "count": 1,
           "file": "frontend/src/views/ModelConfig.runtime.test.js",
           "lines": [
-            58
+            59
           ]
         },
         {
           "count": 1,
           "file": "frontend/src/views/ModelSearch.catalog.test.js",
           "lines": [
-            170
+            175
           ]
         }
       ]
@@ -1952,21 +1944,21 @@
           "count": 15,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            493,
-            683,
-            804,
-            936,
-            954,
-            1080,
-            1110,
-            2967,
-            2977,
-            2988,
-            3010,
-            3571,
-            3588,
-            3592,
-            3607
+            509,
+            725,
+            860,
+            998,
+            1016,
+            1156,
+            1186,
+            3066,
+            3076,
+            3087,
+            3109,
+            3670,
+            3687,
+            3691,
+            3706
           ]
         },
         {
@@ -2136,7 +2128,7 @@
           "count": 1,
           "file": "frontend/src/components/system/VersionTable.test.js",
           "lines": [
-            277
+            332
           ]
         },
         {
@@ -2157,7 +2149,7 @@
           "count": 1,
           "file": "frontend/src/views/ModelConfig.test.js",
           "lines": [
-            711
+            712
           ]
         }
       ]
@@ -2289,12 +2281,12 @@
           "count": 6,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            886,
-            938,
-            956,
-            983,
-            1082,
-            3636
+            948,
+            1000,
+            1018,
+            1056,
+            1158,
+            3735
           ]
         },
         {
@@ -2378,7 +2370,7 @@
           "count": 1,
           "file": "frontend/src/components/system/SglangEnginePanel.vue",
           "lines": [
-            225
+            280
           ]
         },
         {
@@ -2399,7 +2391,7 @@
           "count": 1,
           "file": "frontend/src/views/ModelConfig.test.js",
           "lines": [
-            687
+            688
           ]
         }
       ]
@@ -2498,11 +2490,11 @@
           "count": 5,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            984,
-            1035,
-            1044,
-            1083,
-            3641
+            1057,
+            1111,
+            1120,
+            1159,
+            3740
           ]
         },
         {
@@ -2579,7 +2571,7 @@
           "count": 1,
           "file": "frontend/src/components/system/SglangEnginePanel.vue",
           "lines": [
-            234
+            289
           ]
         }
       ]
@@ -2707,13 +2699,13 @@
           "count": 7,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            935,
-            1079,
-            1109,
-            3403,
-            3494,
-            3497,
-            3771
+            997,
+            1155,
+            1185,
+            3502,
+            3593,
+            3596,
+            3870
           ]
         },
         {
@@ -2924,12 +2916,12 @@
           "count": 6,
           "file": "frontend/src/views/EnginesView.vue",
           "lines": [
-            985,
-            1039,
-            1048,
-            1085,
-            3622,
-            3651
+            1058,
+            1115,
+            1124,
+            1161,
+            3721,
+            3750
           ]
         },
         {
@@ -2938,9 +2930,9 @@
           "lines": [
             40,
             51,
-            127,
-            136,
-            235
+            152,
+            170,
+            290
           ]
         },
         {
@@ -3042,7 +3034,7 @@
           "count": 1,
           "file": "frontend/src/views/ModelConfig.test.js",
           "lines": [
-            708
+            709
           ]
         }
       ]

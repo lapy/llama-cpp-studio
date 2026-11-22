@@ -1,6 +1,7 @@
 # Single-operator hardening release plan
 
-Status: implementation plan, 2026-11-22. Branch: `feat/single-operator-hardening`.
+Status: **implemented — release candidate**, 2026-11-22. Branch:
+`feat/single-operator-hardening`.
 
 ## Product boundary
 
@@ -13,7 +14,25 @@ Non-goals for this release: multi-tenant RBAC/SSO, HA/clustering, distributed
 quota storage, multi-host scheduling, a full Strata model-preparation stack, and
 a general plugin SDK.
 
-## Release workstreams
+## Delivery status
+
+| ID | Delivered | Evidence / caveat |
+| --- | --- | --- |
+| WS1 | Proxy settings (`off`/`warn`/`enforce`, margin, per-model estimates), pre-spawn per-device guard, reservations, 409 `INSUFFICIENT_VRAM`, Proxy card and activity/state fields. | Fake-GPU tests and route tests; no real NVIDIA admission run (shared V100s were occupied during the release). |
+| WS2 | `/api/storage/inventory`, preview/apply cleanup with containment and reference guards, System → Storage panel. | Tmp-tree backend tests, route tests, store/component tests. |
+| WS3 | Generic native lifecycle for `native_host` definitions; inert Strata registration retired with a planned-integration contract. | Temp native definition + stub host tests; no legacy route added. |
+| WS4 | `/api/metrics`, bounded JSONL mutation audit, benchmark warmup/repeats and aggregates, GPU smoke-matrix script. | Route/middleware/benchmark tests; no live GPU scrape. |
+| WS5 | UI foundation and all page migrations; guided first-model flow; Names & routing summary; shared sections/tabs/toolbars/states; mobile section-spacing fix. | Chromium and Firefox journeys, axe standards run, 320/390/1440 screenshot review. |
+| WS6 | Single-operator deployment guide, README/features/API docs, generated artifacts, release evidence. | See the release evidence section below. |
+
+## Release evidence
+
+- Backend: full suite green on the dev box.
+- Frontend: unit suite, production build, Chromium and Firefox browser suites, and the accessibility standards journey green.
+- Gates: OpenAPI, engine parity, legacy routes, build defaults, version, Python/frontend lint, formatting, style, API typecheck, module-size and engine-literal ratchets green.
+- Hardware: ReVolta install/discovery and the storage/GPU-admission code paths were exercised with fixtures; real multi-model GPU admission and Strata remain unverified by design (no dedicated host, shared GPUs unavailable).
+
+## Workstreams
 
 | ID | Workstream | Owner surface | Branch |
 | --- | --- | --- | --- |
