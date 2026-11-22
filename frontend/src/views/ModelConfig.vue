@@ -121,7 +121,12 @@
         </template>
       </StateBanner>
 
-      <StateBanner v-if="persistenceNotice" severity="error" role="status">
+      <StateBanner
+        v-if="persistenceNotice"
+        class="persistence-notice"
+        severity="error"
+        role="status"
+      >
         <strong>{{ persistenceNotice.summary }}.</strong>
         {{ persistenceNotice.detail }}
         <template #actions>
