@@ -44,7 +44,7 @@ function mountDialog() {
           name: 'Dialog',
           props: ['visible'],
           emits: ['update:visible'],
-          template: '<div><slot /></div>',
+          template: '<div><slot /><slot name="footer" /></div>',
         },
         Button: { props: ['label'], template: '<button>{{ label }}<slot /></button>' },
       },
@@ -63,6 +63,21 @@ async function editUrl(wrapper, value) {
 }
 
 describe('ConnectDialog persistence', () => {
+  it('uses the shared dialog stack, footer and warning banner', async () => {
+    axios.get.mockResolvedValue({ data: { keys: [] } })
+    vi.mocked(axios.put).mockRejectedValue(
+      failure({ code: 'STORE_QUEUE_FULL', committed: false }, 503),
+    )
+    const wrapper = mountDialog()
+    await flushPromises()
+
+    expect(wrapper.get('.dialog-stack').exists()).toBe(true)
+    expect(wrapper.get('.dialog-actions').text()).toContain('Close')
+    await editUrl(wrapper, 'http://new.example')
+    expect(wrapper.get('.state-banner--warning').text()).toContain('Persistence is busy')
+    wrapper.unmount()
+  })
+
   it('requires a deliberate save and does not persist an input blur', async () => {
     const wrapper = mountDialog()
     await wrapper.get('#connect-public-url').setValue('http://preview.example')

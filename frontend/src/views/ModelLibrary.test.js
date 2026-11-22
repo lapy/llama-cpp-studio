@@ -7,7 +7,15 @@ import { dirname, resolve } from 'node:path'
 import ModelLibrary from './ModelLibrary.vue'
 import { LIBRARY_PRESETS_KEY } from '@/utils/libraryFilterPresets'
 import { AUDIO_PACKAGE } from '@/utils/audioModel'
-import { ConnectDialog, FirstModelPanel, SetupChecklist } from '@/components/models/lazyLibraryUi'
+import {
+  ConnectDialog,
+  FirstModelPanel,
+  HuggingFaceTokenDialog,
+  HuggingFaceTokenNotice,
+  LibraryListView,
+  LibraryToolbar,
+  SetupChecklist,
+} from '@/components/models/lazyLibraryUi'
 
 const fetchModels = vi.fn().mockResolvedValue(undefined)
 const fetchSafetensorsModels = vi.fn().mockResolvedValue(undefined)
@@ -84,6 +92,14 @@ async function flushWithFakeTimers() {
   await pending
 }
 
+/** The filter toolbar is a cold-path async chunk; wait for it before interacting. */
+async function mountLibraryWithToolbar() {
+  const wrapper = mountLibrary()
+  await flushPromises()
+  await vi.waitFor(() => expect(wrapper.find('#library-search').exists()).toBe(true))
+  return wrapper
+}
+
 function mountLibrary() {
   return mount(ModelLibrary, {
     global: {
@@ -96,15 +112,42 @@ function mountLibrary() {
             '<button :aria-label="ariaLabel" :disabled="disabled" @click="$emit(`click`)">{{ label }}</button>',
         },
         Tag: { props: ['value'], template: '<span>{{ value }}</span>' },
+        InputText: {
+          props: ['modelValue'],
+          emits: ['update:modelValue'],
+          template:
+            '<input :id="$attrs.id" :value="modelValue" @input="$emit(`update:modelValue`, $event.target.value)" />',
+        },
+        Select: {
+          props: ['modelValue', 'options', 'optionLabel', 'optionValue', 'inputId', 'ariaLabel'],
+          emits: ['update:modelValue'],
+          template: `<select
+            :id="inputId"
+            :aria-label="ariaLabel"
+            :value="modelValue"
+            @change="$emit('update:modelValue', $event.target.value)"
+          >
+            <option
+              v-for="option in options || []"
+              :key="option[optionValue || 'value']"
+              :value="option[optionValue || 'value']"
+            >{{ option[optionLabel || 'label'] }}</option>
+          </select>`,
+        },
         Dialog: true,
         Toast: true,
         Password: true,
         ConfirmDialog: true,
-        PageHeader: { template: '<div><slot name="meta" /><slot name="actions" /></div>' },
+        PageHeader: {
+          props: ['title', 'description'],
+          template:
+            '<header class="page-header-stub"><h1>{{ title }}</h1><slot name="meta" /><slot name="actions" /></header>',
+        },
         LoadingState: true,
         EmptyState: {
-          props: ['title'],
-          template: '<div class="empty-stub">{{ title }}<slot /></div>',
+          props: ['title', 'description', 'role'],
+          template:
+            '<div class="empty-stub" :role="role"><h2>{{ title }}</h2><p v-if="description">{{ description }}</p><slot /></div>',
         },
         ModelRow: {
           props: ['quant'],
@@ -274,6 +317,7 @@ describe('ModelLibrary running glow', () => {
   it('shows first-model onboarding with starter search deep links when the library is empty', async () => {
     const wrapper = mountLibrary()
     await flushPromises()
+    await vi.waitFor(() => expect(wrapper.find('.first-model').exists()).toBe(true))
 
     const panel = wrapper.get('.first-model')
     expect(panel.text()).toContain('Add your first model')
@@ -298,8 +342,16 @@ describe('ModelLibrary running glow', () => {
     wrapper.unmount()
   })
 
-  it('code-splits first-run guidance and the connect dialog out of the library chunk', () => {
-    for (const component of [FirstModelPanel, SetupChecklist, ConnectDialog]) {
+  it('code-splits first-run guidance, the list layout and dialogs out of the library chunk', () => {
+    for (const component of [
+      FirstModelPanel,
+      SetupChecklist,
+      ConnectDialog,
+      HuggingFaceTokenDialog,
+      HuggingFaceTokenNotice,
+      LibraryListView,
+      LibraryToolbar,
+    ]) {
       expect(typeof component.__asyncLoader).toBe('function')
     }
   })
@@ -659,8 +711,7 @@ describe('ModelLibrary running glow', () => {
         quantizations: [{ id: 'b', quantization: 'Q4', is_active: false, status: 'stopped' }],
       },
     ]
-    const wrapper = mountLibrary()
-    await flushPromises()
+    const wrapper = await mountLibraryWithToolbar()
 
     const selectAll = wrapper.get('input[aria-label="Select all visible models"]')
     await selectAll.setValue(true)
@@ -699,8 +750,7 @@ describe('ModelLibrary running glow', () => {
         quantizations: [{ id: 'b', quantization: 'Q4', is_active: false, status: 'stopped' }],
       },
     ]
-    const wrapper = mountLibrary()
-    await flushPromises()
+    const wrapper = await mountLibraryWithToolbar()
     await wrapper.get('input[aria-label="Select all visible models"]').setValue(true)
     await flushPromises()
 
@@ -726,16 +776,13 @@ describe('ModelLibrary running glow', () => {
         quantizations: [{ id: 'b', quantization: 'Q4', is_active: false, status: 'stopped' }],
       },
     ]
-    const wrapper = mountLibrary()
-    await flushPromises()
+    const wrapper = await mountLibraryWithToolbar()
 
     await wrapper
       .findAll('button')
       .find((button) => button.text() === 'List')
       .trigger('click')
-    await flushPromises()
-
-    expect(wrapper.findAll('.library-list__row')).toHaveLength(2)
+    await vi.waitFor(() => expect(wrapper.findAll('.library-list__row')).toHaveLength(2))
     await wrapper.get('input[aria-label="Select all visible models"]').setValue(true)
     await flushPromises()
     expect(wrapper.get('input[aria-label="Select Alpha"]').element.checked).toBe(true)
@@ -758,8 +805,7 @@ describe('ModelLibrary running glow', () => {
       },
     ]
     modelStore.startModel.mockResolvedValue(undefined)
-    const wrapper = mountLibrary()
-    await flushPromises()
+    const wrapper = await mountLibraryWithToolbar()
     await wrapper.get('input[aria-label="Select all visible models"]').setValue(true)
     await flushPromises()
 
@@ -806,8 +852,7 @@ describe('ModelLibrary running glow', () => {
         ],
       }),
     )
-    const wrapper = mountLibrary()
-    await flushPromises()
+    const wrapper = await mountLibraryWithToolbar()
 
     await wrapper.get('button[aria-label="Apply preset Focused"]').trigger('click')
     await flushPromises()
@@ -826,5 +871,80 @@ describe('ModelLibrary running glow', () => {
     expect(src).toContain('.model-group.is-running')
     expect(src).toContain('var(--glow-success)')
     expect(src).toContain(':deep(.quant-row.is-active)')
+  })
+
+  it('renders one page header with one primary creation action', async () => {
+    const wrapper = mountLibrary()
+    await flushPromises()
+
+    expect(wrapper.get('.page-header-stub h1').text()).toBe('Model library')
+    const addModel = wrapper
+      .findAll('.page-header-stub button')
+      .find((button) => button.text() === 'Add model')
+    expect(addModel).toBeTruthy()
+    expect(wrapper.get('button[aria-label="Refresh models"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('uses the shared library toolbar and results toolbar', async () => {
+    modelStore.models = [
+      {
+        huggingface_id: 'org/a',
+        base_model_name: 'Alpha',
+        quantizations: [{ id: 'a', quantization: 'Q4', is_active: false, status: 'stopped' }],
+      },
+    ]
+    const wrapper = await mountLibraryWithToolbar()
+
+    const toolbars = wrapper.findAll('.page-toolbar')
+    expect(toolbars).toHaveLength(2)
+    expect(toolbars[0].attributes('aria-label')).toBe('Library filters')
+    expect(toolbars[1].attributes('aria-label')).toBe('Library selection')
+    expect(wrapper.get('#library-search').exists()).toBe(true)
+    expect(wrapper.get('#library-status').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('shows the no-match empty state with a clear-filters next step', async () => {
+    modelStore.models = [
+      {
+        huggingface_id: 'org/a',
+        base_model_name: 'Alpha',
+        quantizations: [{ id: 'a', quantization: 'Q4', is_active: false, status: 'stopped' }],
+      },
+    ]
+    const wrapper = await mountLibraryWithToolbar()
+
+    await wrapper.get('#library-search').setValue('does-not-exist')
+    await flushPromises()
+
+    expect(wrapper.get('.empty-stub h2').text()).toBe('No models match')
+    expect(wrapper.get('.empty-stub').text()).toContain('Clear filters')
+    wrapper.unmount()
+  })
+
+  it('shows the shared token notice for a gated library without a token', async () => {
+    modelStore.hasHuggingfaceToken = false
+    modelStore.models = [
+      {
+        huggingface_id: 'org/gated',
+        gated: true,
+        quantizations: [{ id: 'g1', quantization: 'Q4', is_active: false, status: 'stopped' }],
+      },
+    ]
+    const wrapper = mountLibrary()
+    await flushPromises()
+    await vi.waitFor(() => expect(wrapper.find('.huggingface-token-notice').exists()).toBe(true))
+
+    const notice = wrapper.get('.huggingface-token-notice')
+    expect(notice.text()).toContain('Hugging Face token')
+    expect(notice.classes()).toContain('state-banner--info')
+    expect(notice.text()).toContain('Set token')
+    await wrapper
+      .findAll('.huggingface-token-notice button')
+      .find((button) => button.text() === 'Set token')
+      .trigger('click')
+    await flushPromises()
+    wrapper.unmount()
   })
 })
