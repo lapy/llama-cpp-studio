@@ -584,6 +584,9 @@ class VramAdmission:
     ) -> Optional[Dict[str, Any]]:
         decision["decision"] = outcome
         decision["reason"] = message
+        # Generic API error renderers (Studio's own included) look for
+        # detail.message; keep the truthful sentence there as well.
+        decision["message"] = message
         decision["at"] = _iso()
         with self._lock:
             self._last_admission = dict(decision)

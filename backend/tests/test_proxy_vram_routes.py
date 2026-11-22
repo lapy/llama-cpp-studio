@@ -26,6 +26,7 @@ def refusal(reason="Insufficient VRAM to start demo", **extra):
         "deficit_mib": 9216,
         "devices": [{"index": 0, "free_mib": 8192, "margin_mib": 1024, "available_mib": 7168}],
         "reason": reason,
+        "message": reason,
     }
     decision.update(extra)
     return VramAdmissionError(decision)
@@ -102,8 +103,10 @@ def test_preload_maps_an_admission_refusal_to_structured_409(client, monkeypatch
     body = response.json()
     assert body["code"] == "INSUFFICIENT_VRAM"
     assert body["error"] == "Insufficient VRAM to start demo"
-    assert body["detail"]["decision"] == "rejected"
-    assert body["detail"]["estimate_mib"] == 16384
+    detail = body["detail"]
+    assert detail["decision"] == "rejected"
+    assert detail["message"] == body["error"]
+    assert detail["estimate_mib"] == 16384
 
 
 def test_reload_maps_an_admission_refusal_to_structured_409(client, monkeypatch, tmp_path):

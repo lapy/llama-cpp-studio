@@ -287,6 +287,7 @@ A refused start maps to HTTP `409` with a stable code and the full decision:
   "detail": {
     "decision": "rejected",
     "model": "demo",
+    "message": "Estimate 16384 MiB (settings) exceeds 7168 MiB available after the 1024 MiB safety margin; refusing to start demo.",
     "estimate_mib": 16384,
     "estimate_source": "settings",
     "available_mib": 7168,
@@ -297,6 +298,10 @@ A refused start maps to HTTP `409` with a stable code and the full decision:
   }
 }
 ```
+
+`detail.message` repeats the truthful sentence so generic API error renderers
+(Studio's model-start action included) display the reason instead of a generic
+HTTP failure.
 
 Existing `429` (queue/max loaded) and `502` (engine failure) bodies are unchanged.
 `GET /api/proxy/vram` reports the current mode, the last cached probe,
