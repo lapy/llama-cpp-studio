@@ -140,6 +140,15 @@ def test_overrides_drop_invalid_entries_without_raising():
     assert normalize_overrides(["not", "a", "mapping"]) == {}
 
 
+def test_launch_device_selection_reads_the_compiled_env_contract():
+    from backend.proxy.launch_spec import launch_device_selection
+
+    assert launch_device_selection(spec(devices="0,GPU-abc")) == ("0", "GPU-abc")
+    assert launch_device_selection(spec(devices=None)) == ("all",)
+    assert launch_device_selection(spec(devices="-1")) is None
+    assert launch_device_selection(spec(devices=None, unset=True)) is None
+
+
 @pytest.mark.asyncio
 async def test_off_mode_does_not_probe_or_record_a_decision():
     probes = []

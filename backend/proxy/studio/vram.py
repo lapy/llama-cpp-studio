@@ -32,6 +32,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 from backend.logging_config import get_logger
+from backend.proxy.launch_spec import launch_device_selection
 from backend.proxy.studio.registry import RegistryError
 from backend.proxy.studio.vram_estimates import (
     DEFAULT_SAFETY_MARGIN_MIB,
@@ -393,28 +394,19 @@ class VramAdmission:
 
     def _select_devices(self, spec: Any, gpus: List[Dict[str, Any]]) -> _Selection:
         """Map the LaunchSpec's CUDA_VISIBLE_DEVICES onto probe devices."""
-        env = getattr(spec, "env", None)
-        values = getattr(env, "set", None) if env is not None else None
-        unset = getattr(env, "unset", None) if env is not None else None
-        if isinstance(unset, (list, tuple, set)) and "CUDA_VISIBLE_DEVICES" in unset:
+        selection = launch_device_selection(spec)
+        if selection is None:
             return _Selection([], "cpu", "CPU mode: the launch does not select a GPU.")
-        raw = ""
-        if isinstance(values, Mapping):
-            raw = str(values.get("CUDA_VISIBLE_DEVICES") or "").strip()
-        if not raw or raw.lower() == "all":
+        if selection == ("all",):
             return _Selection(
                 list(gpus), None, "Inherit mode: every GPU visible to the deployment."
             )
-        if raw.lower() in ("-1", "none", "void"):
-            return _Selection([], "cpu", "CUDA_VISIBLE_DEVICES disables GPUs for this launch.")
 
         by_index = {int(item["index"]): item for item in gpus if item.get("index") is not None}
         uuid_index = self._uuid_index_map(gpus)
         selected: List[Dict[str, Any]] = []
         unmapped: List[str] = []
-        for token in (part.strip() for part in raw.split(",")):
-            if not token:
-                continue
+        for token in selection:
             if token.lstrip("-").isdigit():
                 device = by_index.get(int(token))
             else:
