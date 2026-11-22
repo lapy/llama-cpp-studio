@@ -200,7 +200,6 @@ describe('engines/registry', () => {
         'sglang',
         'sglang_v100',
         'sglang_sxm2',
-        'sglang_sm70',
       ].sort(),
     )
     // CMAKE_ENGINES (VersionTable)
