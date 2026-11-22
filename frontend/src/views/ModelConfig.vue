@@ -3426,6 +3426,28 @@ onBeforeUnmount(() => {
   gap: var(--spacing-md);
 }
 
+/* The save bar is sticky under the app header; keep a scrolled-to section
+   heading below both instead of behind them. */
+.model-config-view .config-tab-panel {
+  scroll-margin-top: calc(var(--app-header-height) + 5rem);
+}
+
+@media (max-width: 900px) {
+  .model-config-view .config-tab-panel {
+    scroll-margin-top: calc(var(--app-header-height) + 13rem);
+  }
+}
+
+/* The shared section header switches to a column at 640 px; its
+   `flex: 1 1 14rem` heading group would then reserve 14rem of height. Keep
+   the heading at its content height on this page until the shared pattern
+   carries the column-safe basis. */
+@media (max-width: 640px) {
+  .model-config-view :deep(.page-section__heading-group) {
+    flex: 0 0 auto;
+  }
+}
+
 .textarea-cli {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.875rem;

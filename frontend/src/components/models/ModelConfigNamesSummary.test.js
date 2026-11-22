@@ -76,12 +76,13 @@ describe('ModelConfigNamesSummary', () => {
   })
 
   it('offers the next step when no primary API name or presets exist yet', () => {
-    const wrapper = mountSummary({ stableModelId: 'studio-assistant' })
+    const wrapper = mountSummary()
 
+    expect(wrapper.text()).toContain('Assigned the first time this model starts')
     expect(wrapper.text()).toContain('Not set — clients use the stable runtime id')
     expect(wrapper.text()).toContain('No additional ordinary aliases are saved')
     expect(wrapper.text()).toContain('No request presets are saved')
-    expect(wrapper.text()).toContain('studio-assistant')
+    expect(wrapper.text()).toContain('No routable name is published yet')
     expect(wrapper.text()).toContain('Add primary name')
     expect(wrapper.text()).toContain('Edit request presets')
     expect(wrapper.text()).toContain('Open in Models')

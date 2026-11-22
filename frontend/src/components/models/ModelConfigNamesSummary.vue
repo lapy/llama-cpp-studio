@@ -215,7 +215,7 @@ const presetHint = computed(() => {
 })
 
 const routableNames = computed(() => {
-  const names = [primaryName.value, ...ordinaryAliases.value]
+  const names = [primaryName.value, stableRuntimeId.value, ...ordinaryAliases.value]
   for (const preset of requestPresets.value) names.push(preset.name)
   return [...new Set(names.filter(Boolean))]
 })
