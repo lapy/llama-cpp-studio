@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <section class="hardware-panel" aria-labelledby="hardware-heading">
     <div class="hardware-heading">
       <h2 id="hardware-heading">Hardware resources</h2>
