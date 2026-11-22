@@ -32,6 +32,9 @@ function statusPayload() {
       request_timeout_seconds: null,
       readiness_timeout_seconds: 2700,
       drain_timeout_seconds: 30,
+      vram_admission: 'warn',
+      vram_safety_margin_mib: 1024,
+      vram_estimates: { demo: 8192 },
     },
     configured_backend: 'studio',
     active_backend: 'studio',
@@ -46,12 +49,42 @@ function statusPayload() {
         state: 'ready',
         inflight: 2,
         created_at: 1,
+        vram: {
+          observed_mib: 8000,
+          estimate_mib: 8192,
+          estimate_source: 'settings',
+          quality: 'observed',
+        },
       },
     ],
     activity: [
       { type: 'starting', model: 'demo', created_at: 1, pid: 42 },
       { type: 'ready', model: 'demo', created_at: 2, pid: 42 },
+      {
+        type: 'vram_warning',
+        model: 'demo',
+        reason: 'Estimate 16000 MiB (file_size) exceeds 7168 MiB available',
+        decision: 'warned',
+        created_at: 3,
+      },
     ],
+    vram: {
+      mode: 'warn',
+      safety_margin_mib: 1024,
+      estimates_configured: { demo: 8192 },
+      observed_estimates: { demo: { mib: 8000, at: '2026-01-01T00:00:00Z', devices: [0] } },
+      probe: { status: 'ok', vendor: 'nvidia', devices: [{ index: 0, free_mib: 8192 }] },
+      reservations: [],
+      last_admission: {
+        decision: 'warned',
+        model: 'demo',
+        estimate_mib: 16000,
+        estimate_source: 'file_size',
+        available_mib: 7168,
+        deficit_mib: 8832,
+        reason: 'Estimate 16000 MiB (file_size) exceeds 7168 MiB available; warn mode admits.',
+      },
+    },
     catalog: [
       { id: 'demo', studio_model_id: 'stored-demo', engine: 'llama.cpp', aliases: ['demo-lite'] },
     ],
@@ -657,6 +690,63 @@ describe('Proxy monitoring', () => {
     expect(wrapper.find('.request-inspector').text()).toContain('Time to first byte')
     await clickButton(wrapper, 'Reset stats')
     expect(axios.post).toHaveBeenCalledWith('/api/proxy/stats/reset')
+    wrapper.unmount()
+  })
+
+  it('shows GPU admission evidence, the overview warning, and running VRAM', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    // Overview is the default tab and carries the admission warning.
+    expect(wrapper.find('.vram-notice').text()).toContain('demo needs 16,000 MiB file_size')
+    expect(wrapper.find('.vram-notice').text()).toContain('7,168 MiB available')
+    expect(wrapper.text()).toContain('8,000 MiB observed')
+    await clickButton(wrapper, 'Settings & routing')
+    expect(wrapper.get('#proxy-vram-heading').text()).toBe('GPU admission')
+    expect(wrapper.text()).toContain('Probe ready')
+    expect(wrapper.text()).toContain('demo · 8,000 MiB')
+    wrapper.unmount()
+  })
+
+  it('saves live GPU admission settings and per-model estimates', async () => {
+    const payload = statusPayload()
+    payload.catalog = [
+      ...payload.catalog,
+      { id: 'other', studio_model_id: 'stored-other', engine: 'llama.cpp', aliases: [] },
+    ]
+    vi.mocked(axios.get).mockImplementation((url) =>
+      Promise.resolve({ data: String(url).includes('keys') ? { keys: [] } : payload }),
+    )
+    const wrapper = mountView()
+    await flushPromises()
+    await clickButton(wrapper, 'Settings & routing')
+    await wrapper.get('select[aria-label="VRAM admission mode"]').setValue('enforce')
+    await wrapper.get('input[aria-label="VRAM safety margin MiB"]').setValue('2048')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Add estimate')
+      .trigger('click')
+    await flushPromises()
+    await wrapper.get('#vram-model-1').setValue('other')
+    await wrapper.get('#vram-mib-1').setValue('4096')
+    await clickButton(wrapper, 'Save settings')
+    expect(axios.put).toHaveBeenCalledWith(
+      '/api/proxy/settings',
+      expect.objectContaining({
+        vram_admission: 'enforce',
+        vram_safety_margin_mib: 2048,
+        vram_estimates: { demo: 8192, other: 4096 },
+      }),
+    )
+    wrapper.unmount()
+  })
+
+  it('surfaces VRAM admission activity in the event log', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await clickButton(wrapper, 'Events')
+    const activity = wrapper.find('.activity-list')
+    expect(activity.text()).toContain('vram_warning')
+    expect(activity.text()).toContain('exceeds 7168 MiB available')
     wrapper.unmount()
   })
 
