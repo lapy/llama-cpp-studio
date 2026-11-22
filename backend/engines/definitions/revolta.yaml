@@ -1,0 +1,374 @@
+# AUTHORITATIVE engine definition (hand-authored; NOT exported).
+#
+# ReVolta (Leonccaa/ReVolta) is a V100/SM70 inference server derived from
+# 1Cat-vLLM, which is derived from vLLM. The distribution is `revolta`; the
+# Python import name and the CLI stay `vllm` on purpose, so this engine reuses
+# the vLLM runtime mechanism, the `vllm_help` scanner and the shared Python-venv
+# install/build host. It is release-first: PyPI wheels are built only for
+# Linux x86-64 / CPython 3.12 / CUDA 12.8 / SM70 (CUDA 13 dropped Volta), and
+# the same wheel is attached to the GitHub release.
+#
+# Reference deployment: four V100 32 GB GPUs, Qwen3.8-Flash-Next AWQ/NVFP4,
+# `--dtype half` (V100 has no BF16 units), MTP4 or DFlash2 speculative decoding.
+# Those are model/launch choices, not registered defaults; the profile sets
+# only the SM70-safe environment and model/port bindings.
+schema_version: 2
+id: revolta
+extends:
+- text_generation_tasks
+- python_venv_safetensors
+label: ReVolta
+ui_kind: venv
+repository_source: ReVolta
+runtime_kind: vllm
+scanner_kind: vllm_help
+input_modalities:
+- image
+- text
+- video
+output_modalities:
+- embedding
+- score
+- text
+supports_embeddings: true
+experimental: true
+maturity_surfaces:
+  nvidia_sm70: specialized
+recipes:
+  release:
+  - id: resolve_version
+    uses: prereqs.resolve_version
+    with:
+      channel: pypi
+      package: revolta
+    produces:
+    - version
+  - id: create_venv
+    uses: venv.create
+    requires:
+    - input.engine_root
+    produces:
+    - venv
+  - id: install_package
+    uses: pip.install_package
+    requires:
+    - venv
+    - version
+    - input.force_reinstall
+    with:
+      package: revolta
+      version_from: version
+      extra_args:
+      - --extra-index-url
+      - https://download.pytorch.org/whl/cu128
+      stage: install
+      append: false
+      error: pip install failed with status {code}
+  - id: finalize
+    uses: publish.finalize
+    requires:
+    - venv
+  source:
+  - id: cuda_env
+    uses: env.compose
+    requires:
+    - input.engine_root
+    produces:
+    - build_env
+    - runtime_meta
+  - id: ensure_rust
+    uses: toolchain.ensure
+    requires:
+    - build_env
+    produces:
+    - rust_env
+    with:
+      kind: rust
+      output_key: rust_env
+  - id: checkout
+    uses: vcs.workspace_checkout
+    requires:
+    - input.repo_url
+    - input.branch
+    - input.reuse_mode
+    produces:
+    - checkout
+  - id: bootstrap_pip
+    uses: pip.install_package
+    requires:
+    - checkout
+    with:
+      package: pip
+      stage: install_source
+      append: true
+      error: pip upgrade failed with status {code}
+  - id: assert_checkout
+    uses: fs.assert_dir
+    requires:
+    - checkout
+    with:
+      path_from: checkout
+      error: ReVolta source package directory is unavailable
+  - id: install_checkout
+    uses: pip.install_package
+    requires:
+    - checkout
+    - build_env
+    - rust_env
+    with:
+      editable: true
+      package_from: checkout
+      cwd_from: checkout
+      env_from: build_env
+      env_ccache: true
+      extra_args:
+      - --extra-index-url
+      - https://download.pytorch.org/whl/cu128
+      stage: install_source
+      error: ReVolta source install failed with status {code}
+  - id: seal_checkout
+    uses: vcs.seal_checkout
+    requires:
+    - checkout
+    with:
+      destination: source
+      workspace_from: workspace
+  - id: capture_commit
+    uses: vcs.capture_commit
+    requires:
+    - checkout
+    produces:
+    - source_commit
+    with:
+      path_from: checkout
+  - id: finalize
+    uses: publish.finalize
+    requires:
+    - checkout
+    - source_commit
+    - runtime_meta
+  sync:
+  - id: cuda_env
+    uses: env.compose
+    requires:
+    - input.engine_root
+    produces:
+    - build_env
+    - runtime_meta
+  - id: ensure_rust
+    uses: toolchain.ensure
+    requires:
+    - build_env
+    produces:
+    - rust_env
+    with:
+      kind: rust
+      output_key: rust_env
+  - id: sync_checkout
+    uses: vcs.sync
+    requires:
+    - input.branch
+    produces:
+    - checkout
+  - id: bootstrap_pip
+    uses: pip.install_package
+    requires:
+    - checkout
+    with:
+      package: pip
+      stage: install_source
+      append: true
+      error: pip upgrade failed with status {code}
+  - id: assert_checkout
+    uses: fs.assert_dir
+    requires:
+    - checkout
+    with:
+      path_from: checkout
+      error: ReVolta source package directory is unavailable
+  - id: install_checkout
+    uses: pip.install_package
+    requires:
+    - checkout
+    - build_env
+    - rust_env
+    with:
+      editable: true
+      package_from: checkout
+      cwd_from: checkout
+      env_from: build_env
+      env_ccache: true
+      extra_args:
+      - --extra-index-url
+      - https://download.pytorch.org/whl/cu128
+      stage: install_source
+      error: ReVolta source install failed with status {code}
+  - id: capture_commit
+    uses: vcs.capture_commit
+    requires:
+    - checkout
+    produces:
+    - source_commit
+    with:
+      path_from: checkout
+  - id: finalize
+    uses: publish.finalize
+    requires:
+    - checkout
+    - source_commit
+    - runtime_meta
+  remove:
+  - id: uninstall_packages
+    uses: pip.uninstall
+    requires:
+    - input.venv_path
+    with:
+      packages:
+      - revolta
+      - vllm
+      stage: remove
+      append: false
+      error: pip exited with status {code}
+  - id: remove_venv
+    uses: fs.remove_tree
+    requires:
+    - input.venv_path
+    - input.retire_references
+    with:
+      path_from: input.venv_path
+      retire_references_from: input.retire_references
+  - id: forget
+    uses: publish.forget
+    requires:
+    - input.version_name
+  remove_version:
+  - id: remove_install_dir
+    uses: fs.remove_tree
+    requires:
+    - input.delete_target
+    - input.retire_references
+    with:
+      path_from: input.delete_target
+      retire_references_from: input.retire_references
+  - id: forget_row
+    uses: publish.forget
+    requires:
+    - input.registered
+    - input.version_name
+lifecycle:
+  binary_name: python
+  distribution_names:
+  - revolta
+  - vllm
+  root_name: revolta
+  log_name: revolta_install.log
+  default_repo_url: https://github.com/Leonccaa/ReVolta.git
+  default_branch: main
+  version_setting_key: release_version
+  update_source:
+    kind: pypi
+    package: revolta
+  prefer_source_install: false
+  status_fallback:
+    installed_at: null
+    removed_at: null
+    log_path: null
+  build_env: cuda
+  cuda_home_fallback: /usr/local/cuda-12.8
+  build_env_vars:
+    TORCH_CUDA_ARCH_LIST: '7.0'
+  build_rust: true
+  python_exact: '3.12'
+  status:
+    binary: venv_python
+    include_engine: true
+    include_removed_at: false
+    row_fields:
+    - source_commit
+    - python_version
+    - cuda_version
+    - cuda_path
+    constants:
+      v100: true
+  source_started_message: '{label} source installation started'
+discovery:
+  parser: vllm_help
+  cwd: venv_root
+  probe_variants:
+  - executable:
+      kind: venv_console_script
+      name: vllm
+    argv_prefix:
+    - serve
+    - --help=all
+  - executable:
+      kind: venv_python
+      name: python
+    argv_prefix:
+    - -m
+    - vllm
+    - serve
+    - --help=all
+runtime_profiles:
+  default:
+    default: true
+    description: ReVolta OpenAI-compatible `vllm serve` (console script)
+    executable:
+      kind: venv_console_script
+      name: vllm
+    argv_prefix:
+    - serve
+    model_binding:
+      mode: positional
+      source: huggingface_id
+    port_binding:
+      flag: --port
+    env:
+      cwd: venv_root
+      cuda: true
+      caches:
+      - XDG_CACHE_HOME
+      - TRITON_HOME
+      - TRITON_CACHE_DIR
+      - TORCHINDUCTOR_CACHE_DIR
+      - TORCH_EXTENSIONS_DIR
+      - TVM_FFI_CACHE_DIR
+      - TILELANG_CACHE_DIR
+      - CUTE_DSL_CACHE_DIR
+      - FLASHINFER_WORKSPACE_BASE
+      - OUTLINES_CACHE_DIR
+      - DG_JIT_CACHE_DIR
+      - TIKTOKEN_CACHE_DIR
+      - DATA_GYM_CACHE_DIR
+      - KERNELS_CACHE
+      - CUDA_CACHE_PATH
+      - VLLM_CACHE_ROOT
+      - VLLM_ASSETS_CACHE
+      - VLLM_XLA_CACHE_PATH
+      - VLLM_FLASHINFER_AUTOTUNE_CACHE_DIR
+      - FLYDSL_RUNTIME_CACHE_DIR
+      defaults:
+        # The V100 profile needs expandable segments; NCCL graph registration
+        # must stay off with them (ReVolta getting-started, "Environment").
+        PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+        PYTORCH_ALLOC_CONF: expandable_segments:True
+        NCCL_GRAPH_REGISTER: '0'
+        TORCH_CUDA_ARCH_LIST: '7.0'
+        CUDA_DEVICE_ORDER: PCI_BUS_ID
+launch_policy:
+  cpu_supported: false
+  gpu_archs:
+  - sm70
+  runtime_context_key: max_model_len
+  capcompat: true
+catalog:
+  providers:
+  - huggingface
+upstream:
+  repository_url: https://github.com/Leonccaa/ReVolta.git
+settings_defaults:
+  source_repo: https://github.com/Leonccaa/ReVolta.git
+  source_branch: main
+  release_version: ''
+data_dirs:
+- revolta

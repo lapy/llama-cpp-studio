@@ -52,7 +52,7 @@ def test_inferred_safetensors_engines_include_sglang_families_and_vllm():
         "sglang",
         "sglang_v100",
         "sglang_sxm2",
-        "sglang_sm70",
+        "revolta",
     }
     assert HF_SNAPSHOT_ENGINE_IDS == frozenset(engines)
     assert "audio_cpp" not in engines
@@ -87,7 +87,7 @@ def test_stale_safetensors_engine_list_gains_new_registry_engines():
         "sglang",
         "sglang_v100",
         "sglang_sxm2",
-        "sglang_sm70",
+        "revolta",
     }
     curated = compatible_engines_for_record(
         {

@@ -72,6 +72,10 @@ def test_every_shipped_engine_declares_its_family_cache_baseline():
     registry = load_default_engine_definitions()
     assert registry.ids(), "no engine definitions loaded"
     for definition in registry.all():
+        if not definition.runtime_profiles:
+            # Registration-only engines (Strata) have no launch profile yet, so
+            # there is no launch-time cache policy to declare.
+            continue
         baseline = _family_baseline(definition)
         if not baseline:
             continue

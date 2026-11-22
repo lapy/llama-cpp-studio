@@ -23,7 +23,6 @@ VENV_ENGINES = {
     "sglang": "/api/sglang",
     "sglang_v100": "/api/sglang-v100",
     "sglang_sxm2": "/api/sglang-sxm2",
-    "sglang_sm70": "/api/sglang-sm70",
     "1cat_vllm": "/api/1cat-vllm",
 }
 
@@ -37,7 +36,6 @@ PAYLOADS = {
     "sglang": PYPI_PAYLOAD,
     "sglang_v100": COMMIT_PAYLOAD,
     "sglang_sxm2": COMMIT_PAYLOAD,
-    "sglang_sm70": COMMIT_PAYLOAD,
     "1cat_vllm": RELEASES_PAYLOAD,
 }
 
@@ -131,10 +129,13 @@ def test_registry_covers_venv_and_native_engines():
     assert set(VENV_ENGINES) | {"llama_cpp", "ik_llama", "unsloth_llama"} <= set(ev.LIFECYCLE)
     # S4/R3: the authoritative fixtures may already be registered in this
     # process (lifespan ran in some earlier test) — bounded, order-proof.
+    # ReVolta is a definition-owned engine with no legacy prefix: its generic
+    # record is the only lifecycle registration it gets.
     assert set(ev.LIFECYCLE) <= set(VENV_ENGINES) | {
         "llama_cpp",
         "ik_llama",
         "unsloth_llama",
+        "revolta",
     }
     for engine_id in VENV_ENGINES:
         assert ev.LIFECYCLE[engine_id].verbs == {}  # venv runs the shared machinery
@@ -222,9 +223,7 @@ def test_install_identical_including_prefer_source(client, monkeypatch, engine_i
     assert generic.json() == legacy.json()
     # The SM70 SGLang forks (prefer_source_install) must schedule SOURCE on both
     # surfaces; everyone else schedules the release install.
-    expected_verb = (
-        "source" if engine_id in {"sglang_v100", "sglang_sxm2", "sglang_sm70"} else "release"
-    )
+    expected_verb = "source" if engine_id in {"sglang_v100", "sglang_sxm2"} else "release"
     assert [verb for verb, _ in stub.calls] == [expected_verb] * 2
     assert stub.calls[0][1] == stub.calls[1][1]
 

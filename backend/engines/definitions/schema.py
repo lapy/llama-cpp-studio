@@ -599,7 +599,7 @@ def _validate_request_defaults(value: Any, where: str) -> Tuple[Tuple[str, Any],
 # adapter map, and proxy runtime kinds) without this module importing them.
 INSTALL_KINDS: FrozenSet[str] = frozenset({"cmake", "prebuilt", "python_venv"})
 RUNTIME_KINDS: FrozenSet[str] = frozenset(
-    {"llama_server", "lmdeploy", "onecat_vllm", "vllm", "sglang", "audio_cpp"}
+    {"llama_server", "lmdeploy", "onecat_vllm", "vllm", "sglang", "audio_cpp", "strata"}
 )
 SCANNER_KINDS: FrozenSet[str] = frozenset(
     {

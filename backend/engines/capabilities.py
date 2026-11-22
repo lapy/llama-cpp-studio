@@ -120,6 +120,13 @@ ENGINE_CAPABILITIES: Mapping[str, EngineCapabilities] = {
         count_adapter="vllm_tokenize",
         notes=("Do not inherit mainline vLLM per-request timing without a build probe.",),
     ),
+    "revolta": EngineCapabilities(
+        engine="revolta",
+        family=VLLM_FAMILY,
+        protocols=_VLLM_PROTOCOLS,
+        count_adapter="vllm_tokenize",
+        notes=("SM70-only vLLM fork; probe per build rather than inheriting mainline timing.",),
+    ),
     "sglang": EngineCapabilities(
         engine="sglang",
         family=SGLANG_FAMILY,
@@ -146,15 +153,6 @@ ENGINE_CAPABILITIES: Mapping[str, EngineCapabilities] = {
         native_timing=True,
         timing_semantics="fork meta_info; independent fixtures required",
         notes=("Separate fork (dg1kjd/sglang-sxm2) from sglang-v100; probe per build.",),
-    ),
-    "sglang_sm70": EngineCapabilities(
-        engine="sglang_sm70",
-        family=SGLANG_FAMILY,
-        protocols=_SGLANG_PROTOCOLS,
-        count_adapter="sglang_tokenize",
-        native_timing=True,
-        timing_semantics="fork meta_info; independent fixtures required",
-        notes=("Volta fork (lapy/sglang-sm70) of the sglang-sxm2 tree; probe per build.",),
     ),
     "lmdeploy": EngineCapabilities(
         engine="lmdeploy",

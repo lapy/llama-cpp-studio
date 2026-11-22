@@ -26,7 +26,7 @@ VENV_ENGINES = {
     "sglang",
     "sglang_v100",
     "sglang_sxm2",
-    "sglang_sm70",
+    "revolta",
     "vllm",
 }
 CMAKE_ENGINES = {"llama_cpp", "ik_llama", "audio_cpp"}
@@ -39,7 +39,10 @@ def test_install_kind_helpers_match_the_historical_families():
     venv_ids = set(engine_ids_with_install_kind("python_venv"))
     assert venv_ids & SHIPPED_ENGINE_IDS == VENV_ENGINES
     assert set(engine_ids_with_install_kind("cmake")) & SHIPPED_ENGINE_IDS == CMAKE_ENGINES
-    assert set(engine_ids_with_install_kind("prebuilt")) & SHIPPED_ENGINE_IDS == {"unsloth_llama"}
+    assert set(engine_ids_with_install_kind("prebuilt")) & SHIPPED_ENGINE_IDS == {
+        "unsloth_llama",
+        "strata",
+    }
     assert engine_ids_with_install_kind("not-a-kind") == ()
     assert set(lifecycle_module.python_venv_engine_ids()) & SHIPPED_ENGINE_IDS == VENV_ENGINES
     assert set(_cmake_build_engines()) & SHIPPED_ENGINE_IDS == CMAKE_ENGINES

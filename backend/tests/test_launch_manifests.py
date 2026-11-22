@@ -116,6 +116,19 @@ def _install_tree(tmp_path: Path, engine: str) -> dict:
     binary.parent.mkdir(parents=True, exist_ok=True)
     binary.write_text("#!/bin/sh\n", encoding="utf-8")
     binary.chmod(0o755)
+    # A venv-console-script profile resolves `<venv>/bin/<name>`, not the
+    # interpreter. Materialize the declared entry point too so the harness
+    # exercises the same resolution the production launcher uses.
+    from backend.engines.definitions import load_default_engine_definitions
+
+    definition = load_default_engine_definitions().get(engine)
+    profile = definition.profile("") if definition and definition.runtime_profiles else {}
+    executable = dict(profile.get("executable") or {})
+    if executable.get("kind") == "venv_console_script":
+        script = binary.parent / str(executable.get("name") or "")
+        if script.name and not script.exists():
+            script.write_text("#!/bin/sh\n", encoding="utf-8")
+            script.chmod(0o755)
     toolkit = tmp_path / "cuda"
     (toolkit / "bin").mkdir(parents=True, exist_ok=True)
     return {"binary": binary, "cwd": binary.parent.parent, "toolkit": toolkit}
@@ -228,6 +241,11 @@ def _model(engine: str, **section):
 
 @pytest.mark.parametrize("engine", sorted(VALID_ENGINE_IDS))
 def test_each_engine_compiles_structured_argv(monkeypatch, tmp_path, engine):
+    from backend.engines.definitions import load_default_engine_definitions
+
+    definition = load_default_engine_definitions().get(engine)
+    if definition is None or not definition.runtime_profiles:
+        pytest.skip("registration-only engine has no launch profile")
     _patch_resolvers(monkeypatch, tmp_path)
     section = {"ctx_size": 2048, "runtime_env": {"FOO": "bar baz", "EMPTY": ""}}
     if engine == "sglang_v100":
@@ -249,7 +267,7 @@ def test_each_engine_compiles_structured_argv(monkeypatch, tmp_path, engine):
             "out": ["text"],
             "context": 2048,
         }
-    elif engine in {"vllm", "1cat_vllm"}:
+    elif engine in {"vllm", "1cat_vllm", "revolta"}:
         assert compiled.proxy.capabilities == {"in": ["text"], "out": ["text"]}
     elif engine == "audio_cpp":
         assert compiled.proxy.capabilities == {"disableAuto": True}
