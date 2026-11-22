@@ -87,14 +87,7 @@ function sgFamilyCalls(engine) {
 describe('engines/registry', () => {
   it('routes genericApi engines through the generic router, by literal', () => {
     expect([...VENV_ENGINE_IDS].sort()).toEqual(
-      [
-        '1cat_vllm',
-        'lmdeploy',
-        'sglang',
-        'sglang_v100',
-        'sglang_sxm2',
-        'vllm',
-      ].sort(),
+      ['1cat_vllm', 'lmdeploy', 'sglang', 'sglang_v100', 'sglang_sxm2', 'vllm'].sort(),
     )
     expect(Object.keys(VENV_DESCRIPTORS).sort()).toEqual([...VENV_ENGINE_IDS].sort())
     expect(venvApiPath('sglang_v100', 'status')).toBe('/api/engines/sglang_v100/status')
@@ -193,14 +186,7 @@ describe('engines/registry', () => {
       ['llama_cpp', 'ik_llama', 'unsloth_llama'].sort(),
     )
     expect([...ENGINE_IDS_BY_FALLBACK_FORMAT.safetensors].sort()).toEqual(
-      [
-        'lmdeploy',
-        '1cat_vllm',
-        'vllm',
-        'sglang',
-        'sglang_v100',
-        'sglang_sxm2',
-      ].sort(),
+      ['lmdeploy', '1cat_vllm', 'vllm', 'sglang', 'sglang_v100', 'sglang_sxm2'].sort(),
     )
     // CMAKE_ENGINES (VersionTable)
     expect([...CMAKE_ENGINE_IDS].sort()).toEqual(['audio_cpp', 'ik_llama', 'llama_cpp'].sort())
