@@ -223,9 +223,7 @@ def test_install_identical_including_prefer_source(client, monkeypatch, engine_i
     assert generic.json() == legacy.json()
     # The SM70 SGLang forks (prefer_source_install) must schedule SOURCE on both
     # surfaces; everyone else schedules the release install.
-    expected_verb = (
-        "source" if engine_id in {"sglang_v100", "sglang_sxm2"} else "release"
-    )
+    expected_verb = "source" if engine_id in {"sglang_v100", "sglang_sxm2"} else "release"
     assert [verb for verb, _ in stub.calls] == [expected_verb] * 2
     assert stub.calls[0][1] == stub.calls[1][1]
 

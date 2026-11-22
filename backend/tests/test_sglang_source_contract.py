@@ -1,4 +1,4 @@
-﻿"""SGLang source/sync/remove CONTRACT harness (Phase-5 port).
+"""SGLang source/sync/remove CONTRACT harness (Phase-5 port).
 
 The legacy shadow tests asserted the old class's internal call transcript.
 This file asserts the OBSERVABLE contract of the definition-driven host:
