@@ -109,12 +109,9 @@ def test_sglang_engines_are_registered_for_hf_snapshots():
     # Both SM70 source forks are experimental sglang runtimes too.
     assert ENGINE_REGISTRY["sglang_sxm2"].runtime_kind == "sglang"
     assert ENGINE_REGISTRY["sglang_sxm2"].experimental is True
-    assert ENGINE_REGISTRY["sglang_sm70"].runtime_kind == "sglang"
-    assert ENGINE_REGISTRY["sglang_sm70"].experimental is True
     assert "sglang" in compatible_engines_for_record({"format": "safetensors"})
     assert "sglang_v100" in compatible_engines_for_record({"format": "safetensors"})
     assert "sglang_sxm2" in compatible_engines_for_record({"format": "safetensors"})
-    assert "sglang_sm70" in compatible_engines_for_record({"format": "safetensors"})
 
 
 def test_sglang_install_defaults_distinguish_upstream_and_v100():
@@ -129,10 +126,7 @@ def test_sglang_install_defaults_distinguish_upstream_and_v100():
     assert default_install_settings("sglang_sxm2")["source_repo"] == (
         "https://github.com/dg1kjd/sglang-sxm2.git"
     )
-    assert default_install_settings("sglang_sm70")["source_repo"] == (
-        "https://github.com/lapy/sglang-sm70.git"
-    )
-    assert "pip_version" not in default_install_settings("sglang_sm70")
+    assert "pip_version" not in default_install_settings("sglang_sxm2")
 
 
 def test_sglang_help_parser_reserves_studio_owned_model_and_port():
@@ -901,7 +895,7 @@ def test_v100_install_honors_explicit_third_party_fork(client, monkeypatch, endp
 
 def test_sm70_launch_profiles_pin_the_cuda12_toolchain():
     """Runtime JIT invokes bare nvcc; it must not fall back to GCC 15."""
-    for engine_id in ("sglang_v100", "sglang_sxm2", "sglang_sm70"):
+    for engine_id in ("sglang_v100", "sglang_sxm2"):
         defaults = ENGINE_REGISTRY[engine_id].runtime_profile["env"]["defaults"]
         assert defaults["CUDAHOSTCXX"] == "/usr/bin/g++-12"
         assert defaults["CXX"] == "/usr/bin/g++-12"

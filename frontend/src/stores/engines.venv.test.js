@@ -42,7 +42,7 @@ vi.mock('axios', () => ({
   },
 }))
 
-const SG_FAMILY = ['sglang', 'sglang_v100', 'sglang_sxm2', 'sglang_sm70', 'vllm']
+const SG_FAMILY = ['sglang', 'sglang_v100', 'sglang_sxm2', 'vllm']
 
 // Per-engine entry points exactly as the store exports them today.
 const CALLS = {
@@ -67,7 +67,6 @@ const CALLS = {
   sglang: sgFamilyCalls('sglang'),
   sglang_v100: sgFamilyCalls('sglang_v100'),
   sglang_sxm2: sgFamilyCalls('sglang_sxm2'),
-  sglang_sm70: sgFamilyCalls('sglang_sm70'),
   vllm: sgFamilyCalls('vllm'),
 }
 
@@ -94,7 +93,6 @@ describe('engines/registry', () => {
         'sglang',
         'sglang_v100',
         'sglang_sxm2',
-        'sglang_sm70',
         'vllm',
       ].sort(),
     )
@@ -144,7 +142,6 @@ describe('engines/registry', () => {
       sglang: '/api/engines/sglang/cancel',
       sglang_v100: '/api/engines/sglang_v100/cancel',
       sglang_sxm2: '/api/engines/sglang_sxm2/cancel',
-      sglang_sm70: '/api/engines/sglang_sm70/cancel',
       // manager id differs from the engine id for 1Cat-vLLM
       onecat_vllm: '/api/engines/1cat_vllm/cancel',
     })
@@ -159,7 +156,7 @@ describe('engines/registry', () => {
   })
 
   it('v3: one descriptor per engine replaces the six parallel records', () => {
-    expect(Object.keys(ENGINE_DESCRIPTORS)).toHaveLength(11)
+    expect(Object.keys(ENGINE_DESCRIPTORS)).toHaveLength(10)
     // ENGINE_LABELS (engineVersionDelete)
     expect(ENGINE_LABELS).toEqual({
       llama_cpp: 'llama.cpp',
@@ -170,7 +167,6 @@ describe('engines/registry', () => {
       sglang: 'SGLang',
       sglang_v100: 'SGLang V100',
       sglang_sxm2: 'SGLang SXM2',
-      sglang_sm70: 'SGLang SM70',
       vllm: 'vLLM',
       audio_cpp: 'audio.cpp',
     })
@@ -184,7 +180,6 @@ describe('engines/registry', () => {
       'sglang',
       'sglang_v100',
       'sglang_sxm2',
-      'sglang_sm70',
       'vllm',
       'audio_cpp',
     ])
@@ -244,10 +239,10 @@ describe('engines/registry', () => {
     expect(ENGINE_DESCRIPTORS.vllm.icon).toBe('pi-server')
     // Two DISTINCT sglang families — the v3 trap deliberately pinned:
     expect([...SGLANG_RUNTIME_UI_IDS].sort()).toEqual(
-      ['sglang', 'sglang_v100', 'sglang_sxm2', 'sglang_sm70'].sort(),
+      ['sglang', 'sglang_v100', 'sglang_sxm2'].sort(),
     )
     expect([...SG_PANEL_ENGINE_IDS].sort()).toEqual(
-      ['sglang', 'sglang_v100', 'sglang_sxm2', 'sglang_sm70', 'vllm'].sort(),
+      ['sglang', 'sglang_v100', 'sglang_sxm2', 'vllm'].sort(),
     )
     // EngineBuildSettingsHint copy, incl. the unsloth no-hint hole
     expect(engineBuildHint('vllm')).toContain('CUDA toolkit')
@@ -281,7 +276,6 @@ describe('version status refresh fan-out (activate/delete)', () => {
     '/api/engines/1cat_vllm/status',
     '/api/engines/sglang_v100/status',
     '/api/engines/sglang_sxm2/status',
-    '/api/engines/sglang_sm70/status',
     '/api/engines/sglang/status',
     '/api/engines/vllm/status',
     '/api/audio-cpp/status',
@@ -317,11 +311,6 @@ describe('version status refresh fan-out (activate/delete)', () => {
       'sglang_sxm2:2026-01-02',
       ['/api/engines/sglang_sxm2/status'],
       ['/api/engines/sglang_sxm2/status'],
-    ],
-    [
-      'sglang_sm70:2026-01-02',
-      ['/api/engines/sglang_sm70/status'],
-      ['/api/engines/sglang_sm70/status'],
     ],
     ['sglang:abc', ['/api/engines/sglang/status'], ['/api/engines/sglang/status']],
     ['vllm:0.17.0', ['/api/engines/vllm/status'], ['/api/engines/vllm/status']],

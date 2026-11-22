@@ -46,11 +46,6 @@ MANAGED_METRIC_ARGS: Mapping[str, tuple[str, ...]] = {
         "--enable-metrics",
         "--stream-response-default-include-usage",
     ),
-    "sglang_sm70": (
-        "--enable-cache-report",
-        "--enable-metrics",
-        "--stream-response-default-include-usage",
-    ),
 }
 
 # Log-producing flags Studio adds because they emit the framework progress and
@@ -72,7 +67,6 @@ OWNED_LOG_ARGS: Mapping[str, tuple[str, ...]] = {
     "sglang": ("--log-level", "--log-level-http", "--log-requests-target"),
     "sglang_v100": ("--log-level", "--log-level-http", "--log-requests-target"),
     "sglang_sxm2": ("--log-level", "--log-level-http", "--log-requests-target"),
-    "sglang_sm70": ("--log-level", "--log-level-http", "--log-requests-target"),
     "lmdeploy": ("--log-level",),
     "audio_cpp": ("--log-file",),
 }

@@ -129,7 +129,6 @@ def test_update_model_writes_current_safetensors_compatible_engines(tmp_path):
         "sglang",
         "sglang_v100",
         "sglang_sxm2",
-        "sglang_sm70",
     ]
     # Stored order is preserved for existing entries; newly declared engines
     # append in registry order (definition-owned engines load after literals).

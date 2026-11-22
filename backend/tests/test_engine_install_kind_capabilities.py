@@ -26,7 +26,6 @@ VENV_ENGINES = {
     "sglang",
     "sglang_v100",
     "sglang_sxm2",
-    "sglang_sm70",
     "vllm",
 }
 CMAKE_ENGINES = {"llama_cpp", "ik_llama", "audio_cpp"}

@@ -55,7 +55,6 @@ ENGINE_REPO_LABELS = {
     "sglang": "SGLang",
     "sglang_v100": "SGLang-V100",
     "sglang_sxm2": "SGLang-SXM2",
-    "sglang_sm70": "SGLang-SM70",
     "vllm": "vLLM",
     "audio_cpp": "audio.cpp",
 }
