@@ -32,6 +32,11 @@ vi.mock('axios', () => ({
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: routerPush, replace: routerReplace }),
+  RouterLink: {
+    name: 'RouterLink',
+    props: ['to'],
+    template: '<a :href="to"><slot /></a>',
+  },
   useRoute: () => ({
     name: 'search',
     get query() {
@@ -210,6 +215,10 @@ function mountCatalogSearch() {
           template:
             '<button :data-label="label" :data-loading="loading ? \'1\' : \'0\'" :disabled="disabled" @click="$emit(\'click\')">{{ label }}</button>',
         },
+        RouterLink: {
+          props: ['to'],
+          template: '<a :href="to"><slot /></a>',
+        },
         Tag: {
           props: ['value'],
           template: '<span class="tag">{{ value }}</span>',
@@ -243,7 +252,11 @@ function mountCatalogSearch() {
           </select>`,
         },
         LoadingState: true,
-        EmptyState: true,
+        EmptyState: {
+          props: ['title', 'description', 'role'],
+          template:
+            '<div class="empty-stub" :role="role"><h2>{{ title }}</h2><p v-if="description">{{ description }}</p><slot /></div>',
+        },
         Dialog: {
           props: ['visible', 'header', 'modal', 'style', 'class'],
           emits: ['update:visible'],
@@ -852,5 +865,110 @@ describe('ModelSearch catalog integration', () => {
 
     const refreshedBtn = wrapper.find('button[data-label="Download"]')
     expect(refreshedBtn.attributes('data-loading')).toBe('0')
+  })
+
+  it('renders one page header with the import action and result-count meta', async () => {
+    const wrapper = await mountAndSearch()
+
+    expect(wrapper.get('.page-header h1').text()).toBe('Search models')
+    expect(wrapper.get('.page-header details summary').attributes('aria-label')).toBe(
+      'About Search models',
+    )
+    expect(wrapper.get('button[data-label="Import audio bundle"]').exists()).toBe(true)
+    expect(wrapper.get('.page-header__meta').text()).toContain('1 result')
+    expect(wrapper.get('.page-section__title').text()).toBe('Search results')
+    wrapper.unmount()
+  })
+
+  it('guides an empty search with examples and runs the chosen example', async () => {
+    modelStore.searchQuery = ''
+    modelStore.searchResults = []
+    modelStore.searchHasSearched = false
+    modelStore.searchLastQuery = ''
+    const wrapper = mountCatalogSearch()
+    await flushPromises()
+
+    expect(wrapper.get('.empty-stub h2').text()).toBe('Search the model catalog')
+    expect(wrapper.text()).toContain('start from an example')
+    const example = wrapper
+      .findAll('button')
+      .find((button) => button.attributes('data-label') === 'Try Qwen3')
+    expect(example).toBeTruthy()
+
+    searchCatalog.mockClear()
+    await example.trigger('click')
+    await flushPromises()
+
+    expect(searchCatalog).toHaveBeenCalledWith('Qwen3', expect.any(Object))
+    wrapper.unmount()
+  })
+
+  it('shows provider unavailability in the shared state banner', async () => {
+    searchCatalog.mockImplementation(async () => {
+      modelStore.catalogProviderStatus = {
+        huggingface: { available: false, reason: 'rate limited' },
+      }
+      modelStore.searchResults = []
+      modelStore.catalogTotal = 0
+      modelStore.searchHasSearched = true
+      modelStore.searchLastQuery = 'org'
+      return { items: [], total: 0, page: 1, has_more: false, provider_status: {} }
+    })
+    const wrapper = mountCatalogSearch()
+    await flushPromises()
+    const searchBtn = wrapper
+      .findAll('button')
+      .find((btn) => btn.attributes('data-label') === 'Search')
+    await searchBtn.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.state-banner--warning').text()).toContain('huggingface unavailable')
+    expect(wrapper.get('.state-banner--warning').text()).toContain('rate limited')
+    wrapper.unmount()
+  })
+
+  it('offers retry and import when the search request fails', async () => {
+    searchCatalog.mockRejectedValue(new Error('Catalog offline'))
+    const wrapper = mountCatalogSearch()
+    await flushPromises()
+    const searchBtn = wrapper
+      .findAll('button')
+      .find((btn) => btn.attributes('data-label') === 'Search')
+    await searchBtn.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.empty-stub h2').text()).toBe('Could not search')
+    expect(wrapper.get('.empty-stub').text()).toContain('Catalog offline')
+    expect(wrapper.get('.empty-stub').attributes('role')).toBe('alert')
+    expect(wrapper.get('.empty-stub').text()).toContain('Retry')
+    wrapper.unmount()
+  })
+
+  it('opens the audio import dialog from the page header', async () => {
+    const wrapper = mountCatalogSearch()
+    await flushPromises()
+    await wrapper.get('button[data-label="Import audio bundle"]').trigger('click')
+    await flushPromises()
+
+    const dialog = wrapper.get('.dialog-stub')
+    expect(dialog.attributes('data-header')).toBe('Import prepared audio.cpp bundle')
+    expect(dialog.text()).toContain('Local directory')
+    wrapper.unmount()
+  })
+
+  it('shows a dismissible token notice and hides it after dismissal', async () => {
+    modelStore.hasHuggingfaceToken = false
+    const wrapper = mountCatalogSearch()
+    await flushPromises()
+
+    expect(wrapper.get('.huggingface-token-notice').text()).toContain('Hugging Face token')
+    await wrapper
+      .findAll('button')
+      .find((button) => button.attributes('data-label') === 'Dismiss')
+      .trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.huggingface-token-notice').exists()).toBe(false)
+    wrapper.unmount()
   })
 })

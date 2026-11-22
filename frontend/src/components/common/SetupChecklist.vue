@@ -1,33 +1,61 @@
 <template>
-  <section v-if="visible" class="setup-checklist" aria-labelledby="setup-checklist-title">
-    <div class="setup-checklist__summary">
-      <div class="setup-checklist__copy">
-        <h2 id="setup-checklist-title">{{ currentStep?.label }}</h2>
-        <p class="setup-checklist__detail">{{ currentStep?.detail }}</p>
-      </div>
-      <div class="setup-checklist__actions">
-        <button
-          v-if="currentStep?.to || currentStep?.id === 'start'"
-          type="button"
-          class="setup-checklist__link"
-          :disabled="starting"
-          @click="activateStep"
-        >
-          {{ currentStep.action }}
-        </button>
-        <button
-          type="button"
-          class="setup-checklist__expand"
-          :aria-expanded="expanded"
-          aria-controls="setup-steps"
-          @click="expanded = !expanded"
-        >
-          {{ expanded ? 'Hide steps' : 'Show all steps' }}
-        </button>
-        <button type="button" class="setup-checklist__dismiss" @click="dismiss">Dismiss</button>
-      </div>
+  <PageSection v-if="visible" class="setup-checklist" :title="currentStep?.label" variant="compact">
+    <template #meta>
+      <Tag :value="progressLabel" severity="info" />
+    </template>
+    <template #actions>
+      <Button
+        v-if="currentStep?.id === 'start'"
+        class="setup-checklist__link"
+        :label="currentStep.action"
+        icon="pi pi-play"
+        size="small"
+        severity="secondary"
+        outlined
+        :loading="starting"
+        @click="activateStep"
+      />
+      <RouterLink
+        v-else-if="currentStep?.to"
+        class="page-action-link setup-checklist__link"
+        :to="currentStep.to"
+      >
+        {{ currentStep.action }}
+      </RouterLink>
+      <Button
+        class="setup-checklist__expand"
+        :label="expanded ? 'Hide steps' : 'Show all steps'"
+        size="small"
+        text
+        severity="secondary"
+        :aria-expanded="expanded"
+        aria-controls="setup-steps"
+        @click="expanded = !expanded"
+      />
+      <Button
+        class="setup-checklist__dismiss"
+        label="Dismiss"
+        size="small"
+        text
+        severity="secondary"
+        @click="dismiss"
+      />
+    </template>
+
+    <p class="setup-checklist__detail">{{ currentStep?.detail }}</p>
+
+    <div class="setup-checklist__progress-row">
+      <progress
+        class="setup-checklist__progress"
+        :value="completedCount"
+        :max="steps.length"
+        :aria-label="`Setup progress: ${completedCount} of ${steps.length} steps complete`"
+      />
+      <span class="setup-checklist__progress-label">{{ progressLabel }}</span>
     </div>
-    <p v-if="setupError" class="setup-checklist__detail" role="alert">{{ setupError }}</p>
+
+    <StateBanner v-if="setupError" severity="error" :message="setupError" />
+
     <ol v-if="expanded" id="setup-steps" class="setup-checklist__steps">
       <li
         v-for="step in steps"
@@ -37,26 +65,39 @@
         <span class="setup-checklist__mark" aria-hidden="true">{{
           step.done ? '✓' : step.current ? '→' : '○'
         }}</span>
-        <div>
+        <div class="setup-checklist__step-copy">
           <div class="setup-checklist__label">{{ step.label }}</div>
           <p class="setup-checklist__detail">{{ step.detail }}</p>
+          <RouterLink
+            v-if="step.to"
+            class="setup-checklist__step-link"
+            :to="step.to"
+            @click="expanded = false"
+          >
+            {{ step.action }}
+          </RouterLink>
         </div>
       </li>
     </ol>
-  </section>
-  <button
+  </PageSection>
+  <Button
     v-else-if="descriptorsReady && dismissed && !verifiedSuccess"
-    type="button"
     class="setup-reopen"
+    label="Show setup guide"
+    size="small"
+    severity="secondary"
+    outlined
     @click="reopen"
-  >
-    Show setup guide
-  </button>
+  />
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
+import Button from 'primevue/button'
+import Tag from 'primevue/tag'
+import PageSection from '@/components/common/PageSection.vue'
+import StateBanner from '@/components/common/StateBanner.vue'
 import { useModelStore } from '@/stores/models'
 import { useEnginesStore } from '@/stores/engines'
 import { modelRuntimeState } from '@/utils/modelPresentation'
@@ -184,21 +225,21 @@ const connectDetail = computed(() => {
 const steps = computed(() => {
   const items = [
     {
+      id: 'model',
+      label: hasModels.value ? 'Model in library' : 'Find a model',
+      detail: hasModels.value
+        ? `${quants.value.length} model${quants.value.length === 1 ? '' : 's'} in your library.`
+        : 'Search for a GGUF model that fits your engine and download a quantization.',
+      done: hasModels.value,
+      to: '/search',
+      action: hasModels.value ? 'Find more models' : 'Search models',
+      actionable: true,
+    },
+    {
       id: 'engine',
       ...engineStep.value,
       done: engineReady.value,
       to: '/engines',
-      actionable: true,
-    },
-    {
-      id: 'download',
-      label: 'Download a model',
-      detail: hasModels.value
-        ? `${quants.value.length} model${quants.value.length === 1 ? '' : 's'} in your library.`
-        : 'Search for a GGUF model that fits your engine.',
-      done: hasModels.value,
-      to: '/search',
-      action: 'Search and download',
       actionable: true,
     },
     {
@@ -230,7 +271,7 @@ const steps = computed(() => {
     },
     {
       id: 'connect',
-      label: 'Ready to connect',
+      label: 'Connect a client',
       detail: connectDetail.value,
       done: hasVerifiedRunning.value && proxyHealthy.value,
       to: connectTarget.value,
@@ -243,6 +284,10 @@ const steps = computed(() => {
 })
 
 const currentStep = computed(() => steps.value.find((step) => step.current) || null)
+const completedCount = computed(() => steps.value.filter((step) => step.done).length)
+const progressLabel = computed(
+  () => `${completedCount.value} of ${steps.value.length} steps complete`,
+)
 
 // A verified running model proves an engine is ready, so a transient
 // descriptor failure must not bring the guide back after it was dismissed by
@@ -314,103 +359,100 @@ function dismiss() {
 </script>
 
 <style scoped>
-.setup-checklist {
-  padding: 1rem 1.25rem;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
-}
-.setup-checklist__summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.75rem 1.5rem;
-}
-.setup-checklist__copy {
-  flex: 1 1 18rem;
-}
-.setup-checklist h2 {
-  margin: 0;
-  font-size: 0.875rem;
-  font-weight: 600;
-}
 .setup-checklist__detail {
-  margin: 0.25rem 0 0;
-  font-size: 0.8125rem;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
   line-height: 1.6;
 }
-.setup-checklist__actions {
+
+.setup-checklist__progress-row {
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
-  gap: 0.25rem;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
 }
-.setup-checklist__actions button {
-  min-height: 2.75rem;
-  padding: 0.5rem 0.625rem;
+
+.setup-checklist__progress {
+  flex: 1 1 12rem;
+  height: 0.4rem;
+  overflow: hidden;
   border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+}
+
+.setup-checklist__progress::-webkit-progress-bar {
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+}
+
+.setup-checklist__progress::-webkit-progress-value {
+  border-radius: 999px;
+  background: var(--accent-primary);
+}
+
+.setup-checklist__progress::-moz-progress-bar {
+  border-radius: 999px;
+  background: var(--accent-primary);
+}
+
+.setup-checklist__progress-label {
   color: var(--text-secondary);
-  font: inherit;
-  font-size: 0.8125rem;
-  cursor: pointer;
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
 }
-.setup-checklist__actions .setup-checklist__link {
-  color: var(--accent-primary);
-  font-weight: 600;
-}
-.setup-checklist__actions button:hover {
-  background: var(--hover-bg);
-}
+
 .setup-checklist__steps {
   list-style: none;
   display: grid;
-  gap: 1rem;
-  margin: 1rem 0 0;
-  padding: 1rem 0 0;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0.75rem 0 0;
   border-top: 1px solid var(--border-primary);
 }
+
 .setup-checklist__steps li {
   display: flex;
   gap: 0.75rem;
   color: var(--text-secondary);
 }
+
 .setup-checklist__steps li.is-current {
   color: var(--text-primary);
 }
+
 .setup-checklist__mark {
-  width: 1.25rem;
   flex: none;
+  width: 1.25rem;
   color: var(--accent-primary);
 }
+
+.setup-checklist__step-copy {
+  min-width: 0;
+}
+
 .setup-checklist__label {
-  font-size: 0.875rem;
+  font-size: var(--text-sm);
   font-weight: 600;
 }
 
-@media (max-width: 480px) {
-  .setup-checklist {
-    padding: 0.75rem 1rem;
-  }
-
-  .setup-checklist__actions {
-    gap: 0.1rem;
-  }
-
-  .setup-checklist__actions button {
-    padding: 0.4rem 0.35rem;
-    font-size: 0.75rem;
-  }
+.setup-checklist__step-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
+  color: var(--accent-primary);
+  font-size: var(--text-sm);
+  font-weight: 600;
 }
 
 .setup-reopen {
   align-self: flex-start;
-  padding: 0.5rem 0.75rem;
-  background: transparent;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  cursor: pointer;
+}
+
+@media (max-width: 480px) {
+  .setup-checklist__progress-row {
+    align-items: stretch;
+  }
 }
 </style>
