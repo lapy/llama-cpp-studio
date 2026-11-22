@@ -2,13 +2,18 @@
   <div class="system-page page-shell">
     <PageHeader
       title="System"
-      description="Hardware, service health, configuration backups, and change history."
+      description="Hardware, storage, service health, configuration backups, and change history."
     />
     <nav class="system-tabs" aria-label="System sections">
       <RouterLink
         to="/system#hardware"
         :aria-current="activeSection === 'hardware' ? 'page' : undefined"
         >Hardware</RouterLink
+      >
+      <RouterLink
+        to="/system#storage"
+        :aria-current="activeSection === 'storage' ? 'page' : undefined"
+        >Storage</RouterLink
       >
       <RouterLink to="/system" :aria-current="activeSection === 'diagnostics' ? 'page' : undefined"
         >Diagnostics</RouterLink
@@ -70,6 +75,7 @@
       </p>
     </section>
     <HardwarePanel v-else-if="activeSection === 'hardware'" />
+    <StoragePanel v-else-if="activeSection === 'storage'" />
     <div v-else-if="activeSection === 'backup'" class="system-card">
       <ConfigBackupPanel :show-history="false" />
     </div>
@@ -83,6 +89,7 @@ import { useEnginesStore } from '@/stores/engines'
 import ConfigBackupPanel from '@/components/system/ConfigBackupPanel.vue'
 import ConfigHistoryPanel from '@/components/system/ConfigHistoryPanel.vue'
 import HardwarePanel from '@/components/system/HardwarePanel.vue'
+import StoragePanel from '@/components/system/StoragePanel.vue'
 import LiveUpdatesHealth from '@/components/system/LiveUpdatesHealth.vue'
 import NeedsAttentionPanel from '@/components/system/NeedsAttentionPanel.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -93,11 +100,13 @@ const clock = ref(Date.now())
 const activeSection = computed(() =>
   route.hash === '#hardware'
     ? 'hardware'
-    : route.hash === '#config-backup'
-      ? 'backup'
-      : route.hash === '#history'
-        ? 'history'
-        : 'diagnostics',
+    : route.hash === '#storage'
+      ? 'storage'
+      : route.hash === '#config-backup'
+        ? 'backup'
+        : route.hash === '#history'
+          ? 'history'
+          : 'diagnostics',
 )
 let clockTimer = null
 

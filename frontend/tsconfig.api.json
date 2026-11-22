@@ -13,5 +13,5 @@
     "strict": true,
     "target": "ES2022"
   },
-  "include": ["src/api/configuration.ts", "src/api/client.js"]
+  "include": ["src/api/configuration.ts", "src/api/storage.ts", "src/api/client.js"]
 }
