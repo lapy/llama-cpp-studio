@@ -355,6 +355,13 @@ async def test_registry_denial_never_spawns_a_process(monkeypatch):
     assert factory_calls == ["demo"]
     assert spawned == []
     assert registry.snapshot() == []
+    # A refusal is visible in the same activity ring as lifecycle events.
+    activities = registry.activities.values()
+    assert [item["type"] for item in activities if item["type"] == "vram_rejected"] == [
+        "vram_rejected"
+    ]
+    assert activities[-1]["model"] == "demo"
+    assert activities[-1]["deficit_mib"] > 0
 
 
 @pytest.mark.asyncio
