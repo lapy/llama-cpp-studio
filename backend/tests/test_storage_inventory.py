@@ -190,6 +190,26 @@ def test_inventory_cache_serves_for_ten_seconds_and_refresh_bypasses_it(tmp_path
     assert "audio-cpp/late" in {unit["label"] for unit in _category(fresh, "models")["units"]}
 
 
+def test_hf_repository_referenced_by_a_local_model_path_is_report_only(tmp_path, monkeypatch):
+    data, store = _seed_storage(tmp_path, monkeypatch)
+    repo = data / "hf-cache" / "hub" / "models--org--imported"
+    blob = _write(repo / "blobs" / "a", 5)
+    store.add_model(
+        {
+            "id": "local-import",
+            "name": "Local import",
+            "format": "gguf",
+            "local_path": str(blob),
+            "config": {},
+        }
+    )
+
+    payload = storage_inventory.collect_storage_inventory(refresh=True)
+    unit = _unit(_category(payload, "hf_cache"), "org/imported")
+    assert unit["blocked"]["code"] == "CATALOG_MODEL"
+    assert unit["cleanable"] is False
+
+
 def test_hf_cache_outside_the_data_root_is_flagged(tmp_path, monkeypatch):
     data, store = _seed_storage(tmp_path, monkeypatch)
     outside = tmp_path / "outside-hub"

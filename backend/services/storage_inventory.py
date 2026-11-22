@@ -717,6 +717,7 @@ def _scan_hf_cache(
     root = _hf_cache_root()
     rows = _model_rows(store)
     referenced = _referenced_hf_folders(rows or [])
+    referenced_paths = _referenced_model_paths(rows or [])
     unit_map: Dict[str, dict] = {}
     units: List[dict] = []
     unmanaged = 0
@@ -744,7 +745,11 @@ def _scan_hf_cache(
                 continue
             unit_blocked = blocked
             repo_label = entry.name[len("models--") :].replace("--", "/")
-            if unit_blocked is None and entry.name in referenced:
+            entry_real = _safe_realpath(entry.path)
+            if unit_blocked is None and (
+                entry.name in referenced
+                or any(_paths_overlap(entry_real, ref) for ref in referenced_paths)
+            ):
                 unit_blocked = _blocked(
                     CODE_CATALOG_MODEL,
                     "A catalog model uses this cached repository. Remove the model from Models.",
