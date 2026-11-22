@@ -129,10 +129,13 @@ def test_registry_covers_venv_and_native_engines():
     assert set(VENV_ENGINES) | {"llama_cpp", "ik_llama", "unsloth_llama"} <= set(ev.LIFECYCLE)
     # S4/R3: the authoritative fixtures may already be registered in this
     # process (lifespan ran in some earlier test) — bounded, order-proof.
+    # ReVolta is a definition-owned engine with no legacy prefix: its generic
+    # record is the only lifecycle registration it gets.
     assert set(ev.LIFECYCLE) <= set(VENV_ENGINES) | {
         "llama_cpp",
         "ik_llama",
         "unsloth_llama",
+        "revolte",
     }
     for engine_id in VENV_ENGINES:
         assert ev.LIFECYCLE[engine_id].verbs == {}  # venv runs the shared machinery
