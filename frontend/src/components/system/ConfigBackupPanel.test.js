@@ -13,6 +13,7 @@ vi.mock('axios', () => ({
 }))
 enableAutoUnmount(afterEach)
 const plan = { applicable: true, plan_id: 'plan-a', items: [], notice: 'Saved only' }
+
 function deferred() {
   let resolve
   const promise = new Promise((r) => {
@@ -22,6 +23,21 @@ function deferred() {
 }
 function button(wrapper, label) {
   return wrapper.findAll('button').find((b) => b.text() === label)
+}
+function mountBackup(options = {}) {
+  return mount(ConfigBackupPanel, {
+    props: { showHistory: false },
+    ...options,
+    global: {
+      stubs: {
+        Button: {
+          props: ['label', 'disabled', 'loading'],
+          template: '<button :disabled="disabled">{{ label }}</button>',
+        },
+      },
+      ...(options.global || {}),
+    },
+  })
 }
 async function selectBackup(wrapper) {
   const input = wrapper.get('input[type=file]')
@@ -37,9 +53,51 @@ beforeEach(() => {
   axios.post.mockReset().mockResolvedValue({ data: plan })
 })
 describe('configuration restore recovery', () => {
+  it('renders one page section with a download action and a restore subsection', async () => {
+    const wrapper = mountBackup()
+    await flushPromises()
+
+    const section = wrapper.get('#config-backup')
+    expect(section.classes()).toContain('page-section')
+    expect(section.get('.page-section__title').text()).toBe('Backup and restore')
+    const download = section
+      .get('.page-section__actions')
+      .findAll('button')
+      .find((b) => b.text() === 'Download backup')
+    expect(download).toBeTruthy()
+
+    const restoreSection = section.get('.page-section--plain')
+    expect(restoreSection.get('.page-section__title').element.tagName).toBe('H3')
+    expect(restoreSection.get('.page-section__title').text()).toBe('Restore settings')
+    expect(wrapper.text()).toContain(
+      'Restoring configuration does not publish it or restart models.',
+    )
+    expect(wrapper.find('#restore-backup-file').exists()).toBe(true)
+  })
+
+  it('reports a read error and returns focus to the file input', async () => {
+    const wrapper = mountBackup({ attachTo: document.body })
+    await flushPromises()
+    const input = wrapper.get('input[type=file]')
+    Object.defineProperty(input.element, 'files', {
+      configurable: true,
+      value: [{ size: 2, text: async () => '{' }],
+    })
+    await input.trigger('change')
+    await flushPromises()
+
+    const banner = wrapper.get('[role="alert"]')
+    expect(banner.get('.state-banner__message').text()).toBe('This backup could not be read.')
+
+    const choose = banner.findAll('button').find((b) => b.text() === 'Choose another backup')
+    await choose.trigger('click')
+    expect(document.activeElement).toBe(input.element)
+    wrapper.unmount()
+  })
+
   it('admits one apply while pending and invalidates its completed preview', async () => {
     const pending = deferred()
-    const wrapper = mount(ConfigBackupPanel)
+    const wrapper = mountBackup()
     await selectBackup(wrapper)
     axios.post.mockImplementation((url) =>
       url.endsWith('/apply') ? pending.promise : Promise.resolve({ data: plan }),
@@ -56,7 +114,7 @@ describe('configuration restore recovery', () => {
     expect(wrapper.text()).toContain('Restore completed')
   })
   it('does not let a new file bypass uncertainty and requires a fresh preview after idle reconciliation', async () => {
-    const wrapper = mount(ConfigBackupPanel)
+    const wrapper = mountBackup()
     await selectBackup(wrapper)
     axios.post.mockRejectedValueOnce(new Error('connection lost'))
     await button(wrapper, 'Restore saved settings').trigger('click')
@@ -72,7 +130,7 @@ describe('configuration restore recovery', () => {
     expect(axios.post.mock.calls.filter(([url]) => url.endsWith('/apply'))).toHaveLength(1)
   })
   it('locks mappings while previewing so a late result cannot authorize different decisions', async () => {
-    const wrapper = mount(ConfigBackupPanel)
+    const wrapper = mountBackup()
     await selectBackup(wrapper)
     const pending = deferred()
     axios.post.mockReturnValueOnce(pending.promise)
@@ -84,7 +142,7 @@ describe('configuration restore recovery', () => {
     expect(button(wrapper, 'Restore saved settings').attributes('disabled')).toBeUndefined()
   })
   it('downloads the current configuration backup once', async () => {
-    const wrapper = mount(ConfigBackupPanel)
+    const wrapper = mountBackup()
     await flushPromises()
     const pending = deferred()
     axios.get.mockImplementation((url) =>

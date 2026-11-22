@@ -1,34 +1,47 @@
 <template>
-  <section
+  <PageSection
     id="attention"
-    class="attention-card"
-    aria-labelledby="operations-attention-heading"
+    title="Operations needing attention"
+    description="These operations were interrupted or their outcome could not be established. Studio did not run them again."
     :aria-busy="loading ? 'true' : 'false'"
   >
-    <div class="attention-head">
-      <div class="attention-heading">
-        <h2 id="operations-attention-heading">Operations needing attention</h2>
-        <p class="attention-intro">
-          These operations were interrupted or their outcome could not be established. Studio did
-          not run them again.
-        </p>
-      </div>
-      <button type="button" class="attention-refresh" :disabled="loading" @click="refresh">
-        <i :class="loading ? 'pi pi-spin pi-spinner' : 'pi pi-refresh'" aria-hidden="true" />{{
-          loading ? 'Checking…' : 'Refresh'
-        }}
-      </button>
-    </div>
+    <template #actions>
+      <Button
+        label="Refresh"
+        icon="pi pi-refresh"
+        severity="secondary"
+        outlined
+        size="small"
+        :loading="loading"
+        @click="refresh"
+      />
+    </template>
 
-    <p v-if="error" class="attention-error" role="alert">{{ error }}</p>
-    <p v-if="loading && !operations.length" class="attention-empty" role="status">
-      Checking for interrupted operations…
-    </p>
-    <p v-else-if="!operations.length && !error" class="attention-empty">
-      No interrupted operations.
-    </p>
+    <StateBanner v-if="error" severity="error">
+      {{ error }}
+      <template #actions>
+        <Button
+          label="Retry"
+          icon="pi pi-refresh"
+          severity="secondary"
+          outlined
+          size="small"
+          :loading="loading"
+          @click="refresh"
+        />
+      </template>
+    </StateBanner>
 
-    <ul v-else-if="operations.length" class="attention-list">
+    <LoadingState
+      v-if="loading && !operations.length"
+      message="Checking for interrupted operations…"
+      inline
+    />
+    <StateBanner v-else-if="!operations.length && !error" severity="success">
+      No interrupted operations. Nothing is waiting for recovery.
+    </StateBanner>
+
+    <ul v-if="operations.length" class="attention-list">
       <li
         v-for="(operation, index) in operations"
         :key="operation.operation_id"
@@ -54,28 +67,28 @@
         <p class="attention-item__message">{{ operation.message }}</p>
         <p class="attention-item__guidance">{{ guidance(operation) }}</p>
         <div class="attention-item__actions">
-          <button
-            type="button"
+          <Button
+            :label="isExpanded(operation) ? 'Hide logs' : 'View logs'"
+            :icon="isExpanded(operation) ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
+            severity="secondary"
+            outlined
+            size="small"
             class="attention-action"
             :aria-expanded="isExpanded(operation) ? 'true' : 'false'"
             :aria-controls="logDomId(index)"
             @click="toggleLogs(operation)"
-          >
-            <i
-              :class="isExpanded(operation) ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
-              aria-hidden="true"
-            />{{ isExpanded(operation) ? 'Hide logs' : 'View logs' }}
-          </button>
-          <button
+          />
+          <Button
             v-if="canAcknowledge(operation)"
-            type="button"
+            label="Acknowledge"
+            severity="secondary"
+            text
+            size="small"
             class="attention-action attention-action--quiet"
             :aria-label="`Acknowledge ${operation.description}`"
             title="Stop listing this operation. It never started, so a retry is already safe."
             @click="acknowledgeOperation(operation)"
-          >
-            Acknowledge
-          </button>
+          />
         </div>
         <div v-if="isExpanded(operation)" :id="logDomId(index)" class="attention-item__logs">
           <LogOutput
@@ -87,12 +100,16 @@
         </div>
       </li>
     </ul>
-  </section>
+  </PageSection>
 </template>
 
 <script setup>
 import { onMounted, ref } from 'vue'
+import Button from 'primevue/button'
+import LoadingState from '@/components/common/LoadingState.vue'
 import LogOutput from '@/components/common/LogOutput.vue'
+import PageSection from '@/components/common/PageSection.vue'
+import StateBanner from '@/components/common/StateBanner.vue'
 import { useOperationAttention } from '@/composables/useOperationAttention'
 
 const STATUS_LABELS = {
@@ -166,74 +183,11 @@ async function acknowledgeOperation(operation) {
 </script>
 
 <style scoped>
-.attention-card {
-  min-width: 0;
-}
-
-.attention-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-}
-
-.attention-head h2 {
-  margin: 0;
-  font-size: 1rem;
-}
-
-.attention-heading {
-  min-width: 0;
-}
-
-.attention-intro {
-  margin: 0.35rem 0 0;
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-  max-width: 55ch;
-}
-
-.attention-refresh {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  min-height: 2.25rem;
-  padding: 0.4rem 0.7rem;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-primary);
-  font: inherit;
-  font-size: 0.85rem;
-  cursor: pointer;
-}
-
-.attention-refresh:disabled {
-  cursor: wait;
-  opacity: 0.7;
-}
-
-.attention-refresh:hover:not(:disabled) {
-  background: var(--bg-card-hover, rgba(255, 255, 255, 0.06));
-}
-
-.attention-error {
-  margin: 0.85rem 0 0;
-  color: var(--status-warning);
-}
-
-.attention-empty {
-  margin: 0.85rem 0 0;
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-}
-
 .attention-list {
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
-  margin: 0.9rem 0 0;
+  gap: 0.75rem;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
@@ -243,11 +197,9 @@ async function acknowledgeOperation(operation) {
   flex-direction: column;
   gap: 0.35rem;
   min-width: 0;
-  padding: 0.7rem 0.8rem;
-  border: 1px solid var(--border-primary);
-  border-left: 3px solid var(--status-warning, #d97706);
-  border-radius: var(--radius-sm);
-  background: var(--bg-tertiary);
+  padding: 0 0 0.75rem 0.75rem;
+  border-left: 3px solid var(--status-warning);
+  border-bottom: 1px solid var(--border-primary);
 }
 
 .attention-item__head {
@@ -261,39 +213,37 @@ async function acknowledgeOperation(operation) {
 .attention-status {
   flex: 0 0 auto;
   padding: 0.1rem 0.45rem;
-  border-radius: 999px;
   border: 1px solid var(--border-primary);
+  border-radius: 999px;
   color: var(--text-secondary);
-  font-size: var(--text-xs, 0.72rem);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: var(--text-xs);
+  font-weight: 650;
 }
 
 .attention-status[data-status='unknown'] {
-  border-color: var(--status-warning, #d97706);
-  color: var(--status-warning, #d97706);
+  border-color: var(--status-warning);
+  color: var(--status-warning);
 }
 
 .attention-item__title {
   flex: 1 1 14rem;
   min-width: 0;
   margin: 0;
-  font-size: 0.9rem;
+  font-size: var(--text-base);
   overflow-wrap: anywhere;
 }
 
 .attention-item__time {
   flex: 0 0 auto;
   color: var(--text-secondary);
-  font-size: var(--text-xs, 0.72rem);
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
 
 .attention-item__meta {
   margin: 0;
   color: var(--text-secondary);
-  font-size: var(--text-xs, 0.72rem);
+  font-size: var(--text-xs);
   overflow-wrap: anywhere;
 }
 
@@ -303,13 +253,13 @@ async function acknowledgeOperation(operation) {
 
 .attention-item__message {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   color: var(--text-primary);
 }
 
 .attention-item__guidance {
   margin: 0;
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
   color: var(--text-secondary);
 }
 
@@ -320,49 +270,16 @@ async function acknowledgeOperation(operation) {
   margin-top: 0.15rem;
 }
 
-.attention-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  min-height: 2.25rem;
-  padding: 0.35rem 0.65rem;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-primary);
-  font: inherit;
-  font-size: 0.82rem;
-  cursor: pointer;
-}
-
-.attention-action:hover {
-  background: var(--bg-card-hover, rgba(255, 255, 255, 0.06));
-}
-
-.attention-action--quiet {
-  color: var(--text-secondary);
-}
-
-.attention-action:focus-visible,
-.attention-refresh:focus-visible {
-  outline: 2px solid var(--accent-primary, #60a5fa);
-  outline-offset: 2px;
-}
-
 .attention-item__logs {
   margin-top: 0.35rem;
 }
 
-@media (max-width: 600px) {
-  .attention-item {
-    padding: 0.6rem;
-  }
-
+@media (max-width: 640px) {
   .attention-item__time {
     flex-basis: 100%;
   }
 
-  .attention-action {
+  .attention-item__actions :deep(.p-button) {
     flex: 1 1 auto;
     justify-content: center;
   }

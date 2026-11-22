@@ -1,70 +1,102 @@
 <template>
-  <section id="storage" class="storage-panel" aria-labelledby="storage-heading">
-    <div class="storage-heading">
-      <div>
-        <h2 id="storage-heading">Storage</h2>
-        <p class="storage-intro">
-          Disk used by Studio's model store, caches and local configuration history. Cleanup only
-          removes storage this surface owns; catalog models, engine installs, CUDA toolkits and the
-          accounting database stay managed from their own screens.
-        </p>
-      </div>
-      <button type="button" class="storage-refresh" :disabled="store.busy" @click="refresh">
-        Refresh storage
-      </button>
-    </div>
+  <PageSection
+    id="storage"
+    title="Storage"
+    description="Disk used by Studio's model store, caches and local configuration history. Cleanup only removes storage this surface owns; catalog models, engine installs, CUDA toolkits and the accounting database stay managed from their own screens."
+  >
+    <template #actions>
+      <Button
+        label="Refresh storage"
+        icon="pi pi-refresh"
+        severity="secondary"
+        outlined
+        size="small"
+        :loading="store.loading"
+        @click="refresh"
+      />
+    </template>
 
-    <p v-if="store.error && !store.plan" class="storage-error" role="alert">
+    <StateBanner v-if="store.error && !store.plan" severity="error">
       {{ store.error }}
-    </p>
-    <p v-if="store.status" class="storage-status" role="status" aria-live="polite">
-      {{ store.status }}
-    </p>
+      <template #actions>
+        <Button
+          label="Retry"
+          icon="pi pi-refresh"
+          severity="secondary"
+          outlined
+          size="small"
+          :loading="store.loading"
+          @click="refresh"
+        />
+      </template>
+    </StateBanner>
 
     <LoadingState v-if="store.loading && !store.inventory" message="Scanning storage…" />
-    <p v-else-if="!store.inventory && !store.error" class="storage-note">
-      No storage inventory has been scanned yet.
-    </p>
+    <EmptyState
+      v-else-if="!store.inventory && !store.error"
+      icon="pi pi-database"
+      title="No storage inventory yet"
+      description="Scan the data root to see how much disk each Studio category uses and what can be reclaimed."
+    >
+      <Button label="Scan storage" icon="pi pi-search" size="small" @click="refresh" />
+    </EmptyState>
 
-    <div v-if="store.inventory" class="storage-body">
+    <template v-if="store.inventory">
       <dl class="storage-filesystem">
-        <div>
+        <div class="storage-filesystem__item">
           <dt>Data root</dt>
           <dd class="storage-path">{{ store.inventory.filesystem.data_root }}</dd>
         </div>
-        <div>
+        <div class="storage-filesystem__item">
           <dt>Measured by Studio</dt>
           <dd>{{ formatBytesIEC(store.measuredBytes) }}</dd>
         </div>
-        <div>
+        <div class="storage-filesystem__item">
           <dt>Free on the data volume</dt>
           <dd>{{ formatBytesIEC(store.inventory.filesystem.free_bytes) }}</dd>
         </div>
-        <div>
+        <div class="storage-filesystem__item">
           <dt>Last scanned</dt>
           <dd>{{ generatedLabel }}</dd>
         </div>
       </dl>
 
-      <p v-if="store.inventory.scan.quality === 'partial'" class="storage-warning" role="status">
+      <StateBanner v-if="store.inventory.scan.quality === 'partial'" severity="warning">
         This scan is partial: sizes may be lower than reality. Refresh after the current activity
         finishes for a complete measurement.
-      </p>
-      <p v-if="store.inventory.scan.cached" class="storage-note">
+        <template #actions>
+          <Button
+            label="Refresh scan"
+            icon="pi pi-refresh"
+            severity="secondary"
+            outlined
+            size="small"
+            :loading="store.loading"
+            @click="refresh"
+          />
+        </template>
+      </StateBanner>
+      <StateBanner v-else-if="store.inventory.scan.cached" severity="info">
         Served from the 10 second scan cache. Refresh for a new walk.
-      </p>
+      </StateBanner>
 
-      <div class="storage-categories">
-        <article
+      <StateBanner v-if="store.status && !store.result" severity="info">
+        {{ store.status }}
+      </StateBanner>
+
+      <ul class="storage-categories">
+        <li
           v-for="category in store.categories"
           :key="category.id"
           class="storage-category"
           :aria-labelledby="`storage-category-${category.id}`"
         >
-          <div class="storage-category-heading">
-            <div>
-              <h3 :id="`storage-category-${category.id}`">{{ category.label }}</h3>
-              <p class="storage-category-size">
+          <div class="storage-category__head">
+            <div class="storage-category__identity">
+              <h3 :id="`storage-category-${category.id}`" class="page-subheading">
+                {{ category.label }}
+              </h3>
+              <p class="storage-category__size">
                 {{ formatBytesIEC(category.bytes) }}
                 <span v-if="category.unmanaged_bytes">
                   · {{ formatBytesIEC(category.unmanaged_bytes) }} other files</span
@@ -73,12 +105,7 @@
                 {{ category.unit_count === 1 ? 'unit' : 'units' }}
               </p>
             </div>
-            <span v-if="category.cleanable_bytes" class="storage-badge">
-              {{ formatBytesIEC(category.cleanable_bytes) }} reclaimable
-            </span>
-            <span v-else class="storage-badge storage-badge--muted">
-              {{ category.cleanable ? 'Nothing to reclaim' : 'Report only' }}
-            </span>
+            <Tag :value="badgeLabel(category)" :severity="badgeSeverity(category)" />
           </div>
 
           <div
@@ -86,29 +113,31 @@
             role="img"
             :aria-label="`${category.label} is ${sharePercent(category)}% of the storage Studio measured`"
           >
-            <span class="storage-share-fill" :style="{ width: `${sharePercent(category)}%` }" />
+            <span class="storage-share__fill" :style="{ width: `${sharePercent(category)}%` }" />
           </div>
 
-          <p class="storage-category-description">{{ category.description }}</p>
+          <p class="page-form__hint">{{ category.description }}</p>
 
-          <p v-if="category.blocked" class="storage-refusal">
+          <StateBanner v-if="category.blocked" severity="warning">
             {{ category.blocked.message }}
-            <RouterLink v-if="category.manage_path" :to="category.manage_path" class="storage-link">
-              Manage {{ category.label.toLowerCase() }}
-            </RouterLink>
-          </p>
+            <template v-if="category.manage_path" #actions>
+              <RouterLink :to="category.manage_path" class="page-action-link">
+                Manage {{ category.label.toLowerCase() }}
+              </RouterLink>
+            </template>
+          </StateBanner>
 
-          <p v-if="!category.available" class="storage-note">
+          <p v-if="!category.available" class="page-form__hint">
             No storage for this category was found in the current data root.
           </p>
 
           <details v-if="category.units.length" class="storage-units">
             <summary>Show {{ category.units.length }} units for {{ category.label }}</summary>
-            <ul>
-              <li v-for="unit in category.units" :key="unit.id">
-                <span class="storage-unit-label">{{ unit.label }}</span>
-                <span class="storage-unit-size">{{ formatBytesIEC(unit.bytes) }}</span>
-                <span v-if="unit.blocked" class="storage-unit-blocked">
+            <ul class="storage-unit-list">
+              <li v-for="unit in category.units" :key="unit.id" class="storage-unit">
+                <span class="storage-unit__label">{{ unit.label }}</span>
+                <span class="storage-unit__size">{{ formatBytesIEC(unit.bytes) }}</span>
+                <span v-if="unit.blocked" class="storage-unit__blocked">
                   {{ unit.blocked.message }}
                   <RouterLink
                     v-if="unit.manage_path"
@@ -119,83 +148,104 @@
                     Manage
                   </RouterLink>
                 </span>
-                <span v-else class="storage-unit-cleanable">Reclaimable</span>
+                <span v-else class="storage-unit__cleanable">Reclaimable</span>
               </li>
             </ul>
           </details>
 
-          <p v-if="category.truncated" class="storage-note">
+          <p v-if="category.truncated" class="page-form__hint">
             Only the largest units are listed. Refresh after cleanup to see the rest.
           </p>
 
           <div v-if="category.id === 'history_backups'" class="storage-keep">
-            <label for="storage-keep-history">Revisions to keep</label>
-            <input
+            <label class="page-form__label" for="storage-keep-history">Revisions to keep</label>
+            <InputText
               id="storage-keep-history"
-              v-model.number="historyKeep"
+              v-model="historyKeep"
               type="number"
               min="1"
               max="100"
               step="1"
             />
-            <span class="storage-note">Older revisions become reclaimable.</span>
+            <p class="page-form__hint">Older revisions become reclaimable.</p>
           </div>
 
-          <div v-if="category.cleanable" class="storage-category-actions">
-            <button
-              type="button"
+          <div v-if="category.cleanable" class="storage-category__actions">
+            <Button
+              label="Review cleanup"
+              icon="pi pi-trash"
+              severity="secondary"
+              outlined
+              size="small"
               :disabled="store.busy || !category.cleanable_bytes"
+              :loading="previewingId === category.id"
               :aria-label="`Review cleanup for ${category.label}`"
               @click="startPreview(category)"
-            >
-              Review cleanup
-            </button>
+            />
           </div>
 
-          <div
+          <StateBanner
             v-if="store.result && store.result.category === category.id"
             class="storage-result"
+            :severity="resultSeverity"
             role="status"
           >
-            <p class="storage-result-heading">
+            <p class="storage-result__heading">
               {{ resultHeading }} · {{ formatBytesIEC(store.result.freed_bytes) }} freed
             </p>
             <p>{{ store.result.notice }}</p>
-            <ul v-if="store.result.removed.length">
+            <ul v-if="store.result.removed.length" class="storage-result__list">
               <li v-for="unit in store.result.removed" :key="`removed-${unit.id}`">
                 Removed {{ unit.label }}
               </li>
             </ul>
-            <ul v-if="store.result.failed.length" class="storage-result-failed">
+            <ul
+              v-if="store.result.failed.length"
+              class="storage-result__list storage-result__failed"
+            >
               <li v-for="unit in store.result.failed" :key="`failed-${unit.id}`">
                 {{ unit.label }}: {{ unit.message }}
               </li>
             </ul>
-            <button type="button" @click="store.clearResult()">Dismiss result</button>
-          </div>
-        </article>
-      </div>
-    </div>
+            <template #actions>
+              <Button
+                label="Dismiss result"
+                severity="secondary"
+                text
+                size="small"
+                @click="store.clearResult()"
+              />
+            </template>
+          </StateBanner>
+        </li>
+      </ul>
+    </template>
 
-    <Dialog v-model:visible="confirmVisible" modal :header="planHeader" class="storage-dialog">
-      <div v-if="store.plan" class="storage-plan">
-        <p v-if="store.error" class="storage-error" role="alert">{{ store.error }}</p>
+    <Dialog
+      v-model:visible="confirmVisible"
+      modal
+      :header="planHeader"
+      class="dialog-width-sm"
+      @hide="onDialogHide"
+    >
+      <div v-if="store.plan" class="dialog-stack">
+        <StateBanner v-if="store.error" severity="error">{{ store.error }}</StateBanner>
         <p>
           {{ formatBytesIEC(store.plan.reclaimable_bytes) }} from
           {{ store.plan.units.length }}
           {{ store.plan.units.length === 1 ? 'unit' : 'units' }} will be deleted permanently.
         </p>
         <ul v-if="store.plan.units.length" class="storage-plan-units">
-          <li v-for="unit in store.plan.units" :key="unit.id">
-            <span class="storage-unit-label">{{ unit.label }}</span>
-            <span class="storage-unit-size">{{ formatBytesIEC(unit.bytes) }}</span>
+          <li v-for="unit in store.plan.units" :key="unit.id" class="storage-unit">
+            <span class="storage-unit__label">{{ unit.label }}</span>
+            <span class="storage-unit__size">{{ formatBytesIEC(unit.bytes) }}</span>
           </li>
         </ul>
         <div v-if="store.plan.refused.length" class="storage-plan-refused">
           <p>These units are refused and will stay:</p>
-          <ul>
-            <li v-for="unit in store.plan.refused" :key="unit.id">
-              <span class="storage-unit-label">{{ unit.label }}</span>
+          <ul class="storage-plan-units">
+            <li v-for="unit in store.plan.refused" :key="unit.id" class="storage-unit">
+              <span class="storage-unit__label">{{ unit.label }}</span>
               <span>{{ unit.message }}</span>
             </li>
           </ul>
@@ -205,31 +255,45 @@
           <strong>{{ store.plan.confirmation_phrase }}</strong>
         </p>
         <label class="storage-confirm">
-          <input v-model="confirmed" type="checkbox" :disabled="store.applying" />
-          I understand the selected files are deleted permanently.
+          <Checkbox v-model="confirmed" binary :disabled="store.applying" />
+          <span>I understand the selected files are deleted permanently.</span>
         </label>
-        <div class="storage-plan-actions">
-          <button
-            type="button"
-            :disabled="!confirmed || store.applying"
-            :aria-label="`Delete the selected units from ${store.plan.category_label}`"
-            @click="store.applyPlan()"
-          >
-            Delete selected
-          </button>
-          <button type="button" :disabled="store.applying" @click="cancelPlan">
-            Cancel cleanup
-          </button>
-        </div>
       </div>
+      <template #footer>
+        <div class="dialog-actions">
+          <Button
+            label="Cancel cleanup"
+            severity="secondary"
+            outlined
+            :disabled="store.applying"
+            @click="cancelPlan"
+          />
+          <Button
+            label="Delete selected"
+            severity="danger"
+            :disabled="!confirmed || store.applying"
+            :loading="store.applying"
+            :aria-label="`Delete the selected units from ${store.plan?.category_label || 'storage'}`"
+            @click="applyPlan"
+          />
+        </div>
+      </template>
     </Dialog>
-  </section>
+  </PageSection>
 </template>
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
+import Button from 'primevue/button'
+import Checkbox from 'primevue/checkbox'
 import Dialog from 'primevue/dialog'
+import InputText from 'primevue/inputtext'
+import Tag from 'primevue/tag'
+import EmptyState from '@/components/common/EmptyState.vue'
 import LoadingState from '@/components/common/LoadingState.vue'
+import PageSection from '@/components/common/PageSection.vue'
+import StateBanner from '@/components/common/StateBanner.vue'
+import { watchDialogFocus } from '@/composables/useFocusReturn'
 import { useStorageStore } from '@/stores/storage'
 import { formatBytesIEC } from '@/utils/formatting'
 
@@ -237,6 +301,8 @@ const store = useStorageStore()
 const confirmed = ref(false)
 const confirmVisible = ref(false)
 const historyKeep = ref(50)
+const previewingId = ref('')
+watchDialogFocus(confirmVisible)
 
 const generatedLabel = computed(() => {
   const generated = Date.parse(store.inventory?.generated_at || '')
@@ -248,6 +314,13 @@ const resultHeading = computed(() => {
   if (outcome === 'completed') return 'Cleanup completed'
   if (outcome === 'partial') return 'Cleanup partial'
   return 'Cleanup refused'
+})
+
+const resultSeverity = computed(() => {
+  const outcome = store.result?.outcome
+  if (outcome === 'completed') return 'success'
+  if (outcome === 'partial') return 'warning'
+  return 'error'
 })
 
 watch(
@@ -262,9 +335,14 @@ const planHeader = computed(() =>
   store.plan ? `Confirm cleanup for ${store.plan.category_label}` : 'Confirm cleanup',
 )
 
-watch(confirmVisible, (visible) => {
-  if (!visible && store.plan) store.clearPlan()
-})
+function badgeLabel(category) {
+  if (category.cleanable_bytes) return `${formatBytesIEC(category.cleanable_bytes)} reclaimable`
+  return category.cleanable ? 'Nothing to reclaim' : 'Report only'
+}
+
+function badgeSeverity(category) {
+  return category.cleanable_bytes ? 'info' : 'secondary'
+}
 
 function sharePercent(category) {
   const total = Number(store.measuredBytes || 0)
@@ -277,14 +355,28 @@ function refresh() {
   store.loadInventory({ refresh: true })
 }
 
-function startPreview(category) {
+async function startPreview(category) {
+  if (store.busy) return
+  previewingId.value = category.id
   store.clearResult()
-  const keep = category.id === 'history_backups' ? historyKeep.value : null
-  store.previewCleanup(category.id, [], keep)
+  const keep = category.id === 'history_backups' ? Number(historyKeep.value) : null
+  try {
+    await store.previewCleanup(category.id, [], keep)
+  } finally {
+    previewingId.value = ''
+  }
+}
+
+async function applyPlan() {
+  await store.applyPlan()
 }
 
 function cancelPlan() {
   store.clearPlan()
+}
+
+function onDialogHide() {
+  if (store.plan) store.clearPlan()
 }
 
 onMounted(() => {
@@ -293,83 +385,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.storage-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  min-width: 0;
-}
-
-.storage-heading {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-}
-
-.storage-heading h2 {
-  margin: 0;
-  font-size: 1rem;
-}
-
-.storage-intro {
-  margin: 0.35rem 0 0;
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-  max-width: 60rem;
-}
-
-.storage-refresh,
-.storage-category-actions button,
-.storage-plan-actions button,
-.storage-result button {
-  font: inherit;
-  border: 1px solid var(--border-secondary);
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  border-radius: var(--radius-md);
-  padding: 0.4rem 0.75rem;
-}
-
-.storage-refresh:disabled,
-.storage-category-actions button:disabled,
-.storage-plan-actions button:disabled,
-.storage-result button:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-.storage-error {
-  color: var(--status-warning);
-  margin: 0;
-}
-
-.storage-status {
-  margin: 0;
-  color: var(--text-secondary);
-}
-
-.storage-note,
-.storage-warning,
-.storage-category-description {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-}
-
-.storage-warning {
-  color: var(--status-warning);
-}
-
-.storage-body,
-.storage-categories {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  min-width: 0;
-}
-
 .storage-filesystem {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
@@ -377,9 +392,13 @@ onMounted(() => {
   margin: 0;
 }
 
+.storage-filesystem__item {
+  min-width: 0;
+}
+
 .storage-filesystem dt {
   color: var(--text-secondary);
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
 }
 
 .storage-filesystem dd {
@@ -389,49 +408,46 @@ onMounted(() => {
 
 .storage-path {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
+}
+
+.storage-categories {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .storage-category {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
-  padding: 1rem;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
   min-width: 0;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--border-primary);
 }
 
-.storage-category-heading {
+.storage-category__head {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
   flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 0.5rem;
 }
 
-.storage-category-heading h3 {
+.storage-category__identity {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.storage-category__size {
   margin: 0;
-  font-size: 0.95rem;
-}
-
-.storage-category-size {
-  margin: 0.25rem 0 0;
   color: var(--text-secondary);
-  font-size: 0.85rem;
-}
-
-.storage-badge {
-  font-size: 0.8rem;
-  padding: 0.2rem 0.5rem;
-  border: 1px solid var(--border-secondary);
-  border-radius: 999px;
-  white-space: nowrap;
-}
-
-.storage-badge--muted {
-  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
 }
 
 .storage-share {
@@ -441,122 +457,88 @@ onMounted(() => {
   overflow: hidden;
 }
 
-.storage-share-fill {
+.storage-share__fill {
   display: block;
   height: 100%;
   border-radius: inherit;
   background: var(--accent-primary);
 }
 
-.storage-refusal {
-  margin: 0;
-  color: var(--status-warning);
-  font-size: 0.85rem;
-  overflow-wrap: anywhere;
-}
-
-.storage-link {
-  color: var(--accent-primary);
-  margin-left: 0.35rem;
+.storage-category__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .storage-units summary {
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
 }
 
-.storage-units ul,
+.storage-unit-list,
 .storage-plan-units,
-.storage-plan-refused ul,
-.storage-result ul {
-  list-style: none;
-  padding: 0;
-  margin: 0.5rem 0 0;
+.storage-result__list {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
 }
 
-.storage-units li,
-.storage-plan-units li {
+.storage-unit {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  justify-content: space-between;
   align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
   padding-bottom: 0.35rem;
   border-bottom: 1px solid var(--border-secondary);
-  font-size: 0.85rem;
-  min-width: 0;
+  font-size: var(--text-sm);
 }
 
-.storage-unit-label {
+.storage-unit__label {
   overflow-wrap: anywhere;
 }
 
-.storage-unit-size {
+.storage-unit__size {
   color: var(--text-secondary);
   white-space: nowrap;
 }
 
-.storage-unit-blocked {
+.storage-unit__blocked {
   flex-basis: 100%;
   color: var(--status-warning);
   overflow-wrap: anywhere;
 }
 
-.storage-unit-cleanable {
+.storage-unit__cleanable {
   color: var(--text-secondary);
 }
 
 .storage-keep {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  font-size: 0.85rem;
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  max-width: 18rem;
 }
 
-.storage-keep input {
-  width: 5rem;
-  font: inherit;
-  padding: 0.25rem 0.4rem;
-  border: 1px solid var(--border-secondary);
-  border-radius: var(--radius-sm);
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
-.storage-category-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.storage-plan,
-.storage-result {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  padding: 0.85rem;
-  border: 1px solid var(--border-secondary);
-  border-radius: var(--radius-md);
-  background: var(--bg-tertiary);
-  font-size: 0.85rem;
-}
-
-.storage-plan h4,
-.storage-plan p,
-.storage-result p {
+.storage-result__heading {
   margin: 0;
+  font-weight: 600;
 }
 
-.storage-plan-refused,
-.storage-result-failed {
+.storage-result__list {
+  font-size: var(--text-sm);
+}
+
+.storage-result__failed {
   color: var(--status-warning);
 }
 
-.storage-phrase strong {
+.storage-phrase {
+  margin: 0;
   overflow-wrap: anywhere;
 }
 
@@ -566,19 +548,16 @@ onMounted(() => {
   gap: 0.5rem;
 }
 
-.storage-plan-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+.storage-plan-refused {
+  color: var(--status-warning);
 }
 
-.storage-result-heading {
-  font-weight: 600;
+.storage-plan-refused p {
+  margin: 0;
 }
 
-@media (max-width: 600px) {
-  .storage-category {
-    padding: 0.75rem;
-  }
+.storage-link {
+  color: var(--accent-primary);
+  margin-left: 0.35rem;
 }
 </style>
