@@ -265,7 +265,8 @@ async def test_admission_activity_is_recorded_in_the_registry_ring(tmp_path):
         cwd=None,
         env=EnvSpec(set={"CUDA_VISIBLE_DEVICES": "0"}),
     )
-    await admission.admit(spec)
+    token = await admission.admit(spec)
+    admission.release(token)
     activity = admission.snapshot()["last_admission"]
     assert activity["decision"] == "warned"
     # The registry wires this emitter to its own activity ring in production.

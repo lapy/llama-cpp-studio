@@ -30,8 +30,12 @@ logger = get_logger(__name__)
 
 
 class RegistryError(RuntimeError):
-    #: HTTP status a refused start/lifecycle error maps to by default.
-    http_status = 502
+    """Engine start/lifecycle failure.
+
+    ``http_status`` and ``payload()`` are optional overrides: a subclass may pin
+    a status and a structured body (admission refusals do), while plain errors
+    keep the historical queue-vs-engine status split.
+    """
 
     @classmethod
     def response(cls, exc: BaseException) -> tuple[int, dict[str, Any], str]:
