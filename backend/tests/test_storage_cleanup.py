@@ -275,6 +275,26 @@ def test_jit_cache_roots_are_deletable(tmp_path, monkeypatch):
     assert (data / "llama-cpp" / "demo" / "server").exists()
 
 
+def test_apply_refuses_when_the_rescan_fails(tmp_path, monkeypatch):
+    data, store = _seed_storage(tmp_path, monkeypatch)
+    _build_tree(tmp_path, data)
+    _add_models(store, data)
+    orphan = data / "models" / "audio-cpp" / "orphan-a"
+    preview = _preview("models")
+
+    monkeypatch.setattr(
+        inventory,
+        "storage_inventory_index",
+        lambda refresh=False: (_ for _ in ()).throw(RuntimeError("scan failed")),
+    )
+    with pytest.raises(cleanup.StorageCleanupError) as refusal:
+        cleanup.apply_cleanup(preview["plan_id"], confirm=True)
+
+    assert refusal.value.code == "STORAGE_SCAN_FAILED"
+    assert refusal.value.status_code == 503
+    assert orphan.exists()
+
+
 def test_target_validation_refuses_symlinks_and_escapes(tmp_path, monkeypatch):
     data, store = _seed_storage(tmp_path, monkeypatch)
     models_root = data / "models"

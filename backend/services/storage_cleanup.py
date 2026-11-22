@@ -69,6 +69,7 @@ CODE_NOTHING_TO_CLEAN = "NOTHING_TO_CLEAN"
 CODE_UNKNOWN_UNIT = "UNKNOWN_UNIT"
 CODE_INVALID_TARGET = "INVALID_TARGET"
 CODE_CLEANUP_FAILED = "CLEANUP_FAILED"
+CODE_SCAN_FAILED = "STORAGE_SCAN_FAILED"
 
 _PLANS: Dict[str, dict] = {}
 _PLANS_LOCK = threading.Lock()
@@ -496,7 +497,14 @@ def apply_cleanup(plan_id: str, *, confirm: bool) -> dict:
             )
         category = str(plan.get("category") or "")
         keep = plan.get("keep_history")
-        _, index = storage_inventory.storage_inventory_index(refresh=True)
+        try:
+            _, index = storage_inventory.storage_inventory_index(refresh=True)
+        except Exception as exc:
+            raise StorageCleanupError(
+                CODE_SCAN_FAILED,
+                "The storage inventory could not be rescanned, so nothing was deleted.",
+                status_code=503,
+            ) from exc
         category_index = (index.get("categories") or {}).get(category) or {}
         units: Dict[str, dict] = category_index.get("units") or {}
         if category not in _ALLOWED_KINDS or not units:

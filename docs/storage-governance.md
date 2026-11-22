@@ -21,15 +21,15 @@ Storage is split into seven **disjoint** categories. "Disjoint" means one file's
 bytes are reported in exactly one category; a nested cache is subtracted from
 the install that contains it.
 
-| Category          | Location                                                       | Ownership                                            | Cleanup                                                     | Manage link        |
-| ----------------- | -------------------------------------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------- | ------------------ |
-| `models`          | `$STUDIO_DATA_DIR/models/<namespace>/<unit>`                   | Model payload directories (for example audio bundles) | Orphan payload directories with no catalog row              | `/models`          |
-| `hf_cache`        | `HUGGINGFACE_HUB_CACHE` / `HF_HUB_CACHE` / `HF_HOME/hub`       | Hugging Face downloads                               | Cached repositories that no catalog model uses              | `/models`          |
-| `engine_installs` | Engine version roots (`data/llama-cpp`, `data/audio-cpp/builds`, venv roots) | Engines screen                          | **Report only** — remove versions from Engines              | `/engines`         |
-| `cuda_toolkits`   | `$STUDIO_DATA_DIR/cuda`                                        | System hardware                                      | **Report only** — manage toolkits from System hardware      | `/system#hardware` |
-| `jit_caches`      | Per-install `caches/`, `build-workspaces/`, `ccache`, `temp/cuda_installers` | Regenerable build artifacts         | Engine caches, stale compile workspaces, ccache, CUDA installer downloads | none               |
-| `history_backups` | `$STUDIO_DATA_DIR/config/history`                              | Local pre-change configuration revisions             | Prune revisions older than the keep count                   | none               |
-| `accounting_db`   | `$STUDIO_DATA_DIR/config/proxy-accounting.sqlite3`             | Proxy request accounting                             | **Report only** — reset/compact from Proxy                  | `/proxy`           |
+| Category          | Location                                                                     | Ownership                                             | Cleanup                                                                   | Manage link        |
+| ----------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------- | ------------------ |
+| `models`          | `$STUDIO_DATA_DIR/models/<namespace>/<unit>`                                 | Model payload directories (for example audio bundles) | Orphan payload directories with no catalog row                            | `/models`          |
+| `hf_cache`        | `HUGGINGFACE_HUB_CACHE` / `HF_HUB_CACHE` / `HF_HOME/hub`                     | Hugging Face downloads                                | Cached repositories that no catalog model uses                            | `/models`          |
+| `engine_installs` | Engine version roots (`data/llama-cpp`, `data/audio-cpp/builds`, venv roots) | Engines screen                                        | **Report only** — remove versions from Engines                            | `/engines`         |
+| `cuda_toolkits`   | `$STUDIO_DATA_DIR/cuda`                                                      | System hardware                                       | **Report only** — manage toolkits from System hardware                    | `/system#hardware` |
+| `jit_caches`      | Per-install `caches/`, `build-workspaces/`, `ccache`, `temp/cuda_installers` | Regenerable build artifacts                           | Engine caches, stale compile workspaces, ccache, CUDA installer downloads | none               |
+| `history_backups` | `$STUDIO_DATA_DIR/config/history`                                            | Local pre-change configuration revisions              | Prune revisions older than the keep count                                 | none               |
+| `accounting_db`   | `$STUDIO_DATA_DIR/config/proxy-accounting.sqlite3`                           | Proxy request accounting                              | **Report only** — reset/compact from Proxy                                | `/proxy`           |
 
 Shared assets under `models/audio-cpp/reference-audio` and
 `models/audio-cpp/community-voices` are owned by the audio features and are
@@ -182,15 +182,16 @@ cap, deletes on the blocking pool and returns:
 
 Error responses use `{"detail": {"code": "...", "message": "..."}}`:
 
-| Status | Code                       | Meaning                                                          |
-| ------ | -------------------------- | ---------------------------------------------------------------- |
-| 400    | `CONFIRMATION_REQUIRED`    | Apply was called with `confirm` not `true`.                      |
-| 400    | `CATEGORY_NOT_CLEANABLE`   | The category is report-only; use its manage link.                |
-| 409    | `PLAN_STALE`               | Plan missing, expired, already applied, or the tree changed.     |
-| 409    | `CLEANUP_SCOPE_TOO_LARGE`  | More than 200 units were selected.                               |
-| 409    | `CLEANUP_IN_FLIGHT`        | Another cleanup is running.                                      |
-| 409    | `NOTHING_TO_CLEAN`         | The plan has no selected units.                                  |
-| 409    | `ACTION_IN_FLIGHT`         | The shared operation supervisor already holds a cleanup.         |
+| Status | Code                      | Meaning                                                      |
+| ------ | ------------------------- | ------------------------------------------------------------ |
+| 400    | `CONFIRMATION_REQUIRED`   | Apply was called with `confirm` not `true`.                  |
+| 400    | `CATEGORY_NOT_CLEANABLE`  | The category is report-only; use its manage link.            |
+| 409    | `PLAN_STALE`              | Plan missing, expired, already applied, or the tree changed. |
+| 409    | `CLEANUP_SCOPE_TOO_LARGE` | More than 200 units were selected.                           |
+| 409    | `CLEANUP_IN_FLIGHT`       | Another cleanup is running.                                  |
+| 409    | `NOTHING_TO_CLEAN`        | The plan has no selected units.                              |
+| 409    | `ACTION_IN_FLIGHT`        | The shared operation supervisor already holds a cleanup.     |
+| 503    | `STORAGE_SCAN_FAILED`     | The revalidation scan failed; nothing was deleted.           |
 
 ## Safety guards
 
@@ -215,7 +216,7 @@ Error responses use `{"detail": {"code": "...", "message": "..."}}`:
   apply time.
 - **Shared data.** Reference audio and community voices are never cleanable.
 - **Exclusive action.** Apply runs inside `exclusive_action("storage_cleanup",
-  "storage:cleanup")`, so it gets the same admission fence, durable operation
+"storage:cleanup")`, so it gets the same admission fence, durable operation
   row and busy conflict behavior as other mutating actions.
 
 ## Frontend
