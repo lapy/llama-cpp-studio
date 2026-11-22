@@ -151,56 +151,6 @@
           </div>
 
           <div
-            v-if="store.plan && store.plan.category === category.id"
-            class="storage-plan"
-            role="group"
-            :aria-label="`Cleanup plan for ${category.label}`"
-          >
-            <h4>Confirm cleanup</h4>
-            <p>
-              {{ formatBytesIEC(store.plan.reclaimable_bytes) }} from
-              {{ store.plan.units.length }}
-              {{ store.plan.units.length === 1 ? 'unit' : 'units' }} will be deleted.
-            </p>
-            <ul v-if="store.plan.units.length" class="storage-plan-units">
-              <li v-for="unit in store.plan.units" :key="unit.id">
-                <span class="storage-unit-label">{{ unit.label }}</span>
-                <span class="storage-unit-size">{{ formatBytesIEC(unit.bytes) }}</span>
-              </li>
-            </ul>
-            <div v-if="store.plan.refused.length" class="storage-plan-refused">
-              <p>These units are refused and will stay:</p>
-              <ul>
-                <li v-for="unit in store.plan.refused" :key="unit.id">
-                  <span class="storage-unit-label">{{ unit.label }}</span>
-                  <span>{{ unit.message }}</span>
-                </li>
-              </ul>
-            </div>
-            <p class="storage-phrase">
-              Confirmation phrase:
-              <strong>{{ store.plan.confirmation_phrase }}</strong>
-            </p>
-            <label class="storage-confirm">
-              <input v-model="confirmed" type="checkbox" :disabled="store.applying" />
-              I understand the selected files are deleted permanently.
-            </label>
-            <div class="storage-plan-actions">
-              <button
-                type="button"
-                :disabled="!confirmed || store.applying"
-                :aria-label="`Delete the selected units from ${category.label}`"
-                @click="store.applyPlan()"
-              >
-                Delete selected
-              </button>
-              <button type="button" :disabled="store.applying" @click="cancelPlan">
-                Cancel cleanup
-              </button>
-            </div>
-          </div>
-
-          <div
             v-if="store.result && store.result.category === category.id"
             class="storage-result"
             role="status"
@@ -224,17 +174,65 @@
         </article>
       </div>
     </div>
+
+    <Dialog v-model:visible="confirmVisible" modal :header="planHeader" class="storage-dialog">
+      <div v-if="store.plan" class="storage-plan">
+        <p>
+          {{ formatBytesIEC(store.plan.reclaimable_bytes) }} from
+          {{ store.plan.units.length }}
+          {{ store.plan.units.length === 1 ? 'unit' : 'units' }} will be deleted permanently.
+        </p>
+        <ul v-if="store.plan.units.length" class="storage-plan-units">
+          <li v-for="unit in store.plan.units" :key="unit.id">
+            <span class="storage-unit-label">{{ unit.label }}</span>
+            <span class="storage-unit-size">{{ formatBytesIEC(unit.bytes) }}</span>
+          </li>
+        </ul>
+        <div v-if="store.plan.refused.length" class="storage-plan-refused">
+          <p>These units are refused and will stay:</p>
+          <ul>
+            <li v-for="unit in store.plan.refused" :key="unit.id">
+              <span class="storage-unit-label">{{ unit.label }}</span>
+              <span>{{ unit.message }}</span>
+            </li>
+          </ul>
+        </div>
+        <p class="storage-phrase">
+          Confirmation phrase:
+          <strong>{{ store.plan.confirmation_phrase }}</strong>
+        </p>
+        <label class="storage-confirm">
+          <input v-model="confirmed" type="checkbox" :disabled="store.applying" />
+          I understand the selected files are deleted permanently.
+        </label>
+        <div class="storage-plan-actions">
+          <button
+            type="button"
+            :disabled="!confirmed || store.applying"
+            :aria-label="`Delete the selected units from ${store.plan.category_label}`"
+            @click="store.applyPlan()"
+          >
+            Delete selected
+          </button>
+          <button type="button" :disabled="store.applying" @click="cancelPlan">
+            Cancel cleanup
+          </button>
+        </div>
+      </div>
+    </Dialog>
   </section>
 </template>
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
+import Dialog from 'primevue/dialog'
 import LoadingState from '@/components/common/LoadingState.vue'
 import { useStorageStore } from '@/stores/storage'
 import { formatBytesIEC } from '@/utils/formatting'
 
 const store = useStorageStore()
 const confirmed = ref(false)
+const confirmVisible = ref(false)
 const historyKeep = ref(50)
 
 const generatedLabel = computed(() => {
@@ -251,10 +249,19 @@ const resultHeading = computed(() => {
 
 watch(
   () => store.plan,
-  () => {
+  (plan) => {
     confirmed.value = false
+    confirmVisible.value = Boolean(plan)
   },
 )
+
+const planHeader = computed(() =>
+  store.plan ? `Confirm cleanup for ${store.plan.category_label}` : 'Confirm cleanup',
+)
+
+watch(confirmVisible, (visible) => {
+  if (!visible && store.plan) store.clearPlan()
+})
 
 function sharePercent(category) {
   const total = Number(store.measuredBytes || 0)

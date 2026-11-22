@@ -1,4 +1,4 @@
-﻿import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
@@ -97,6 +97,10 @@ function mountPanel() {
         RouterLink: {
           props: ['to'],
           template: '<a :href="to"><slot /></a>',
+        },
+        Dialog: {
+          props: ['visible', 'header', 'modal'],
+          template: '<div v-if="visible" role="dialog" :aria-label="header"><slot /></div>',
         },
         LoadingState: true,
       },
