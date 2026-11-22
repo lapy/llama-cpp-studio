@@ -121,10 +121,11 @@ def _refusal(unit: dict, code: str, message: str) -> dict:
 
 
 def _confirmation_phrase(category: str, count: int) -> str:
+    verb = "PRUNE" if category == "history_backups" else "DELETE"
     noun = CATEGORY_NOUNS.get(category, "ITEMS")
     if count <= 0:
-        return f"NOTHING TO DELETE FROM {noun}"
-    return f"DELETE {count} {noun}"
+        return f"NOTHING TO {verb} FROM {noun}"
+    return f"{verb} {count} {noun}"
 
 
 def _validate_category(category: str) -> str:

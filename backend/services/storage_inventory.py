@@ -500,6 +500,21 @@ def _unit(
     }
 
 
+def _public_unit(unit: dict) -> dict:
+    """Project an internal unit onto the API contract (no filesystem paths)."""
+    return {
+        "id": unit["id"],
+        "label": unit["label"],
+        "kind": unit["kind"],
+        "bytes": int(unit["bytes"]),
+        "cleanable": bool(unit["cleanable"]),
+        "blocked": unit["blocked"],
+        "manage_path": unit["manage_path"],
+        "outside_data_root": bool(unit["outside_data_root"]),
+        "detail": dict(unit.get("detail") or {}),
+    }
+
+
 def _category_payload(
     category: str,
     *,
@@ -545,7 +560,10 @@ def _category_payload(
         "available": bool(available),
         "truncated": bool(truncated),
         "notes": list(notes or []),
-        "units": sorted(units, key=lambda item: (-int(item["bytes"]), item["label"].lower())),
+        "units": [
+            _public_unit(unit)
+            for unit in sorted(units, key=lambda item: (-int(item["bytes"]), item["label"].lower()))
+        ],
     }
 
 

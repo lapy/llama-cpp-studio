@@ -1,4 +1,4 @@
-﻿import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
@@ -254,7 +254,7 @@ describe('StoragePanel', () => {
       units: [],
       refused: [],
       reclaimable_bytes: 0,
-      confirmation_phrase: 'NOTHING TO DELETE FROM CONFIGURATION REVISIONS',
+      confirmation_phrase: 'NOTHING TO PRUNE FROM CONFIGURATION REVISIONS',
       scope_cap_units: 200,
       expires_at: '2026-11-22T20:05:00+00:00',
       notice: 'Nothing is selected; the plan cannot be applied.',
