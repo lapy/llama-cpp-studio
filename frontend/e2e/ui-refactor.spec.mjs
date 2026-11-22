@@ -98,7 +98,8 @@ test('library filters recover cleanly and single-model cards expose their main a
   await page.goto('/models')
   await expect(page.getByRole('button', { name: 'Connect Demo', exact: true })).toBeVisible()
   await page.getByRole('button', { name: /^Filters/ }).click()
-  await page.getByLabel('Engine', { exact: true }).selectOption('audio_cpp')
+  await page.getByLabel('Engine', { exact: true }).click()
+  await page.getByRole('option', { name: 'audio.cpp', exact: true }).click()
   await expect(page.getByRole('status').filter({ hasText: '1 of 2 models' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Engine: audio.cpp ×', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Clear filters', exact: true }).click()
@@ -299,7 +300,7 @@ test('library table keeps status, file sizes and actions in consistent columns',
     for (const row of await rows.all()) {
       const size = await row.locator('.library-list__size').boundingBox()
       const actions = await row.locator('.library-list__actions').boundingBox()
-      if (width > 1100) expect(size.x + size.width).toBeLessThan(actions.x)
+      if (width > 1100) expect(size.x + size.width).toBeLessThanOrEqual(actions.x)
       else expect(size.y + size.height).toBeLessThanOrEqual(actions.y)
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(

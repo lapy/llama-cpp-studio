@@ -101,7 +101,11 @@ test('request parameter aliases save, reload, validate and remove without losing
   await overrideValue.fill('{broken')
   await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled()
   await overrideValue.fill('"low"')
-  await expect(page.getByText('assistant-name:thinking', { exact: true })).toBeVisible()
+  await expect(
+    page
+      .getByRole('tabpanel', { name: 'Launch' })
+      .getByText('assistant-name:thinking', { exact: true }),
+  ).toBeVisible()
   await page.getByRole('button', { name: 'Save changes', exact: true }).click()
   await expect
     .poll(() => saved.engines.llama_cpp.set_params_by_id)

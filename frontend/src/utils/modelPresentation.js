@@ -119,3 +119,20 @@ export function taskLabel(value) {
 export function formatLabel(value) {
   return { gguf: 'GGUF', safetensors: 'Safetensors', audio_cpp: 'Audio package' }[value] || value
 }
+
+/**
+ * Normalize a client-facing API name the way the native catalog publishes it:
+ * lower case, path/whitespace runs to `-`, only `[a-z0-9._-]`, collapsed and
+ * trimmed. Returns `fallback` when the name normalizes to nothing so callers
+ * can show the stable runtime id instead.
+ */
+export function normalizeApiName(value, fallback = '') {
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[/\\\s]+/g, '-')
+    .replace(/[^a-z0-9._-]/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^[._-]+|[._-]+$/g, '')
+  return normalized || fallback
+}

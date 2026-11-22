@@ -1,41 +1,41 @@
 <template>
-  <div v-if="available" class="engine-update-banner">
-    <i class="pi pi-arrow-up-right" aria-hidden="true" />
-    <span class="engine-update-banner__copy">
-      <slot name="message">
-        Update available:
-        <strong>{{ latestLabel }}</strong>
-      </slot>
-      <a
-        v-if="linkUrl"
-        :href="linkUrl"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="engine-update-banner__link"
-        >{{ linkLabel }}</a
-      >
-    </span>
-    <Button
-      v-if="showUpdateAction"
-      icon="pi pi-arrow-circle-up"
-      text
-      severity="success"
-      size="small"
-      v-tooltip.top="updateTooltip"
-      :loading="updating"
-      @click="$emit('update')"
-    />
-  </div>
-  <div v-else-if="checked" class="engine-update-current">
-    <i class="pi pi-check" aria-hidden="true" />
+  <StateBanner v-if="available" class="engine-update-banner" severity="warning">
+    <slot name="message">
+      Update available:
+      <strong>{{ latestLabel }}</strong>
+    </slot>
+    <a
+      v-if="linkUrl"
+      :href="linkUrl"
+      target="_blank"
+      rel="noopener noreferrer"
+      class="engine-update-banner__link"
+      >{{ linkLabel }}</a
+    >
+    <template v-if="showUpdateAction" #actions>
+      <Button
+        label="Update"
+        icon="pi pi-arrow-circle-up"
+        severity="success"
+        outlined
+        size="small"
+        :aria-label="latestLabel ? `Update to ${latestLabel}` : 'Update engine'"
+        v-tooltip.top="updateTooltip"
+        :loading="updating"
+        @click="$emit('update')"
+      />
+    </template>
+  </StateBanner>
+  <StateBanner v-else-if="checked" class="engine-update-current" severity="success">
     Up to date
     <template v-if="currentLabel"> ({{ currentLabel }})</template>
-  </div>
+  </StateBanner>
 </template>
 
 <script setup>
 import { computed } from 'vue'
 import Button from 'primevue/button'
+import StateBanner from '@/components/common/StateBanner.vue'
 
 const props = defineProps({
   /** True when an update is available. */
@@ -63,36 +63,13 @@ const currentLabel = computed(() => String(props.currentVersion || '').trim())
 <style scoped>
 .engine-update-banner,
 .engine-update-current {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 0.75rem;
-  padding: 0.65rem 0.85rem;
-  border-radius: var(--radius-lg);
-  font-size: 0.875rem;
-  margin-bottom: 0.65rem;
-}
-
-.engine-update-banner {
-  background: var(--status-warning-soft, rgba(245, 158, 11, 0.1));
-  border: 1px solid rgba(245, 158, 11, 0.3);
-  color: var(--status-warning, #f59e0b);
-}
-
-.engine-update-current {
-  background: var(--status-success-soft, rgba(16, 185, 129, 0.1));
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  color: var(--status-success, #10b981);
-}
-
-.engine-update-banner__copy {
-  flex: 1;
-  min-width: 12rem;
+  margin-bottom: 0;
+  font-size: var(--text-sm);
 }
 
 .engine-update-banner__link {
-  margin-left: 0.35rem;
-  color: var(--accent-cyan, #60a5fa);
+  color: inherit;
+  font-weight: 600;
   text-decoration: underline;
 }
 </style>

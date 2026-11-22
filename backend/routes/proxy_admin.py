@@ -6,18 +6,26 @@ import asyncio
 import time
 
 import httpx
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import unquote
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import PlainTextResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
+from pydantic import BaseModel, Field, field_validator
 
 from backend.access_policy import proxy_listen_host
 from backend.concurrency import run_blocking
 from backend.data_store import get_store
 from backend.inference_auth import rotate_key
 from backend.proxy.studio.manager import configured_proxy_backend, get_studio_proxy_manager
+from backend.proxy.studio.runtime_defaults import LIVE_APPLIED_SETTINGS
+from backend.proxy.studio.vram import VramAdmissionError
+from backend.proxy.studio.vram_estimates import (
+    MAX_ESTIMATE_ENTRIES,
+    MAX_ESTIMATE_MIB,
+    MAX_SAFETY_MARGIN_MIB,
+    MIN_ESTIMATE_MIB,
+)
 
 router = APIRouter()
 
@@ -45,6 +53,29 @@ class ProxySettingsBody(BaseModel):
     capture_request_payloads: bool = False
     default_model: str | None = None
     routing_aliases: dict[str, str | list[str]] = Field(default_factory=dict)
+    # GPU admission is applied live: a mode or estimate change takes effect on
+    # the next cold start without restarting the proxy or any engine.
+    vram_admission: Literal["off", "warn", "enforce"] = "off"
+    vram_safety_margin_mib: int = Field(default=1024, ge=0, le=MAX_SAFETY_MARGIN_MIB)
+    vram_estimates: dict[str, int] = Field(default_factory=dict)
+
+    @field_validator("vram_estimates")
+    @classmethod
+    def _validate_vram_estimates(cls, value: dict[str, int]) -> dict[str, int]:
+        if len(value) > MAX_ESTIMATE_ENTRIES:
+            raise ValueError(f"At most {MAX_ESTIMATE_ENTRIES} model estimates are allowed")
+        cleaned: dict[str, int] = {}
+        for model_id, estimate in value.items():
+            name = str(model_id).strip()
+            if not name:
+                raise ValueError("A VRAM estimate needs a model id")
+            if not MIN_ESTIMATE_MIB <= int(estimate) <= MAX_ESTIMATE_MIB:
+                raise ValueError(
+                    f"VRAM estimate for {name} must be between "
+                    f"{MIN_ESTIMATE_MIB} and {MAX_ESTIMATE_MIB} MiB"
+                )
+            cleaned[name] = int(estimate)
+        return cleaned
 
 
 def _settings_payload() -> dict[str, Any]:
@@ -63,6 +94,9 @@ def _settings_payload() -> dict[str, Any]:
                 "history_max_rows": 100000,
                 "default_output_tokens": 4096,
                 "capture_request_payloads": False,
+                "vram_admission": "off",
+                "vram_safety_margin_mib": 1024,
+                "vram_estimates": {},
             }.items()
         },
         "backend": configured_proxy_backend(),
@@ -80,6 +114,30 @@ def _settings_payload() -> dict[str, Any]:
         "default_model": proxy.get("default_model"),
         "routing_aliases": proxy.get("routing_aliases", {}),
     }
+
+
+def _vram_snapshot() -> dict[str, Any]:
+    manager = get_studio_proxy_manager()
+    snapshot = getattr(manager, "vram_snapshot", None)
+    if callable(snapshot):
+        return snapshot()
+    admission = getattr(manager, "vram", None)
+    if admission is not None and hasattr(admission, "snapshot"):
+        return admission.snapshot()
+    return {
+        "mode": "off",
+        "safety_margin_mib": 1024,
+        "estimates_configured": {},
+        "observed_estimates": {},
+        "probe": {"status": "never"},
+        "reservations": [],
+        "last_admission": None,
+    }
+
+
+def _vram_refusal(exc: VramAdmissionError) -> JSONResponse:
+    """409 body for a refused start: ``{error, code, detail}``."""
+    return JSONResponse(status_code=409, content=exc.payload())
 
 
 def _with_replay_payloads(rows: list[dict]) -> list[dict]:
@@ -152,6 +210,7 @@ async def get_proxy_admin():
         "studio_running": studio_running,
         "running": running,
         "activity": activity,
+        "vram": _vram_snapshot(),
         "requests": _with_replay_payloads(history["requests"])
         if settings["backend"] == "studio"
         else [],
@@ -174,6 +233,16 @@ async def get_proxy_admin():
     }
 
 
+@router.get("/vram")
+async def get_proxy_vram():
+    """GPU admission observation: mode, probe, estimates and last decision.
+
+    Read-only and additive. The probe is never run here; it reports the last
+    cached probe so the page load cannot block on NVML or nvidia-smi.
+    """
+    return _vram_snapshot()
+
+
 @router.put("/settings")
 async def put_proxy_settings(body: ProxySettingsBody):
     backend = "studio"
@@ -190,7 +259,7 @@ async def put_proxy_settings(body: ProxySettingsBody):
     await run_blocking(get_store().update_settings, {"proxy": proxy, "proxy_port": proxy_port})
     after = _settings_payload()
     changed = {name for name in after if before.get(name) != after[name]}
-    live_fields = changed & {"routing_aliases", "default_model", "allow_anonymous"}
+    live_fields = changed & LIVE_APPLIED_SETTINGS
     restart_required = bool(changed - live_fields)
     routing_revision = None
     manager = get_studio_proxy_manager()
@@ -198,6 +267,9 @@ async def put_proxy_settings(body: ProxySettingsBody):
         routing_revision = manager.apply_routing(after)
         if manager.running:
             restart_required = manager.runtime_restart_required(after)
+    apply_vram = getattr(manager, "apply_vram_settings", None)
+    if callable(apply_vram):
+        apply_vram(after)
     return {
         "settings": after,
         "restart_required": restart_required,
@@ -333,6 +405,8 @@ async def preload_proxy_model(model_id: str, warm: bool = False):
     manager = get_studio_proxy_manager()
     try:
         generation = await manager.registry.acquire(model_id)
+    except VramAdmissionError as exc:
+        return _vram_refusal(exc)
     except (ValueError, OSError, RuntimeError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     warmed = False
@@ -367,6 +441,8 @@ async def reload_proxy_model(model_id: str):
     await manager.registry.stop(model_id)
     try:
         generation = await manager.registry.acquire(model_id)
+    except VramAdmissionError as exc:
+        return _vram_refusal(exc)
     except (ValueError, OSError, RuntimeError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     manager.registry.release(generation)

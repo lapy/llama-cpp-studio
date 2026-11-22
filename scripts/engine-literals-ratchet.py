@@ -47,7 +47,7 @@ AREA_CAPS: Dict[str, int] = {
     # routes/audio_cpp_versions.py, which takes the engine id as a parameter.
     "backend/routes/": 90,
     "backend/services/": 7,
-    "frontend/e2e/": 22,
+    "frontend/e2e/": 21,
     # 2026-11-15: new test-only contract fixtures reference three engine ids
     # in UI shape descriptors; no production dispatch was added.
     "frontend/src/api/": 3,
@@ -55,7 +55,7 @@ AREA_CAPS: Dict[str, int] = {
     # engine id; the view itself shed the same literals.
     # 2026-11-15: 73 -> 69. Extracting FirstModelPanel moved the first-run
     # empty state out of ModelLibrary and removed four engine-ID literal sites.
-    "frontend/src/components/": 69,
+    "frontend/src/components/": 68,
     # 2026-11-15: 58 -> 59. Prettier split one line in
     # engineReadiness.test.js, putting a second id literal on its own line.
     # 2026-11-21: 59 -> 58. The audio workspace/contract composables now derive

@@ -29,7 +29,8 @@ function mountPanel(props = {}) {
 describe('AudioResultPanel', () => {
   it('renders nothing when empty', () => {
     const wrapper = mountPanel()
-    expect(wrapper.find('.config-card').exists()).toBe(false)
+    expect(wrapper.find('.page-section').exists()).toBe(false)
+    expect(wrapper.get('.audio-result-region').attributes('role')).toBe('status')
   })
 
   it('exposes a polite live region and busy state for results', async () => {

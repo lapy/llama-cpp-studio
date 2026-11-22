@@ -36,7 +36,6 @@ The footer shows compact application/service status and a link to System. Activi
 | `sglang_v100`   | SGLang V100       | safetensors/Hugging Face snapshot                        | Source installation in a managed Python environment with a V100-specific build workflow. |
 | `sglang_sxm2`   | SGLang SXM2       | safetensors/Hugging Face snapshot                        | Source installation in a managed Python environment with a V100-SXM2 build workflow.     |
 | `revolta`       | ReVolta           | safetensors/Hugging Face snapshot                        | Managed Python environment; SM70-only release wheel from `Leonccaa/ReVolta`.            |
-| `strata`        | Strata            | Strata model profiles                                    | Experimental registration; the Strata Terminal owns engine installation and model preparation. |
 | `audio_cpp`     | audio.cpp         | Prepared audio packages and discovered GGUF audio models | Source/CMake build; model-scoped `audiocpp_server`; validated through 0.9.5.             |
 
 The shared engine registry describes artifact formats, package kinds, tasks, input/output modalities, installation type, scanner type, active path fields, and capability hints. Compatibility requires a suitable installed runtime and model; a registry task label does not certify every model/build combination.
@@ -51,7 +50,9 @@ Source-based engines accept repository and tracking-ref settings. Saved build se
 
 Python engines use Studio-managed environments. Their settings include release/package selection and source repository/ref choices where supported by the installer. Source installation uses the selected repository and engine-specific build environment. The SM70 SGLang engines (`sglang_v100`, `sglang_sxm2`) each use their dedicated source workflow, a managed Python environment, and Studio-managed CUDA 12.8; each installer supplies the selected fork's dependency/build steps while Studio supplies host-tool and CUDA paths.
 
-ReVolta is a release-first V100/SM70 vLLM fork distributed as the `revolta` wheel; its import name and CLI stay `vllm`, so Studio reuses the vLLM runtime mechanism, parameter scanner and managed build environment. Strata is registered as an experimental native engine: its Terminal installs the per-backend engine and prepares model run profiles outside Studio, so the registry currently declares its identity, prepared-profile artifact contract and hardware policy without offering a Studio install or launch action. See [Strata engine status](strata-engine.md) for the declared surface and the remaining host work.
+Engine lifecycle is derived from the definition. A `python_venv` definition uses the shared venv installer; a definition that declares a `native_host` is served by that host through the same generic `/api/engines/{engine_id}` verbs (install, status, cancel, build settings, remove and declared update checks), with `install-source` returning 405 unless a source recipe exists. This gives a future native engine the generic surface without a new engine route or engine-ID branch; the host mechanism itself remains one shared, kind-keyed implementation. See [engine onboarding](engine-onboarding.md).
+
+ReVolta is a release-first V100/SM70 vLLM fork distributed as the `revolta` wheel; its import name and CLI stay `vllm`, so Studio reuses the vLLM runtime mechanism, parameter scanner and managed build environment. A Strata integration is planned, not registered; its Terminal owns engine acquisition, model run-config preparation and a background supervisor, so a future native host must implement that contract before the engine is declared. See [Strata engine: planned integration](strata-engine.md).
 
 Engine activation and explicit rescanning populate the parameter catalog. Source build, Python package installation, and prebuilt installation have different hardware and dependency requirements; installer errors and build logs provide the concrete result.
 
@@ -306,6 +307,9 @@ Request details can include queue wait, model load time, first response byte, fi
 | `idle_ttl_seconds`            | `null`                                                | Positive values enable idle model unloading.                                                         |
 | `max_body_bytes`              | `null` in settings; effective 256 MiB runtime default | Buffered request-body bound.                                                                         |
 | `max_loaded_models`           | `null`                                                | Optional loaded-model count bound.                                                                   |
+| `vram_admission`              | `off`                                                 | GPU memory preflight: `off`, `warn`, or `enforce`.                                                   |
+| `vram_safety_margin_mib`      | `1024`                                                | Free memory kept per selected GPU during admission.                                                  |
+| `vram_estimates`              | `{}`                                                  | Per-model MiB overrides used when admission is warn/enforce.                                         |
 | `global_concurrency`          | `null`                                                | Optional global request bound; pool capacity also constrains forwarding.                             |
 | `per_model_concurrency`       | `null`                                                | Optional per-model request bound.                                                                    |
 | `queue_timeout_seconds`       | `30`                                                  | Maximum slot/queue wait.                                                                             |
@@ -325,6 +329,8 @@ Request details can include queue wait, model load time, first response byte, fi
 | `routing_aliases`             | `{}`                                                  | Live single-/multi-target routing aliases.                                                           |
 
 Serving limits and listener changes take effect through **Restart & apply**. Restart drains running engines and rebuilds the proxy runtime. Start and Stop control the listener; stop closes engine processes owned by that runtime. Model-specific unload, preload, warm, reload, and log actions are also available through the management API.
+
+GPU admission runs before a cold start when `vram_admission` is `warn` or `enforce`. It maps the launch's selected devices to the cached GPU inventory, subtracts the safety margin and any in-flight reservations, and compares free memory with the model estimate. Overrides are high confidence; a last uncontended ready-time observation is medium; a file-size weights-only bound is low and only warns because the engine may partially offload. Unknown estimates, CPU mode and probe failures admit with an explicit `unknown` decision rather than blocking. An enforceable shortfall returns HTTP 409 with code `INSUFFICIENT_VRAM` and a per-device detail payload; the Proxy page, running rows, activity events and `/api/proxy/vram` preserve the decision. This is a preflight, not a fitter: it does not choose context/layers, evict a loaded model, or account for memory used by other applications on the host. See [proxy operations](proxy-operations.md#gpu-admission) for the contract.
 
 ## Inference access keys and accounting
 
@@ -393,9 +399,21 @@ See [audio contract and discovery](audio-cpp-discovery.md) for the metadata and 
 
 The CUDA card displays detected versions/path and provides installation, version selection, refresh, and uninstall actions. Install/remove work reports through background activity. CUDA installations live in the persistent data directory, with the managed active path supplied to relevant builds/runtimes. An installed toolkit and a working host GPU driver/container runtime are separate requirements.
 
+### Storage
+
+**System → Storage** (`/system#storage`) reports filesystem use and a bounded inventory of the data root in seven disjoint categories: model payloads, Hugging Face cache, engine installs, CUDA toolkits, JIT/compile caches, history/logs/temp, and the accounting database. It identifies each category's cleanable units and blocked units (running model, retained launch reference, active download/build, symlink, or outside-root path) and links report-only categories to the workspace that owns their deletion.
+
+Cleanup is preview-then-apply. A preview returns a plan id, reclaimable bytes, affected units and a confirmation phrase; apply requires the same plan and an explicit confirmation, recomputes the plan digest, and refuses a stale plan, an oversized scope, or a concurrent cleanup. Studio only deletes its own unreferenced payload directories, orphan Hugging Face repos, managed JIT/build caches, the CUDA installer cache, and history entries beyond the keep count. Catalog models, engine installs, CUDA toolkits and the accounting database remain report-only; their existing surfaces own the guards and retirement decisions. Scans and deletion run on the blocking pool with entry/node caps, so a truncated reading is labelled a lower bound rather than presented as exact. See [storage governance](storage-governance.md).
+
 ### Diagnostics
 
 Diagnostics shows live-update connectivity, proxy health observation age, model-runtime observation, and persistence queue/failure state. The downloadable diagnostics bundle contains redacted service information for troubleshooting. It describes observation quality and persistence/operation health rather than treating missing observations as a stopped model.
+
+### Metrics and audit
+
+`GET /api/metrics` returns Prometheus text for external monitoring: application info and uptime, proxy request counters and gauges, loaded/starting/failed model counts, operation counts, persistence queue state, filesystem free space, and cached GPU free/total memory. Unknown observations are omitted rather than reported as zero; GPU values reflect the last cached inventory, and accounting/disk aggregates run on the blocking pool. Engine-native Prometheus endpoints remain engine-owned.
+
+Management mutations are recorded in a bounded JSONL audit log under the data directory (5 MiB active file, five rotations, mode 0600). Each record contains the time, a generated request id, method, query-free path, status, duration and actor kind (local, token, session, anonymous); request bodies, headers, cookies, query values and secrets are never logged. Audit writes are best effort and expose drop/failure counters through `/api/metrics`. See [observability](observability.md).
 
 ### Portable backup and restore
 
@@ -415,9 +433,9 @@ Private snapshots live in `config/history/`. Redaction in the displayed diff doe
 
 ## Local model benchmarks
 
-The benchmark management API runs a bounded streaming benchmark against a running compatible text model. This feature is available through the benchmark endpoints; the workspace screens provide model control and connection workflows. Requests contain a prompt of 1–1,000 characters and an output limit of 1–512 tokens (default 64). Results contain the model/proxy name, saved configuration revision/fingerprint, creation time, prompt, output preview, first-token time, duration, completion tokens when reported, throughput when available, and peak observed GPU memory.
+The benchmark management API runs a bounded streaming benchmark against a running compatible text model. This feature is available through the benchmark endpoints; the workspace screens provide model control and connection workflows. Requests contain a prompt of 1–1,000 characters, an output limit of 1–512 tokens (default 64), an optional warmup count (0–3), and an optional repeat count (1–5). Results contain the model/proxy name, saved configuration revision/fingerprint, creation time, prompt, output preview, first-token time, duration, completion tokens when reported, throughput when available, and peak observed GPU memory. Repeats add per-run timings plus min/p50/p95/max aggregates; the original top-level fields continue to describe the first measured run, and legacy stored rows read back with defaults.
 
-The API stores results in `benchmarks.yaml`; listing defaults to 20 entries and supports up to 100. GPU memory is a sampled observation and can include other GPU activity. Results describe their recorded model/configuration and machine; they are not automatically normalized across hardware or engine builds.
+The API stores results in `benchmarks.yaml`; listing defaults to 20 entries and supports up to 100. GPU memory is a sampled observation and can include other GPU activity. Results describe their recorded model/configuration and machine; they are not normalized across hardware, quantization, context or engine flags, and a small p50/p95 sample is indicative rather than a calibrated benchmark.
 
 ## Persistence, activities, and recovery
 

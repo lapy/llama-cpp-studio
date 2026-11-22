@@ -54,6 +54,37 @@ parameter list must contain the `fit` parameter (key `fit`, primary flag
 `--fit`, or `--fit` in its flags). Engines whose scans do not expose `fit` get no
 auto-fit card or action.
 
+## GPU admission is not a fitter
+
+The proxy's GPU admission preflight (`vram_admission`, see
+[proxy operations](proxy-operations.md#gpu-admission)) answers a narrower
+question than auto-fit: it decides only whether a start is obviously impossible
+on the selected GPUs before a process is spawned. It does not choose a context
+size, does not choose layer counts, does not pass any argument, and does not add
+a model-configuration field.
+
+The two mechanisms are intentionally different kinds of evidence:
+
+- Auto-fit measures the actual model, context and compute buffers inside the
+  engine and then chooses what fits. That measurement is authoritative.
+- Admission compares a coarse estimate - an operator override, a previous load's
+  ready-time delta, or the file-size lower bound - against free memory. It can be
+  wrong in both directions, which is why `enforce` refuses only a known deficit
+  from an override or an observation, why a weights-only deficit only warns, and
+  why an unknown estimate or failed probe admits.
+
+Consequences for operators:
+
+- Auto-fit remains the authority for memory sizing. Restoring the auto-fit
+  defaults is still the right fix for an overridden context or layer count; a
+  generous `vram_estimates` entry is not a substitute for `fit = on`.
+- A warning is not a prediction of OOM; it says the estimate exceeds the
+  available headroom after the safety margin. The estimate and its source are
+  shown with every decision so the operator can judge the evidence.
+- Admission estimates reset when the Studio process restarts, because a load
+  observation is only valid for that process lifetime. Set an override when a
+  model's residency must be known before the first load.
+
 ## Sources
 
 - [llama.cpp `tools/server/README.md`](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md)

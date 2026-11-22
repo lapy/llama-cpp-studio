@@ -597,6 +597,156 @@ async def probe_gpu_list() -> Dict:
 
 
 # ============================================================================
+# Lightweight VRAM probe (index/uuid/name + free/total/used MiB)
+# ============================================================================
+
+_MIB = 1024 * 1024
+_NVIDIA_DEVICE_NODES = ("/dev/nvidia0", "/dev/nvidiactl", "/proc/driver/nvidia/version")
+
+
+def _nvidia_tooling_available() -> bool:
+    """Whether this host exposes NVIDIA devices or tooling at all.
+
+    A CPU-only host with the ``pynvml`` package installed must not report a
+    probe failure: there is nothing to probe, and admission treats "no NVIDIA
+    hardware" differently from "the probe could not answer".
+    """
+    if _resolve_nvidia_smi():
+        return True
+    return any(os.path.exists(path) for path in _NVIDIA_DEVICE_NODES)
+
+
+def _gpu_memory_row(index, name, uuid, total, free, used) -> Dict:
+    total_mib = max(0, int(total))
+    free_mib = max(0, int(free))
+    used_mib = max(0, int(used))
+    return {
+        "index": int(index),
+        "uuid": str(uuid or ""),
+        "name": str(name or ""),
+        "total_mib": total_mib,
+        "free_mib": free_mib,
+        "used_mib": used_mib,
+    }
+
+
+def _gpu_memory_payload(gpus: List[Dict], *, source: str, tooling: str, error=None) -> Dict:
+    return {
+        "vendor": "nvidia" if gpus else None,
+        "device_count": len(gpus),
+        "gpus": gpus,
+        "cpu_only_mode": not gpus,
+        "tooling": tooling,
+        "source": source,
+        "error": error,
+    }
+
+
+def _probe_gpu_memory_via_smi(error: Optional[str]) -> Dict:
+    """Blocking nvidia-smi fallback for per-device memory (MiB, no units)."""
+    nvidia_smi = _resolve_nvidia_smi()
+    if not nvidia_smi:
+        return _gpu_memory_payload([], source="none", tooling="none", error=error)
+    try:
+        result = subprocess.run(
+            [
+                nvidia_smi,
+                # The name is queried last: a board name can contain commas,
+                # so positional parsing must not depend on it.
+                "--query-gpu=index,memory.total,memory.free,memory.used,uuid,name",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        return _gpu_memory_payload(
+            [], source="none", tooling="nvidia-smi", error=error or type(exc).__name__
+        )
+    gpus: List[Dict] = []
+    for line in result.stdout.strip().split("\n"):
+        if not line.strip():
+            continue
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) < 5:
+            continue
+        try:
+            index = int(parts[0])
+            total = int(float(parts[1]))
+            free = int(float(parts[2]))
+            used = int(float(parts[3]))
+        except ValueError:
+            continue
+        uuid = parts[4]
+        name = ",".join(parts[5:]).strip()
+        gpus.append(_gpu_memory_row(index, name, uuid, total, free, used))
+    return _gpu_memory_payload(gpus, source="nvidia-smi", tooling="nvidia-smi", error=None)
+
+
+def _collect_gpu_memory() -> Dict:
+    """Blocking per-device memory probe. Run via ``probe_gpu_memory``.
+
+    NVML answers first because it needs no subprocess. nvidia-smi is the
+    fallback for images where the Python binding is missing. Values are MiB ints
+    so callers compare them with settings and estimates without unit guessing.
+    """
+    if _gpu_detection_disabled:
+        return _gpu_memory_payload([], source="disabled", tooling="none")
+    if not _nvidia_tooling_available():
+        return _gpu_memory_payload([], source="absent", tooling="none")
+
+    nvml_error: Optional[str] = None
+    if pynvml is not None:
+        try:
+            pynvml.nvmlInit()
+            try:
+                gpus = []
+                for index in range(pynvml.nvmlDeviceGetCount()):
+                    handle = pynvml.nvmlDeviceGetHandleByIndex(index)
+                    raw_name = pynvml.nvmlDeviceGetName(handle)
+                    name = (
+                        raw_name.decode("utf-8") if isinstance(raw_name, bytes) else str(raw_name)
+                    )
+                    memory = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                    try:
+                        raw_uuid = pynvml.nvmlDeviceGetUUID(handle)
+                        uuid = (
+                            raw_uuid.decode("utf-8")
+                            if isinstance(raw_uuid, bytes)
+                            else str(raw_uuid)
+                        )
+                    except Exception:
+                        uuid = ""
+                    gpus.append(
+                        _gpu_memory_row(
+                            index,
+                            name,
+                            uuid,
+                            int(memory.total) // _MIB,
+                            int(memory.free) // _MIB,
+                            int(memory.used) // _MIB,
+                        )
+                    )
+                if gpus:
+                    return _gpu_memory_payload(gpus, source="nvml", tooling="nvml")
+            finally:
+                pynvml.nvmlShutdown()
+        except Exception as exc:
+            logger.debug("NVML memory probe failed: %s", exc)
+            nvml_error = f"{type(exc).__name__}: {exc}"
+    return _probe_gpu_memory_via_smi(nvml_error)
+
+
+async def probe_gpu_memory() -> Dict:
+    """Return per-device GPU memory without blocking the event loop."""
+    from backend.concurrency import run_blocking
+
+    return await run_blocking(_collect_gpu_memory)
+
+
+# ============================================================================
 # Unified GPU Detection
 # ============================================================================
 

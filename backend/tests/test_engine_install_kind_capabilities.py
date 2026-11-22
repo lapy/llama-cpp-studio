@@ -41,7 +41,6 @@ def test_install_kind_helpers_match_the_historical_families():
     assert set(engine_ids_with_install_kind("cmake")) & SHIPPED_ENGINE_IDS == CMAKE_ENGINES
     assert set(engine_ids_with_install_kind("prebuilt")) & SHIPPED_ENGINE_IDS == {
         "unsloth_llama",
-        "strata",
     }
     assert engine_ids_with_install_kind("not-a-kind") == ()
     assert set(lifecycle_module.python_venv_engine_ids()) & SHIPPED_ENGINE_IDS == VENV_ENGINES

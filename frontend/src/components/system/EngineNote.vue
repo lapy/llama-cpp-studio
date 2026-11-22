@@ -1,74 +1,38 @@
 <template>
-  <div class="engine-note" :class="`engine-note--${severity}`" role="status">
-    <i :class="['pi', iconClass]" aria-hidden="true" />
-    <div class="engine-note__body">
-      <div class="engine-note__text">
-        <slot />
-      </div>
-      <div v-if="$slots.actions" class="engine-note__actions">
-        <slot name="actions" />
-      </div>
-    </div>
-  </div>
+  <StateBanner class="engine-note" :severity="severity">
+    <slot />
+    <template v-if="$slots.actions" #actions>
+      <slot name="actions" />
+    </template>
+  </StateBanner>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+/**
+ * Inline engine guidance (V100/upstream notes). The visual treatment is
+ * the shared StateBanner; this wrapper only fixes the engine severity scale
+ * and keeps an actions slot.
+ */
+import StateBanner from '@/components/common/StateBanner.vue'
 
-const props = defineProps({
+defineProps({
   severity: {
     type: String,
     default: 'info',
-    validator: (v) => ['info', 'warning'].includes(v),
+    validator: (value) => ['info', 'warning'].includes(value),
   },
 })
-
-const iconClass = computed(() =>
-  props.severity === 'warning' ? 'pi-exclamation-triangle' : 'pi-info-circle',
-)
 </script>
 
 <style scoped>
 .engine-note {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-  font-size: 0.8125rem;
-  line-height: 1.45;
-  color: var(--text-secondary);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-lg);
-  padding: 0.75rem 0.9rem;
+  margin-bottom: 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
 }
 
 .engine-note :deep(code) {
-  font-size: var(--text-xs);
   overflow-wrap: anywhere;
-}
-
-.engine-note--warning {
-  color: var(--accent-amber, #f59e0b);
-  border-color: color-mix(in srgb, var(--accent-amber, #f59e0b) 45%, transparent);
-  background: color-mix(in srgb, var(--accent-amber, #f59e0b) 8%, transparent);
-}
-
-.engine-note__body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-  min-width: 0;
-  flex: 1;
-}
-
-.engine-note__text {
-  min-width: 0;
-  overflow-wrap: break-word;
-}
-
-.engine-note__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
+  font-size: var(--text-xs);
 }
 </style>

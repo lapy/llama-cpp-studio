@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 
 import VersionTable from './VersionTable.vue'
+import { CMAKE_ENGINE_IDS } from '../../engines/registry.js'
+
+const CMAKE_ENGINE = [...CMAKE_ENGINE_IDS][0]
 
 function mountTable(versions, extraProps = {}) {
   return mount(VersionTable, {
@@ -30,6 +33,58 @@ function mountTable(versions, extraProps = {}) {
     },
   })
 }
+
+describe('VersionTable table shell', () => {
+  it('renders a labelled table with the shared shell and action column', () => {
+    const wrapper = mountTable([
+      {
+        id: `${CMAKE_ENGINE}:source-main`,
+        version: 'source-main',
+        type: 'source',
+        install_type: 'source',
+        source_branch: 'main',
+        is_active: true,
+      },
+    ])
+
+    const shell = wrapper.get('.table-shell')
+    expect(shell.find('.table-shell__scroll').exists()).toBe(true)
+    expect(shell.get('table').exists()).toBe(true)
+    const headers = shell.findAll('thead th').map((th) => th.text())
+    expect(headers).toEqual(['Version', 'Status', 'Source', 'Actions'])
+    expect(shell.findAll('thead th').every((th) => th.attributes('scope') === 'col')).toBe(true)
+    expect(shell.get('caption').text()).toBe('Installed engine versions')
+  })
+
+  it('keeps the empty message inside the table shell and skips the table', () => {
+    const wrapper = mountTable([])
+
+    const state = wrapper.get('.table-shell__state')
+    expect(state.text()).toContain('No versions installed yet.')
+    expect(wrapper.find('table').exists()).toBe(false)
+  })
+
+  it('gives every icon-only row action an accessible name', () => {
+    const wrapper = mountTable([
+      {
+        id: `${CMAKE_ENGINE}:source-main`,
+        version: 'source-main',
+        type: 'source',
+        install_type: 'source',
+        source_branch: 'main',
+        is_active: true,
+      },
+    ])
+
+    for (const label of [
+      'Sync main and rebuild source-main',
+      'Edit build settings for source-main',
+      'Delete source-main',
+    ]) {
+      expect(wrapper.get(`[aria-label="${label}"]`).exists(), label).toBe(true)
+    }
+  })
+})
 
 describe('VersionTable fork labeling', () => {
   it('shows fork badge with warning severity', () => {
@@ -69,7 +124,7 @@ describe('VersionTable fork labeling', () => {
     const buttons = wrapper.findAll('button')
     expect(buttons.length).toBe(3)
     await buttons[0].trigger('click')
-    expect(wrapper.emitted('sync')?.[0]).toEqual(['llama_cpp:source-main'])
+    expect(wrapper.emitted('sync')?.[0]).toEqual([`${CMAKE_ENGINE}:source-main`])
   })
 
   it('emits sync for local branch checkouts', async () => {

@@ -1,19 +1,23 @@
 <template>
-  <div class="engine-check-updates-cta">
-    <Button
-      :label="label"
-      icon="pi pi-arrow-up-right"
-      icon-pos="left"
-      severity="info"
-      :loading="loading"
-      @click="$emit('check')"
-    />
-    <span class="engine-check-updates-cta__hint">{{ hint }}</span>
-  </div>
+  <PageToolbar class="engine-check-updates-cta" label="Engine updates" plain>
+    <p class="engine-check-updates-cta__hint">{{ hint }}</p>
+    <template #actions>
+      <Button
+        :label="label"
+        icon="pi pi-arrow-up-right"
+        severity="secondary"
+        outlined
+        size="small"
+        :loading="loading"
+        @click="$emit('check')"
+      />
+    </template>
+  </PageToolbar>
 </template>
 
 <script setup>
 import Button from 'primevue/button'
+import PageToolbar from '@/components/common/PageToolbar.vue'
 
 defineProps({
   loading: { type: Boolean, default: false },
@@ -30,33 +34,11 @@ defineEmits(['check'])
 </script>
 
 <style scoped>
-.engine-check-updates-cta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.75rem 1rem;
-  padding: 0.85rem 1rem;
-  margin-bottom: 0.65rem;
-  border-radius: var(--radius-lg);
-  border: 1px solid rgba(96, 165, 250, 0.3);
-  background: linear-gradient(
-    145deg,
-    rgba(96, 165, 250, 0.1) 0%,
-    rgba(96, 165, 250, 0.03) 55%,
-    transparent 100%
-  );
-}
-
 .engine-check-updates-cta__hint {
-  font-size: 0.8125rem;
-  line-height: 1.45;
+  margin: 0;
+  padding-bottom: 0.35rem;
   color: var(--text-secondary);
-  flex: 1;
-  min-width: 12rem;
-}
-
-.engine-check-updates-cta :deep(.p-button) {
-  font-weight: 600;
-  flex-shrink: 0;
+  font-size: var(--text-sm);
+  line-height: 1.45;
 }
 </style>

@@ -6,186 +6,222 @@
     class="dialog-width-md"
     @update:visible="requestVisibility"
   >
-    <p v-if="copyFeedback" class="connect-note" role="status">{{ copyFeedback }}</p>
-    <div v-if="manualCopyValue" class="connect-field">
-      <label for="connect-manual-copy">Copy text manually</label
-      ><textarea
-        id="connect-manual-copy"
-        ref="manualCopyField"
-        :value="manualCopyValue"
-        readonly
-        rows="3"
-        @focus="$event.target.select()"
-      />
-    </div>
-    <p class="connect-lead">{{ lead }}</p>
-    <div class="connect-field">
-      <span class="connect-label">API model ID</span>
-      <code class="connect-value">{{
-        modelId || 'Unavailable until this model is registered with the proxy.'
-      }}</code>
-      <Button
-        label="Copy model ID"
-        size="small"
-        severity="secondary"
-        outlined
-        :disabled="!modelId"
-        @click="copy(modelId)"
-      />
-    </div>
-    <div class="connect-field">
-      <label class="connect-label" for="connect-public-url">Public URL</label>
-      <input
-        id="connect-public-url"
-        v-model="publicUrlDraft"
-        class="connect-input"
-        type="url"
-        placeholder="http://127.0.0.1:2000"
-        :aria-invalid="Boolean(urlError)"
-        :aria-describedby="urlError ? 'connect-url-help connect-url-error' : 'connect-url-help'"
-      />
-      <small id="connect-url-help"
-        >Shared by all models. Set the URL clients use to reach this Studio proxy.</small
-      >
-      <Button
-        label="Save public URL"
-        size="small"
-        severity="secondary"
-        outlined
-        :loading="savingUrl"
-        @click="savePublicUrl"
-      />
-      <small v-if="urlSaved" role="status">Public URL saved.</small>
-    </div>
-    <div class="connect-field">
-      <span class="connect-label">Endpoint</span>
-      <code class="connect-value">{{ endpoint }}</code>
-      <Button
-        label="Copy endpoint"
-        size="small"
-        severity="secondary"
-        outlined
-        @click="copy(endpoint)"
-      />
-    </div>
-    <div class="connect-request">
-      <div class="connect-request__header">
-        <span class="connect-label">Request example</span>
-        <div class="connect-format" role="group" aria-label="Request format">
-          <button
-            type="button"
-            :aria-pressed="requestFormat === 'curl'"
-            @click="requestFormat = 'curl'"
-          >
-            cURL
-          </button>
-          <button
-            type="button"
-            :aria-pressed="requestFormat === 'json'"
-            @click="requestFormat = 'json'"
-          >
-            JSON body
-          </button>
-        </div>
+    <div class="dialog-stack">
+      <p v-if="copyFeedback" class="connect-note" role="status">{{ copyFeedback }}</p>
+      <div v-if="manualCopyValue" class="connect-field">
+        <label for="connect-manual-copy">Copy text manually</label
+        ><textarea
+          id="connect-manual-copy"
+          ref="manualCopyField"
+          :value="manualCopyValue"
+          readonly
+          rows="3"
+          @focus="$event.target.select()"
+        />
       </div>
-      <pre
-        class="connect-example"
-        :aria-label="requestFormat === 'curl' ? 'Complete cURL request' : 'JSON request body'"
-        >{{ requestFormat === 'curl' ? curlExample : requestExample }}</pre>
-      <Button
-        :label="requestFormat === 'curl' ? 'Copy cURL' : 'Copy JSON body'"
-        size="small"
-        severity="secondary"
-        outlined
-        @click="copy(requestFormat === 'curl' ? curlExample : requestExample)"
-      />
-    </div>
-    <p v-if="urlError" id="connect-url-error" class="connect-error" role="alert">{{ urlError }}</p>
-    <div class="connect-actions">
-      <Button
-        label="Send test"
-        icon="pi pi-send"
-        :loading="testing"
-        :disabled="!canTest"
-        @click="sendTest"
-      />
-      <span v-if="testNote" class="connect-note">{{ testNote }}</span>
-    </div>
-    <div class="connect-field connect-keys">
-      <span class="connect-label">Access keys</span>
-      <p v-if="keysLoading" role="status">Loading access keys…</p>
-      <div v-else-if="keysError" class="connect-error" role="alert">
-        {{ keysError }}
-        <Button label="Retry keys" size="small" severity="secondary" @click="loadAccessKeys" />
+      <p class="connect-lead">{{ lead }}</p>
+      <div class="connect-field">
+        <span class="connect-label">API model ID</span>
+        <code class="connect-value">{{
+          modelId || 'Unavailable until this model is registered with the proxy.'
+        }}</code>
+        <Button
+          label="Copy model ID"
+          size="small"
+          severity="secondary"
+          outlined
+          :disabled="!modelId"
+          @click="copy(modelId)"
+        />
       </div>
-      <p class="connect-note">{{ accessPolicyLabel }}</p>
-      <div class="connect-key-create">
+      <div class="connect-field">
+        <label class="connect-label" for="connect-public-url">Public URL</label>
         <input
-          v-model="keyName"
+          id="connect-public-url"
+          v-model="publicUrlDraft"
           class="connect-input"
-          type="text"
-          maxlength="120"
-          placeholder="Key name, for example Desktop"
-          aria-label="New access key name"
+          type="url"
+          placeholder="http://127.0.0.1:2000"
+          :aria-invalid="Boolean(urlError)"
+          :aria-describedby="urlError ? 'connect-url-help connect-url-error' : 'connect-url-help'"
         />
+        <small id="connect-url-help"
+          >Shared by all models. Set the URL clients use to reach this Studio proxy.</small
+        >
         <Button
-          label="Create key"
+          label="Save public URL"
           size="small"
           severity="secondary"
           outlined
-          :loading="creatingKey"
-          :disabled="!keyName.trim() || (Boolean(createdKey) && !keyAcknowledged)"
-          @click="createAccessKey"
+          :loading="savingUrl"
+          @click="savePublicUrl"
+        />
+        <small v-if="urlSaved" role="status">Public URL saved.</small>
+      </div>
+      <div class="connect-field">
+        <span class="connect-label">Endpoint</span>
+        <code class="connect-value">{{ endpoint }}</code>
+        <Button
+          label="Copy endpoint"
+          size="small"
+          severity="secondary"
+          outlined
+          @click="copy(endpoint)"
         />
       </div>
-      <div v-if="createdKey" class="connect-key-secret">
-        <span>This key is shown once. Store it now.</span>
-        <code>{{ createdKey }}</code>
+      <div class="connect-request">
+        <div class="connect-request__header">
+          <span class="connect-label">Request example</span>
+          <div class="connect-format" role="group" aria-label="Request format">
+            <button
+              type="button"
+              :aria-pressed="requestFormat === 'curl'"
+              @click="requestFormat = 'curl'"
+            >
+              cURL
+            </button>
+            <button
+              type="button"
+              :aria-pressed="requestFormat === 'json'"
+              @click="requestFormat = 'json'"
+            >
+              JSON body
+            </button>
+          </div>
+        </div>
+        <pre
+          class="connect-example"
+          :aria-label="requestFormat === 'curl' ? 'Complete cURL request' : 'JSON request body'"
+          >{{ requestFormat === 'curl' ? curlExample : requestExample }}</pre>
         <Button
-          label="I saved this key"
+          :label="requestFormat === 'curl' ? 'Copy cURL' : 'Copy JSON body'"
           size="small"
           severity="secondary"
           outlined
-          @click="keyAcknowledged = true"
-        />
-        <small v-if="keyAcknowledged">Key saved. You can close this dialog.</small>
-        <Button
-          label="Copy key"
-          size="small"
-          severity="secondary"
-          outlined
-          @click="copy(createdKey)"
+          @click="copy(requestFormat === 'curl' ? curlExample : requestExample)"
         />
       </div>
-      <ul v-if="accessKeys.length" class="connect-key-list">
-        <li v-for="item in accessKeys" :key="item.id">
-          <span
-            >{{ item.name }} <code>{{ item.prefix }}…</code></span
-          >
-          <Button
-            label="Revoke"
-            size="small"
-            severity="danger"
-            text
-            :loading="revokingKeyId === item.id"
-            :disabled="Boolean(revokingKeyId)"
-            @click="confirmRevoke(item)"
+      <p v-if="urlError" id="connect-url-error" class="connect-error" role="alert">
+        {{ urlError }}
+      </p>
+      <div class="connect-actions">
+        <Button
+          label="Send test"
+          icon="pi pi-send"
+          :loading="testing"
+          :disabled="!canTest"
+          @click="sendTest"
+        />
+        <span v-if="testNote" class="connect-note">{{ testNote }}</span>
+      </div>
+      <div class="connect-field connect-keys">
+        <span class="connect-label">Access keys</span>
+        <p v-if="keysLoading" role="status">Loading access keys…</p>
+        <StateBanner
+          v-else-if="keysError"
+          severity="error"
+          :message="keysError"
+          role="status"
+          class="connect-keys-error"
+        >
+          <template #actions>
+            <Button label="Retry keys" size="small" severity="secondary" @click="loadAccessKeys" />
+          </template>
+        </StateBanner>
+        <p class="connect-note">{{ accessPolicyLabel }}</p>
+        <div class="connect-key-create">
+          <input
+            v-model="keyName"
+            class="connect-input"
+            type="text"
+            maxlength="120"
+            placeholder="Key name, for example Desktop"
+            aria-label="New access key name"
           />
-        </li>
-      </ul>
-      <small v-if="!keysLoading && !keysError && !accessKeys.length"
-        >No access keys configured.</small
+          <Button
+            label="Create key"
+            size="small"
+            severity="secondary"
+            outlined
+            :loading="creatingKey"
+            :disabled="!keyName.trim() || (Boolean(createdKey) && !keyAcknowledged)"
+            @click="createAccessKey"
+          />
+        </div>
+        <div v-if="createdKey" class="connect-key-secret">
+          <span>This key is shown once. Store it now.</span>
+          <code>{{ createdKey }}</code>
+          <Button
+            label="I saved this key"
+            size="small"
+            severity="secondary"
+            outlined
+            @click="keyAcknowledged = true"
+          />
+          <small v-if="keyAcknowledged">Key saved. You can close this dialog.</small>
+          <Button
+            label="Copy key"
+            size="small"
+            severity="secondary"
+            outlined
+            @click="copy(createdKey)"
+          />
+        </div>
+        <ul v-if="accessKeys.length" class="connect-key-list">
+          <li v-for="item in accessKeys" :key="item.id">
+            <span
+              >{{ item.name }} <code>{{ item.prefix }}…</code></span
+            >
+            <Button
+              label="Revoke"
+              size="small"
+              severity="danger"
+              text
+              :loading="revokingKeyId === item.id"
+              :disabled="Boolean(revokingKeyId)"
+              @click="confirmRevoke(item)"
+            />
+          </li>
+        </ul>
+        <small v-if="!keysLoading && !keysError && !accessKeys.length"
+          >No access keys configured.</small
+        >
+      </div>
+      <StateBanner
+        v-if="persistenceNotice"
+        severity="warning"
+        role="status"
+        :message="`${persistenceNotice.summary}. ${persistenceNotice.detail}`"
       >
+        <template #actions>
+          <Button
+            v-if="persistenceNotice.retry"
+            label="Try again"
+            size="small"
+            @click="savePublicUrl"
+          />
+          <Button
+            v-if="persistenceNotice.refresh"
+            label="Refresh"
+            size="small"
+            severity="secondary"
+            outlined
+            @click="refreshPublicUrl"
+          />
+        </template>
+      </StateBanner>
+      <pre
+        v-if="testResult"
+        class="connect-result"
+        role="status"
+        aria-label="Connection test result"
+        >{{ testResult }}</pre>
     </div>
-    <p v-if="persistenceNotice" class="persistence-notice" role="status">
-      <strong>{{ persistenceNotice.summary }}.</strong>
-      {{ persistenceNotice.detail }}
-      <button v-if="persistenceNotice.retry" type="button" @click="savePublicUrl">Try again</button>
-      <button v-if="persistenceNotice.refresh" type="button" @click="refreshPublicUrl">
-        Refresh
-      </button>
-    </p>
-    <pre v-if="testResult" class="connect-result" role="status">{{ testResult }}</pre>
+    <template #footer>
+      <div class="dialog-actions">
+        <Button label="Close" severity="secondary" text @click="requestVisibility(false)" />
+      </div>
+    </template>
   </Dialog>
 </template>
 
@@ -196,6 +232,7 @@ import Dialog from 'primevue/dialog'
 import Button from 'primevue/button'
 import { useToast } from 'primevue/usetoast'
 import { useConfirm } from 'primevue/useconfirm'
+import StateBanner from '@/components/common/StateBanner.vue'
 import { requireSingleConfirmation } from '@/composables/singleConfirm'
 import { modelRuntimeState } from '@/utils/modelPresentation'
 import axios from 'axios'
@@ -614,13 +651,6 @@ async function sendTest() {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-}
-
-.persistence-notice {
-  margin: 0 0 0.75rem;
-  padding: 0.6rem 0.75rem;
-  border-radius: var(--radius-md);
-  background: var(--bg-tertiary);
 }
 
 .connect-actions {

@@ -36,6 +36,8 @@ describe('ModelConfigHeader', () => {
       isAudioEngine: true,
     })
 
+    expect(wrapper.get('h1').text()).toBe('Demo Model')
+    expect(wrapper.text()).toContain('Review the engine, runtime parameters, names, and launch')
     expect(wrapper.text()).toContain('Demo Model')
     expect(wrapper.text()).toContain('GGUF')
     expect(wrapper.text()).toContain('Q4_K_M')

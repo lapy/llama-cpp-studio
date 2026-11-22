@@ -65,13 +65,27 @@ describe('ModelSearchControls', () => {
 
     await wrapper.get('button[aria-expanded="false"]').trigger('click')
     await wrapper.get('.search-chip').trigger('click')
-    const importButton = wrapper
-      .findAll('button')
-      .find((button) => button.text().includes('Import audio bundle'))
-    await importButton.trigger('click')
 
     expect(wrapper.emitted('update:filtersOpen')).toEqual([[true]])
     expect(clearChip).toHaveBeenCalledOnce()
-    expect(wrapper.emitted('import-audio')).toHaveLength(1)
+    expect(wrapper.emitted('import-audio')).toBeUndefined()
+    expect(wrapper.text()).toContain('Filters (2)')
+    wrapper.unmount()
+  })
+
+  it('keeps one primary Search action and renders the filter controls in the shared toolbar', () => {
+    const wrapper = mountControls({
+      filtersOpen: true,
+      showFormatSelect: true,
+      secondaryFilterCount: 2,
+    })
+
+    expect(wrapper.get('.page-toolbar').attributes('aria-label')).toBe('Model search')
+    expect(wrapper.get('.page-toolbar__search').exists()).toBe(true)
+    expect(wrapper.get('.page-toolbar__actions').exists()).toBe(true)
+    expect(wrapper.findAll('.page-toolbar__actions button').map((button) => button.text())).toEqual(
+      ['Search', 'Hide filters', 'Reset filters'],
+    )
+    wrapper.unmount()
   })
 })

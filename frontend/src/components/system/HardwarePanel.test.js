@@ -86,6 +86,74 @@ describe('HardwarePanel', () => {
     vi.useRealTimers()
   })
 
+  it('renders one hardware page section with a refresh action', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const section = wrapper.get('#hardware')
+    expect(section.classes()).toContain('page-section')
+    expect(section.get('.page-section__title').text()).toBe('Hardware resources')
+    const refresh = section
+      .get('.page-section__actions')
+      .findAll('button')
+      .find((button) => button.text() === 'Refresh')
+    expect(refresh).toBeTruthy()
+
+    await refresh.trigger('click')
+    await flushPromises()
+    expect(store.fetchSystemStatus).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
+  it('offers a retry when part of the hardware refresh fails', async () => {
+    store.fetchSystemStatus.mockRejectedValueOnce(new Error('offline'))
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const banner = wrapper.get('.state-banner--warning')
+    expect(banner.text()).toContain('Some hardware information could not be refreshed')
+    const retry = banner.findAll('button').find((button) => button.text() === 'Retry')
+    await retry.trigger('click')
+    await flushPromises()
+
+    expect(store.fetchSystemStatus).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('.state-banner--warning').exists()).toBe(false)
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
+  it('renders the metric summary and GPU memory', async () => {
+    store.gpuInfo = {
+      gpus: [{ index: 0, name: 'RTX 4090', memory: { used: 512, total: 1024 } }],
+    }
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('CPU, memory and disk')
+    expect(wrapper.text()).toContain('12.0%')
+    expect(wrapper.text()).toContain('40 B')
+    expect(wrapper.text()).toContain('(40%)')
+    expect(wrapper.text()).toContain('(50%)')
+    expect(wrapper.get('#hardware-gpu-heading').text()).toBe('GPU memory')
+    expect(wrapper.text()).toContain('512 B / 1.0 KiB VRAM')
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
+  it('renders the CUDA toolkit as a subsection with its actions', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const heading = wrapper.get('#cuda-toolkit-heading')
+    expect(heading.element.tagName).toBe('H3')
+    expect(heading.text()).toBe('CUDA Toolkit')
+    expect(heading.classes()).toContain('page-subheading')
+    expect(wrapper.findAll('button').map((button) => button.text())).toContain('Install CUDA')
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
   it('uses patch-aware CUDA versions supplied by the backend', async () => {
     store.cudaStatus = { available_versions: ['13.0.1', '12.8.2', '12.7.1'] }
     const wrapper = mount(HardwarePanel, {

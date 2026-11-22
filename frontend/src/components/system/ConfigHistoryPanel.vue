@@ -1,25 +1,58 @@
 <template>
-  <section class="config-history" aria-labelledby="config-history-heading">
-    <div class="history-heading">
-      <div>
-        <component :is="headingTag" id="config-history-heading" class="history-title"
-          >Recent changes</component
-        >
-        <p>Studio keeps up to 100 private, local pre-change revisions.</p>
-      </div>
-      <button type="button" :disabled="busy" @click="refresh">Refresh history</button>
-    </div>
+  <PageSection
+    id="history"
+    :heading-tag="headingTag"
+    :variant="variant"
+    title="Recent changes"
+    description="Studio keeps up to 100 private, local pre-change revisions."
+  >
+    <template #actions>
+      <Button
+        label="Refresh history"
+        icon="pi pi-refresh"
+        severity="secondary"
+        outlined
+        size="small"
+        :loading="loading"
+        :disabled="restoring"
+        @click="refresh"
+      />
+    </template>
 
-    <p v-if="error" role="alert" class="history-error">{{ error }}</p>
-    <p v-if="status" role="status">{{ status }}</p>
-    <p v-if="!loading && !entries.length">No configuration changes have been recorded yet.</p>
+    <StateBanner v-if="error" severity="error">
+      {{ error }}
+      <template #actions>
+        <Button
+          label="Retry"
+          icon="pi pi-refresh"
+          severity="secondary"
+          outlined
+          size="small"
+          :loading="loading"
+          :disabled="restoring"
+          @click="refresh"
+        />
+      </template>
+    </StateBanner>
+    <StateBanner v-if="status" severity="success" role="status">{{ status }}</StateBanner>
 
-    <div v-else class="history-layout">
+    <LoadingState v-if="loading && !entries.length" message="Loading change history…" inline />
+    <EmptyState
+      v-else-if="!entries.length && !error"
+      icon="pi pi-history"
+      title="No configuration changes recorded yet"
+      description="Studio saves a private revision before each settings change. Change a setting and it appears here with a diff you can restore."
+    >
+      <Button label="Refresh history" icon="pi pi-refresh" size="small" @click="refresh" />
+    </EmptyState>
+
+    <div v-else-if="entries.length" class="history-layout">
       <ul class="history-list" aria-label="Configuration revisions">
         <li v-for="entry in entries" :key="entry.id">
           <button
             type="button"
-            :class="{ selected: selectedId === entry.id }"
+            class="history-entry"
+            :class="{ 'history-entry--selected': selectedId === entry.id }"
             :disabled="busy"
             @click="selectEntry(entry.id)"
           >
@@ -30,41 +63,60 @@
       </ul>
 
       <div v-if="comparison" class="history-diff">
-        <h4>Changes since this revision</h4>
-        <p v-if="!comparison.changes.length">The current document matches this revision.</p>
-        <ul v-else>
+        <h3 class="page-subheading">Changes since this revision</h3>
+        <p v-if="!comparison.changes.length" class="page-form__hint">
+          The current document matches this revision.
+        </p>
+        <ul v-else class="history-changes">
           <li v-for="change in comparison.changes" :key="change.path">
             <code>{{ change.path }}</code>
             <span>{{ display(change.before) }} → {{ display(change.after) }}</span>
           </li>
         </ul>
         <div v-if="restorableScopes.length" class="history-scopes">
-          <p>Restore one saved item. Running models are not restarted or published.</p>
-          <button
-            v-for="scope in restorableScopes"
-            :key="`${scope.kind}:${scope.item_id}`"
-            type="button"
-            :disabled="busy"
-            @click="restore(scope)"
-          >
-            Restore {{ scopeLabel(scope) }}
-          </button>
+          <p class="page-form__hint">
+            Restore one saved item. Running models are not restarted or published.
+          </p>
+          <div class="page-form__actions">
+            <Button
+              v-for="scope in restorableScopes"
+              :key="`${scope.kind}:${scope.item_id}`"
+              :label="`Restore ${scopeLabel(scope)}`"
+              icon="pi pi-undo"
+              severity="secondary"
+              outlined
+              size="small"
+              :disabled="busy"
+              @click="restore(scope)"
+            />
+          </div>
         </div>
       </div>
     </div>
-  </section>
+  </PageSection>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-defineProps({
-  headingTag: { type: String, default: 'h3', validator: (value) => /^h[2-6]$/.test(value) },
-})
+import Button from 'primevue/button'
+import EmptyState from '@/components/common/EmptyState.vue'
+import LoadingState from '@/components/common/LoadingState.vue'
+import PageSection from '@/components/common/PageSection.vue'
+import StateBanner from '@/components/common/StateBanner.vue'
 import {
   configurationHistoryDiff,
   listConfigurationHistory,
   restoreConfigurationHistory,
 } from '@/api/configuration'
+
+defineProps({
+  headingTag: { type: String, default: 'h3', validator: (value) => /^h[2-6]$/.test(value) },
+  variant: {
+    type: String,
+    default: 'default',
+    validator: (value) => ['default', 'plain', 'compact'].includes(value),
+  },
+})
 
 const entries = ref([])
 const comparison = ref(null)
@@ -200,74 +252,59 @@ onMounted(refresh)
 </script>
 
 <style scoped>
-.history-title {
-  font-size: 1rem;
-  margin: 0;
-}
-.config-history {
+.history-layout {
   display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--border-secondary);
-}
-
-.history-heading,
-.history-layout,
-.history-scopes {
-  display: flex;
-  gap: 0.75rem;
-  align-items: flex-start;
   flex-wrap: wrap;
-}
-
-.config-history button {
-  font: inherit;
-  border: 1px solid var(--border-secondary);
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  border-radius: var(--radius-md);
-  padding: 0.4rem 0.75rem;
-}
-
-.history-heading {
-  justify-content: space-between;
-}
-
-.history-heading > div > :first-child,
-.history-heading p,
-.history-diff h4,
-.history-scopes p {
-  margin: 0;
-}
-
-.history-list,
-.history-diff ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
+  align-items: flex-start;
+  gap: 1rem;
+  min-width: 0;
 }
 
 .history-list {
   flex: 1 1 15rem;
   max-height: 22rem;
   overflow: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.history-list button {
-  width: 100%;
+.history-list li + li {
+  margin-top: 0.4rem;
+}
+
+.history-entry {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  gap: 0.15rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-sm);
   text-align: left;
+  cursor: pointer;
 }
 
-.history-list button.selected {
+.history-entry:hover:not(:disabled) {
+  background: var(--hover-bg);
+}
+
+.history-entry:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.history-entry--selected {
   border-color: var(--accent-primary);
 }
 
-.history-list small,
-.history-diff span {
+.history-entry small {
   color: var(--text-secondary);
   overflow-wrap: anywhere;
 }
@@ -275,17 +312,34 @@ onMounted(refresh)
 .history-diff {
   flex: 2 1 20rem;
   min-width: 0;
+  display: grid;
+  gap: 0.5rem;
 }
 
-.history-diff li {
+.history-changes {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history-changes li {
   display: grid;
   gap: 0.15rem;
   padding: 0.4rem 0;
   border-bottom: 1px solid var(--border-secondary);
 }
 
-.history-error {
-  color: var(--status-warning);
+.history-changes span {
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.history-scopes {
+  display: grid;
+  gap: 0.5rem;
 }
 
 @media (width <= 640px) {

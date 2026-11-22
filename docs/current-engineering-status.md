@@ -12,6 +12,9 @@ Studio runs a modular Python management service, Vue workspace, native inference
 | Model acquisition, files, configuration, actions         | `backend/routes/models.py`, `backend/model_catalog/`, `backend/services/` |
 | Model configuration normalization and templates          | `backend/models/config.py`, `backend/model_config_templates.py`           |
 | Native proxy/routing/process ownership                   | `backend/proxy/studio/manager.py`, `dataplane.py`, `registry.py`          |
+| GPU admission, estimates and per-device preflight         | `backend/proxy/studio/vram.py`, `vram_estimates.py`                       |
+| Storage inventory and guarded cleanup                     | `backend/services/storage_inventory.py`, `storage_cleanup.py`, `routes/storage.py` |
+| Metrics and management audit                              | `backend/observability/`, `backend/routes/metrics.py`                     |
 | Streaming HTTP transport and usage observation           | `backend/proxy/studio/transport.py`, `usage.py`                           |
 | Quotas, request metadata, durable reservations           | `backend/proxy/studio/accounting.py`                                      |
 | Launch compiler and command emission                     | `backend/proxy/launch_spec.py`, `commands.py`                             |

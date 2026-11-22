@@ -985,9 +985,9 @@ class StudioDataPlane:
                 extra_headers=[(b"retry-after", b"1")],
             )
         except (RegistryError, ValueError, OSError) as exc:
-            status = 429 if "queue" in str(exc) or "maximum loaded" in str(exc) else 502
-            trace["error"] = "queue_timeout" if status == 429 else "engine_unavailable"
-            await _json_response(send, status, {"error": str(exc)}, origin=origin)
+            status, payload, error_code = RegistryError.response(exc)
+            trace["error"] = error_code
+            await _json_response(send, status, payload, origin=origin)
         finally:
             if generation is None and loading_started is not None:
                 trace["loading_ms"] = (time.monotonic() - loading_started) * 1000

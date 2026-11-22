@@ -26,12 +26,22 @@
       @save="saveBeforeLeaving"
     />
     <FreshnessStatus :updated="lastUpdated" :failed="Boolean(error)" :offline="offline" />
-    <Message v-if="error" severity="error" :closable="true" @close="error = ''">{{
-      error
-    }}</Message>
-    <Message v-if="!activeBackend && configuredBackend" severity="warn" :closable="false">
-      <span class="proxy-stop-alert">
-        <span>The proxy is stopped. Start it to accept inference requests.</span>
+    <StateBanner v-if="error" severity="error" role="status">
+      {{ error }}
+      <template #actions>
+        <Button
+          label="Retry"
+          size="small"
+          severity="secondary"
+          outlined
+          :loading="loading"
+          @click="refresh()"
+        />
+      </template>
+    </StateBanner>
+    <StateBanner v-if="!activeBackend && configuredBackend" severity="warning">
+      The proxy is stopped. Start it to accept inference requests.
+      <template #actions>
         <Button
           label="Start proxy"
           size="small"
@@ -39,69 +49,60 @@
           :loading="lifecycleBusy"
           @click="lifecycle('start')"
         />
-      </span>
-    </Message>
-    <Message v-else-if="restartRequired" severity="warn" :closable="false">
-      Saved settings changed since the proxy last (re)started. Use “Restart &amp; apply” to activate
-      them.
-    </Message>
+      </template>
+    </StateBanner>
+    <StateBanner v-else-if="restartRequired" severity="warning">
+      Saved settings changed since the proxy last (re)started. Restart to activate them.
+      <template #actions>
+        <Button
+          label="Restart &amp; apply"
+          size="small"
+          severity="warn"
+          outlined
+          :loading="lifecycleBusy"
+          @click="confirmRestart"
+        />
+      </template>
+    </StateBanner>
 
     <LoadingState v-if="loading && !loaded" message="Loading proxy state…" />
 
     <template v-else>
-      <nav class="proxy-tabs" aria-label="Proxy sections" role="tablist">
-        <button
-          v-for="tab in tabs"
-          :id="`proxy-tab-${tab.id}`"
-          :key="tab.id"
-          role="tab"
-          :aria-selected="activeTab === tab.id"
-          :aria-controls="`proxy-panel-${tab.id}`"
-          :tabindex="activeTab === tab.id ? 0 : -1"
-          @click="activeTab = tab.id"
-          @keydown="navigateTab($event, tab.id)"
-        >
-          <i :class="['pi', tab.icon]" aria-hidden="true" />{{ tab.label
-          }}<span v-if="tab.id === 'requests' && summary.active" class="tab-count"
-            >{{ summary.active }} active</span
-          >
-        </button>
-      </nav>
+      <SectionTabs
+        v-model="activeTab"
+        :items="tabItems"
+        id-prefix="proxy"
+        aria-label="Proxy sections"
+      />
       <div
         :id="`proxy-panel-${activeTab}`"
         class="proxy-panels"
         role="tabpanel"
         :aria-labelledby="`proxy-tab-${activeTab}`"
       >
-        <section
+        <PageSection
           v-show="activeTab === 'settings'"
-          class="proxy-card"
-          aria-labelledby="proxy-backend-heading"
+          title="Serving limits"
+          description="Saved limits and timeouts apply when the proxy restarts."
         >
-          <div class="section-head">
-            <div>
-              <h2 id="proxy-backend-heading">Serving limits</h2>
-              <p>Saved limits and timeouts apply when the proxy restarts.</p>
-            </div>
-          </div>
-          <div class="runtime-actions">
-            <span class="save-group">
-              <Button
-                label="Save settings"
-                :disabled="!dirty"
-                :loading="saving"
-                @click="saveSettings"
-              />
-              <Button
-                v-if="dirty"
-                label="Discard changes"
-                size="small"
-                severity="secondary"
-                text
-                @click="resetDraft"
-              />
-            </span>
-            <span class="lifecycle-group">
+          <template #actions>
+            <Button
+              label="Save settings"
+              :disabled="!dirty"
+              :loading="saving"
+              @click="saveSettings"
+            />
+            <Button
+              v-if="dirty"
+              label="Discard changes"
+              size="small"
+              severity="secondary"
+              text
+              @click="resetDraft"
+            />
+          </template>
+          <PageToolbar plain label="Proxy lifecycle">
+            <template #actions>
               <Button
                 label="Start"
                 icon="pi pi-play"
@@ -129,11 +130,11 @@
                 :disabled="!activeBackend"
                 @click="confirmStop"
               />
-            </span>
-          </div>
-          <div class="settings-grid compact-fields">
-            <label
-              >Inference port
+            </template>
+          </PageToolbar>
+          <div class="page-form">
+            <label class="page-form__label">
+              Inference port
               <input
                 v-model.number="draft.proxy_port"
                 class="field"
@@ -141,10 +142,10 @@
                 min="1"
                 max="65535"
               />
-              <small class="hint">Applies on the next proxy restart.</small>
+              <small class="page-form__hint">Applies on the next proxy restart.</small>
             </label>
-            <label v-for="field in performanceFields" :key="field.name"
-              >{{ field.label }}
+            <label v-for="field in performanceFields" :key="field.name" class="page-form__label">
+              {{ field.label }}
               <input
                 v-model.number="draft[field.name]"
                 class="field"
@@ -153,10 +154,10 @@
                 :step="field.step || 1"
                 :placeholder="field.placeholder"
               />
-              <small class="hint">{{ field.hint }}</small>
+              <small class="page-form__hint">{{ field.hint }}</small>
             </label>
-            <label
-              >Idle unload (seconds)
+            <label class="page-form__label">
+              Idle unload (seconds)
               <input
                 v-model.number="draft.idle_ttl_seconds"
                 class="field"
@@ -166,8 +167,8 @@
               />
             </label>
             <ProxyCaptureToggle v-model="draft.capture_request_payloads" />
-            <label
-              >Maximum request size (bytes)
+            <label class="page-form__label">
+              Maximum request size (bytes)
               <input
                 v-model.number="draft.max_body_bytes"
                 class="field"
@@ -176,8 +177,8 @@
                 placeholder="268435456"
               />
             </label>
-            <label
-              >Maximum loaded models
+            <label class="page-form__label">
+              Maximum loaded models
               <input
                 v-model.number="draft.max_loaded_models"
                 class="field"
@@ -186,8 +187,8 @@
                 placeholder="Unlimited"
               />
             </label>
-            <label
-              >Global concurrent requests
+            <label class="page-form__label">
+              Global concurrent requests
               <input
                 v-model.number="draft.global_concurrency"
                 class="field"
@@ -196,8 +197,8 @@
                 placeholder="Unlimited"
               />
             </label>
-            <label
-              >Concurrent requests per model
+            <label class="page-form__label">
+              Concurrent requests per model
               <input
                 v-model.number="draft.per_model_concurrency"
                 class="field"
@@ -206,8 +207,8 @@
                 placeholder="Unlimited"
               />
             </label>
-            <label
-              >Queue timeout (seconds)
+            <label class="page-form__label">
+              Queue timeout (seconds)
               <input
                 v-model.number="draft.queue_timeout_seconds"
                 class="field"
@@ -216,8 +217,8 @@
                 step="0.1"
               />
             </label>
-            <label
-              >Total request deadline (seconds)
+            <label class="page-form__label">
+              Total request deadline (seconds)
               <input
                 v-model.number="draft.request_timeout_seconds"
                 class="field"
@@ -226,8 +227,8 @@
                 placeholder="Unlimited"
               />
             </label>
-            <label
-              >Engine readiness timeout (seconds)
+            <label class="page-form__label">
+              Engine readiness timeout (seconds)
               <input
                 v-model.number="draft.readiness_timeout_seconds"
                 class="field"
@@ -235,8 +236,8 @@
                 min="1"
               />
             </label>
-            <label
-              >Graceful drain timeout (seconds)
+            <label class="page-form__label">
+              Graceful drain timeout (seconds)
               <input
                 v-model.number="draft.drain_timeout_seconds"
                 class="field"
@@ -247,34 +248,23 @@
           </div>
           <div class="inline-control">
             <ToggleSwitch v-model="draft.allow_anonymous" input-id="allow-anonymous" />
-            <label for="allow-anonymous"
-              >Allow anonymous inference while no access key is configured
-              <small class="hint"
-                >Once any key exists, anonymous traffic is rejected regardless of this
-                setting.</small
-              >
+            <label for="allow-anonymous">
+              Allow anonymous inference while no access key is configured
+              <small class="page-form__hint">
+                Once any key exists, anonymous traffic is rejected regardless of this setting.
+              </small>
             </label>
           </div>
-        </section>
+        </PageSection>
 
-        <section
+        <PageSection
           v-show="activeTab === 'settings'"
-          class="proxy-card"
-          aria-labelledby="proxy-routing-heading"
+          title="Routing"
+          description="Routing changes apply immediately without restarting engines or interrupting streams. Choose a default model or route an alias to one or more targets. Multiple targets are selected round-robin."
         >
-          <div class="section-head">
-            <div>
-              <h2 id="proxy-routing-heading">Routing</h2>
-              <p>
-                Routing changes apply immediately without restarting engines or interrupting
-                streams. Choose a default model or route an alias to one or more targets. Multiple
-                targets are selected round-robin.
-              </p>
-            </div>
-          </div>
-          <div class="settings-grid compact-fields">
-            <label
-              >Default model
+          <div class="page-form">
+            <label class="page-form__label">
+              Default model
               <select v-model="draft.default_model" class="field">
                 <option :value="null">Automatic — single running model</option>
                 <option v-for="model in catalog" :key="model.id" :value="model.id">
@@ -319,933 +309,104 @@
               />
             </div>
           </div>
-        </section>
+        </PageSection>
 
-        <section
-          v-show="activeTab === 'keys'"
-          class="proxy-card"
-          aria-labelledby="proxy-keys-heading"
-        >
-          <div class="section-head">
-            <div>
-              <h2 id="proxy-keys-heading">Client access keys</h2>
-              <p>
-                Set model access, request rates, token budgets and concurrency per client. Secrets
-                are shown once.
-              </p>
-            </div>
-            <Button label="New key" icon="pi pi-plus" size="small" @click="focusKeyForm" />
-          </div>
-          <Dialog
-            v-model:visible="keyFormVisible"
-            header="Create inference key"
-            :closable="!creating"
-            :close-on-escape="!creating"
-            modal
-            :style="{ width: '50rem', maxWidth: '95vw' }"
-            @show="keyNameInput?.focus()"
-          >
-            <p class="dialog-intro">
-              Give each client its own credential and policy. The secret is shown once after
-              creation.
-            </p>
-            <Message v-if="keyCreateError" severity="error" :closable="false">{{
-              keyCreateError
-            }}</Message>
-            <div class="settings-grid compact-fields key-options">
-              <label
-                >Token accounting<select
-                  v-model="keyAccounting"
-                  class="field"
-                  aria-label="Token accounting"
-                >
-                  <option value="auto">
-                    Engine counts when available; text estimate otherwise
-                  </option>
-                  <option value="exact">Require exact engine input counts</option>
-                </select></label
-              >
-              <label
-                >Key name
-                <input
-                  ref="keyNameInput"
-                  v-model="keyName"
-                  class="field"
-                  maxlength="120"
-                  placeholder="for example Production"
-                  @keyup.enter="createKey"
-                />
-              </label>
-              <label
-                >Expires at
-                <input v-model="keyExpires" class="field" type="datetime-local" />
-              </label>
-              <label
-                >Requests per minute
-                <input
-                  v-model.number="keyRateLimit"
-                  class="field"
-                  type="number"
-                  min="1"
-                  placeholder="Unlimited"
-                />
-              </label>
-              <label
-                >Allowed model IDs
-                <input
-                  v-model="keyModels"
-                  class="field"
-                  placeholder="All models, or comma-separated IDs"
-                />
-              </label>
-              <label v-for="field in policyFields" :key="field.name"
-                >{{ field.label }}
-                <input
-                  v-model.number="keyPolicy[field.name]"
-                  class="field"
-                  type="number"
-                  min="1"
-                  step="1"
-                  placeholder="Unlimited"
-                />
-              </label>
-            </div>
-            <p class="hint">
-              Token budgets use the engine’s input-token counter when supported and reserve the
-              requested output allowance before generation. Auto mode uses a visible byte estimate
-              for text when counting is unavailable; exact mode refuses that fallback. Actual engine
-              usage replaces the reservation on completion; missing usage retains the estimate.
-              Exact mode guarantees exact admission counting where the installed engine supports it;
-              it cannot guarantee a final output count after an interrupted stream. Daily and
-              monthly budgets reset at midnight UTC. Text inference only when token limits are
-              enabled.
-            </p>
-            <div>
-              <Button
-                label="Create key"
-                icon="pi pi-key"
-                :disabled="creating || !keyName.trim()"
-                :loading="creating"
-                @click="createKey"
-              />
-            </div>
-            <Button
-              label="Cancel"
-              text
-              severity="secondary"
-              :disabled="creating"
-              @click="keyFormVisible = false"
-            />
-          </Dialog>
-          <Dialog
-            v-model:visible="secretVisible"
-            header="Save your inference key"
-            modal
-            :style="{ width: '35rem', maxWidth: '95vw' }"
-          >
-            <div class="secret">
-              <strong>{{ createdKeyLabel }}</strong>
-              <label class="secret-field-label" for="inference-key-secret">Inference key</label>
-              <textarea
-                id="inference-key-secret"
-                ref="secretField"
-                autofocus
-                class="secret-field field"
-                :value="createdKey"
-                readonly
-                rows="2"
-                spellcheck="false"
-                autocomplete="off"
-                @focus="$event.target.select()"
-                @click="$event.target.select()"
-              />
-              <Button
-                :label="keyCopyState === 'copied' ? 'Copied' : 'Copy'"
-                :disabled="keyCopyState === 'copying'"
-                icon="pi pi-copy"
-                size="small"
-                severity="secondary"
-                outlined
-                @click="copyKey"
-              />
-              <p v-if="keyCopyState === 'copied'" class="copy-feedback" role="status">
-                Key copied to clipboard.
-              </p>
-              <p v-else-if="keyCopyState === 'failed'" class="copy-feedback" role="status">
-                Automatic copy is blocked. The key is selected; press Ctrl+C or Command+C, or use
-                your device’s Copy action.
-              </p>
-            </div>
-            <Button label="Done" text severity="secondary" @click="secretVisible = false"
-          /></Dialog>
-          <div v-if="keys.length" class="key-list">
-            <div v-for="key in keys" :key="key.id" class="key-row">
-              <div class="key-summary">
-                <span class="key-title"
-                  ><strong>{{ key.name }}</strong
-                  ><Tag :value="keyStatus(key)" :severity="keySeverity(key)"
-                /></span>
-                <code>{{ key.prefix }}…</code>
-                <small
-                  >{{ key.models?.length ? key.models.join(', ') : 'All models' }} ·
-                  {{
-                    key.rate_limit_per_minute
-                      ? `${key.rate_limit_per_minute} req/min`
-                      : 'no rate limit'
-                  }}
-                  · {{ key.expires_at ? `expires ${formatDate(key.expires_at)}` : 'no expiry' }} ·
-                  {{
-                    key.usage?.last_used_at
-                      ? `last used ${formatTime(key.usage.last_used_at)}`
-                      : key.last_used_at
-                        ? `last used ${formatAgo(key.last_used_at)}`
-                        : 'never used'
-                  }}</small
-                >
-              </div>
-              <dl class="key-usage" v-if="key.usage">
-                <div>
-                  <dt>
-                    Today
-                    <i
-                      class="pi pi-info-circle metric-help"
-                      v-tooltip.top="
-                        'Enforcement total = confirmed usage + active reservations + retained conservative charges.'
-                      "
-                      aria-hidden="true"
-                    />
-                  </dt>
-                  <dd>
-                    {{ key.usage.daily_tokens.toLocaleString() }} /
-                    {{ allowance(key.daily_token_budget) }} tokens
-                  </dd>
-                  <small v-if="key.usage.daily_confirmed_tokens != null" class="ledger-breakdown">
-                    {{ number(key.usage.daily_confirmed_tokens) }} confirmed ·
-                    {{ number(key.usage.daily_reserved_tokens) }} reserved ·
-                    {{ number(key.usage.daily_retained_tokens) }} retained
-                  </small>
-                  <small
-                    >{{
-                      key.usage.daily_remaining == null
-                        ? 'Unlimited'
-                        : `${key.usage.daily_remaining.toLocaleString()} remaining`
-                    }}
-                    · resets {{ formatTime(key.usage.day_resets_at) }}</small
-                  ><ProgressBar
-                    v-if="key.daily_token_budget"
-                    :value="Math.min(100, (key.usage.daily_tokens / key.daily_token_budget) * 100)"
-                    :show-value="false"
-                  />
-                </div>
-                <div>
-                  <dt>This month</dt>
-                  <dd>
-                    {{ key.usage.monthly_tokens.toLocaleString() }} /
-                    {{ allowance(key.monthly_token_budget) }} tokens
-                  </dd>
-                  <small v-if="key.usage.monthly_confirmed_tokens != null" class="ledger-breakdown">
-                    {{ number(key.usage.monthly_confirmed_tokens) }} confirmed ·
-                    {{ number(key.usage.monthly_reserved_tokens) }} reserved ·
-                    {{ number(key.usage.monthly_retained_tokens) }} retained
-                  </small>
-                  <small
-                    >{{
-                      key.usage.monthly_remaining == null
-                        ? 'Unlimited'
-                        : `${key.usage.monthly_remaining.toLocaleString()} remaining`
-                    }}
-                    · resets {{ formatTime(key.usage.month_resets_at) }}</small
-                  ><ProgressBar
-                    v-if="key.monthly_token_budget"
-                    :value="
-                      Math.min(100, (key.usage.monthly_tokens / key.monthly_token_budget) * 100)
-                    "
-                    :show-value="false"
-                  />
-                </div>
-                <div>
-                  <dt>Last minute</dt>
-                  <dd>
-                    {{ key.usage.requests_per_minute }} /
-                    {{ allowance(key.rate_limit_per_minute) }} requests
-                  </dd>
-                  <small
-                    >{{ key.usage.input_tokens_per_minute }} /
-                    {{ allowance(key.input_tokens_per_minute) }} input ·
-                    {{ key.usage.output_tokens_per_minute }} /
-                    {{ allowance(key.output_tokens_per_minute) }} output tokens</small
-                  >
-                </div>
-                <div>
-                  <dt>In flight</dt>
-                  <dd>
-                    {{ key.usage.concurrent_requests }} /
-                    {{ allowance(key.max_concurrent_requests) }}
-                  </dd>
-                  <small
-                    >Output cap: {{ allowance(key.max_output_tokens) }} per request ·
-                    {{ key.usage.estimated_requests }} requests charged by estimate</small
-                  >
-                </div>
-              </dl>
-              <span class="key-actions">
-                <Button
-                  label="Edit policy"
-                  size="small"
-                  severity="secondary"
-                  text
-                  @click="editKey(key)"
-                />
-                <Button
-                  label="Rotate"
-                  size="small"
-                  severity="warn"
-                  text
-                  @click="confirmRotate(key)"
-                />
-                <Button
-                  label="Revoke"
-                  size="small"
-                  severity="danger"
-                  text
-                  @click="confirmRevoke(key)"
-                />
-              </span>
-            </div>
-          </div>
-          <EmptyState
-            v-else
-            icon="pi pi-key"
-            title="No access keys yet"
-            description="Create a credential for each client. Anonymous access is controlled separately in Settings & routing."
-          >
-            <Button
-              label="Create the first key"
-              icon="pi pi-key"
-              size="small"
-              @click="focusKeyForm"
-            />
-          </EmptyState>
-          <Dialog
-            v-model:visible="editingKeyVisible"
-            header="Edit key policy"
-            modal
-            :style="{ width: '62rem', maxWidth: '95vw' }"
-          >
-            <p>Changes affect new requests immediately. The existing secret remains valid.</p>
-            <div class="settings-grid compact-fields">
-              <label
-                >Key name<input v-model="editPolicy.name" class="field" maxlength="120"
-              /></label>
-              <label
-                >Expires at<input v-model="editPolicy.expires" class="field" type="datetime-local"
-              /></label>
-              <label
-                >Allowed model IDs<input
-                  v-model="editPolicy.models"
-                  class="field"
-                  placeholder="All models, or comma-separated IDs"
-              /></label>
-              <label
-                >Requests per minute<input
-                  v-model.number="editPolicy.rate_limit_per_minute"
-                  class="field"
-                  type="number"
-                  min="1"
-                  placeholder="Unlimited"
-              /></label>
-              <label v-for="field in policyFields" :key="field.name"
-                >{{ field.label
-                }}<input
-                  v-model.number="editPolicy[field.name]"
-                  class="field"
-                  type="number"
-                  min="1"
-                  placeholder="Unlimited"
-              /></label>
-            </div>
-            <label class="accounting-mode"
-              >Token accounting<select
-                v-model="editPolicy.token_accounting"
-                class="field"
-                aria-label="Token accounting"
-              >
-                <option value="auto">Engine counts when available; text estimate otherwise</option>
-                <option value="exact">Require exact engine input counts</option>
-              </select></label
-            >
-            <fieldset class="scope-options">
-              <legend>Permissions</legend>
-              <label
-                ><input v-model="editPolicy.scopes" type="checkbox" value="inference" /> Run
-                inference</label
-              ><label
-                ><input v-model="editPolicy.scopes" type="checkbox" value="models:read" /> List
-                models</label
-              >
-            </fieldset>
-            <Message v-if="policyError" severity="error" :closable="false">{{
-              policyError
-            }}</Message>
-            <div class="runtime-actions">
-              <Button
-                label="Save policy"
-                :loading="savingPolicy"
-                :disabled="!editPolicy.name?.trim()"
-                @click="saveKeyPolicy"
-              /><Button label="Cancel" text severity="secondary" @click="editingKey = null" />
-            </div>
-          </Dialog>
-        </section>
-
-        <section
-          v-show="activeTab === 'overview'"
-          class="proxy-overview"
-          aria-labelledby="proxy-running-heading"
-        >
-          <div class="overview-heading">
-            <div>
-              <h2 id="proxy-running-heading">Gateway overview</h2>
-              <p>
-                All HTTP traffic · since
-                {{ summary.since ? formatTime(summary.since) : 'the observation window began' }}
-              </p>
-            </div>
-            <Button
-              label="Reset stats"
-              aria-label="Reset stats"
-              icon="pi pi-refresh"
-              size="small"
-              text
-              severity="secondary"
-              @click="resetStats"
-            />
-          </div>
-          <dl class="proxy-summary metrics" aria-label="Gateway statistics">
-            <div class="summary-tile">
-              <dt><i class="pi pi-arrow-right-arrow-left" aria-hidden="true" />Requests</dt>
-              <dd>{{ number(summary.requests) }}</dd>
-              <dd class="summary-caption">
-                {{ number(summary.input_tokens) }} tokens in ·
-                {{ number(summary.output_tokens) }} out
-              </dd>
-            </div>
-            <div class="summary-tile">
-              <dt><i class="pi pi-bolt" aria-hidden="true" />Active / queued</dt>
-              <dd>
-                {{ summary.active || 0 }} <span>/ {{ summary.queued || 0 }}</span>
-              </dd>
-              <dd class="summary-caption">
-                {{ summary.loading || 0 }} loading · {{ summary.streaming || 0 }} streaming
-              </dd>
-            </div>
-            <div class="summary-tile">
-              <dt><i class="pi pi-clock" aria-hidden="true" />Latency p50 / p95</dt>
-              <dd class="summary-latency">
-                {{ metric(summary.p50_latency_ms) }}
-                <span>/ {{ metric(summary.p95_latency_ms) }}</span>
-              </dd>
-              <dd class="summary-caption">
-                TTFT p50 {{ metric(summary.p50_ttft_ms) }} · all retained outcomes in this window
-              </dd>
-            </div>
-            <div class="summary-tile">
-              <dt><i class="pi pi-exclamation-circle" aria-hidden="true" />HTTP 4xx / 5xx</dt>
-              <dd>
-                <button
-                  class="metric-link"
-                  :aria-label="`${summary.client_errors ?? '—'} HTTP 4xx requests — inspect`"
-                  @click="inspectOutcome('4xx')"
-                >
-                  {{ summary.client_errors ?? '—' }}</button
-                ><span> / </span
-                ><button
-                  class="metric-link"
-                  :aria-label="`${summary.server_errors ?? '—'} HTTP 5xx requests — inspect`"
-                  @click="inspectOutcome('5xx')"
-                >
-                  {{ summary.server_errors ?? '—' }}
-                </button>
-              </dd>
-              <dd class="summary-caption">Client responses / server failures</dd>
-            </div>
-            <div class="summary-tile">
-              <dt>
-                <i class="pi pi-database" aria-hidden="true" />Input cache
-                <i
-                  class="pi pi-info-circle metric-help"
-                  v-tooltip.top="metricNote('input_cache')"
-                  aria-hidden="true"
-                />
-              </dt>
-              <dd>{{ cacheRatio(summary.cache_hit_ratio) }}</dd>
-              <dd class="summary-caption">
-                {{ number(summary.input_tokens_cached) }} cached of
-                {{ number(summary.input_tokens_total) }} known input ·
-                {{ number(summary.cache_known_requests) }} cache-known samples
-              </dd>
-            </div>
-          </dl>
-          <Message v-if="summary.dropped_history" severity="warn" :closable="false"
-            >{{ summary.dropped_history }} request records could not be retained while history
-            storage was unavailable.</Message
-          >
-          <details class="overview-analysis" :open="!compactOverview">
-            <summary>
-              <i class="pi pi-chart-bar" aria-hidden="true" />Traffic &amp; gateway health<span
-                >30-minute sample</span
-              ><i class="pi pi-chevron-down" aria-hidden="true" />
-            </summary>
-            <div class="overview-analysis-grid">
-              <TrafficOverview :requests="overviewRequests" :now="observedAt" />
-              <aside class="gateway-health" aria-labelledby="gateway-health-heading">
-                <div class="health-heading">
-                  <h2 id="gateway-health-heading">Gateway health</h2>
-                  <span class="health-live"
-                    ><i :class="['health-dot', { 'health-dot--warning': !activeBackend }]" />{{
-                      activeBackend ? 'Active' : 'Offline'
-                    }}</span
-                  >
-                </div>
-                <dl class="health-facts">
-                  <div>
-                    <dt>Engine fleet</dt>
-                    <dd>
-                      {{ readyEngines }} ready<span v-if="failedEngines">
-                        · {{ failedEngines }} failed</span
-                      >
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Access</dt>
-                    <dd>
-                      {{
-                        observedSettings.allow_anonymous === true
-                          ? 'Anonymous enabled'
-                          : observedSettings.allow_anonymous === false
-                            ? 'Key required'
-                            : 'Not observed'
-                      }}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Usage authority</dt>
-                    <dd>
-                      {{ number(summary.authoritative_usage_requests) }} confirmed ·
-                      {{ number(summary.unknown_usage) }} unreported
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Cache coverage</dt>
-                    <dd>
-                      {{ cacheRatio(summary.cache_hit_ratio) }} hit ratio ·
-                      {{ percent(summary.cache_coverage) }} of known input
-                    </dd>
-                  </div>
-                </dl>
-                <div class="health-actions">
-                  <button type="button" @click="inspectFailures()">
-                    Inspect failures<i class="pi pi-arrow-right" aria-hidden="true" /></button
-                  ><button type="button" @click="activeTab = 'settings'">
-                    Gateway settings<i class="pi pi-arrow-right" aria-hidden="true" />
-                  </button>
-                </div>
-              </aside>
-            </div>
-          </details>
-          <div class="fleet-heading">
-            <h2>
-              Engine fleet <span>{{ liveRunning.length }} running</span>
-            </h2>
-            <RouterLink :to="{ name: 'models' }"
-              >Open Models <i class="pi pi-arrow-up-right" aria-hidden="true"
-            /></RouterLink>
-          </div>
-          <div v-if="running.length" class="runtime-list">
-            <article v-for="item in running" :key="`${item.model}-${item.pid}`" class="runtime">
-              <div class="runtime-head">
-                <div>
-                  <strong>{{ item.model }}</strong
-                  ><span
-                    >{{ item.engine || 'engine' }} · PID {{ item.pid }} · port {{ item.port }}</span
-                  >
-                </div>
-                <Tag
-                  :value="item.state"
-                  :severity="item.state === 'failed' ? 'danger' : item.ready ? 'success' : 'warn'"
-                />
-                <Message v-if="item.failure_reason" severity="error" :closable="false"
-                  >{{ item.failure_reason }}. Start the model from Models to retry.</Message
-                >
-              </div>
-              <ProgressBar
-                v-if="!item.ready && item.loading_progress != null"
-                :value="Math.round(item.loading_progress)"
-                :show-value="false"
-                aria-label="Model loading progress"
-              />
-              <dl class="metrics">
-                <div>
-                  <dt>In-flight</dt>
-                  <dd>{{ item.inflight }}</dd>
-                </div>
-                <div>
-                  <dt>Requests</dt>
-                  <dd>{{ item.request_count || 0 }}</dd>
-                </div>
-                <div>
-                  <dt>HTTP 4xx / 5xx</dt>
-                  <dd>
-                    <button
-                      class="metric-link"
-                      :aria-label="`${item.client_error_count ?? '—'} / ${item.server_error_count ?? '—'} — Inspect failed requests for ${item.model}`"
-                      @click="inspectFailures(item.model)"
-                    >
-                      {{ item.client_error_count ?? '—' }} / {{ item.server_error_count ?? '—' }}
-                    </button>
-                  </dd>
-                </div>
-                <div>
-                  <dt>Latency p50 / p95</dt>
-                  <dd>{{ metric(item.p50_latency_ms) }} · {{ metric(item.p95_latency_ms) }}</dd>
-                </div>
-                <div>
-                  <dt>
-                    Lifetime throughput
-                    <i
-                      class="pi pi-info-circle metric-help"
-                      v-tooltip.top="metricNote('lifetime_output_tokens_per_second')"
-                      aria-hidden="true"
-                    />
-                  </dt>
-                  <dd>{{ rate(item.lifetime_output_tokens_per_second) }} tok/s</dd>
-                </div>
-                <div>
-                  <dt>
-                    Rolling 10 s / 60 s
-                    <i
-                      class="pi pi-info-circle metric-help"
-                      v-tooltip.top="metricNote('rolling_60s_output_tokens_per_second')"
-                      aria-hidden="true"
-                    />
-                  </dt>
-                  <dd>
-                    {{ rate(item.rolling_10s_output_tokens_per_second) }} /
-                    {{ rate(item.rolling_60s_output_tokens_per_second) }} tok/s
-                  </dd>
-                </div>
-                <div>
-                  <dt>
-                    Decode p50
-                    <i
-                      class="pi pi-info-circle metric-help"
-                      v-tooltip.top="metricNote('proxy_decode_tokens_per_second')"
-                      aria-hidden="true"
-                    />
-                  </dt>
-                  <dd>{{ rate(item.p50_decode_tokens_per_second) }} tok/s</dd>
-                </div>
-                <div>
-                  <dt>TTFT p50 / p95</dt>
-                  <dd>{{ metric(item.p50_ttft_ms) }} · {{ metric(item.p95_ttft_ms) }}</dd>
-                </div>
-                <div>
-                  <dt>Output tokens · cache</dt>
-                  <dd>
-                    {{ number(item.output_tokens) }} ·
-                    {{ cacheRatio(item.cache_hit_ratio) }}
-                  </dd>
-                  <dd class="summary-caption">
-                    {{ number(item.confirmed_requests) }} confirmed ·
-                    {{ number(item.partial_requests) }} partial
-                  </dd>
-                </div>
-                <div>
-                  <dt>Traffic</dt>
-                  <dd>
-                    {{ formatBytes(item.input_bytes) }} in ·
-                    {{ formatBytes(item.output_bytes) }} out
-                  </dd>
-                </div>
-              </dl>
-              <details class="runtime-details">
-                <summary>Process details</summary>
-                <dl class="metrics">
-                  <div>
-                    <dt>Revision</dt>
-                    <dd>
-                      <code>{{ shortRevision(item.revision) }}</code>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Installed build</dt>
-                    <dd>{{ formatBuildIdentity(item.engine_build) }}</dd>
-                  </div>
-                  <div>
-                    <dt>Started</dt>
-                    <dd>{{ formatTime(item.created_at) }}</dd>
-                  </div>
-                </dl>
-              </details>
-              <div class="runtime-actions">
-                <Button
-                  v-if="['failed', 'error'].includes(item.state)"
-                  label="Remove"
-                  icon="pi pi-trash"
-                  size="small"
-                  severity="danger"
-                  outlined
-                  aria-label="Remove failed engine instance"
-                  title="Remove failed engine instance and clear its status"
-                  @click="removeFailedEngine(item)"
-                />
-                <Button
-                  :label="openLogs === item.model ? 'Hide logs' : 'View logs'"
-                  :icon="openLogs === item.model ? 'pi pi-eye-slash' : 'pi pi-list'"
-                  size="small"
-                  severity="secondary"
-                  outlined
-                  :aria-expanded="openLogs === item.model"
-                  @click="toggleLogs(item.model)"
-                />
-                <Button
-                  label="Requests"
-                  size="small"
-                  text
-                  severity="secondary"
-                  @click="inspectRequests(item.model)"
-                />
-                <RouterLink :to="modelLocation(item.model)" class="model-link"
-                  >Manage model <i class="pi pi-arrow-up-right" aria-hidden="true"
-                /></RouterLink>
-              </div>
-              <LogOutput
-                v-if="openLogs === item.model"
-                :lines="logs[item.model] || []"
-                :levels="ENGINE_LOG_LEVELS"
-                :live="!['failed', 'stopped'].includes(item.state)"
-                stream-aware
-                downloadable
-                clearable
-                aria-label="Engine log output"
-                empty-message="No engine output yet."
-                @download="downloadLogs(item.model, $event)"
-                @clear="confirmClearLogs(item.model)"
-              />
-            </article>
-          </div>
-          <EmptyState
-            v-else
-            icon="pi pi-play"
-            title="No engine processes running"
-            description="Active engines appear here after inference traffic or starting a model from Models."
-          />
-        </section>
-
-        <section
+        <GpuAdmissionPanel
           v-show="activeTab === 'settings'"
-          class="proxy-card"
-          aria-labelledby="proxy-network-heading"
-        >
-          <div class="section-head">
-            <div>
-              <h2 id="proxy-network-heading">Network</h2>
-              <p>
-                Read-only view of how the inference port is bound. Listen host comes from
-                STUDIO_PROXY_LISTEN; terminate TLS at a reverse proxy.
-              </p>
-            </div>
-          </div>
-          <dl class="network">
-            <div>
-              <dt>Listen host</dt>
-              <dd>
-                <code>{{ network.listen_host || '—' }}</code>
-                <small>{{ network.listen_source }}</small>
-              </dd>
-            </div>
-            <div>
-              <dt>Port</dt>
-              <dd>{{ network.port ?? '—' }}</dd>
-            </div>
-            <div>
-              <dt>Public URL</dt>
-              <dd>{{ network.public_url || 'Same origin (default)' }}</dd>
-            </div>
-            <div>
-              <dt>TLS</dt>
-              <dd>{{ network.tls_note }}</dd>
-            </div>
-          </dl>
-        </section>
+          v-model:mode="draft.vram_admission"
+          v-model:margin="draft.vram_safety_margin_mib"
+          :rows="vramRows"
+          :catalog="catalog"
+          :snapshot="vramSnapshot"
+          @update:rows="vramRows = $event"
+        />
 
-        <section
-          v-show="activeTab === 'events'"
-          class="proxy-card"
-          aria-labelledby="proxy-activity-heading"
-        >
-          <div class="section-head">
-            <div>
-              <h2 id="proxy-activity-heading">Recent activity</h2>
-              <p>
-                Lifecycle events from the native proxy, newest first. Refreshes every few seconds.
-              </p>
-            </div>
-          </div>
-          <ul v-if="activity.length" class="activity-list">
-            <li
-              v-for="(item, index) in activityDesc"
-              :key="`${item.type}-${item.created_at}-${index}`"
-            >
-              <span class="activity-time">{{ formatTime(item.timestamp) }}</span>
-              <Tag :value="item.type" :severity="activitySeverity(item.type)" />
-              <span class="activity-text">{{ activityText(item) }}</span>
-            </li>
-          </ul>
-          <p v-else class="empty">No proxy activity recorded in this session.</p>
-        </section>
-        <section v-show="activeTab === 'requests'" class="proxy-card">
-          <div class="section-head request-head">
-            <h2>Requests</h2>
-            <p class="request-head__meta">
-              Live and retained, newest first · {{ requestTotal }} matching
-            </p>
-          </div>
-          <RequestFiltersBar
-            :filters="requestFilters"
-            :keys="keys"
-            :states="requestStates"
-            :loading="requestsLoading"
-            @update:filter="(key, value) => (requestFilters[key] = value)"
-            @apply="loadRequests(true)"
-            @reset="resetRequestFilters"
-          />
-          <Message v-if="requestsError" severity="error" :closable="false">{{
-            requestsError
-          }}</Message>
-          <div class="request-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Started</th>
-                  <th>Client / model</th>
-                  <th>Method / path</th>
-                  <th>State / status</th>
-                  <th>Queue / load</th>
-                  <th>TTFT / total</th>
-                  <th>Tokens in (cached) / out</th>
-                  <th scope="col"><span class="sr-only">Actions</span></th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="request in requests" :key="request.id">
-                  <td
-                    class="request-time"
-                    :title="formatTime(request.started_at || request.completed_at)"
-                  >
-                    {{ formatClock(request.started_at || request.completed_at) }}
-                  </td>
-                  <td>
-                    <span class="request-primary">{{
-                      request.model || request.requested_model || 'Unresolved model'
-                    }}</span
-                    ><small class="request-secondary">{{
-                      request.key_name || 'Unidentified client'
-                    }}</small>
-                  </td>
-                  <td>
-                    <span class="request-method">{{ request.method }}</span
-                    ><code class="request-path">{{ request.path }}</code>
-                  </td>
-                  <td>
-                    <Tag
-                      :value="request.state || 'completed'"
-                      :severity="requestSeverity(request)"
-                    /><br />{{ request.status || 'In progress'
-                    }}<small v-if="request.queue_position">
-                      · queue #{{ request.queue_position }}</small
-                    >
-                  </td>
-                  <td>{{ metric(request.queue_ms) }} / {{ metric(request.loading_ms) }}</td>
-                  <td :title="ttftDetail(request)">
-                    {{ ttftLabel(request) }} / {{ metric(request.latency_ms) }}
-                  </td>
-                  <td :title="tokenDetail(request)">
-                    {{ request.input_tokens ?? '—'
-                    }}<template v-if="request.input_tokens_cached != null"
-                      >({{ request.input_tokens_cached }})</template
-                    >
-                    / {{ request.output_tokens ?? '—'
-                    }}<small class="usage-source">{{ request.usage_source || 'unknown' }}</small>
-                  </td>
-                  <td>
-                    <Button label="Details" size="small" text @click="selectedRequest = request" />
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <p v-if="!requests.length" class="empty">No requests match these filters.</p>
-          <div class="runtime-actions">
-            <Button
-              label="Previous 100"
-              severity="secondary"
-              outlined
-              :disabled="requestOffset === 0 || requestsLoading"
-              @click="changeRequestPage(-100)"
-            /><span
-              >{{ requestTotal ? requestOffset + 1 : 0 }}–{{
-                Math.min(requestOffset + requests.length, requestTotal)
-              }}
-              of {{ requestTotal }}</span
-            ><Button
-              label="Next 100"
-              severity="secondary"
-              outlined
-              :disabled="requestOffset + 100 >= requestTotal || requestsLoading"
-              @click="changeRequestPage(100)"
-            />
-          </div>
-          <RequestInspectorPanel v-model:visible="requestDialog" :request="selectedRequest" />
-        </section>
+        <NetworkAccessPanel v-show="activeTab === 'settings'" :network="network" />
+
+        <ProxyOverviewPanel
+          v-show="activeTab === 'overview'"
+          :summary="summary"
+          :running="running"
+          :live-running="liveRunning"
+          :requests="overviewRequests"
+          :now="observedAt"
+          :settings="observedSettings"
+          :catalog="catalog"
+          :vram-snapshot="vramSnapshot"
+          :semantics="metricSemantics"
+          :active-backend="activeBackend"
+          :open-logs="openLogs"
+          :logs="logs"
+          @reset-stats="resetStats"
+          @inspect-outcome="inspectOutcome"
+          @inspect-failures="inspectFailures"
+          @inspect-requests="inspectRequests"
+          @open-settings="activeTab = 'settings'"
+          @toggle-logs="toggleLogs"
+          @download-logs="downloadLogs"
+          @clear-logs="confirmClearLogs"
+          @remove-failed="removeFailedEngine"
+        />
+
+        <ProxyActivityPanel v-show="activeTab === 'events'" :activity="activity" />
+
+        <ProxyAccessKeys
+          v-show="activeTab === 'keys'"
+          :keys="keys"
+          @refresh="refresh({ quiet: true })"
+        />
+
+        <ProxyRequestsPanel
+          v-show="activeTab === 'requests'"
+          :requests="requests"
+          :total="requestTotal"
+          :offset="requestOffset"
+          :loading="requestsLoading"
+          :error="requestsError"
+          :filters="requestFilters"
+          :keys="keys"
+          :states="requestStates"
+          :selected-request="selectedRequest"
+          :semantics="metricSemantics"
+          @update:filter="(key, value) => (requestFilters[key] = value)"
+          @apply="loadRequests(true)"
+          @reset="resetRequestFilters"
+          @page="changeRequestPage"
+          @select-request="setInspectedRequest"
+        />
       </div>
     </template>
   </div>
 </template>
 
 <script setup>
-import { useDraftGuard } from '@/composables/useDraftGuard'
-import { useQueryState } from '@/composables/useQueryState'
-import UnsavedChangesDialog from '@/components/common/UnsavedChangesDialog.vue'
-import FreshnessStatus from '@/components/common/FreshnessStatus.vue'
-import RequestFiltersBar from '@/components/proxy/RequestFiltersBar.vue'
-import RequestInspectorPanel from '@/components/proxy/RequestInspectorPanel.vue'
-import ProxyCaptureToggle from '@/components/proxy/ProxyCaptureToggle.vue'
-import { ENGINE_LOG_LEVELS, MAX_ENGINE_LOG_LINES } from '@/utils/proxyLogLevels'
-import { copyText } from '@/utils/clipboard'
-import {
-  formatBuildIdentity,
-  formatTime,
-  metric,
-  requestSeverity,
-} from '@/utils/proxyRequestPresentation'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
-import { RouterLink } from 'vue-router'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
-import Dialog from 'primevue/dialog'
-import LogOutput from '@/components/common/LogOutput.vue'
-import TrafficOverview from '@/components/common/TrafficOverview.vue'
 import Tag from 'primevue/tag'
-import Message from 'primevue/message'
-import ProgressBar from 'primevue/progressbar'
 import ToggleSwitch from 'primevue/toggleswitch'
-import PageHeader from '@/components/common/PageHeader.vue'
-import EmptyState from '@/components/common/EmptyState.vue'
-import LoadingState from '@/components/common/LoadingState.vue'
+import { useDraftGuard } from '@/composables/useDraftGuard'
+import { useQueryState } from '@/composables/useQueryState'
 import { requireSingleConfirmation } from '@/composables/singleConfirm'
+import FreshnessStatus from '@/components/common/FreshnessStatus.vue'
+import LoadingState from '@/components/common/LoadingState.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import PageSection from '@/components/common/PageSection.vue'
+import PageToolbar from '@/components/common/PageToolbar.vue'
+import SectionTabs from '@/components/common/SectionTabs.vue'
+import StateBanner from '@/components/common/StateBanner.vue'
+import UnsavedChangesDialog from '@/components/common/UnsavedChangesDialog.vue'
+import GpuAdmissionPanel from '@/components/proxy/GpuAdmissionPanel.vue'
+import NetworkAccessPanel from '@/components/proxy/NetworkAccessPanel.vue'
+import ProxyAccessKeys from '@/components/proxy/ProxyAccessKeys.vue'
+import ProxyActivityPanel from '@/components/proxy/ProxyActivityPanel.vue'
+import ProxyCaptureToggle from '@/components/proxy/ProxyCaptureToggle.vue'
+import ProxyOverviewPanel from '@/components/proxy/ProxyOverviewPanel.vue'
+import ProxyRequestsPanel from '@/components/proxy/ProxyRequestsPanel.vue'
+import { MAX_ENGINE_LOG_LINES } from '@/utils/proxyLogLevels'
+import { vramEstimatePairs } from '@/utils/vramAdmission'
 
 const tabs = [
   { id: 'overview', label: 'Overview', icon: 'pi-chart-bar' },
@@ -1254,60 +415,38 @@ const tabs = [
   { id: 'keys', label: 'Access keys', icon: 'pi-key' },
   { id: 'settings', label: 'Settings & routing', icon: 'pi-sliders-h' },
 ]
-const compactOverview = ref(false)
-let overviewMedia
-function onOverviewMedia(event) {
-  compactOverview.value = event.matches
-}
-const overviewRequests = ref([]),
-  observedAt = ref(Date.now() / 1000),
-  observedSettings = ref({})
-function number(value) {
-  return value == null ? '—' : Number(value).toLocaleString()
-}
-const activeTab = ref('overview'),
-  requests = ref([]),
-  selectedRequest = ref(null)
-const requestDialog = computed({
-  get: () => Boolean(selectedRequest.value),
-  set: (value) => {
-    if (!value) {
-      selectedRequest.value = null
-      restoredRequestId.value = ''
-    }
-  },
+
+const activeTab = ref('overview')
+const requests = ref([])
+const selectedRequest = ref(null)
+const overviewRequests = ref([])
+const observedAt = ref(Date.now() / 1000)
+const observedSettings = ref({})
+const summary = ref({})
+const metricSemantics = ref({})
+const requestTotal = ref(0)
+const requestOffset = ref(0)
+const requestsLoading = ref(false)
+const requestsError = ref('')
+const requestFilters = reactive({
+  search: '',
+  model: '',
+  key_id: '',
+  state: '',
+  status: '',
+  outcome: '',
 })
-function navigateTab(event, id) {
-  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
-  event.preventDefault()
-  const index = tabs.findIndex((tab) => tab.id === id)
-  activeTab.value =
-    tabs[
-      event.key === 'Home'
-        ? 0
-        : event.key === 'End'
-          ? tabs.length - 1
-          : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
-    ].id
-  const nextTab = document.getElementById(`proxy-tab-${activeTab.value}`)
-  nextTab?.focus()
-  nextTab?.scrollIntoView({ block: 'nearest', inline: 'center' })
-}
-async function resetStats() {
-  try {
-    await axios.post('/api/proxy/stats/reset')
-    await refresh({ quiet: true })
-  } catch (err) {
-    reportFailure('Resetting stats failed', err)
-  }
-}
-const policyFields = [
-  { name: 'input_tokens_per_minute', label: 'Input tokens per minute' },
-  { name: 'output_tokens_per_minute', label: 'Output tokens per minute' },
-  { name: 'daily_token_budget', label: 'Daily token budget (UTC)' },
-  { name: 'monthly_token_budget', label: 'Monthly token budget (UTC)' },
-  { name: 'max_output_tokens', label: 'Maximum output tokens per request' },
-  { name: 'max_concurrent_requests', label: 'Concurrent requests' },
+const requestStates = [
+  'received',
+  'queued',
+  'loading',
+  'forwarding',
+  'counting',
+  'streaming',
+  'completed',
+  'rejected',
+  'failed',
+  'cancelled',
 ]
 const performanceFields = [
   {
@@ -1357,91 +496,94 @@ const performanceFields = [
     hint: 'Applied to text requests made with token-budgeted keys.',
   },
 ]
-const keyAccounting = ref('auto')
-const keyPolicy = reactive(Object.fromEntries(policyFields.map((field) => [field.name, null])))
-const editingKey = ref(null),
-  editPolicy = reactive({ scopes: [] }),
-  policyError = ref(''),
-  savingPolicy = ref(false)
-const editingKeyVisible = computed({
-  get: () => Boolean(editingKey.value),
-  set: (value) => {
-    if (!value) editingKey.value = null
-  },
-})
-const summary = ref({}),
-  requestTotal = ref(0),
-  requestOffset = ref(0),
-  requestsLoading = ref(false),
-  requestsError = ref('')
-const requestFilters = reactive({
-  search: '',
-  model: '',
-  key_id: '',
-  state: '',
-  status: '',
-  outcome: '',
-})
-const requestStates = [
-  'received',
-  'queued',
-  'loading',
-  'forwarding',
-  'counting',
-  'streaming',
-  'completed',
-  'rejected',
-  'failed',
-  'cancelled',
-]
-function allowance(value) {
-  return value == null ? 'unlimited' : Number(value).toLocaleString()
-}
-function editKey(key) {
-  editingKey.value = key.id
-  Object.assign(editPolicy, {
-    ...key,
-    token_accounting: key.token_accounting || 'auto',
-    models: (key.models || []).join(', '),
-    scopes: [...(key.scopes || ['inference'])],
-    expires: key.expires_at
-      ? new Date(
-          new Date(key.expires_at).getTime() - new Date(key.expires_at).getTimezoneOffset() * 60000,
-        )
-          .toISOString()
-          .slice(0, 16)
-      : '',
-  })
-  policyError.value = ''
-}
-async function saveKeyPolicy() {
-  savingPolicy.value = true
-  try {
-    await axios.patch(`/api/inference/keys/${encodeURIComponent(editingKey.value)}`, {
-      token_accounting: editPolicy.token_accounting || 'auto',
-      name: editPolicy.name.trim(),
-      models: editPolicy.models
-        .split(',')
-        .map((model) => model.trim())
-        .filter(Boolean),
-      scopes: editPolicy.scopes,
-      expires_at: editPolicy.expires ? new Date(editPolicy.expires).toISOString() : null,
-      rate_limit_per_minute: policyNumber(editPolicy.rate_limit_per_minute),
-      ...Object.fromEntries(
-        policyFields.map((field) => [field.name, policyNumber(editPolicy[field.name])]),
-      ),
-    })
-    editingKey.value = null
-    toast.add({ severity: 'success', summary: 'Key policy updated', life: 2500 })
-    await refresh({ quiet: true })
-  } catch (err) {
-    policyError.value = err?.response?.data?.detail || err.message
-  } finally {
-    savingPolicy.value = false
-  }
-}
+
+const toast = useToast()
+const confirm = useConfirm()
+const loading = ref(false)
+const saving = ref(false)
+const lifecycleBusy = ref(false)
+const loaded = ref(false)
+const error = ref('')
+const restartRequired = ref(false)
+const keys = ref([])
+const running = ref([])
+const activity = ref([])
+const catalog = ref([])
+const vramSnapshot = ref({})
+const network = ref({})
+const configuredBackend = ref('')
+const activeBackend = ref('')
+const openLogs = ref('')
+const logs = reactive({})
+const logSeq = reactive({})
+const aliasRows = ref([])
+const vramRows = ref([])
+let logSource = null
+let logOpenToken = 0
+let timer
 let requestSequence = 0
 let requestController = null
+const baseline = ref('')
+
+const tabItems = computed(() =>
+  tabs.map((tab) =>
+    tab.id === 'requests' && summary.value.active
+      ? { ...tab, count: `${summary.value.active} active` }
+      : tab,
+  ),
+)
+const liveRunning = computed(() =>
+  running.value.filter((item) => !['failed', 'stopped'].includes(item.state)),
+)
+const draft = reactive({
+  max_queue_size: 100,
+  stream_idle_timeout_seconds: null,
+  pool_timeout_seconds: 10,
+  max_connections: 200,
+  max_keepalive_connections: 40,
+  history_retention_days: 7,
+  history_max_rows: 100000,
+  default_output_tokens: 4096,
+  capture_request_payloads: false,
+  proxy_port: 2000,
+  idle_ttl_seconds: null,
+  max_body_bytes: null,
+  allow_anonymous: true,
+  max_loaded_models: null,
+  global_concurrency: null,
+  per_model_concurrency: null,
+  queue_timeout_seconds: 30,
+  request_timeout_seconds: null,
+  readiness_timeout_seconds: 2700,
+  drain_timeout_seconds: 30,
+  default_model: null,
+  vram_admission: 'off',
+  vram_safety_margin_mib: 1024,
+})
+
+const statusLabel = computed(() =>
+  activeBackend.value ? `Proxy active · ${activeBackend.value}` : 'Proxy not running',
+)
+const statusSeverity = computed(() => (activeBackend.value ? 'success' : 'danger'))
+
+function setInspectedRequest(request) {
+  if (request) {
+    selectedRequest.value = request
+    return
+  }
+  selectedRequest.value = null
+  restoredRequestId.value = ''
+}
+
+async function resetStats() {
+  try {
+    await axios.post('/api/proxy/stats/reset')
+    await refresh({ quiet: true })
+  } catch (err) {
+    reportFailure('Resetting stats failed', err)
+  }
+}
+
 async function loadRequests(reset = false) {
   if (reset) requestOffset.value = 0
   requestController?.abort()
@@ -1481,85 +623,7 @@ watch(
     if (tab === 'requests' && loaded.value) loadRequests()
   },
 )
-const toast = useToast()
-const confirm = useConfirm()
-const loading = ref(false),
-  saving = ref(false),
-  creating = ref(false),
-  lifecycleBusy = ref(false)
-const loaded = ref(false)
-const error = ref(''),
-  restartRequired = ref(false),
-  keys = ref([]),
-  running = ref([]),
-  activity = ref([])
-const catalog = ref([]),
-  network = ref({})
-const configuredBackend = ref(''),
-  activeBackend = ref('')
-const secretField = ref(null),
-  keyCopyState = ref('idle')
-let copyAttempt = 0
-const keyFormVisible = ref(false),
-  keyCreateError = ref('')
-const secretVisible = computed({
-  get: () => Boolean(createdKey.value),
-  set: (value) => {
-    if (!value) createdKey.value = ''
-  },
-})
-const keyName = ref(''),
-  createdKey = ref(''),
-  createdKeyLabel = ref('Copy this key now — it will not be shown again.'),
-  openLogs = ref('')
-watch(
-  () => createdKey.value,
-  () => {
-    copyAttempt++
-    keyCopyState.value = 'idle'
-  },
-)
-const logs = reactive({})
-const logSeq = reactive({})
-let logSource = null
-let logOpenToken = 0
-const keyNameInput = ref(null)
-const keyExpires = ref(''),
-  keyRateLimit = ref(null),
-  keyModels = ref('')
-const aliasRows = ref([])
-const draft = reactive({
-  max_queue_size: 100,
-  stream_idle_timeout_seconds: null,
-  pool_timeout_seconds: 10,
-  max_connections: 200,
-  max_keepalive_connections: 40,
-  history_retention_days: 7,
-  history_max_rows: 100000,
-  default_output_tokens: 4096,
-  capture_request_payloads: false,
-  proxy_port: 2000,
-  idle_ttl_seconds: null,
-  max_body_bytes: null,
-  allow_anonymous: true,
-  max_loaded_models: null,
-  global_concurrency: null,
-  per_model_concurrency: null,
-  queue_timeout_seconds: 30,
-  request_timeout_seconds: null,
-  readiness_timeout_seconds: 2700,
-  drain_timeout_seconds: 30,
-  default_model: null,
-})
-let timer
-const baseline = ref('')
 
-const liveRunning = computed(() =>
-  running.value.filter((item) => !['failed', 'stopped'].includes(item.state)),
-)
-function policyNumber(value) {
-  return value === '' || value == null ? null : value
-}
 function inspectRequests(model = '', failed = false) {
   Object.assign(requestFilters, {
     search: '',
@@ -1595,53 +659,8 @@ function resetRequestFilters() {
   })
   loadRequests(true)
 }
-const readyEngines = computed(() => liveRunning.value.filter((item) => item.ready).length)
-const failedEngines = computed(
-  () => running.value.filter((item) => ['failed', 'error'].includes(item.state)).length,
-)
 function inspectFailures(model = '') {
   inspectRequests(model, true)
-}
-const statusLabel = computed(() =>
-  activeBackend.value ? `Proxy active · ${activeBackend.value}` : 'Proxy not running',
-)
-const statusSeverity = computed(() => (activeBackend.value ? 'success' : 'danger'))
-
-const activityDesc = computed(() => [...activity.value].reverse())
-function activitySeverity(type) {
-  return (
-    {
-      ready: 'success',
-      starting: 'info',
-      loading_progress: 'info',
-      drain_timeout: 'warn',
-      stopped: 'secondary',
-    }[type] || 'secondary'
-  )
-}
-function activityText(item) {
-  const bits = []
-  if (item.model) bits.push(item.model)
-  if (item.type === 'loading_progress' && item.loading_progress != null)
-    bits.push(`${Math.round(item.loading_progress)}% loaded`)
-  if (item.type === 'stopped' && item.draining) bits.push('while draining')
-  if (item.pid) bits.push(`pid ${item.pid}`)
-  return bits.join(' · ') || item.type
-}
-
-function modelLocation(proxyId) {
-  const modelId = catalog.value.find((model) => model.id === proxyId)?.studio_model_id
-  return modelId ? { name: 'model-config', params: { id: modelId } } : { name: 'models' }
-}
-
-function keyStatus(key) {
-  if (key.expires_at && new Date(key.expires_at) <= new Date()) return 'Expired'
-  if (key.usage?.daily_remaining === 0 || key.usage?.monthly_remaining === 0)
-    return 'Budget exhausted'
-  return 'Active'
-}
-function keySeverity(key) {
-  return { Expired: 'danger', 'Budget exhausted': 'warn', Active: 'success' }[keyStatus(key)]
 }
 
 function aliasPairs() {
@@ -1655,8 +674,11 @@ function aliasPairs() {
   }
   return aliases
 }
+function vramPairs() {
+  return vramEstimatePairs(vramRows.value)
+}
 function snapshot() {
-  return JSON.stringify({ settings: { ...draft }, aliases: aliasPairs() })
+  return JSON.stringify({ settings: { ...draft }, aliases: aliasPairs(), vram: vramPairs() })
 }
 const dirty = computed(() => loaded.value && snapshot() !== baseline.value)
 
@@ -1708,6 +730,10 @@ async function performRefresh({ quiet = false, discardDraft = false } = {}, sign
           targets: (Array.isArray(targets) ? targets : [targets]).join(', '),
         }),
       )
+      vramRows.value = Object.entries(data.settings?.vram_estimates || {}).map(([model, mib]) => ({
+        model,
+        mib,
+      }))
       baseline.value = snapshot()
     }
     if (
@@ -1731,6 +757,7 @@ async function performRefresh({ quiet = false, discardDraft = false } = {}, sign
     running.value = data.running || []
     activity.value = data.activity || []
     catalog.value = data.catalog || []
+    vramSnapshot.value = data.vram || {}
     network.value = data.network || {}
     configuredBackend.value = data.configured_backend || data.settings?.backend || ''
     activeBackend.value = data.active_backend || ''
@@ -1770,10 +797,14 @@ async function saveSettings() {
     const { data } = await axios.put(
       '/api/proxy/settings',
       Object.fromEntries(
-        Object.entries({ ...draft, routing_aliases: aliasPairs() }).map(([key, value]) => [
-          key,
-          value === '' ? null : value,
-        ]),
+        Object.entries({
+          ...draft,
+          vram_safety_margin_mib: Number.isFinite(Number(draft.vram_safety_margin_mib))
+            ? Number(draft.vram_safety_margin_mib)
+            : 1024,
+          routing_aliases: aliasPairs(),
+          vram_estimates: vramPairs(),
+        }).map(([key, value]) => [key, value === '' ? null : value]),
       ),
     )
     restartRequired.value = Boolean(data.restart_required)
@@ -1793,42 +824,6 @@ async function saveSettings() {
   }
 }
 
-async function createKey() {
-  if (creating.value || !keyName.value.trim()) return
-  creating.value = true
-  keyCreateError.value = ''
-  try {
-    const { data } = await axios.post('/api/inference/keys', {
-      ...Object.fromEntries(
-        policyFields.map((field) => [field.name, policyNumber(keyPolicy[field.name])]),
-      ),
-      token_accounting: keyAccounting.value,
-      name: keyName.value.trim(),
-      expires_at: keyExpires.value ? new Date(keyExpires.value).toISOString() : null,
-      models: keyModels.value
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean),
-      scopes: ['inference', 'models:read'],
-      rate_limit_per_minute: policyNumber(keyRateLimit.value),
-    })
-    keyFormVisible.value = false
-    createdKey.value = data.key
-    createdKeyLabel.value = 'Key created. Copy it now — it will not be shown again.'
-    keyName.value = ''
-    keyAccounting.value = 'auto'
-    keyExpires.value = ''
-    keyModels.value = ''
-    keyRateLimit.value = null
-    for (const field of policyFields) keyPolicy[field.name] = null
-    await refresh({ quiet: true })
-  } catch (err) {
-    keyCreateError.value = err?.response?.data?.detail || err.message
-  } finally {
-    creating.value = false
-  }
-}
-
 function reportFailure(summary, err) {
   toast.add({
     severity: 'error',
@@ -1836,62 +831,6 @@ function reportFailure(summary, err) {
     detail: err?.response?.data?.detail || err?.message || 'Request failed',
     life: 5000,
   })
-}
-
-function confirmRevoke(key) {
-  requireSingleConfirmation(confirm, {
-    header: `Revoke “${key.name}”?`,
-    message: 'Clients using this key stop working immediately.',
-    icon: 'pi pi-exclamation-triangle',
-    acceptClass: 'p-button-danger',
-    accept: async () => {
-      try {
-        await axios.delete(`/api/inference/keys/${encodeURIComponent(key.id)}`)
-        toast.add({ severity: 'success', summary: 'Key revoked', life: 2500 })
-        await refresh({ quiet: true })
-      } catch (err) {
-        reportFailure(`Revoking “${key.name}” failed`, err)
-      }
-    },
-  })
-}
-
-function confirmRotate(key) {
-  requireSingleConfirmation(confirm, {
-    header: `Rotate “${key.name}”?`,
-    message:
-      'A new secret is issued and the old one stops working immediately. Update clients before rotating.',
-    icon: 'pi pi-refresh',
-    acceptClass: 'p-button-warning',
-    accept: async () => {
-      try {
-        const { data } = await axios.post(
-          `/api/inference/keys/${encodeURIComponent(key.id)}/rotate`,
-        )
-        createdKey.value = data.key
-        createdKeyLabel.value = 'Key rotated. Copy the new secret — the old one no longer works.'
-        await refresh({ quiet: true })
-      } catch (err) {
-        reportFailure(`Rotating “${key.name}” failed`, err)
-      }
-    },
-  })
-}
-
-async function copyKey() {
-  if (!createdKey.value || keyCopyState.value === 'copying') return
-  const key = createdKey.value,
-    attempt = ++copyAttempt
-  keyCopyState.value = 'copying'
-  try {
-    await copyText(key, { container: secretField.value?.closest('[role="dialog"]') })
-    if (attempt === copyAttempt && createdKey.value === key) keyCopyState.value = 'copied'
-  } catch {
-    if (attempt !== copyAttempt || createdKey.value !== key) return
-    keyCopyState.value = 'failed'
-    secretField.value?.focus()
-    secretField.value?.select()
-  }
 }
 
 async function loadLogs(model, token = 0) {
@@ -2069,77 +1008,6 @@ function confirmStop() {
   })
 }
 
-function shortRevision(value) {
-  return String(value || 'unknown').slice(0, 12)
-}
-function formatClock(value) {
-  return value ? new Date(value * 1000).toLocaleTimeString() : '—'
-}
-function formatDate(value) {
-  return new Date(value).toLocaleString()
-}
-function formatAgo(iso) {
-  const seconds = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000)
-  if (seconds < 60) return 'just now'
-  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)} h ago`
-  return `${Math.floor(seconds / 86400)} d ago`
-}
-function ttftLabel(request) {
-  if (request.ttft_ms != null) return metric(request.ttft_ms)
-  // A buffered (non-streaming) response has no first-output event before the
-  // complete body: TTFT would equal total duration, so label the transport
-  // instead of presenting a fabricated token-latency number.
-  if (request.response_transport === 'buffered') return 'non-stream'
-  return '—'
-}
-function ttftDetail(request) {
-  if (request.ttft_ms != null) return metricNote('ttft_ms')
-  if (request.response_transport === 'buffered') {
-    return request.requested_stream === true
-      ? 'The client requested streaming but the engine returned a buffered JSON body; TTFT is not observable.'
-      : 'The client requested a buffered (non-streaming) response; the first output event is the complete body, so TTFT is not observable.'
-  }
-  return 'TTFT is unavailable because the engine did not emit recognizable generated-output events.'
-}
-function rate(value) {
-  return value == null ? '—' : Number(value).toFixed(1)
-}
-const metricSemantics = ref({})
-function metricNote(key) {
-  if (key === 'input_cache') {
-    return 'Cache hit ratio = sum(cached input) / sum(total input) over requests with reported cache details. Requests with unknown cache reporting are excluded from the denominator.'
-  }
-  const note = metricSemantics.value?.[key]
-  if (!note) return ''
-  return `${note.label}: ${note.definition} Origin: ${note.origin}`
-}
-function percent(value) {
-  return value == null ? '—' : `${(Number(value) * 100).toFixed(1)}%`
-}
-function cacheRatio(value) {
-  return percent(value)
-}
-function tokenDetail(request) {
-  const bits = []
-  if (request.input_tokens_total != null) bits.push(`logical input ${request.input_tokens_total}`)
-  if (request.input_tokens_cached != null) bits.push(`cached ${request.input_tokens_cached}`)
-  if (request.input_tokens_uncached != null) bits.push(`uncached ${request.input_tokens_uncached}`)
-  if (request.input_tokens_processed != null)
-    bits.push(`engine processed ${request.input_tokens_processed}`)
-  if (request.output_tokens_reasoning != null)
-    bits.push(`reasoning ${request.output_tokens_reasoning}`)
-  if (request.usage_status) bits.push(`usage ${request.usage_status}`)
-  if (request.input_tokens_provenance) bits.push(`input from ${request.input_tokens_provenance}`)
-  return bits.join(' · ') || 'Usage was not reported for this request.'
-}
-function formatBytes(value) {
-  const bytes = Number(value || 0)
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KiB`
-  return `${(bytes / 1048576).toFixed(1)} MiB`
-}
-
 const restoredRequestId = ref('')
 async function restoreRequest() {
   const id = restoredRequestId.value
@@ -2220,21 +1088,13 @@ async function tick() {
 function resumeReads() {
   if (!document.hidden) void tick()
 }
-function focusKeyForm() {
-  keyCreateError.value = ''
-  keyFormVisible.value = true
-}
 onMounted(() => {
-  overviewMedia = window.matchMedia?.('(max-width: 800px)')
-  compactOverview.value = Boolean(overviewMedia?.matches)
-  overviewMedia?.addEventListener('change', onOverviewMedia)
   void tick()
   window.addEventListener('online', resumeReads)
   window.addEventListener('offline', resumeReads)
   document.addEventListener('visibilitychange', resumeReads)
 })
 onUnmounted(() => {
-  overviewMedia?.removeEventListener('change', onOverviewMedia)
   disposed = true
   refreshController?.abort()
   requestController?.abort()
@@ -2249,413 +1109,41 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.summary-tile dd.summary-caption {
-  padding: 0;
-  margin: 0;
-  font-size: var(--text-xs);
-  font-weight: 400;
-  letter-spacing: normal;
-  white-space: normal;
-  color: var(--text-secondary);
-}
-
-.secret-field-label {
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-}
-.secret-field {
-  width: 100%;
-  min-width: 0;
-  resize: vertical;
-  font-family: ui-monospace, monospace;
-}
-.copy-feedback {
-  margin: 0;
-  font-size: 0.8rem;
-}
-
-.runtime > .runtime-actions {
-  justify-content: flex-start;
-  gap: 0.5rem;
-}
-.runtime > .runtime-actions .model-link {
-  margin-left: auto;
-  font-size: 0.8rem;
-}
-
-.dialog-intro {
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-}
-
-.proxy-overview {
-  display: grid;
-  gap: 1rem;
-  min-width: 0;
-}
-.overview-heading,
-.fleet-heading,
-.health-heading {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-}
-.overview-heading h2 {
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 600;
-}
-.overview-heading p {
-  margin: 0.25rem 0 0;
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-}
-.overview-analysis > summary {
-  display: none;
-}
-.overview-analysis-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.7fr) minmax(16rem, 1fr);
-  gap: 1rem;
-}
-.summary-tile {
-  padding: 0.9rem 1rem;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
-  min-width: 0;
-}
-.summary-tile dt {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: var(--text-xs);
-}
-.summary-tile dt i {
-  font-size: var(--text-xs);
-  opacity: 0.7;
-}
-.summary-tile dd {
-  font-size: clamp(1.25rem, 1.65vw, 1.8rem);
-  font-weight: 600;
-  letter-spacing: -0.04em;
-  padding: 0.35rem 0 0.2rem;
-  white-space: nowrap;
-}
-.summary-tile dd > span {
-  color: var(--text-secondary);
-  font-weight: 450;
-  font-size: 0.7em;
-}
-.summary-tile .summary-caption {
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-}
-.summary-latency {
-  font-size: clamp(1rem, 1.3vw, 1.4rem) !important;
-}
-.gateway-health {
-  min-width: 0;
-  padding: 1rem 1.1rem;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-lg);
-  background: var(--bg-card);
-}
-.health-heading h2 {
-  margin: 0;
-  font-size: 0.9rem;
-}
-.health-live {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-}
-.health-dot {
-  height: 0.4rem;
-  width: 0.4rem;
-  border-radius: 50%;
-  background: var(--status-success);
-}
-.health-dot--warning {
-  background: var(--status-warning);
-}
-.health-facts {
-  margin: 0.75rem 0;
-  font-size: var(--text-xs);
-}
-.health-facts > div {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0.4rem 0;
-  border-bottom: 1px solid var(--border-primary);
-}
-.health-facts dt {
-  color: var(--text-secondary);
-}
-.health-facts dd {
-  margin: 0;
-  font-variant-numeric: tabular-nums;
-}
-.health-facts dd span {
-  color: var(--status-error);
-}
-.health-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-.health-actions button {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0.25rem 0;
-  border: 0;
-  background: transparent;
-  color: var(--accent-primary);
-  font-size: var(--text-xs);
-  cursor: pointer;
-}
-.health-actions i {
-  font-size: var(--text-xs);
-}
-.fleet-heading h2 {
-  margin: 0;
-  font-size: 0.9rem;
-}
-.fleet-heading h2 span {
-  margin-left: 0.5rem;
-  font-size: var(--text-xs);
-  font-weight: 450;
-  color: var(--text-secondary);
-}
-.fleet-heading a {
-  font-size: var(--text-xs);
-}
-.tab-count {
-  padding: 0.1rem 0.35rem;
-  border-radius: 0.3rem;
-  background: var(--status-info-soft);
-  color: var(--accent-primary);
-  font-size: var(--text-xs);
-}
-.request-primary {
-  display: block;
-  max-width: 17rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 550;
-}
-.request-secondary {
-  display: block;
-  color: var(--text-secondary);
-  margin-top: 0.2rem;
-}
-.request-method {
-  display: inline-block;
-  margin-right: 0.5rem;
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-  font-weight: 600;
-}
-.request-path {
-  font-size: var(--text-xs);
-}
-.request-time {
-  white-space: nowrap;
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-}
-.request-table tbody tr:hover {
-  background: var(--hover-bg);
-}
-
-@media (max-width: 1100px) {
-  .overview-analysis-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 800px) {
-  .overview-analysis > summary {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.65rem 0.75rem;
-    border: 1px solid var(--border-primary);
-    border-radius: var(--radius-md);
-    color: var(--text-secondary);
-    font-size: var(--text-xs);
-    cursor: pointer;
-    list-style: none;
-  }
-  .overview-analysis > summary::-webkit-details-marker {
-    display: none;
-  }
-  .overview-analysis > summary span {
-    margin-left: auto;
-    font-size: var(--text-xs);
-  }
-  .overview-analysis[open] > summary {
-    margin-bottom: 0.75rem;
-  }
-}
-
-@media (max-width: 600px) {
-  .overview-heading :deep(.p-button-label) {
-    display: none;
-  }
-  .overview-heading :deep(.p-button) {
-    flex-shrink: 0;
-  }
-  .overview-heading {
-    align-items: flex-start;
-  }
-  .overview-heading > div {
-    min-width: 0;
-  }
-  .summary-tile {
-    padding: 0.7rem;
-  }
-  .summary-tile dd {
-    font-size: 1.3rem;
-  }
-  .summary-tile .summary-caption {
-    font-size: var(--text-xs);
-  }
-  .proxy-overview {
-    gap: 0.75rem;
-  }
-}
-
-.metric-link {
-  padding: 0;
-  border: 0;
-  border-bottom: 1px dotted var(--text-secondary);
-  background: transparent;
-  color: var(--text-primary);
-  font: inherit;
-  cursor: pointer;
-}
-.outcome-note {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  color: var(--text-secondary);
-  font-size: 0.8rem;
-}
-.runtime-details {
-  color: var(--text-secondary);
-  font-size: 0.8rem;
-}
-.runtime-details summary {
-  cursor: pointer;
-  padding: 0.25rem 0;
-}
-.runtime-details .metrics {
-  margin-top: 0.5rem;
-}
-.runtime-head strong {
-  overflow-wrap: anywhere;
-}
-.proxy-page :deep(.p-button-sm) {
-  min-height: 2rem;
-}
-
-.key-usage {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
-  width: 100%;
-  gap: 1rem;
-  margin: 0;
-}
-.key-usage dt,
-.key-usage small {
-  color: var(--text-secondary);
-  font-size: 0.8rem;
-  overflow-wrap: anywhere;
-}
-.key-usage dd {
-  margin: 0.3rem 0;
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
-}
-.key-usage .p-progressbar {
-  height: 0.35rem;
-  margin-top: 0.4rem;
-}
-.ledger-breakdown {
-  display: block;
-  margin-bottom: 0.15rem;
-  font-variant-numeric: tabular-nums;
-}
-.metric-help {
-  margin-left: 0.25rem;
-  color: var(--text-secondary);
-  font-size: 0.75rem;
-  cursor: help;
-}
-.usage-source {
-  display: block;
-  color: var(--text-secondary);
-}
-.scope-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  margin: 1rem 0;
-  border: 1px solid var(--border-primary);
-}
-.proxy-summary {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
-  padding: 0;
-  gap: 0.75rem;
-}
-.request-head {
-  align-items: baseline;
-  gap: 0.25rem 0.75rem;
-}
-.request-head h2 {
-  font-size: 1rem;
-}
-.request-head__meta {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-}
-
+/* The proxy workspace owns an internal scroll region so the tab strip and the
+   footer stay fixed while a long request table scrolls locally. This is the
+   documented page-height exception; keep it on this page only. */
 :global(.layout-wrapper:has(.proxy-page)) {
   height: 100dvh;
   min-height: 0;
   grid-template-rows: auto minmax(0, 1fr) auto;
 }
+
 :global(.layout-main:has(.proxy-page)) {
   max-width: none;
   min-height: 0;
   overflow: hidden;
 }
+
 .proxy-page {
-  min-height: 0;
   height: 100%;
-  overflow: hidden;
-  gap: 0.65rem;
-}
-.proxy-panels {
   min-height: 0;
-  overflow: auto;
+  gap: 0.65rem;
+  overflow: hidden;
+}
+
+.proxy-panels {
   display: grid;
-  align-content: start;
   flex: 1;
+  align-content: start;
   gap: 0.75rem;
+  min-height: 0;
   padding-bottom: 0.5rem;
+  overflow: auto;
   scroll-padding-bottom: 1rem;
+}
+
+.proxy-panels > * {
+  min-width: 0;
 }
 
 @media (max-width: 900px) {
@@ -2664,387 +1152,61 @@ onUnmounted(() => {
     scroll-padding-bottom: var(--bottom-nav-height);
   }
 }
-.proxy-stop-alert {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 0.75rem;
-}
 
-.proxy-stop-alert > span:first-child {
-  flex: 1 1 14rem;
-  min-width: 0;
-}
-
-@media (max-width: 480px) {
-  .proxy-stop-alert {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .proxy-stop-alert > span:first-child {
-    flex: 0 0 auto;
-  }
-}
-
-.proxy-tabs {
-  display: flex;
-  flex-shrink: 0;
-  overflow-x: auto;
-  scroll-snap-type: x proximity;
-  scroll-padding-inline: 0.5rem;
-  border-bottom: 1px solid var(--border-primary);
-}
-.proxy-tabs button {
-  flex: 0 0 auto;
-  scroll-snap-align: start;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.8rem;
-  white-space: nowrap;
-  padding: 0.6rem 0.85rem;
-  background: transparent;
-  color: var(--text-secondary);
-  border: 0;
-  border-bottom: 2px solid transparent;
-  cursor: pointer;
-}
-.proxy-tabs button[aria-selected='true'] {
-  color: var(--text-primary);
-  border-bottom-color: var(--p-primary-color);
-}
-.request-table {
-  overflow: auto;
-  max-width: 100%;
-  min-width: 0;
-  max-height: min(55vh, 34rem);
-  -webkit-overflow-scrolling: touch;
-}
-.request-table table {
-  min-width: 48rem;
-}
-.request-table th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: var(--bg-card);
-}
-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.85rem;
-}
-th,
-td {
-  text-align: left;
-  padding: 0.65rem;
-  border-bottom: 1px solid var(--border-primary);
-}
-.proxy-card {
-  padding: 1rem;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-lg);
-  background: var(--bg-card);
+/* Labels wrap their control for the accessible name; the shared form grid
+   still owns spacing and the label/hint placement. */
+.page-form > label {
   display: grid;
-  gap: 1rem;
-  min-width: 0;
+  gap: 0.35rem;
+  align-content: start;
 }
-.proxy-panels > * {
-  min-width: 0;
-}
-.section-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-.section-head h2 {
-  margin: 0;
-  font-size: 1.05rem;
-}
-.section-head p,
-.empty,
-.count {
-  color: var(--text-secondary);
-  margin: 0.3rem 0 0;
-}
-.count {
-  margin-top: 0;
-  white-space: nowrap;
-}
-.backend-state {
-  display: flex;
-  gap: 1.4rem;
-  margin: 0;
-  font-size: 0.82rem;
-}
-.backend-state div {
-  display: grid;
-  gap: 0.2rem;
-}
-.backend-state dt {
-  color: var(--text-secondary);
-}
-.backend-state dd {
-  margin: 0;
-  font-variant-numeric: tabular-nums;
-}
-.settings-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
-  gap: 0.5rem 0.75rem;
-  min-width: 0;
-}
-.settings-grid .hint {
-  overflow: hidden;
-  font-size: 0.6875rem;
-  line-height: 1.3;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.inline-control small {
-  color: var(--text-secondary);
+
+.page-form > label .field {
   font-weight: 400;
 }
+
 .inline-control {
   display: flex;
   align-items: flex-start;
   gap: 0.75rem;
 }
+
 .inline-control label {
   display: grid;
   gap: 0.2rem;
-  font-size: 0.85rem;
-  cursor: pointer;
 }
-.runtime-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-.save-group,
-.lifecycle-group,
-.key-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
+
 .alias-list {
   display: grid;
   gap: 0.6rem;
 }
+
 .alias-row {
   display: grid;
   grid-template-columns: 1fr 2fr auto;
   gap: 0.6rem;
   align-items: center;
 }
-.secret {
-  display: grid;
-  gap: 0.7rem;
-  padding: 1rem;
-  border: 1px solid var(--status-warning);
-  border-radius: var(--radius-md);
-  justify-items: start;
-}
-.secret code {
-  overflow-wrap: anywhere;
-  font-size: 0.85rem;
-}
-.key-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.7rem 0;
-  border-top: 1px solid var(--border-primary);
-  flex-wrap: wrap;
-}
-.key-summary {
-  display: grid;
-  gap: 0.25rem;
-  min-width: 0;
-}
-.key-summary code {
-  font-size: 0.8rem;
-}
-.key-summary small {
-  color: var(--text-secondary);
-}
-.key-title {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-}
-.runtime-list,
-.key-list {
-  display: grid;
-  gap: 0.6rem;
-  min-width: 0;
-}
-.runtime {
-  padding: 0.8rem;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
-  display: grid;
-  gap: 0.65rem;
-  min-width: 0;
-}
-.runtime-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-}
-.runtime-head div {
-  display: grid;
-  gap: 0.25rem;
-  min-width: 0;
-}
-.runtime-head span:not(.p-tag) {
-  color: var(--text-secondary);
-  font-size: 0.82rem;
-}
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
-  gap: 0.6rem 1rem;
-  margin: 0;
-  font-size: 0.82rem;
-}
-.metrics div {
-  display: grid;
-  gap: 0.2rem;
-}
-.metrics dt {
-  color: var(--text-secondary);
-}
-.metrics dd {
-  margin: 0;
-  color: var(--text-primary);
-  font-variant-numeric: tabular-nums;
-}
-.state-error {
-  color: var(--p-red-500, #f87171);
-}
-.state-alert {
-  color: var(--status-warning);
-}
-.activity-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 0.35rem;
-  max-height: 20rem;
-  overflow: auto;
-}
-.activity-list li {
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
-  font-size: 0.82rem;
-  padding: 0.3rem 0;
-  border-bottom: 1px dashed color-mix(in srgb, var(--border-primary) 55%, transparent);
-}
-.activity-time {
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.activity-text {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.network {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
-  gap: 1rem;
-  margin: 0;
-  font-size: 0.85rem;
-}
-.network div {
-  display: grid;
-  gap: 0.2rem;
-}
-.network dt {
-  color: var(--text-secondary);
-}
-.network dd {
-  margin: 0;
-}
 
 @media (max-width: 800px) {
-  .proxy-summary {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .alias-row {
+    grid-template-columns: 1fr;
   }
+
   .proxy-page :deep(.page-header) {
     position: relative;
     padding-right: 2.25rem;
   }
+
   .proxy-page :deep(.page-header__actions) {
     position: absolute;
-    width: auto;
-    right: 0;
     top: 0;
+    right: 0;
+    width: auto;
   }
+
   .proxy-page :deep(.page-header__meta) {
     gap: 0.3rem;
-  }
-  .runtime-head {
-    gap: 0.5rem;
-  }
-
-  .alias-row {
-    grid-template-columns: 1fr;
-  }
-  .runtime-actions {
-    align-items: stretch;
-  }
-}
-
-@media (max-width: 600px) {
-  .proxy-card {
-    padding: 0.8rem;
-  }
-  .summary-tile {
-    padding: 0.7rem;
-  }
-  .summary-tile dd {
-    font-size: 1.3rem;
-  }
-  .summary-caption {
-    font-size: var(--text-xs);
-  }
-  .key-row {
-    align-items: stretch;
-  }
-  .key-actions {
-    justify-content: flex-start;
-  }
-  .runtime-actions :deep(.p-button) {
-    flex: 1 1 auto;
-  }
-}
-
-@media (max-width: 420px) {
-  .proxy-summary {
-    grid-template-columns: 1fr;
-  }
-  .metrics {
-    grid-template-columns: 1fr;
-  }
-  .proxy-card {
-    padding: 0.7rem;
-  }
-  .section-head {
-    gap: 0.5rem;
   }
 }
 </style>

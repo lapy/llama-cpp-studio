@@ -40,9 +40,9 @@ test('proxy tab and request inspector survive reload and browser history', async
 
 test('models and engines retain filters in shared URLs', async ({ page }) => {
   await page.goto('/models?status=running&layout=list&q=Demo')
-  await expect(page.locator('#library-status')).toHaveValue('running')
+  await expect(page.getByRole('button', { name: 'Status: running ×', exact: true })).toBeVisible()
   await page.reload()
-  await expect(page.locator('#library-status')).toHaveValue('running')
+  await expect(page.getByRole('button', { name: 'Status: running ×', exact: true })).toBeVisible()
   await page.goto('/engines?task=audio&hardware=cpu')
   await expect(page.locator('#engine-task-filter')).toHaveValue('audio')
   await expect(page.locator('#engine-hardware-filter')).toHaveValue('cpu')

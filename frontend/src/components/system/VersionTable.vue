@@ -1,113 +1,139 @@
 <template>
-  <div>
-    <div v-if="!versions.length" class="empty-state-mini">
+  <div class="table-shell version-table">
+    <div v-if="!versions.length" class="table-shell__state version-table__empty">
       <i class="pi pi-inbox" aria-hidden="true" />
       <span>{{ emptyMessage }}</span>
     </div>
-    <div v-else class="version-table">
-      <div
-        v-for="v in versions"
-        :key="v.id ?? v.version"
-        class="version-row"
-        :class="{ active: v.is_active, broken: isUnusable(v) }"
-      >
-        <div class="version-info">
-          <code class="version-name">{{ v.version }}</code>
-          <Tag v-if="v.is_active" value="Active" severity="success" />
-          <Tag
-            v-if="buildStatus(v)"
-            :value="buildStatusLabel(v)"
-            :severity="buildStatusSeverity(v)"
-            v-tooltip.top="buildStatusTooltip(v)"
-          />
-          <Tag
-            :value="versionTypeLabel(v)"
-            :severity="versionTypeSeverity(v)"
-            v-tooltip.top="forkTooltip(v)"
-          />
-          <small v-if="v.repository_source" class="repo-label">{{ v.repository_source }}</small>
-          <small v-if="sourceBranch(v)" class="branch-label">
-            <i class="pi pi-code" aria-hidden="true" />
-            {{ sourceBranch(v) }}
-          </small>
-          <small
-            v-if="
-              v.build_config?.cuda ||
-              v.build_config?.enable_cuda ||
-              v.build_config?.backend === 'cuda'
-            "
-            class="cuda-badge"
-            >CUDA</small
+    <div v-else class="table-shell__scroll">
+      <table>
+        <caption class="sr-only">
+          Installed engine versions
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">Version</th>
+            <th scope="col">Status</th>
+            <th scope="col">Source</th>
+            <th scope="col" class="version-table__actions-heading">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="v in versions"
+            :key="v.id ?? v.version"
+            class="version-row"
+            :class="{ active: v.is_active, broken: isUnusable(v) }"
           >
-        </div>
-        <div class="version-actions">
-          <Button
-            v-if="canRetryVersion(v)"
-            icon="pi pi-replay"
-            text
-            size="small"
-            severity="warning"
-            :loading="retrying === versionId(v)"
-            :disabled="retrying === versionId(v)"
-            v-tooltip.top="'Retry this failed build'"
-            @click="$emit('retry', versionId(v))"
-          />
-          <Button
-            v-if="canSyncSourceVersion(v)"
-            icon="pi pi-refresh"
-            text
-            size="small"
-            severity="info"
-            :loading="syncing === versionId(v)"
-            :disabled="syncing === versionId(v)"
-            v-tooltip.top="`Sync ${sourceBranch(v)} and rebuild incrementally`"
-            @click="$emit('sync', versionId(v))"
-          />
-          <Button
-            v-if="canEditBuildConfig(v)"
-            icon="pi pi-sliders-h"
-            text
-            size="small"
-            severity="secondary"
-            v-tooltip.top="'Edit CMake settings for this build'"
-            @click="$emit('edit-config', versionId(v))"
-          />
-          <Button
-            v-if="canVerify && buildStatus(v) !== 'building'"
-            icon="pi pi-check-circle"
-            text
-            size="small"
-            :aria-label="`Verify ${v.version}`"
-            v-tooltip.top="'Check llama-server, llama-cli, and llama-quantize'"
-            @click="$emit('verify', v.id ?? v.version)"
-          />
-          <Button
-            v-if="!v.is_active && canActivateVersion(v)"
-            :label="
-              activating === (v.id ?? v.version) && activatingMessage
-                ? activatingMessage
-                : 'Activate'
-            "
-            icon="pi pi-play"
-            size="small"
-            severity="success"
-            outlined
-            :loading="activating === (v.id ?? v.version)"
-            @click="$emit('activate', v.id ?? v.version)"
-          />
-          <Button
-            icon="pi pi-trash"
-            text
-            severity="danger"
-            size="small"
-            :loading="deleting === versionId(v)"
-            :disabled="deleting === versionId(v)"
-            :aria-label="`Delete ${v.version}`"
-            v-tooltip.top="'Delete version'"
-            @click="$emit('delete', v.id ?? v.version)"
-          />
-        </div>
-      </div>
+            <td class="version-name-cell">
+              <code class="version-name">{{ v.version }}</code>
+            </td>
+            <td class="version-status-cell">
+              <Tag v-if="v.is_active" value="Active" severity="success" />
+              <Tag
+                v-if="buildStatus(v)"
+                :value="buildStatusLabel(v)"
+                :severity="buildStatusSeverity(v)"
+                v-tooltip.top="buildStatusTooltip(v)"
+              />
+            </td>
+            <td class="version-source-cell">
+              <div class="version-source">
+                <Tag
+                  :value="versionTypeLabel(v)"
+                  :severity="versionTypeSeverity(v)"
+                  v-tooltip.top="forkTooltip(v)"
+                />
+                <small v-if="v.repository_source" class="repo-label">{{
+                  v.repository_source
+                }}</small>
+                <small v-if="sourceBranch(v)" class="branch-label">
+                  <i class="pi pi-code" aria-hidden="true" />
+                  {{ sourceBranch(v) }}
+                </small>
+                <small
+                  v-if="
+                    v.build_config?.cuda ||
+                    v.build_config?.enable_cuda ||
+                    v.build_config?.backend === 'cuda'
+                  "
+                  class="cuda-badge"
+                  >CUDA</small
+                >
+              </div>
+            </td>
+            <td class="version-actions">
+              <Button
+                v-if="canRetryVersion(v)"
+                icon="pi pi-replay"
+                text
+                size="small"
+                severity="warning"
+                :aria-label="`Retry ${v.version}`"
+                :loading="retrying === versionId(v)"
+                :disabled="retrying === versionId(v)"
+                v-tooltip.top="'Retry this failed build'"
+                @click="$emit('retry', versionId(v))"
+              />
+              <Button
+                v-if="canSyncSourceVersion(v)"
+                icon="pi pi-refresh"
+                text
+                size="small"
+                severity="info"
+                :aria-label="`Sync ${sourceBranch(v)} and rebuild ${v.version}`"
+                :loading="syncing === versionId(v)"
+                :disabled="syncing === versionId(v)"
+                v-tooltip.top="`Sync ${sourceBranch(v)} and rebuild incrementally`"
+                @click="$emit('sync', versionId(v))"
+              />
+              <Button
+                v-if="canEditBuildConfig(v)"
+                icon="pi pi-sliders-h"
+                text
+                size="small"
+                severity="secondary"
+                :aria-label="`Edit build settings for ${v.version}`"
+                v-tooltip.top="'Edit CMake settings for this build'"
+                @click="$emit('edit-config', versionId(v))"
+              />
+              <Button
+                v-if="canVerify && buildStatus(v) !== 'building'"
+                icon="pi pi-check-circle"
+                text
+                size="small"
+                :aria-label="`Verify ${v.version}`"
+                v-tooltip.top="'Check llama-server, llama-cli, and llama-quantize'"
+                @click="$emit('verify', v.id ?? v.version)"
+              />
+              <Button
+                v-if="!v.is_active && canActivateVersion(v)"
+                :label="
+                  activating === (v.id ?? v.version) && activatingMessage
+                    ? activatingMessage
+                    : 'Activate'
+                "
+                icon="pi pi-play"
+                size="small"
+                severity="success"
+                outlined
+                :loading="activating === (v.id ?? v.version)"
+                @click="$emit('activate', v.id ?? v.version)"
+              />
+              <Button
+                icon="pi pi-trash"
+                text
+                severity="danger"
+                size="small"
+                :aria-label="`Delete ${v.version}`"
+                :loading="deleting === versionId(v)"
+                :disabled="deleting === versionId(v)"
+                v-tooltip.top="'Delete version'"
+                @click="$emit('delete', v.id ?? v.version)"
+              />
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </div>
 </template>
@@ -270,61 +296,70 @@ function canEditBuildConfig(version) {
 </script>
 
 <style scoped>
-.empty-state-mini {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-  color: var(--text-secondary);
-  font-size: 0.875rem;
-  line-height: 1.45;
-  padding: 0.5rem 0 0;
-}
-
-.empty-state-mini > .pi {
-  margin-top: 0.1rem;
-  flex-shrink: 0;
-  opacity: 0.85;
-}
-
 .version-table {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  margin: 0;
 }
 
-.version-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.5rem 0.75rem;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
+.version-table__empty {
+  justify-content: flex-start;
   gap: 0.5rem;
-  transition: border-color 0.15s;
+  padding: 0.75rem;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  text-align: left;
+}
+
+.version-table__empty :deep(.pi) {
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+  color: var(--text-secondary);
+}
+
+.version-table .table-shell__scroll > table {
+  min-width: 34rem;
+  font-size: var(--text-sm);
 }
 
 .version-row.active {
-  border-color: var(--accent-green);
+  background: color-mix(in srgb, var(--status-success) 8%, transparent);
 }
 
 .version-row.broken {
-  border-color: var(--accent-red, #e24c4c);
+  background: color-mix(in srgb, var(--status-error) 8%, transparent);
 }
 
-.version-info {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex: 1;
-  min-width: 0;
-  flex-wrap: wrap;
+.version-row.active > td:first-child {
+  box-shadow: inset 2px 0 0 var(--status-success);
+}
+
+.version-row.broken > td:first-child {
+  box-shadow: inset 2px 0 0 var(--status-error);
+}
+
+.version-name-cell {
+  white-space: nowrap;
 }
 
 .version-name {
-  font-weight: 600;
-  font-size: 0.875rem;
   font-family: monospace;
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.version-status-cell {
+  white-space: nowrap;
+}
+
+.version-status-cell :deep(.p-tag) {
+  margin-right: 0.25rem;
+}
+
+.version-source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
 }
 
 .repo-label {
@@ -336,33 +371,42 @@ function canEditBuildConfig(version) {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-  min-width: 0;
   max-width: 14rem;
   overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .branch-label .pi {
-  font-size: var(--text-xs);
   flex-shrink: 0;
+  font-size: var(--text-xs);
 }
 
 .cuda-badge {
-  background: rgba(34, 211, 238, 0.1);
-  color: var(--accent-cyan);
-  border: 1px solid rgba(34, 211, 238, 0.3);
-  border-radius: 0.25rem;
   padding: 0.1em 0.4em;
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 45%, transparent);
+  border-radius: var(--radius-sm);
+  background: var(--accent-cyan-soft);
+  color: var(--accent-primary);
   font-size: var(--text-xs);
   font-weight: 600;
 }
 
+.version-table__actions-heading {
+  text-align: right;
+}
+
 .version-actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 0.25rem;
-  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.version-actions :deep(.p-button) {
+  min-width: 2rem;
 }
 </style>

@@ -31,128 +31,82 @@
     </PageHeader>
 
     <!-- Token Warning -->
-    <div v-if="showTokenWarning" class="token-warning">
-      <i class="pi pi-key" aria-hidden="true" />
-      <span class="token-warning__text">A Hugging Face token is required for gated models.</span>
-      <Button
-        label="Set Token"
-        icon="pi pi-pencil"
-        size="small"
-        text
-        class="token-warning__action"
-        @click="showTokenDialog = true"
-      />
-    </div>
+    <HuggingFaceTokenNotice v-if="showTokenWarning" @open="showTokenDialog = true" />
 
     <SetupChecklist />
 
-    <div v-if="modelStore.modelsStale" class="state-banner" role="status">
-      <span>Showing the last loaded library. The latest refresh failed.</span>
-      <Button label="Retry" size="small" @click="retryCatalogs" />
-    </div>
+    <StateBanner
+      v-if="modelStore.modelsStale"
+      severity="warning"
+      message="Showing the last loaded library. The latest refresh failed."
+    >
+      <template #actions>
+        <Button label="Retry" size="small" @click="retryCatalogs" />
+      </template>
+    </StateBanner>
 
-    <div v-else-if="runtimeOutage" class="state-banner" role="status">
-      <span>{{ runtimeOutage }}</span>
-      <Button label="Retry" size="small" @click="retryCatalogs" />
-    </div>
+    <StateBanner v-else-if="runtimeOutage" severity="warning" :message="runtimeOutage">
+      <template #actions>
+        <Button label="Retry" size="small" @click="retryCatalogs" />
+      </template>
+    </StateBanner>
 
     <LoadingState v-if="catalogLoading && !storeHasModels" message="Loading models…" />
 
     <EmptyState
       v-else-if="catalogFailed && !storeHasModels"
       icon="pi pi-exclamation-circle"
+      role="alert"
       title="Could not load models"
       :description="modelStore.modelsError || 'The model library request failed.'"
     >
       <Button label="Retry" icon="pi pi-refresh" @click="retryCatalogs" />
+      <RouterLink class="page-action-link" to="/search">Search models</RouterLink>
     </EmptyState>
 
     <FirstModelPanel v-else-if="!catalogLoading && !storeHasModels" />
 
-    <div v-else class="library-workspace">
-      <div class="library-toolbar">
-        <label class="sr-only" for="library-search">Search library</label>
-        <input
-          id="library-search"
-          v-model="libraryQuery"
-          type="search"
-          class="library-search"
-          placeholder="Search name or repository"
-        />
-        <div class="library-filter">
-          <label for="library-status">Status</label>
-          <select id="library-status" v-model="statusFilter">
-            <option value="all">All</option>
-            <option value="running">Running</option>
-            <option value="stopped">Stopped</option>
-            <option value="attention">Needs attention</option>
-          </select>
-        </div>
-        <button
-          class="library-filters-toggle"
-          type="button"
-          :aria-expanded="filtersOpen"
-          aria-controls="library-secondary-filters"
-          @click="filtersOpen = !filtersOpen"
-        >
-          Filters<span v-if="secondaryFilterCount"> ({{ secondaryFilterCount }})</span>
-        </button>
-        <div id="library-secondary-filters" class="library-secondary-filters" v-show="filtersOpen">
-          <div class="library-filter">
-            <label for="library-engine">Engine</label>
-            <select id="library-engine" v-model="engineFilter">
-              <option value="all">Any engine</option>
-              <option v-for="engine in engineChoices" :key="engine" :value="engine">
-                {{ prettyEngine(engine) }}
-              </option>
-            </select>
-          </div>
-          <div class="library-filter">
-            <label for="library-task">Task</label>
-            <select id="library-task" v-model="taskFilter">
-              <option value="all">Any task</option>
-              <option v-for="task in taskChoices" :key="task" :value="taskLabel(task)">
-                {{ taskLabel(task) }}
-              </option>
-            </select>
-          </div>
-          <div class="library-filter">
-            <label for="library-sort">Sort</label>
-            <select id="library-sort" v-model="sortBy">
-              <option value="name">Name</option>
-              <option value="size">Size</option>
-              <option value="recent">Recent use</option>
-            </select>
-          </div>
-        </div>
-        <LibrarySavedFilters :filters="libraryPresetFilters" @apply="applyLibraryPreset" />
-        <div class="library-view" role="group" aria-label="Library layout">
-          <button type="button" :aria-pressed="viewMode === 'cards'" @click="setViewMode('cards')">
-            Cards
-          </button>
-          <button type="button" :aria-pressed="viewMode === 'list'" @click="setViewMode('list')">
-            List
-          </button>
-        </div>
-      </div>
+    <PageSection v-else variant="plain" class="library-workspace">
+      <LibraryToolbar
+        v-model:query="libraryQuery"
+        v-model:status-filter="statusFilter"
+        v-model:engine-filter="engineFilter"
+        v-model:task-filter="taskFilter"
+        v-model:sort-by="sortBy"
+        v-model:filters-open="filtersOpen"
+        :view-mode="viewMode"
+        :secondary-filter-count="secondaryFilterCount"
+        :engine-options="engineOptions"
+        :task-options="taskOptions"
+        :preset-filters="libraryPresetFilters"
+        @apply-preset="applyLibraryPreset"
+        @change-view="setViewMode"
+      />
 
-      <div class="library-results-summary">
-        <span role="status">{{ visibleModelCount }} of {{ totalModels }} models</span>
-        <label class="library-select-all">
-          <input
-            type="checkbox"
-            :checked="selectionSummary.all"
-            :indeterminate="selectionSummary.some"
-            :disabled="!selectableQuantIds.length"
-            aria-label="Select all visible models"
-            @change="toggleSelectAll"
+      <PageToolbar plain label="Library selection" class="library-results-summary">
+        <template #summary>
+          <span role="status">{{ visibleModelCount }} of {{ totalModels }} models</span>
+          <label class="library-select-all">
+            <input
+              type="checkbox"
+              :checked="selectionSummary.all"
+              :indeterminate="selectionSummary.some"
+              :disabled="!selectableQuantIds.length"
+              aria-label="Select all visible models"
+              @change="toggleSelectAll"
+            />
+            Select all visible
+          </label>
+          <Button
+            v-if="hasLibraryFilters"
+            label="Clear filters"
+            size="small"
+            text
+            severity="secondary"
+            @click="clearLibraryFilters"
           />
-          Select all visible
-        </label>
-        <button v-if="hasLibraryFilters" type="button" @click="clearLibraryFilters">
-          Clear filters
-        </button>
-      </div>
+        </template>
+      </PageToolbar>
       <LibraryBulkActions
         :models="selectedModels"
         :busy-ids="transitionIds"
@@ -194,89 +148,28 @@
         icon="pi pi-filter"
         title="No models match"
         description="Try a different name, status, engine, or task."
-        ><Button label="Clear filters" severity="secondary" outlined @click="clearLibraryFilters"
-      /></EmptyState>
+      >
+        <Button label="Clear filters" severity="secondary" outlined @click="clearLibraryFilters" />
+      </EmptyState>
 
       <!-- Model groups (GGUF + Safetensors) -->
-      <div
+      <LibraryListView
         v-else-if="viewMode === 'list'"
-        class="library-list"
-        role="table"
-        aria-label="Model library"
-      >
-        <div class="library-list__head" role="row">
-          <span role="columnheader">Model</span>
-          <span role="columnheader">Status</span>
-          <span role="columnheader" class="library-list__size-heading">File size</span>
-          <span role="columnheader" class="library-list__actions-heading">Actions</span>
-        </div>
-        <div
-          v-for="line in libraryLines"
-          :key="line.key"
-          class="library-list__row"
-          :class="{
-            'library-list__row--variant': line.kind === 'variant',
-            'is-running': line.running,
-          }"
-          role="row"
-        >
-          <div class="library-list__model" role="cell">
-            <div class="library-list__title">
-              <input
-                v-if="line.quant"
-                type="checkbox"
-                class="library-list__select"
-                :checked="isSelected(line.quant.id)"
-                :aria-label="`Select ${line.title}`"
-                @change="toggleSelection(line.quant.id)"
-              />
-              <span class="library-list__name" :title="line.title">{{ line.title }}</span>
-            </div>
-            <div v-if="line.meta" class="library-list__meta">{{ line.meta }}</div>
-          </div>
-          <div class="library-list__state" role="cell">
-            <span
-              v-if="line.status"
-              class="library-list__status"
-              :data-status="line.statusKey"
-              :title="line.statusDetail"
-              role="status"
-              >{{ line.status }}</span
-            >
-            <span v-else class="library-list__status library-list__status--quiet">{{
-              line.kind === 'group' ? 'Variants' : 'Stopped'
-            }}</span>
-          </div>
-          <div class="library-list__size" role="cell">
-            <span>{{ line.size || '—' }}</span
-            ><small v-if="line.kind === 'group'">Total on disk</small>
-          </div>
-          <div class="library-list__actions" role="cell">
-            <ModelCardActions
-              v-if="line.quant"
-              :model="line.quant"
-              :name="line.title"
-              compact
-              :is-starting="isQuantStarting(line.quant)"
-              :is-stopping="isQuantStopping(line.quant)"
-              @start="startModel(line.quant.id)"
-              @stop="stopModel(line.quant.id)"
-              @configure="configureModel(line.quant.id)"
-              @audio="openAudio(line.quant.id)"
-              @connect="openConnect(line.quant)"
-              @refresh="refreshModelStatus"
-              @delete="confirmDeleteModel(line.quant.id)"
-            />
-            <details v-else class="row-menu">
-              <summary class="library-list__more" :aria-label="`More actions for ${line.title}`">
-                <i class="pi pi-ellipsis-v" aria-hidden="true" />
-              </summary>
-              <button type="button" @click="confirmDeleteGroup(line.groupId)">Delete group</button>
-            </details>
-          </div>
-        </div>
-      </div>
-      <div v-else class="model-groups">
+        :lines="libraryLines"
+        :is-selected="isSelected"
+        :is-starting="isQuantStarting"
+        :is-stopping="isQuantStopping"
+        @toggle-selection="toggleSelection"
+        @start="startModel"
+        @stop="stopModel"
+        @configure="configureModel"
+        @audio="openAudio"
+        @connect="openConnect"
+        @refresh="refreshModelStatus"
+        @delete="confirmDeleteModel"
+        @delete-group="confirmDeleteGroup"
+      />
+      <div v-else class="page-card-grid model-groups">
         <div
           v-for="group in displayGroups"
           :key="group.huggingface_id"
@@ -472,60 +365,11 @@
           </Transition>
         </div>
       </div>
-    </div>
-
-    <!-- HuggingFace Token Dialog -->
-    <Dialog
-      v-model:visible="showTokenDialog"
-      header="HuggingFace Token"
-      modal
-      class="dialog-width-sm"
-    >
-      <div class="token-form">
-        <PersistenceAlert
-          :notice="tokenNotice"
-          @retry="retryTokenAction"
-          @refresh="refreshTokenSave"
-        />
-        <p class="token-desc">Required to access gated models (e.g. Llama, Gemma).</p>
-        <div class="form-field">
-          <label for="hf-token">Token</label>
-          <Password
-            v-model="tokenInput"
-            input-id="hf-token"
-            placeholder="hf_…"
-            :feedback="false"
-            toggleMask
-            class="w-full"
-          />
-        </div>
-        <div v-if="modelStore.hasHuggingfaceToken" class="token-current">
-          <i class="pi pi-check-circle token-current__icon" aria-hidden="true" />
-          <span>Token set: {{ modelStore.huggingfaceToken || '••••••••' }}</span>
-          <Button
-            label="Clear"
-            severity="danger"
-            text
-            size="small"
-            :disabled="tokenSaveHeld"
-            @click="clearToken"
-          />
-        </div>
-      </div>
-      <template #footer>
-        <Button label="Cancel" severity="secondary" outlined @click="showTokenDialog = false" />
-        <Button
-          label="Save Token"
-          icon="pi pi-save"
-          severity="success"
-          :disabled="!tokenInput || tokenSaveHeld"
-          :loading="savingToken"
-          @click="saveToken"
-        />
-      </template>
-    </Dialog>
+    </PageSection>
 
     <LibraryToast @configure="configureModel" />
+
+    <HuggingFaceTokenDialog v-model:visible="showTokenDialog" />
 
     <ConnectDialog
       v-if="connectVisible"
@@ -567,24 +411,15 @@ import { createDownloadSetupAnnouncer } from '@/composables/useDownloadSetupToas
 import { useQueryState } from '@/composables/useQueryState'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { watchDialogFocus } from '@/composables/useFocusReturn'
-import { useRouter } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
-import PersistenceAlert from '@/components/common/PersistenceAlert.vue'
-import {
-  classifyPersistenceError,
-  noteDocumentSaveFailure,
-  saveHeldForRefresh,
-} from '@/composables/persistenceOutcome'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
-import Dialog from 'primevue/dialog'
-import Password from 'primevue/password'
 import ModelRow from '@/components/ModelRow.vue'
 import ModelCardActions from '@/components/models/ModelCardActions.vue'
 import LibraryTransitionStatus from '@/components/models/LibraryTransitionStatus.vue'
 import LibraryToast from '@/components/models/LibraryToast.vue'
-import LibrarySavedFilters from '@/components/models/LibrarySavedFilters.vue'
 import LibraryBulkActions from '@/components/models/LibraryBulkActions.vue'
 import { useModelStore } from '@/stores/models'
 import { useProgressStore } from '@/stores/progress'
@@ -596,9 +431,20 @@ import {
   withheldConfirmation,
 } from '@/composables/actionConfirmation'
 import PageHeader from '@/components/common/PageHeader.vue'
+import PageSection from '@/components/common/PageSection.vue'
+import PageToolbar from '@/components/common/PageToolbar.vue'
+import StateBanner from '@/components/common/StateBanner.vue'
 import LoadingState from '@/components/common/LoadingState.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
-import { ConnectDialog, FirstModelPanel, SetupChecklist } from '@/components/models/lazyLibraryUi'
+import {
+  ConnectDialog,
+  FirstModelPanel,
+  HuggingFaceTokenDialog,
+  HuggingFaceTokenNotice,
+  LibraryListView,
+  LibraryToolbar,
+  SetupChecklist,
+} from '@/components/models/lazyLibraryUi'
 import { useEnginesStore } from '@/stores/engines'
 
 const router = useRouter()
@@ -716,16 +562,6 @@ const stoppingModels = ref(new Set())
 const showTokenDialog = ref(false)
 watchDialogFocus(connectVisible)
 watchDialogFocus(showTokenDialog)
-const tokenInput = ref('')
-const tokenNotice = ref(null)
-const tokenAction = ref('save')
-const tokenSaveHeld = computed(() => saveHeldForRefresh(tokenNotice.value))
-
-function retryTokenAction() {
-  if (tokenAction.value === 'clear') void clearToken()
-  else void saveToken()
-}
-const savingToken = ref(false)
 const catalogRefreshInFlight = ref(false)
 const FAST_POLL_MS = 1000
 const IDLE_POLL_MS = 5000
@@ -825,6 +661,16 @@ const taskChoices = computed(() => {
   sourceGroups.value.forEach((group) => (group.tasks || []).forEach((task) => values.add(task)))
   return [...values].sort()
 })
+
+const engineOptions = computed(() => [
+  { label: 'Any engine', value: 'all' },
+  ...engineChoices.value.map((engine) => ({ label: prettyEngine(engine), value: engine })),
+])
+
+const taskOptions = computed(() => [
+  { label: 'Any task', value: 'all' },
+  ...taskChoices.value.map((task) => ({ label: taskLabel(task), value: taskLabel(task) })),
+])
 
 const displayGroups = computed(() => {
   const query = libraryQuery.value.trim().toLowerCase()
@@ -1235,70 +1081,6 @@ function confirmDeleteGroup(huggingfaceId) {
   })
 }
 
-// ── Token management ───────────────────────────────────────
-async function refreshTokenSave() {
-  const draft = tokenInput.value
-  try {
-    await modelStore.fetchHuggingfaceTokenStatus()
-    tokenNotice.value = null
-    return true
-  } catch {
-    tokenInput.value = draft
-    tokenNotice.value = classifyPersistenceError(new Error('reload failed'))
-    return false
-  }
-}
-
-async function saveToken() {
-  savingToken.value = true
-  const draft = tokenInput.value
-  try {
-    await modelStore.setHuggingfaceToken(tokenInput.value)
-    tokenInput.value = ''
-    showTokenDialog.value = false
-    tokenNotice.value = null
-    toast.add({ severity: 'success', summary: 'Token saved', life: 3000 })
-  } catch (e) {
-    tokenInput.value = draft
-    tokenAction.value = 'save'
-    const outcome = noteDocumentSaveFailure(toast, e)
-    if (outcome) {
-      tokenNotice.value = outcome
-      if (outcome.committed === true) {
-        const reloaded = await refreshTokenSave()
-        tokenInput.value = draft
-        tokenNotice.value = reloaded
-          ? { ...outcome, refresh: false, retry: false }
-          : {
-              ...outcome,
-              detail:
-                'The document was replaced, but it could not be reloaded. Your edits are still here. Refresh before trying again.',
-              refresh: true,
-              retry: false,
-            }
-        if (reloaded) tokenInput.value = ''
-      }
-    } else {
-      toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
-    }
-  } finally {
-    savingToken.value = false
-  }
-}
-
-async function clearToken() {
-  try {
-    await modelStore.clearHuggingfaceToken()
-    tokenNotice.value = null
-    toast.add({ severity: 'info', summary: 'Token cleared', life: 3000 })
-  } catch (e) {
-    tokenAction.value = 'clear'
-    const outcome = noteDocumentSaveFailure(toast, e)
-    if (outcome) tokenNotice.value = outcome
-    else toast.add({ severity: 'error', summary: 'Failed', detail: e.message, life: 4000 })
-  }
-}
-
 // ── Lifecycle ──────────────────────────────────────────────
 onMounted(() => {
   try {
@@ -1345,45 +1127,11 @@ onUnmounted(() => {
 
 /* layout: .page-shell */
 
-/* ── Token warning ────────────────────────────────────── */
-.token-warning {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.25rem 0;
-  color: var(--text-secondary);
-  font-size: 0.8125rem;
-}
-
-.token-warning__text {
-  flex: 1 1 12rem;
-  min-width: 0;
-}
-
-.token-warning__action {
-  margin-left: auto;
-}
-
 /* ── Groups ───────────────────────────────────────────── */
-.model-groups {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.5rem;
-  align-items: start;
-}
-
-@media (min-width: 769px) {
-  .model-groups {
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, 24rem), 1fr));
-    gap: var(--panel-gap);
-  }
-}
-
 .model-group {
-  background: var(--bg-card, #161b2e);
-  border: 1px solid var(--border-primary, #2a2f45);
-  border-radius: var(--radius-lg, 0.75rem);
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
   overflow: hidden;
   container-type: inline-size;
   container-name: model-card;
@@ -1404,13 +1152,13 @@ onUnmounted(() => {
   padding: 0.75rem 1rem;
   cursor: pointer;
   user-select: none;
-  background: var(--bg-surface, #1e2235);
+  background: var(--bg-surface);
   transition: background 0.15s;
   gap: 0.35rem 0.5rem;
 }
 
 .group-header:hover {
-  background: var(--bg-card-hover, #232a42);
+  background: var(--bg-card-hover);
 }
 
 .group-header .group-title {
@@ -1433,7 +1181,7 @@ onUnmounted(() => {
 }
 
 .safetensors-header:hover {
-  background: var(--bg-surface, #1e2235);
+  background: var(--bg-surface);
 }
 
 .safetensors-header > .group-title {
@@ -1517,13 +1265,13 @@ onUnmounted(() => {
   display: block;
   font-size: var(--text-xs);
   line-height: 1.15;
-  color: var(--text-muted, var(--text-secondary, #9ca3af));
+  color: var(--text-secondary);
   opacity: 0.9;
 }
 
 .group-chevron {
   font-size: var(--text-xs);
-  color: var(--text-secondary, #9ca3af);
+  color: var(--text-secondary);
 }
 
 .group-name {
@@ -1550,14 +1298,14 @@ onUnmounted(() => {
 .group-delete-preview {
   font-size: var(--text-xs);
   line-height: 1.25;
-  color: var(--text-secondary, #9ca3af);
+  color: var(--text-secondary);
   white-space: nowrap;
   user-select: none;
 }
 
 .group-meta small {
   font-size: var(--text-xs);
-  color: var(--text-secondary, #9ca3af);
+  color: var(--text-secondary);
   font-family: monospace;
   max-width: 200px;
   overflow: hidden;
@@ -1596,9 +1344,9 @@ onUnmounted(() => {
   align-items: start;
   justify-items: stretch;
   padding: 0.5rem 0.75rem;
-  background: var(--bg-surface, #1e2235);
-  border: 1px solid var(--border-primary, #2a2f45);
-  border-radius: var(--radius-md, 0.5rem);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
   transition:
     border-color 0.15s ease,
     box-shadow 0.2s ease,
@@ -1640,7 +1388,7 @@ onUnmounted(() => {
   display: block;
   font-size: var(--text-xs);
   line-height: 1.15;
-  color: var(--text-muted, var(--text-secondary, #9ca3af));
+  color: var(--text-secondary);
   opacity: 0.9;
 }
 
@@ -1691,7 +1439,7 @@ onUnmounted(() => {
 :deep(.quant-heading .file-size) {
   font-size: var(--text-xs);
   line-height: 1.25;
-  color: var(--text-secondary, #9ca3af);
+  color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1702,74 +1450,23 @@ onUnmounted(() => {
   color: var(--text-secondary);
 }
 
-.library-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  margin-bottom: 0.65rem;
-  gap: 0.75rem;
-}
-
-.library-filter {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  flex: 0 1 auto;
-  min-width: 0;
-  gap: 0.4rem;
-}
-
-.library-toolbar label {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-
-.library-search,
-.library-toolbar select {
-  min-height: 2.25rem;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  padding: 0.2rem 0.5rem;
-}
-
-.library-search {
-  flex: 1 1 14rem;
-  width: auto;
-  min-width: 10rem;
-}
-
-.library-view {
-  display: inline-flex;
-  gap: 0.25rem;
-}
-
-.library-view button,
-.row-menu summary,
-.row-menu button {
-  min-height: 2.25rem;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.8rem;
-  padding: 0.2rem 0.55rem;
-}
-
-.library-view button[aria-pressed='true'] {
-  border-color: var(--accent-cyan);
-  font-weight: 700;
-}
-
 .row-menu {
   position: relative;
 }
 
 .row-menu summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
   list-style: none;
 }
 
@@ -1777,18 +1474,18 @@ onUnmounted(() => {
   display: none;
 }
 
-.row-menu[open] {
-  position: relative;
-}
-
 .row-menu button {
   display: block;
   width: 100%;
   margin-top: 0.25rem;
-}
-
-.row-menu > button:not(.p-button) {
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
   color: var(--status-error);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
 }
 
 .group-repo {
@@ -1796,260 +1493,7 @@ onUnmounted(() => {
   font-size: var(--text-xs);
 }
 
-.library-list {
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
-  background: var(--bg-secondary);
-}
-
-.library-list__head,
-.library-list__row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 8rem 7.5rem 22rem;
-  gap: 1rem;
-  align-items: center;
-  padding: 0.75rem 1rem;
-}
-
-.library-list__head {
-  min-height: 2.75rem;
-  font-size: var(--text-xs);
-  font-weight: 650;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-secondary);
-  background: var(--bg-tertiary);
-}
-
-.library-list__row {
-  min-height: 2.75rem;
-  border-top: 1px solid var(--border-primary);
-}
-
-.library-list__row--variant {
-  min-height: 2.35rem;
-  background: color-mix(in srgb, var(--bg-tertiary) 45%, transparent);
-}
-
-.library-list__row--variant .library-list__name {
-  padding-left: 0.85rem;
-  font-weight: 550;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.82rem;
-}
-
-.library-list__row.is-running {
-  box-shadow: inset 2px 0 0 var(--accent-green);
-}
-
-.library-list__model {
-  min-width: 0;
-}
-
-.library-list__title {
-  display: flex;
-  align-items: baseline;
-  gap: 0.45rem;
-  min-width: 0;
-}
-
-.library-list__name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  font-weight: 650;
-}
-
-.library-list__meta {
-  margin-top: 0.05rem;
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.library-list__status {
-  flex: none;
-  font-size: var(--text-xs);
-  font-weight: 650;
-}
-
-.library-list__status[data-status='running'] {
-  color: var(--status-success);
-}
-
-.library-list__status[data-status='starting'],
-.library-list__status[data-status='stopping'],
-.library-list__status[data-status='stale'],
-.library-list__status[data-status='unknown'] {
-  color: var(--status-warning, #f59e0b);
-}
-
-.library-list__status[data-status='error'] {
-  color: var(--status-error);
-}
-
-.library-list__size {
-  font-size: 0.82rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-secondary);
-  text-align: right;
-  display: grid;
-  gap: 0.15rem;
-  white-space: nowrap;
-}
-.library-list__size small {
-  font-size: var(--text-xs);
-  font-weight: 400;
-}
-.library-list__size-heading {
-  text-align: right;
-}
-.library-list__status--quiet {
-  color: var(--text-secondary);
-  font-weight: 400;
-}
-.library-list__actions-heading {
-  padding-left: 1rem;
-}
-
-.library-list__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.35rem;
-  padding-left: 1rem;
-  border-left: 1px solid var(--border-primary);
-  min-width: 0;
-}
-
-.library-list .row-menu summary.library-list__more {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2rem;
-  min-height: 2.75rem;
-  padding: 0;
-}
-
-.library-list .row-menu[open] {
-  position: relative;
-}
-
-.library-list .row-menu[open] > button {
-  position: absolute;
-  right: 0;
-  z-index: 2;
-  width: max-content;
-  margin-top: 0.15rem;
-  padding: 0.35rem 0.6rem;
-  background: var(--bg-secondary);
-  box-shadow: var(--shadow-md, 0 8px 24px rgb(0 0 0 / 0.28));
-}
-
-@media (max-width: 1100px) {
-  .library-list__head,
-  .library-list__row {
-    grid-template-columns: minmax(0, 1fr) 8rem 7.5rem;
-    grid-template-areas: 'model state size' 'actions actions actions';
-    gap: 0.65rem 1rem;
-  }
-  .library-list__head {
-    grid-template-areas: 'model state size';
-  }
-  .library-list__actions-heading {
-    display: none;
-  }
-  .library-list__model {
-    grid-area: model;
-  }
-  .library-list__state {
-    grid-area: state;
-  }
-  .library-list__size {
-    grid-area: size;
-  }
-  .library-list__actions {
-    grid-area: actions;
-    justify-content: flex-start;
-    padding: 0.5rem 0 0;
-    border-left: 0;
-    border-top: 1px solid var(--border-primary);
-  }
-  .library-list__row:has(.library-list__actions > .row-menu:only-child) .library-list__actions {
-    padding-top: 0;
-    border-top: 0;
-  }
-}
-
-@media (max-width: 520px) {
-  .library-list__head {
-    display: none;
-  }
-  .library-list__row {
-    grid-template-columns: minmax(0, 1fr) 6.5rem;
-    grid-template-areas: 'model size' 'state size' 'actions actions';
-    padding: 1rem;
-    gap: 0.5rem 0.75rem;
-  }
-  .library-list__size {
-    align-self: start;
-  }
-  .library-list__size::before {
-    content: 'File size';
-    font-size: var(--text-xs);
-    color: var(--text-secondary);
-  }
-  .library-list__meta {
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
-}
-
-/* ── Token dialog ─────────────────────────────────────── */
-.token-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-.token-desc {
-  font-size: 0.875rem;
-  color: var(--text-secondary, #9ca3af);
-  margin: 0;
-}
-.form-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-.form-field label {
-  font-size: 0.875rem;
-  font-weight: 500;
-}
-
-.token-current {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.875rem;
-  background: var(--status-success-soft);
-  border: 1px solid color-mix(in srgb, var(--status-success) 35%, transparent);
-  border-radius: var(--radius-md, 0.5rem);
-  padding: 0.5rem 0.75rem;
-}
-
-.token-current__icon {
-  color: var(--status-success);
-}
-
 @media (max-width: 768px) {
-  .token-warning__action {
-    margin-left: 0;
-  }
-
   .group-name {
     white-space: normal;
     overflow: visible;
@@ -2098,30 +1542,10 @@ onUnmounted(() => {
   }
 }
 
-.library-secondary-filters {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-.library-results-summary {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: center;
+.library-results-summary :deep(.page-toolbar__summary) {
   gap: 1rem;
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
 }
-.library-results-summary button,
-.library-filters-toggle {
-  border: 1px solid var(--border-secondary);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  border-radius: var(--radius-sm);
-  padding: 0.5rem 0.75rem;
-  cursor: pointer;
-}
+
 .library-select-all {
   display: inline-flex;
   align-items: center;
@@ -2130,34 +1554,21 @@ onUnmounted(() => {
   color: var(--text-secondary);
   cursor: pointer;
 }
+
 .library-select-all input,
-.library-list__select,
 .library-check input {
   width: 1rem;
   height: 1rem;
   margin: 0;
-  accent-color: var(--accent-cyan);
+  accent-color: var(--accent-primary);
 }
+
 .library-check {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
 }
-.library-list__select {
-  flex: 0 0 auto;
-  align-self: center;
-}
 
-@media (max-width: 900px) {
-  .library-secondary-filters {
-    flex: 1 1 100%;
-  }
-  .library-filter {
-    flex: 1;
-  }
-}
-
-/* Card identity and actions each get their own full-width row. */
 .safetensors-header {
   flex-direction: column;
   align-items: stretch;
@@ -2185,35 +1596,5 @@ onUnmounted(() => {
   justify-content: flex-start;
   padding-top: 0.75rem;
   border-top: 1px solid var(--border-primary);
-}
-
-@media (max-width: 900px) {
-  .library-toolbar {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-  .library-search {
-    grid-column: 1 / -1;
-    width: 100%;
-  }
-  .library-toolbar > .library-filter {
-    min-width: 0;
-  }
-  .library-toolbar > .library-filter select {
-    flex: 1;
-    min-width: 0;
-  }
-  .library-secondary-filters {
-    grid-column: 1 / -1;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-  }
-  .library-secondary-filters .library-filter {
-    display: grid;
-    align-items: stretch;
-  }
-  .library-view {
-    grid-column: 1 / -1;
-  }
 }
 </style>

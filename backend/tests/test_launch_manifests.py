@@ -241,11 +241,6 @@ def _model(engine: str, **section):
 
 @pytest.mark.parametrize("engine", sorted(VALID_ENGINE_IDS))
 def test_each_engine_compiles_structured_argv(monkeypatch, tmp_path, engine):
-    from backend.engines.definitions import load_default_engine_definitions
-
-    definition = load_default_engine_definitions().get(engine)
-    if definition is None or not definition.runtime_profiles:
-        pytest.skip("registration-only engine has no launch profile")
     _patch_resolvers(monkeypatch, tmp_path)
     section = {"ctx_size": 2048, "runtime_env": {"FOO": "bar baz", "EMPTY": ""}}
     if engine == "sglang_v100":

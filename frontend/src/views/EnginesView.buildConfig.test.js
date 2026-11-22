@@ -327,14 +327,38 @@ describe('EnginesView per-build CMake editor', () => {
 })
 
 describe('EnginesView build dialog theming', () => {
+  // The page used to own the engine card/banner chrome; that now lives in the
+  // engine components, and every surface must stay on app theme tokens.
+  const SOURCES = {
+    view: resolve(dirname(fileURLToPath(import.meta.url)), './EnginesView.vue'),
+    card: resolve(dirname(fileURLToPath(import.meta.url)), '../components/engines/EngineCard.vue'),
+    updateBanner: resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      '../components/system/EngineUpdateBanner.vue',
+    ),
+  }
+
+  function source(key) {
+    return readFileSync(SOURCES[key], 'utf8')
+  }
+
   it('uses app theme tokens instead of PrimeVue surface grays', () => {
-    const src = readFileSync(
-      resolve(dirname(fileURLToPath(import.meta.url)), './EnginesView.vue'),
-      'utf8',
-    )
-    expect(src).toContain('background: var(--bg-tertiary)')
-    expect(src).toContain('background: var(--status-info-soft)')
-    expect(src).not.toMatch(/var\(--surface-50/)
-    expect(src).not.toMatch(/background: var\(--surface-100\)/)
+    for (const key of Object.keys(SOURCES)) {
+      const src = source(key)
+      expect(src, key).not.toMatch(/var\(--surface-/)
+      expect(src, key).not.toMatch(/background: var\(--gray-/)
+    }
+    expect(source('card')).toContain('background: var(--bg-card)')
+    expect(source('updateBanner')).toContain('severity="warning"')
+  })
+
+  it('leaves page-level chrome to the shared section primitives', () => {
+    const src = source('view')
+    expect(src).toContain('<PageSection')
+    expect(src).toContain('<LoadingState')
+    expect(src).toContain('<EmptyState')
+    expect(src).toContain('<StateBanner')
+    // No page-local section lookalike may come back.
+    expect(src).not.toContain('ev-section')
   })
 })

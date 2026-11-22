@@ -82,8 +82,8 @@ The npm backend scripts invoke `python`, so activate the environment first. Use
 | **Search**  | Hugging Face discovery, artifact/quantization selection, companion files, downloads, and audio package installation.        |
 | **Audio**   | Speech, transcription, and discovered generic audio tasks with typed options, voices, reference audio, and outputs.         |
 | **Engines** | Runtime installs, source builds, versions, activation, build settings, updates, and CLI parameter scans.                    |
-| **Proxy**   | Traffic, engine health, logs, request traces, access keys, budgets, routing aliases, serving limits, and gateway lifecycle. |
-| **System**  | Hardware readings, CUDA/toolkit controls, diagnostics, backup and restore, and configuration change history.                |
+| **Proxy**   | Traffic, engine health, GPU admission, logs, request traces, access keys, budgets, routing aliases, serving limits, and gateway lifecycle. |
+| **System**  | Hardware readings, storage cleanup, CUDA/toolkit controls, diagnostics, backup and restore, and configuration change history.                |
 
 ## Supported engines
 
@@ -99,7 +99,6 @@ The npm backend scripts invoke `python`, so activate the environment first. Use
 | SGLang V100       | `sglang_v100`   | safetensors snapshots                                    | Dedicated source/build workflow and managed Python/CUDA. |
 | SGLang SXM2       | `sglang_sxm2`   | safetensors snapshots                                    | Dedicated source/build workflow and managed Python/CUDA. |
 | ReVolta           | `revolta`       | safetensors snapshots                                    | Managed Python environment; V100/SM70 release wheel.     |
-| [Strata](docs/strata-engine.md) | `strata` | Strata model profiles | Experimental registration; the Strata Terminal owns install/model preparation. |
 | audio.cpp         | `audio_cpp`     | Prepared audio packages and discovered audio GGUF models | Source/CMake build; validated through 0.9.5.             |
 
 Available tasks and hardware support depend on the installed engine and selected model.
@@ -372,6 +371,11 @@ describe exact inclusion, preview, and recovery behavior.
 `proxy_port` and the client-facing public inference URL are application settings. The port
 takes effect at listener restart; the public URL supplies client examples and connection
 details. TLS termination belongs at the deployment's reverse proxy.
+
+Studio is a single-operator, single-host deployment. See the
+[single-operator deployment guide](docs/single-operator-deployment.md) for the security
+boundary, GPU/toolkit practice, storage and backup policy, operating routine and incident
+checklist.
 
 ## Quality gates
 

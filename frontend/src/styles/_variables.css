@@ -80,8 +80,30 @@
   --text-xs: 0.8125rem;
   --text-sm: 0.875rem;
   --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
   --panel-padding: clamp(1rem, 1.6vw, 1.5rem);
   --panel-gap: 1.25rem;
+
+  /* UI foundation: one vocabulary for routed pages (docs/ui-alignment.md).
+     Section, toolbar, form, and table patterns read these tokens so a page
+     migration does not need to duplicate card or section CSS. */
+  --section-radius: var(--radius-lg);
+  --section-padding: var(--panel-padding);
+  --section-gap: 1rem;
+  --section-header-gap: 0.25rem;
+  --section-title-size: 1.0625rem;
+  --section-title-weight: 650;
+  --subsection-title-size: 0.9375rem;
+  --toolbar-radius: var(--radius-md);
+  --toolbar-padding: 0.625rem 0.75rem;
+  --toolbar-gap: 0.5rem;
+  --toolbar-control-height: 2.125rem;
+  --form-gap: 1rem;
+  --form-column-gap: 1.25rem;
+  --table-radius: var(--radius-md);
+  --table-header-bg: var(--bg-surface);
 
   /* Spacing */
   --spacing-xs: 0.25rem;

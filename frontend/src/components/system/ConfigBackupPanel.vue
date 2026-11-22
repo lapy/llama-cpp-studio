@@ -1,44 +1,70 @@
 <template>
-  <section id="config-backup" class="config-backup" aria-labelledby="config-backup-heading">
-    <h2 id="config-backup-heading">Backup and restore</h2>
-    <p class="restore-notice">
-      Back up preferences, model settings, and templates. Credentials, model files, and running
-      state are excluded.
-    </p>
-    <div class="backup-actions-grid">
-      <div class="backup-action-card">
-        <h3>Export settings</h3>
-        <p>Save a portable configuration snapshot.</p>
-        <button type="button" :disabled="busy || uncertain" @click="downloadBackup">
-          <i class="pi pi-download" aria-hidden="true" /> Download backup
-        </button>
-      </div>
-      <div class="backup-action-card">
-        <h3>Restore settings</h3>
-        <p>
-          Choose a backup to review changes. Restoring configuration does not publish it or restart
-          models. Use Apply afterwards to activate saved changes.
-        </p>
-        <label class="restore-file" for="restore-backup-file"
-          >Select a backup<input
+  <PageSection
+    id="config-backup"
+    title="Backup and restore"
+    description="Back up preferences, model settings, and templates. Credentials, model files, and running state are excluded."
+  >
+    <template #actions>
+      <Button
+        label="Download backup"
+        icon="pi pi-download"
+        :disabled="busy || uncertain"
+        :loading="downloading"
+        @click="downloadBackup"
+      />
+    </template>
+
+    <PageSection
+      heading-tag="h3"
+      variant="plain"
+      title="Restore settings"
+      description="Choose a backup to review changes. Restoring configuration does not publish it or restart models. Use Apply afterwards to activate saved changes."
+    >
+      <div class="page-form page-form--single">
+        <div class="page-form__field">
+          <label class="page-form__label" for="restore-backup-file">Select a backup</label>
+          <input
             id="restore-backup-file"
             ref="fileInput"
+            class="restore-file"
             type="file"
             accept="application/json,.json"
             :disabled="busy || uncertain"
             @change="onFile"
-        /></label>
+          />
+          <p class="page-form__hint">
+            Choose a JSON backup exported from Studio. Files larger than 1 MiB are rejected.
+          </p>
+        </div>
       </div>
-    </div>
-    <p v-if="readError" class="restore-error" role="alert">{{ readError }}</p>
+    </PageSection>
 
-    <div v-if="preview" class="restore-preview">
-      <p>{{ preview.notice }}</p>
-      <p v-if="!preview.applicable">
+    <StateBanner v-if="readError" class="restore-error" severity="error">
+      {{ readError }}
+      <template #actions>
+        <Button
+          label="Choose another backup"
+          icon="pi pi-folder-open"
+          severity="secondary"
+          outlined
+          size="small"
+          @click="focusFileInput"
+        />
+      </template>
+    </StateBanner>
+
+    <PageSection
+      v-if="preview"
+      heading-tag="h3"
+      variant="plain"
+      title="Review changes"
+      :description="preview.notice"
+    >
+      <p v-if="!preview.applicable" class="page-form__hint">
         Map each unresolved model to an existing model, or skip it, then update the preview.
       </p>
       <ul class="restore-items">
-        <li v-for="item in preview.items" :key="`${item.kind}:${item.id}`">
+        <li v-for="item in preview.items" :key="`${item.kind}:${item.id}`" class="restore-item">
           <span class="restore-item-kind">{{ kindLabel(item.kind) }}</span>
           <span class="restore-item-id">{{ item.id }}</span>
           <span class="restore-item-action">{{ actionLabel(shownAction(item)) }}</span>
@@ -65,40 +91,74 @@
               {{ actionLabel(option) }}
             </option>
           </select>
-          <button
+          <Button
             v-if="item.action === 'unresolved' && !mapping[item.id]"
-            type="button"
+            :label="`Skip ${item.id}`"
+            severity="secondary"
+            text
+            size="small"
             :disabled="busy || uncertain"
             @click="setDecision(item, 'skip')"
-          >
-            Skip {{ item.id }}
-          </button>
+          />
         </li>
       </ul>
-      <p v-if="planLabel">Plan {{ planLabel }}</p>
-      <div class="restore-actions">
-        <button type="button" :disabled="busy || uncertain" @click="loadPreview">
-          Update preview
-        </button>
-        <button v-if="!uncertain" type="button" :disabled="!canRestore" @click="confirmRestore">
-          Restore saved settings
-        </button>
-        <button type="button" :disabled="busy || uncertain" @click="cancelPreview">
-          Cancel restore
-        </button>
+      <p v-if="planLabel" class="page-form__hint">Plan {{ planLabel }}</p>
+      <div class="page-form__actions">
+        <Button
+          label="Update preview"
+          icon="pi pi-refresh"
+          severity="secondary"
+          outlined
+          :disabled="busy || uncertain"
+          :loading="previewing"
+          @click="loadPreview"
+        />
+        <Button
+          v-if="!uncertain"
+          label="Restore saved settings"
+          icon="pi pi-undo"
+          severity="secondary"
+          outlined
+          :disabled="!canRestore"
+          :loading="applying"
+          @click="confirmRestore"
+        />
+        <Button
+          label="Cancel restore"
+          severity="secondary"
+          text
+          :disabled="busy || uncertain"
+          @click="cancelPreview"
+        />
       </div>
+    </PageSection>
+
+    <StateBanner v-if="message" class="restore-status" :severity="messageSeverity" role="status">
+      {{ message }}
+    </StateBanner>
+    <div v-if="uncertain" class="page-form__actions">
+      <Button
+        label="Reconcile"
+        icon="pi pi-history"
+        severity="secondary"
+        outlined
+        :loading="reconciling"
+        @click="reconcile"
+      />
     </div>
 
-    <p v-if="message" class="restore-status" role="status">{{ message }}</p>
-    <button v-if="uncertain" type="button" :disabled="busy" @click="reconcile">Reconcile</button>
-    <ConfigHistoryPanel v-if="showHistory" />
-  </section>
+    <ConfigHistoryPanel v-if="showHistory" heading-tag="h3" variant="plain" />
+  </PageSection>
 </template>
 
 <script setup>
 import { computed, nextTick, onMounted, ref } from 'vue'
 import axios from 'axios'
+import Button from 'primevue/button'
+import PageSection from '@/components/common/PageSection.vue'
+import StateBanner from '@/components/common/StateBanner.vue'
 import ConfigHistoryPanel from './ConfigHistoryPanel.vue'
+
 defineProps({ showHistory: { type: Boolean, default: true } })
 
 const backup = ref(null)
@@ -108,6 +168,7 @@ const mapping = ref({})
 const localModels = ref([])
 const readError = ref('')
 const message = ref('')
+const messageSeverity = ref('info')
 const previewing = ref(false)
 const applying = ref(false)
 const reconciling = ref(false)
@@ -131,6 +192,15 @@ const canRestore = computed(
 )
 const planLabel = computed(() => (planId.value ? planId.value.slice(0, 12) : ''))
 
+function setMessage(text, severity = 'info') {
+  message.value = text
+  messageSeverity.value = severity
+}
+
+function focusFileInput() {
+  fileInput.value?.focus()
+}
+
 function backupFilename(header) {
   const match = /filename="([^"]+)"/.exec(String(header || ''))
   const name = match?.[1] || 'studio-config-backup.json'
@@ -145,6 +215,7 @@ function cancelPreview() {
   mapping.value = {}
   readError.value = ''
   message.value = ''
+  messageSeverity.value = 'info'
   dirty.value = false
   uncertain.value = false
   planId.value = null
@@ -292,7 +363,7 @@ async function loadPreview() {
     planId.value = data.plan_id
     dirty.value = false
     if (data.applicable === false) {
-      message.value = 'The preview has unresolved models. Map or skip them before restoring.'
+      setMessage('The preview has unresolved models. Map or skip them before restoring.', 'warning')
     }
   } catch (error) {
     preview.value = null
@@ -314,10 +385,17 @@ async function confirmRestore() {
       mapping: mapping.value,
       plan_id: planId.value,
     })
-    message.value =
-      data.outcome === 'completed'
-        ? 'Restore completed. Saved settings were updated. Running models were not restarted or published.'
-        : 'The restore outcome could not be established. Reconcile before trying again.'
+    if (data.outcome === 'completed') {
+      setMessage(
+        'Restore completed. Saved settings were updated. Running models were not restarted or published.',
+        'success',
+      )
+    } else {
+      setMessage(
+        'The restore outcome could not be established. Reconcile before trying again.',
+        'error',
+      )
+    }
     if (data.outcome !== 'completed') uncertain.value = true
     planId.value = null
     dirty.value = true
@@ -325,13 +403,18 @@ async function confirmRestore() {
     const data = error?.response?.data
     if (data?.code === 'BACKUP_STALE') {
       dirty.value = true
-      message.value =
-        'The configuration changed after the preview. Update the preview before restoring.'
+      setMessage(
+        'The configuration changed after the preview. Update the preview before restoring.',
+        'warning',
+      )
       return
     }
     uncertain.value = true
-    message.value =
-      data?.detail || 'The restore outcome could not be established. Reconcile before trying again.'
+    setMessage(
+      data?.detail ||
+        'The restore outcome could not be established. Reconcile before trying again.',
+      'error',
+    )
   } finally {
     applying.value = false
   }
@@ -345,18 +428,33 @@ async function reconcile() {
     uncertain.value = !['completed', 'pre_import', 'idle'].includes(data.outcome)
     planId.value = null
     dirty.value = true
-    message.value =
-      data.outcome === 'completed'
-        ? 'Recovery completed the restore. Running models were not restarted or published.'
-        : data.outcome === 'pre_import'
-          ? 'Recovery returned configuration to the pre-import state. Running models were not restarted or published.'
-          : data.outcome === 'idle'
-            ? 'No restore is pending. Update the preview to inspect the current configuration before a new restore.'
-            : 'The restore outcome could not be established. Reconcile again before trying a new restore.'
+    if (data.outcome === 'completed') {
+      setMessage(
+        'Recovery completed the restore. Running models were not restarted or published.',
+        'success',
+      )
+    } else if (data.outcome === 'pre_import') {
+      setMessage(
+        'Recovery returned configuration to the pre-import state. Running models were not restarted or published.',
+        'success',
+      )
+    } else if (data.outcome === 'idle') {
+      setMessage(
+        'No restore is pending. Update the preview to inspect the current configuration before a new restore.',
+        'info',
+      )
+    } else {
+      setMessage(
+        'The restore outcome could not be established. Reconcile again before trying a new restore.',
+        'error',
+      )
+    }
   } catch {
     uncertain.value = true
-    message.value =
-      'The restore outcome could not be established. Reconcile again before trying a new restore.'
+    setMessage(
+      'The restore outcome could not be established. Reconcile again before trying a new restore.',
+      'error',
+    )
   } finally {
     reconciling.value = false
   }
@@ -379,75 +477,36 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.config-backup {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  min-width: 0;
+.restore-file {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
-.config-backup > h2 {
-  margin: 0;
-  font-size: 1rem;
-}
-.backup-actions-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
-  gap: 1rem;
-}
-.backup-action-card {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.65rem;
-  padding: 1rem;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
-}
-.backup-action-card h3 {
-  margin: 0;
-  font-size: 0.9rem;
-}
-.backup-action-card p,
-.restore-notice {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-}
-.restore-file input::file-selector-button {
+.restore-file::file-selector-button {
   padding: 0.4rem 0.65rem;
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-sm);
   background: var(--bg-tertiary);
   color: var(--text-primary);
+  font: inherit;
   cursor: pointer;
 }
 
-.restore-notice,
-.restore-status {
-  margin: 0;
-}
-
-.restore-error {
-  color: var(--status-warning);
-  margin: 0;
-}
-
 .restore-items {
-  list-style: none;
-  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.restore-items li {
+.restore-item {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
   align-items: center;
+  gap: 0.5rem;
   min-width: 0;
 }
 
@@ -456,40 +515,14 @@ onMounted(async () => {
   overflow-wrap: anywhere;
 }
 
-.config-backup button,
-.restore-items select {
-  font: inherit;
+.restore-item select {
   max-width: 100%;
+  min-height: var(--toolbar-control-height);
+  padding: 0.35rem 0.6rem;
   border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-md);
   background: var(--bg-tertiary);
   color: var(--text-primary);
-  border-radius: var(--radius-md);
-  padding: 0.4rem 0.75rem;
-}
-
-.config-backup button:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-.restore-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.restore-file {
-  color: var(--text-primary);
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  min-width: 0;
-}
-
-.restore-file input {
-  width: 100%;
-  min-width: 0;
-  max-width: 100%;
+  font: inherit;
 }
 </style>

@@ -22,12 +22,37 @@ from typing import Any, Awaitable, Callable, Mapping, Optional
 
 import httpx
 
+from backend.logging_config import get_logger
 from backend.proxy.launch_spec import LaunchSpec
 from backend.proxy.studio.ring import EventRing
 
+logger = get_logger(__name__)
+
 
 class RegistryError(RuntimeError):
-    pass
+    """Engine start/lifecycle failure.
+
+    ``http_status`` and ``payload()`` are optional overrides: a subclass may pin
+    a status and a structured body (admission refusals do), while plain errors
+    keep the historical queue-vs-engine status split.
+    """
+
+    @classmethod
+    def response(cls, exc: BaseException) -> tuple[int, dict[str, Any], str]:
+        """HTTP status, JSON body and observation code for a failed start.
+
+        Admission refusals carry their own status, code and structured detail
+        (for example ``INSUFFICIENT_VRAM``); ordinary engine errors keep the
+        queue-vs-engine split and the byte-compatible ``{"error": ...}`` body.
+        """
+        status = int(getattr(exc, "http_status", 0) or 0)
+        if not status:
+            status = 429 if "queue" in str(exc) or "maximum loaded" in str(exc) else 502
+        payload = exc.payload() if hasattr(exc, "payload") else {"error": str(exc)}
+        trace_code = payload.get("code") or (
+            "queue_timeout" if status == 429 else "engine_unavailable"
+        )
+        return status, dict(payload), str(trace_code).lower()
 
 
 # Captured payloads are deliberately memory-only: they are never written to the
@@ -142,6 +167,12 @@ class Generation:
     exit_code: Optional[int] = None
     failure_reason: Optional[str] = None
     log_truncated_bytes: int = 0
+    # Additive GPU observation: filled by the admission observer once the
+    # generation is ready, and by admission itself for the selected devices.
+    vram: Optional[dict[str, Any]] = None
+    # Opaque VRAM-admission reservation; released on terminate (and at ready
+    # observation, when the probe already reflects the loaded model).
+    admission_token: Optional[Any] = field(default=None, repr=False)
     _partial_log: dict[str, int] = field(default_factory=dict, repr=False)
     _terminated: bool = False
     _terminate_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
@@ -168,6 +199,7 @@ class ProcessRegistry:
         max_loaded_models: Optional[int] = None,
         per_model_concurrency: Optional[int] = None,
         queue_timeout: float = 30.0,
+        admission: Optional[Any] = None,
     ) -> None:
         self._launch_factory = launch_factory
         self.readiness_timeout = readiness_timeout
@@ -198,6 +230,14 @@ class ProcessRegistry:
         self._reaper: Optional[asyncio.Task[None]] = None
         self._background: set[asyncio.Task[None]] = set()
         self._observer: Optional[Callable[[LaunchSpec, str, int], None]] = None
+        # VRAM admission runs after the LaunchSpec is known and before any
+        # process is spawned. It is optional so CPU-only and test registries are
+        # unchanged; ``off`` is the manager's default.
+        self._admission = admission
+        if admission is not None:
+            binder = getattr(admission, "bind_activity", None)
+            if binder is not None:
+                binder(self._record_admission_activity)
 
     def set_launch_observer(
         self, observer: Optional[Callable[[LaunchSpec, str, int], None]]
@@ -304,6 +344,7 @@ class ProcessRegistry:
             "exit_code": item.exit_code if item.exit_code is not None else exited,
             "failure_reason": item.failure_reason,
             "log_truncated_bytes": item.log_truncated_bytes,
+            "vram": item.vram,
             "loading_progress": item.loading_progress,
             "draining": item.draining,
             "inflight": item.inflight,
@@ -581,7 +622,16 @@ class ProcessRegistry:
                 return current
             spec, revision, artifact_dir = await self._launch_factory(model_id)
             self._ensure_capacity(model_id)
-            replacement = await self._start(spec, revision, artifact_dir)
+            admission_token = await self._admit_launch(spec)
+            try:
+                replacement = await self._start(
+                    spec, revision, artifact_dir, admission_token=admission_token
+                )
+            except BaseException:
+                # A refusal raised by admission itself never reaches here; this
+                # covers a failed spawn/readiness after a reservation was made.
+                self._release_admission(admission_token)
+                raise
             old = self._active.get(model_id)
             self._active[model_id] = replacement
             self._failed.pop(model_id, None)
@@ -653,7 +703,12 @@ class ProcessRegistry:
         await asyncio.gather(*(self._terminate(item) for item in generations))
 
     async def _start(
-        self, spec: LaunchSpec, revision: str, artifact_dir: Optional[str]
+        self,
+        spec: LaunchSpec,
+        revision: str,
+        artifact_dir: Optional[str],
+        *,
+        admission_token: Optional[Any] = None,
     ) -> Generation:
         port = _free_loopback_port()
         argv = [_resolve_arg(item, port, artifact_dir) for item in spec.argv]
@@ -678,6 +733,7 @@ class ProcessRegistry:
             process,
             spec.engine_id,
             engine_install_id=getattr(spec, "engine_install_id", "") or "",
+            admission_token=admission_token,
         )
         # A restarted build may expose a different optional counting route than
         # the previous process under the same nominal revision. Re-probe once.
@@ -725,6 +781,7 @@ class ProcessRegistry:
         generation.last_used = time.monotonic()
         self._starting.pop(spec.model_id, None)
         self._emit("ready", generation)
+        self._observe_admission(generation)
         return generation
 
     async def _wait_ready(self, generation: Generation) -> None:
@@ -927,12 +984,60 @@ class ProcessRegistry:
                 self._starting.pop(generation.model_id, None)
             if self._active.get(generation.model_id) is generation:
                 self._active.pop(generation.model_id, None)
+            self._release_admission(generation.admission_token)
+            generation.admission_token = None
             self._emit("failed" if generation.failure_reason else "stopped", generation)
 
     def _emit(self, kind: str, generation: Generation) -> None:
         self.activities.append(
             {"type": kind, **self.describe(generation), "timestamp": time.time()}
         )
+
+    def _record_admission_activity(self, kind: str, payload: Mapping[str, Any]) -> None:
+        """Append a VRAM admission activity to the same ring as lifecycle events."""
+        self.activities.append({"type": kind, **dict(payload), "timestamp": time.time()})
+
+    async def _admit_launch(self, spec: LaunchSpec) -> Optional[Any]:
+        """Run the optional admission check before any process is spawned."""
+        if self._admission is None:
+            return None
+        admit = getattr(self._admission, "admit", None)
+        if admit is None:
+            return None
+        from backend.proxy.studio.vram import VramAdmissionError
+
+        try:
+            return await admit(spec)
+        except VramAdmissionError:
+            raise
+        except Exception:  # noqa: BLE001 - admission must never block every start
+            logger.exception("VRAM admission check failed; admitting the launch")
+            return None
+
+    def _release_admission(self, token: Optional[Any]) -> None:
+        if self._admission is None or token is None:
+            return
+        release = getattr(self._admission, "release", None)
+        if release is None:
+            return
+        try:
+            release(token)
+        except Exception:  # noqa: BLE001 - teardown must not fail on observation state
+            logger.debug("Could not release VRAM admission reservation", exc_info=True)
+
+    def _observe_admission(self, generation: Generation) -> None:
+        """Sample the ready-time VRAM delta without delaying readiness."""
+        observer = getattr(self._admission, "observe_ready", None)
+        if observer is None or generation.admission_token is None:
+            return
+
+        async def run() -> None:
+            try:
+                await observer(generation, generation.admission_token)
+            except Exception:  # noqa: BLE001 - observation is additive, never fatal
+                logger.debug("VRAM ready observation failed", exc_info=True)
+
+        self._spawn_background(run())
 
     def _ensure_reaper(self) -> None:
         if self.idle_ttl and (self._reaper is None or self._reaper.done()):

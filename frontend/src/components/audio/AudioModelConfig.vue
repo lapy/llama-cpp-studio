@@ -1,14 +1,9 @@
 <template>
   <div class="audio-model-config">
-    <Message
-      v-if="paramRegistry.scan_error"
-      severity="warn"
-      :closable="false"
-      class="config-scan-message"
-    >
-      <div class="config-message__body">
-        <strong>Engine options could not be loaded.</strong>
-        {{ paramRegistry.scan_error }}
+    <StateBanner v-if="paramRegistry.scan_error" severity="warning" class="config-scan-message">
+      <strong>Engine options could not be loaded.</strong>
+      {{ paramRegistry.scan_error }}
+      <template #actions>
         <Button
           label="Refresh engine options"
           icon="pi pi-refresh"
@@ -16,20 +11,14 @@
           severity="secondary"
           outlined
           :loading="rescanLoading"
-          class="config-message__action"
           @click="rescanCliParams"
         />
-      </div>
-    </Message>
-    <Message
-      v-else-if="paramRegistry.scan_pending"
-      severity="info"
-      :closable="false"
-      class="config-scan-message"
-    >
-      <div class="config-message__body">
-        <strong>Engine options are not indexed yet.</strong>
-        Activate audio.cpp on the Engines page, then refresh.
+      </template>
+    </StateBanner>
+    <StateBanner v-else-if="paramRegistry.scan_pending" severity="info" class="config-scan-message">
+      <strong>Engine options are not indexed yet.</strong>
+      Activate audio.cpp on the Engines page, then refresh.
+      <template #actions>
         <Button
           label="Refresh now"
           icon="pi pi-refresh"
@@ -37,56 +26,35 @@
           severity="secondary"
           outlined
           :loading="rescanLoading"
-          class="config-message__action"
           @click="rescanCliParams"
         />
-      </div>
-    </Message>
+      </template>
+    </StateBanner>
 
     <AudioContractNotice
       :scan-error="paramRegistry.scan_error"
       :scan-pending="paramRegistry.scan_pending"
     />
 
-    <Message
+    <StateBanner
       v-for="(warning, index) in contractDriftWarnings"
       :key="`contract-drift-${index}`"
-      severity="warn"
-      :closable="false"
+      severity="warning"
+      icon=""
       class="config-scan-message"
     >
-      <div class="config-message__body">
-        <strong>Engine contract drift.</strong>
-        {{ warning }}
-      </div>
-    </Message>
+      <strong>Engine contract drift.</strong>
+      {{ warning }}
+    </StateBanner>
 
-    <div
+    <SectionTabs
       v-if="!hideTabs"
-      class="config-section-tabs"
-      role="tablist"
+      v-model="internalTab"
+      :items="tabs"
+      id-prefix="audio-config"
+      variant="pills"
       aria-label="Audio configuration sections"
-    >
-      <button
-        v-for="tab in tabs"
-        :key="tab.id"
-        type="button"
-        :id="`audio-config-tab-${tab.id}`"
-        role="tab"
-        class="config-section-tab"
-        :class="{ selected: currentTab === tab.id }"
-        :aria-selected="currentTab === tab.id"
-        :aria-controls="`audio-config-panel-${tab.id}`"
-        :tabindex="currentTab === tab.id ? 0 : -1"
-        @click="internalTab = tab.id"
-        @keydown="onRovingTabKeydown"
-      >
-        <span class="engine-option-label">
-          <i :class="tab.icon" aria-hidden="true" />
-          <span>{{ tab.label }}</span>
-        </span>
-      </button>
-    </div>
+    />
 
     <!-- Server -->
     <div
@@ -99,7 +67,7 @@
     >
       <div class="config-card">
         <div class="runtime-common-head">
-          <div class="section-label section-label--inline">Common settings</div>
+          <h3 class="page-subheading">Common settings</h3>
           <div class="toggle-field runtime-advanced-toggle">
             <ToggleSwitch v-model="showAdvancedRuntime" input-id="audio-runtime-advanced" />
             <label for="audio-runtime-advanced">Advanced</label>
@@ -159,14 +127,9 @@
             >
           </div>
         </div>
-        <Message
-          v-else
-          severity="secondary"
-          :closable="false"
-          class="config-scan-message runtime-empty-message"
-        >
+        <StateBanner v-else severity="info" icon="" class="runtime-empty-message">
           No common runtime settings were found in the current audio.cpp parameter index.
-        </Message>
+        </StateBanner>
 
         <template v-if="showAdvancedRuntime">
           <div class="audio-advanced">
@@ -197,7 +160,7 @@
             </div>
 
             <div v-if="serverSearchQuery.trim()" class="param-tag-cloud-wrap">
-              <div class="section-label">Add parameter</div>
+              <h3 class="page-subheading">Add parameter</h3>
               <div v-if="advancedSearchTagResults.length" class="param-tag-cloud" role="list">
                 <button
                   v-for="param in advancedSearchTagResults"
@@ -211,20 +174,13 @@
                   <code class="param-search-tag__key">{{ param.key }}</code>
                 </button>
               </div>
-              <Message v-else severity="secondary" :closable="false" class="config-scan-message">
-                No parameters match.
-              </Message>
+              <StateBanner v-else severity="info" icon="">No parameters match.</StateBanner>
             </div>
 
-            <div class="section-label">Parameters</div>
-            <Message
-              v-if="!advancedPaneParams.length"
-              severity="secondary"
-              :closable="false"
-              class="config-scan-message"
-            >
+            <h3 class="page-subheading">Parameters</h3>
+            <StateBanner v-if="!advancedPaneParams.length" severity="info" icon="">
               Search above to add advanced options. Saved values appear here automatically.
-            </Message>
+            </StateBanner>
             <div v-else class="params-grid section-params">
               <div
                 v-for="param in advancedPaneParams"
@@ -303,7 +259,7 @@
     >
       <div class="config-card">
         <div class="tts-subsection__head">
-          <div class="section-label section-label--inline">Community preset voices</div>
+          <h3 class="page-subheading">Community preset voices</h3>
           <Button
             :label="
               communityVoicesInstalled ? 'Re-download preset voices' : 'Download preset voices'
@@ -354,7 +310,7 @@
 
       <div class="config-card">
         <div class="tts-subsection__head">
-          <div class="section-label section-label--inline">Reference audio</div>
+          <h3 class="page-subheading">Reference audio</h3>
           <div class="reference-audio-actions">
             <input
               ref="referenceUploadInput"
@@ -435,7 +391,7 @@
 
       <div v-if="supportsVoicePresets" class="config-card">
         <div class="tts-subsection__head">
-          <div class="section-label section-label--inline">Voice presets</div>
+          <h3 class="page-subheading">Voice presets</h3>
           <Button
             label="Add preset"
             icon="pi pi-plus"
@@ -571,7 +527,6 @@
 
 <script setup>
 import { computed, onMounted, ref, watch, onUnmounted } from 'vue'
-import { onRovingTabKeydown } from '@/composables/useRovingTabs'
 import { useToast } from 'primevue/usetoast'
 import { useConfirm } from 'primevue/useconfirm'
 import { requireSingleConfirmation } from '@/composables/singleConfirm'
@@ -580,8 +535,9 @@ import Tag from 'primevue/tag'
 import InputText from 'primevue/inputtext'
 import ToggleSwitch from 'primevue/toggleswitch'
 import Select from 'primevue/select'
-import Message from 'primevue/message'
 import Textarea from 'primevue/textarea'
+import SectionTabs from '@/components/common/SectionTabs.vue'
+import StateBanner from '@/components/common/StateBanner.vue'
 import AudioParamField from '@/components/audio/AudioParamField.vue'
 import AudioContractNotice from '@/components/audio/AudioContractNotice.vue'
 import ModelConfigAudioProfiles from '@/components/models/ModelConfigAudioProfiles.vue'
