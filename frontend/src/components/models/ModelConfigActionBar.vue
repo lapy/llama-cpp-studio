@@ -1,34 +1,32 @@
 <template>
   <section class="config-action-bar" role="region" aria-label="Configuration actions">
-    <div class="config-action-bar__main">
-      <div class="config-action-bar__identity">
-        <span class="config-action-bar__name">{{ modelLabel }}</span>
-        <span v-if="quantization" class="config-action-bar__meta">{{ quantization }}</span>
-        <span v-if="format" class="config-action-bar__meta">{{ format }}</span>
-        <span v-if="engineLabel" class="config-action-bar__meta">{{ engineLabel }}</span>
-      </div>
+    <PageToolbar plain label="Configuration status and actions">
+      <template #summary>
+        <div class="config-action-bar__identity">
+          <span class="config-action-bar__name">{{ modelLabel }}</span>
+          <span v-if="quantization" class="config-action-bar__meta">{{ quantization }}</span>
+          <span v-if="format" class="config-action-bar__meta">{{ format }}</span>
+          <span v-if="engineLabel" class="config-action-bar__meta">{{ engineLabel }}</span>
+        </div>
 
-      <div class="config-action-bar__status" role="status" aria-live="polite">
-        <Tag
-          :value="status.label"
-          :severity="status.severity"
-          :class="['config-action-bar__pill', `config-action-bar__pill--${status.key}`]"
-          :data-status-key="status.key"
-        />
-        <Tag
-          v-if="running && !['running', 'stale'].includes(status.key)"
-          value="Running"
-          severity="success"
-          class="config-action-bar__pill"
-          data-status-key="running-extra"
-        />
-      </div>
+        <div class="config-action-bar__status" role="status" aria-live="polite">
+          <Tag
+            :value="status.label"
+            :severity="status.severity"
+            :class="['config-action-bar__pill', `config-action-bar__pill--${status.key}`]"
+            :data-status-key="status.key"
+          />
+          <Tag
+            v-if="running && !['running', 'stale'].includes(status.key)"
+            value="Running"
+            severity="success"
+            class="config-action-bar__pill"
+            data-status-key="running-extra"
+          />
+        </div>
+      </template>
 
-      <div
-        class="config-action-bar__actions"
-        role="group"
-        aria-label="Primary configuration actions"
-      >
+      <template #actions>
         <Button
           label="Save changes"
           icon="pi pi-save"
@@ -103,7 +101,7 @@
               @click="$emit('import-command')"
             />
             <Button
-              label="Reset to Saved"
+              label="Reset to saved"
               icon="pi pi-refresh"
               size="small"
               severity="secondary"
@@ -112,8 +110,8 @@
             />
           </div>
         </details>
-      </div>
-    </div>
+      </template>
+    </PageToolbar>
 
     <div class="config-action-bar__secondary">
       <p class="config-action-bar__detail runtime-state__detail" :title="status.detail">
@@ -132,6 +130,8 @@
 <script setup>
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
+
+import PageToolbar from '@/components/common/PageToolbar.vue'
 
 defineProps({
   modelLabel: { type: String, default: 'Model' },
@@ -196,10 +196,13 @@ function closeSecondaryActionsMenu(event) {
   box-shadow: var(--shadow-md);
 }
 
-.config-action-bar__main {
-  display: flex;
-  flex-wrap: wrap;
+.config-action-bar .page-toolbar {
   align-items: center;
+  padding: 0;
+}
+
+.config-action-bar :deep(.page-toolbar__summary) {
+  flex: 1 1 22rem;
   gap: 0.4rem 0.75rem;
 }
 
@@ -218,7 +221,7 @@ function closeSecondaryActionsMenu(event) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.9375rem;
+  font-size: var(--text-base);
   font-weight: 650;
   color: var(--text-primary);
 }
@@ -248,14 +251,6 @@ function closeSecondaryActionsMenu(event) {
 .config-action-bar__pill {
   font-size: var(--text-xs);
   white-space: nowrap;
-}
-
-.config-action-bar__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem;
-  margin-left: auto;
 }
 
 .config-action-bar__primary {
@@ -324,34 +319,39 @@ function closeSecondaryActionsMenu(event) {
     top: calc(var(--app-header-height) + 0.25rem);
   }
 
-  .config-action-bar__main {
+  .config-action-bar .page-toolbar {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
     row-gap: 0.45rem;
   }
 
+  .config-action-bar :deep(.page-toolbar__summary) {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    width: 100%;
+  }
+
   .config-action-bar__identity {
     grid-column: 1;
-    grid-row: 1;
     flex-basis: auto;
   }
 
   .config-action-bar__status {
     grid-column: 2;
-    grid-row: 1;
     min-width: 0;
   }
 
-  .config-action-bar__actions {
+  .config-action-bar :deep(.page-toolbar__actions) {
     grid-column: 1 / -1;
-    grid-row: 2;
     width: 100%;
     margin-left: 0;
     justify-content: flex-start;
   }
 
-  .config-action-bar__actions .p-button {
+  .config-action-bar :deep(.page-toolbar__actions) .p-button {
     flex: 1 1 auto;
     justify-content: center;
   }

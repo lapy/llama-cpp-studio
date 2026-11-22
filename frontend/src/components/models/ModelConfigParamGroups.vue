@@ -1,7 +1,7 @@
 <template>
   <div class="param-groups">
-    <div class="param-groups__toolbar config-toolbar">
-      <div class="config-toolbar__row">
+    <PageToolbar plain label="Runtime parameter filters">
+      <template #search>
         <span class="p-input-icon-left config-search-wrap">
           <i class="pi pi-search" aria-hidden="true" />
           <InputText
@@ -23,74 +23,76 @@
           aria-label="Clear search"
           @click="emit('update:searchQuery', '')"
         />
-        <div class="param-filter" role="group" aria-label="Parameter filter">
-          <button
-            v-for="option in FILTER_OPTIONS"
-            :key="option.value"
-            type="button"
-            class="param-filter__option"
-            :class="{ 'param-filter__option--active': filterMode === option.value }"
-            :aria-pressed="filterMode === option.value"
-            @click="filterMode = option.value"
-          >
-            {{ option.label }}
-          </button>
-        </div>
-        <div class="toggle-field">
-          <ToggleSwitch
-            :model-value="hideUnsupported"
-            input-id="toggle-hide-unsupported"
-            @update:model-value="emit('update:hideUnsupported', $event)"
-          />
-          <label for="toggle-hide-unsupported">Hide unsupported</label>
-        </div>
-        <div class="param-groups__actions">
-          <Button
-            v-if="autoFitOverrides.length"
-            label="Restore auto settings"
-            icon="pi pi-undo"
-            size="small"
-            severity="secondary"
-            outlined
-            type="button"
-            data-auto-fit-action
-            @click="emit('restore-auto-fit')"
-          />
-          <Button
-            label="Expand all"
-            size="small"
-            severity="secondary"
-            text
-            type="button"
-            @click="setAllGroupsOpen(true)"
-          />
-          <Button
-            label="Collapse all"
-            size="small"
-            severity="secondary"
-            text
-            type="button"
-            @click="setAllGroupsOpen(false)"
-          />
-        </div>
-        <span class="param-groups__summary" aria-live="polite">{{ totalChanged }} changed</span>
+      </template>
+      <div class="param-filter" role="group" aria-label="Parameter filter">
+        <button
+          v-for="option in FILTER_OPTIONS"
+          :key="option.value"
+          type="button"
+          class="param-filter__option"
+          :class="{ 'param-filter__option--active': filterMode === option.value }"
+          :aria-pressed="filterMode === option.value"
+          @click="filterMode = option.value"
+        >
+          {{ option.label }}
+        </button>
       </div>
+      <div class="toggle-field">
+        <ToggleSwitch
+          :model-value="hideUnsupported"
+          input-id="toggle-hide-unsupported"
+          @update:model-value="emit('update:hideUnsupported', $event)"
+        />
+        <label for="toggle-hide-unsupported">Hide unsupported</label>
+      </div>
+      <template #summary>
+        <span class="param-groups__summary" aria-live="polite">{{ totalChanged }} changed</span>
+      </template>
+      <template #actions>
+        <Button
+          v-if="autoFitOverrides.length"
+          label="Restore auto settings"
+          icon="pi pi-undo"
+          size="small"
+          severity="secondary"
+          outlined
+          type="button"
+          data-auto-fit-action
+          @click="emit('restore-auto-fit')"
+        />
+        <Button
+          label="Expand all"
+          size="small"
+          severity="secondary"
+          text
+          type="button"
+          @click="setAllGroupsOpen(true)"
+        />
+        <Button
+          label="Collapse all"
+          size="small"
+          severity="secondary"
+          text
+          type="button"
+          @click="setAllGroupsOpen(false)"
+        />
+      </template>
+    </PageToolbar>
 
-      <div v-if="addableMatches.length" class="param-tag-cloud-wrap">
-        <div class="section-label section-label--inline">Add parameter</div>
-        <div class="param-tag-cloud" role="list">
-          <button
-            v-for="param in addableMatches"
-            :key="param.key"
-            type="button"
-            class="param-search-tag"
-            role="listitem"
-            @click="addParam(param)"
-          >
-            <span class="param-search-tag__label">{{ param.label }}</span>
-            <code class="param-search-tag__key">{{ param.key }}</code>
-          </button>
-        </div>
+    <div v-if="addableMatches.length" class="param-tag-cloud-wrap">
+      <h3 class="page-subheading">Add parameter</h3>
+      <div class="param-tag-cloud" role="list">
+        <button
+          v-for="param in addableMatches"
+          :key="param.key"
+          type="button"
+          class="param-search-tag"
+          role="listitem"
+          @click="addParam(param)"
+        >
+          <span class="param-search-tag__label">{{ param.label }}</span>
+          <code class="param-search-tag__key">{{ param.key }}</code>
+        </button>
       </div>
     </div>
 
@@ -146,8 +148,9 @@
                       severity="secondary"
                       class="param-supported-tag"
                     />
-                    <i
+                    <span
                       class="pi pi-info-circle param-info"
+                      role="img"
                       tabindex="0"
                       :aria-label="`About ${param.label}`"
                       v-tooltip.top="paramDescriptionTooltip(param)"
@@ -402,6 +405,7 @@ import Textarea from 'primevue/textarea'
 import Slider from 'primevue/slider'
 import MultiSelect from 'primevue/multiselect'
 import Tag from 'primevue/tag'
+import PageToolbar from '@/components/common/PageToolbar.vue'
 import { groupForParam, groupParameters, paramMatchesSearch } from '@/utils/modelParamGroups'
 
 const FILTER_OPTIONS = Object.freeze([
@@ -649,28 +653,18 @@ function jsonPlaceholder(param) {
 </script>
 
 <style scoped>
-.param-groups__toolbar {
+.param-groups {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
-  margin-bottom: 0.75rem;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid var(--border-primary, #2a2f45);
-}
-
-.param-groups__actions {
-  display: flex;
-  align-items: center;
-  gap: 0.15rem;
-  flex-shrink: 0;
+  gap: 0.75rem;
+  min-width: 0;
 }
 
 .param-groups__summary {
-  margin-left: auto;
   padding: 0.15rem 0.5rem;
   border-radius: 999px;
-  background: var(--bg-surface, rgba(255, 255, 255, 0.04));
-  color: var(--text-secondary, #9ca3af);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
   font-weight: 600;
   white-space: nowrap;
@@ -680,16 +674,16 @@ function jsonPlaceholder(param) {
   display: inline-flex;
   flex-shrink: 0;
   padding: 0.15rem;
-  border: 1px solid var(--border-primary, #2a2f45);
-  border-radius: var(--radius-md, 0.5rem);
-  background: var(--bg-surface, rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
 }
 
 .param-filter__option {
   border: 0;
-  border-radius: calc(var(--radius-md, 0.5rem) - 0.15rem);
+  border-radius: calc(var(--radius-md) - 0.15rem);
   background: transparent;
-  color: var(--text-secondary, #9ca3af);
+  color: var(--text-secondary);
   padding: 0.2rem 0.6rem;
   font: inherit;
   font-size: 0.8125rem;
@@ -701,8 +695,8 @@ function jsonPlaceholder(param) {
 }
 
 .param-filter__option--active {
-  background: color-mix(in srgb, var(--accent-cyan, #22d3ee) 16%, transparent);
-  color: var(--accent-cyan, #22d3ee);
+  background: var(--accent-cyan-soft);
+  color: var(--accent-primary);
   font-weight: 600;
 }
 
@@ -710,7 +704,7 @@ function jsonPlaceholder(param) {
 .param-group__toggle:focus-visible,
 .param-reset:focus-visible,
 .param-remove-btn:focus-visible {
-  outline: 2px solid var(--accent-cyan, #22d3ee);
+  outline: 2px solid var(--accent-primary);
   outline-offset: 2px;
 }
 
@@ -725,7 +719,7 @@ function jsonPlaceholder(param) {
 
 .param-group {
   padding: 0.55rem 0;
-  border-top: 1px solid var(--border-primary, #2a2f45);
+  border-top: 1px solid var(--border-primary);
 }
 
 .param-group:first-child {
@@ -758,11 +752,11 @@ function jsonPlaceholder(param) {
 }
 
 .param-group__toggle:hover {
-  background: var(--bg-surface, rgba(255, 255, 255, 0.04));
+  background: var(--bg-surface);
 }
 
 .param-group__icon {
-  color: var(--accent-cyan, #22d3ee);
+  color: var(--accent-primary);
   font-size: 0.95rem;
 }
 
@@ -776,13 +770,13 @@ function jsonPlaceholder(param) {
 
 .param-group__badge {
   flex-shrink: 0;
-  color: var(--text-secondary, #9ca3af);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
   font-weight: 500;
 }
 
 .param-group__chevron {
-  color: var(--text-secondary, #9ca3af);
+  color: var(--text-secondary);
   font-size: 0.75rem;
   transition: transform 0.15s ease;
 }
@@ -794,7 +788,7 @@ function jsonPlaceholder(param) {
 .param-group__description {
   margin: 0 0 0 2.05rem;
   overflow: hidden;
-  color: var(--text-secondary, #9ca3af);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
   line-height: 1.4;
   text-overflow: ellipsis;
@@ -886,8 +880,8 @@ function jsonPlaceholder(param) {
   margin-left: 0;
   padding: 0.1rem 0.35rem;
   border-radius: 0.25rem;
-  background: rgba(0, 0, 0, 0.25);
-  color: var(--text-secondary, #9ca3af);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
   font-weight: 400;
   vertical-align: middle;
@@ -923,7 +917,7 @@ function jsonPlaceholder(param) {
 }
 
 .param-hint {
-  color: var(--text-secondary, #9ca3af);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
 }
 
@@ -958,10 +952,6 @@ function jsonPlaceholder(param) {
 }
 
 @media (max-width: 768px) {
-  .param-groups__summary {
-    margin-left: 0;
-  }
-
   .param-group__badge {
     display: none;
   }

@@ -1,5 +1,8 @@
 <template>
-  <PageHeader>
+  <PageHeader
+    :title="title"
+    description="Review the engine, runtime parameters, names, and launch settings for this model."
+  >
     <template #start>
       <Button
         icon="pi pi-arrow-left"
@@ -9,30 +12,25 @@
         @click="$emit('back')"
       />
     </template>
-    <template #title>
-      <div class="config-page-title">
-        <h1 class="page-title">{{ model.display_name || model.base_model_name }}</h1>
-        <div class="header-meta">
-          <Tag :value="formatLabel(model.format || 'gguf')" severity="info" />
-          <Tag v-if="model.quantization" :value="model.quantization" severity="secondary" />
-          <Tag v-if="model.family" :value="model.family" severity="secondary" />
-          <Tag
-            v-for="task in model.tasks || []"
-            :key="task"
-            :value="taskLabel(task)"
-            severity="success"
-          />
-          <a
-            v-if="model.huggingface_id"
-            :href="`https://huggingface.co/${model.huggingface_id}`"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="hf-link"
-          >
-            <i class="pi pi-external-link" /> {{ model.huggingface_id }}
-          </a>
-        </div>
-      </div>
+    <template #meta>
+      <Tag :value="formatLabel(model.format || 'gguf')" severity="info" />
+      <Tag v-if="model.quantization" :value="model.quantization" severity="secondary" />
+      <Tag v-if="model.family" :value="model.family" severity="secondary" />
+      <Tag
+        v-for="task in model.tasks || []"
+        :key="task"
+        :value="taskLabel(task)"
+        severity="success"
+      />
+      <a
+        v-if="model.huggingface_id"
+        :href="`https://huggingface.co/${model.huggingface_id}`"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="config-header__repo"
+      >
+        <i class="pi pi-external-link" aria-hidden="true" /> {{ model.huggingface_id }}
+      </a>
     </template>
     <template v-if="!loading" #actions>
       <Button
@@ -60,13 +58,14 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 
 import PageHeader from '@/components/common/PageHeader.vue'
 import { formatLabel, taskLabel } from '@/utils/modelPresentation'
 
-defineProps({
+const props = defineProps({
   model: { type: Object, required: true },
   loading: { type: Boolean, default: false },
   canCheckForUpdates: { type: Boolean, default: false },
@@ -75,35 +74,24 @@ defineProps({
 })
 
 defineEmits(['back', 'check-for-updates', 'open-audio'])
+
+const title = computed(
+  () => props.model.display_name || props.model.base_model_name || 'Model configuration',
+)
 </script>
 
 <style scoped>
-.config-page-title {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem 0.75rem;
-  min-width: 0;
-}
-
-.header-meta {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.hf-link {
-  font-size: 0.875rem;
-  color: var(--accent-cyan, #22d3ee);
-  text-decoration: none;
-  display: flex;
+.config-header__repo {
+  display: inline-flex;
   align-items: center;
   gap: 0.25rem;
+  color: var(--accent-primary);
+  font-size: var(--text-sm);
+  text-decoration: none;
+  overflow-wrap: anywhere;
 }
 
-.hf-link:hover {
+.config-header__repo:hover {
   text-decoration: underline;
 }
 </style>

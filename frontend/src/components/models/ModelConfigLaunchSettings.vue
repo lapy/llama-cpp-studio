@@ -1,21 +1,22 @@
 <template>
-  <div class="config-card config-launch">
+  <div class="config-launch">
     <div v-if="showCompanionsCard" class="advanced-block">
-      <div class="section-label section-label--inline">
+      <h3 class="page-subheading">
         Companions
-        <i
+        <span
           class="pi pi-info-circle param-info"
+          role="img"
           tabindex="0"
           aria-label="About companions"
           v-tooltip.top="
             'Attach mmproj, MTP, or DFlash weights. MTP and DFlash cannot be used together.'
           "
         />
-      </div>
+      </h3>
       <div v-if="companionsLoading" class="companions-loading">Loading companion options…</div>
       <div v-else class="companions-grid">
         <div class="companion-field">
-          <label for="config-mmproj">Projector (mmproj)</label>
+          <label class="page-form__label" for="config-mmproj">Projector (mmproj)</label>
           <div class="companion-field__row">
             <Select
               id="config-mmproj"
@@ -40,7 +41,7 @@
           </div>
         </div>
         <div class="companion-field">
-          <label for="config-mtp">MTP draft</label>
+          <label class="page-form__label" for="config-mtp">MTP draft</label>
           <div class="companion-field__row">
             <Select
               id="config-mtp"
@@ -66,7 +67,7 @@
           </div>
         </div>
         <div class="companion-field">
-          <label for="config-dflash">DFlash draft</label>
+          <label class="page-form__label" for="config-dflash">DFlash draft</label>
           <div class="companion-field__row">
             <Select
               id="config-dflash"
@@ -92,7 +93,7 @@
           </div>
         </div>
         <div class="companion-field">
-          <label for="config-dspark">DSpark draft</label>
+          <label class="page-form__label" for="config-dspark">DSpark draft</label>
           <div class="companion-field__row">
             <Select
               id="config-dspark"
@@ -133,35 +134,45 @@
       </div>
     </div>
 
-    <div class="config-split-grid split-grid">
-      <div class="advanced-field">
-        <label class="advanced-field__label">
+    <div class="page-form">
+      <div class="page-form__field">
+        <label class="page-form__label" for="config-stable-id">
           {{ stableIdLabel }}
         </label>
         <InputText
+          id="config-stable-id"
           :model-value="stableModelId"
           readonly
           class="w-full"
           :aria-label="stableIdAria"
         />
+        <p class="page-form__hint">
+          Assigned by Studio and used by launch manifests, receipts, and runtime state.
+        </p>
       </div>
 
-      <div class="advanced-field">
-        <label class="advanced-field__label">
+      <div class="page-form__field">
+        <label class="page-form__label" for="config-model-alias">
           {{ aliasLabel }}
-          <i
+          <span
             class="pi pi-info-circle param-info"
+            role="img"
             tabindex="0"
             aria-label="About API alias"
             v-tooltip.top="aliasTooltip"
           />
         </label>
         <InputText
+          id="config-model-alias"
           :model-value="modelAlias"
           placeholder="e.g. my-app-model"
           class="w-full"
           @update:model-value="emit('update:modelAlias', $event)"
         />
+        <p class="page-form__hint">
+          Optional friendly name clients send as <code>model</code>. Requests without it use the
+          stable runtime id.
+        </p>
       </div>
     </div>
 
@@ -174,15 +185,16 @@
     />
 
     <div class="advanced-block">
-      <div class="section-label section-label--inline">
+      <h3 class="page-subheading">
         Custom arguments
-        <i
+        <span
           class="pi pi-info-circle param-info"
+          role="img"
           tabindex="0"
           aria-label="About custom arguments"
           v-tooltip.top="'Raw CLI flags appended to the server command.'"
         />
-      </div>
+      </h3>
       <Textarea
         :model-value="customArgs"
         rows="2"
@@ -204,17 +216,18 @@
       />
     </div>
     <div class="advanced-block">
-      <div class="section-label section-label--inline">
+      <h3 class="page-subheading">
         Environment
-        <i
+        <span
           class="pi pi-info-circle param-info"
+          role="img"
           tabindex="0"
           aria-label="About environment variables"
           v-tooltip.top="
             'Environment variables passed to this model process. CUDA_VISIBLE_DEVICES is set from the GPU control when NVIDIA GPUs are detected. LLAMA_STUDIO_* keys are reserved and ignored.'
           "
         />
-      </div>
+      </h3>
       <div v-for="item in envRows" :key="item.originalIndex" class="runtime-env-row">
         <InputText
           :model-value="item.row.key"
@@ -274,7 +287,7 @@
       />
     </div>
     <div class="advanced-block">
-      <div class="section-label section-label--inline">Command</div>
+      <h3 class="page-subheading">Command</h3>
       <div class="config-cmd-actions">
         <Button
           label="Live preview"
@@ -309,6 +322,7 @@ import RequestAliasesEditor from '@/components/RequestAliasesEditor.vue'
 import { useToast } from 'primevue/usetoast'
 import { useModelStore } from '@/stores/models'
 import { ENGINE_DESCRIPTORS } from '@/engines/registry'
+import { normalizeApiName } from '@/utils/modelPresentation'
 
 const props = defineProps({
   model: { type: Object, default: null },
@@ -349,16 +363,7 @@ const aliasTooltip = computed(
     engineConfigCopy.value.aliasTooltip ||
     'Optional id apps send as model. Must be unique. Running state uses the stable ID, not this alias.',
 )
-const requestAliasBase = computed(
-  () =>
-    String(props.modelAlias || '')
-      .trim()
-      .toLowerCase()
-      .replace(/[/\\\s]+/g, '-')
-      .replace(/[^a-z0-9._-]/g, '-')
-      .replace(/-{2,}/g, '-')
-      .replace(/^[._-]+|[._-]+$/g, '') || props.stableModelId,
-)
+const requestAliasBase = computed(() => normalizeApiName(props.modelAlias, props.stableModelId))
 
 const envModeOptions = [
   { label: 'Set value', value: 'set' },
@@ -596,6 +601,13 @@ watch(
 </script>
 
 <style scoped>
+.config-launch {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
 .runtime-env-row {
   display: flex;
   flex-wrap: wrap;
@@ -630,31 +642,18 @@ watch(
   gap: 0.5rem;
 }
 
-.advanced-block,
-.advanced-field {
+.advanced-block {
   min-width: 0;
 }
 
 .config-launch > * + .advanced-block,
-.config-launch > * + .config-split-grid {
-  margin-top: 0.75rem;
+.config-launch > * + .page-form {
   padding-top: 0.75rem;
-  border-top: 1px solid var(--border-primary, #2a2f45);
-}
-
-.advanced-field__label {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin-bottom: 0.35rem;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text-primary);
+  border-top: 1px solid var(--border-primary);
 }
 
 .companions-loading {
-  color: var(--text-secondary, #9ca3af);
+  color: var(--text-secondary);
   font-size: 0.875rem;
 }
 
@@ -670,11 +669,8 @@ watch(
   }
 }
 
-.companion-field label {
-  display: block;
-  font-size: 0.8rem;
-  color: var(--text-secondary, #9ca3af);
-  margin-bottom: 0.35rem;
+.companion-field {
+  min-width: 0;
 }
 
 .companion-field__row {
@@ -702,12 +698,8 @@ watch(
   gap: 0.5rem;
   align-items: baseline;
   font-size: 0.75rem;
-  color: var(--text-secondary, #9ca3af);
+  color: var(--text-secondary);
   overflow-wrap: anywhere;
-}
-
-.config-launch .config-split-grid {
-  gap: 0.65rem;
 }
 
 @media (max-width: 768px) {

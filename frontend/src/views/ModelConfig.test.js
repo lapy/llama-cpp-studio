@@ -26,6 +26,7 @@ vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { id: 'model-1' } }),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   onBeforeRouteLeave: () => {},
+  RouterLink: { props: ['to'], template: '<a><slot /></a>' },
 }))
 
 vi.mock('primevue/usetoast', () => ({
