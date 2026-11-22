@@ -11,6 +11,7 @@ from fastapi import APIRouter, Body, HTTPException
 
 from backend.concurrency import run_blocking
 from backend.data_store import get_store
+from backend.engines.adapters import get_native_installer
 from backend.engines.protocol import EngineInstaller
 from backend.logging_config import get_logger
 from backend.venv_install_settings import coerce_install_settings
@@ -86,7 +87,15 @@ class EngineLifecycle:
     engines have no per-engine ``status`` (versions ride the shared
     ``/api/llama-versions`` list) and no engine-wide ``remove`` (deletion
     is version-scoped). The overrides are exercised by
-    tests/test_native_engine_lifecycle.py."""
+    tests/test_native_engine_lifecycle.py.
+
+    A YAML-only native engine (``native_host`` plus a ``lifecycle`` block)
+    instead resolves its installer from the declared host
+    (``get_native_installer``) and runs the shared generic-verb dispatch, so
+    it serves install/status/check-updates/cancel/build-settings/remove on
+    ``/api/engines/{id}`` with no legacy prefix. ``install-source`` is served
+    only when the definition declares a ``source`` recipe.
+    """
 
     engine_id: str
     url_prefix: str
@@ -95,6 +104,11 @@ class EngineLifecycle:
     prefer_source_install: bool = False
     status_fallback: Optional[Dict[str, Any]] = None
     version_setting_key: str = "pip_version"
+    # False when the definition declares no ``source`` recipe: the installer
+    # has nothing to execute for install-source, so the verb answers 405
+    # instead of accepting a request it cannot serve. Native and venv
+    # definition-built records both derive this from their YAML.
+    supports_source_install: bool = True
     verbs: Dict[str, Callable[..., Any]] = field(default_factory=dict)
 
 
@@ -278,7 +292,10 @@ async def lifecycle_install_source(
         result = await _maybe_await(fn(request))
         _record_install_snapshot(lc, request)
         return result
-    if lc.get_installer is None:
+    if lc.get_installer is None or not lc.supports_source_install:
+        # A definition without a ``source`` recipe has no executable plan for
+        # this verb; advertising it would accept a request the host can only
+        # fail later.
         raise _verb_unavailable(lc, "install-source")
     payload = request or {}
     from backend.operations.action_recovery import (
@@ -558,20 +575,44 @@ def update_source_from_lifecycle(spec: Dict[str, Any]) -> UpdateSource:
     raise ValueError(f"unsupported lifecycle update_source kind {kind!r}")
 
 
+def _definition_declares_recipe(definition, recipe: str) -> bool:
+    """True when the definition declares a non-empty ``recipe`` flow."""
+    return any(str(name) == recipe for name, _steps in definition.recipes)
+
+
 def build_definition_lifecycle(definition) -> EngineLifecycle:
     """Materialize the generic lifecycle record from a definition.
 
     Used for definition-owned engines and for the compatibility prefix a
     converted engine keeps (``definition_compat_router``), so both surfaces
-    serve one record built from the YAML."""
+    serve one record built from the YAML.
+
+    The installer follows the definition: a ``native_host`` definition binds
+    the host selected by ``get_native_installer`` (install-dir semantics — the
+    same hosts the native routes use), every other definition the shared
+    python-venv ``GenericVenvInstaller``. The generic verbs are exactly the
+    ones that installer can serve; ``install-source`` is served only when the
+    definition also declares a ``source`` recipe (otherwise 405).
+    """
     lifecycle = dict(definition.lifecycle)
-    from backend.engines.python.generic import GenericVenvInstaller
+    native_host = str(getattr(definition, "native_host", "") or "").strip()
 
     installer_holder: Dict[str, EngineInstaller] = {}
 
     def _installer() -> EngineInstaller:
         if not installer_holder:
-            installer_holder["installer"] = GenericVenvInstaller(definition)
+            if native_host:
+                installer = get_native_installer(definition.id)
+                if installer is None:
+                    raise RuntimeError(
+                        f"{definition.id} declares native_host {native_host!r} but no "
+                        "native installer host is registered for it"
+                    )
+            else:
+                from backend.engines.python.generic import GenericVenvInstaller
+
+                installer = GenericVenvInstaller(definition)
+            installer_holder["installer"] = installer
         return installer_holder["installer"]
 
     update_source = lifecycle.get("update_source")
@@ -586,6 +627,7 @@ def build_definition_lifecycle(definition) -> EngineLifecycle:
         prefer_source_install=bool(lifecycle.get("prefer_source_install")),
         status_fallback=dict(fallback) if isinstance(fallback, dict) else None,
         version_setting_key=str(lifecycle.get("version_setting_key") or "pip_version"),
+        supports_source_install=_definition_declares_recipe(definition, "source"),
     )
 
 
@@ -594,7 +636,11 @@ def generic_verb_names(lc: EngineLifecycle) -> list[str]:
     the dispatch conditions in the lifecycle_* helpers (verb override or
     installer backing). YAML campaign S5: surfaced on /api/engines for
     AUTHORITATIVE engines so the frontend can poll/drive them without a
-    local registry entry (generated engines keep the legacy descriptor)."""
+    local registry entry (generated engines keep the legacy descriptor).
+
+    ``install-source`` additionally requires a declared ``source`` recipe
+    (``supports_source_install``): a definition without one has no executable
+    install-source plan, so it must not be advertised as available."""
     verbs: list[str] = []
     if lc.update_source is not None or "check_updates" in lc.verbs:
         verbs.append("check-updates")
@@ -604,7 +650,9 @@ def generic_verb_names(lc: EngineLifecycle) -> list[str]:
         verbs.append("build-settings")
     if lc.get_installer is not None or "install" in lc.verbs:
         verbs.append("install")
-    if lc.get_installer is not None or "install_source" in lc.verbs:
+    if (lc.get_installer is not None and lc.supports_source_install) or (
+        "install_source" in lc.verbs
+    ):
         verbs.append("install-source")
     if lc.get_installer is not None or "remove" in lc.verbs:
         verbs.append("remove")
@@ -650,7 +698,11 @@ def register_definition_lifecycles() -> list[str]:
     2. Create the generic lifecycle record when the engine has no Python
        registration yet. A converted engine whose legacy prefix module mounted
        a definition-derived record at import keeps that single record (the
-       warning-free skip), so there is no duplicate registration.
+       warning-free skip), so there is no duplicate registration. This is the
+       same path for python-venv and ``native_host`` definitions: the record's
+       installer and verbs follow the definition (see
+       ``build_definition_lifecycle``), so a native YAML engine needs no
+       legacy prefix and no Python registration.
 
     Called once at startup after definition verification; returns the ids for
     which a NEW lifecycle record was created.

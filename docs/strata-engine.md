@@ -1,9 +1,9 @@
-# Strata engine status
+# Strata engine: planned integration
 
-Status: **experimental registration only** (2026-11-22). The engine is declared
-in `backend/engines/definitions/strata.yaml`, but Studio does not install or
-launch it yet. This page records what is declared, why the usual definition-only
-path does not apply, and what a supervised integration needs.
+Status: **planned, not registered** (2026-11-22). Studio ships no `strata`
+engine definition and offers no Strata install or launch action. This page
+keeps the integration analysis and the contract a future native host must
+satisfy, so the work is not lost.
 
 ## What Strata is
 
@@ -24,26 +24,14 @@ generation. `strata launch` is a background supervisor and does not fit that
 contract, and the run config it produces is model-specific preparation output,
 not a launch-time argument.
 
-## What Studio declares today
+## Why it is not registered
 
-`backend/engines/definitions/strata.yaml` declares the engine identity,
-`prebuilt` distribution kind, a `strata` runtime kind, the
-`prepared_bundle` artifact/package contract, text-generation capabilities, the
-supported consumer-GPU families, the upstream repository and the managed
-`strata` data directory. There is deliberately **no** `lifecycle`, `recipes` or
-`runtime_profiles` block: advertising install or launch actions before a host
-implements them would make the UI lie. Studio therefore sees a prepared Strata
-profile as the artifact (`prepared_bundle`), not a raw GGUF file.
-
-- **Where it is visible:** `GET /api/engines` includes the descriptor, the
-  capability-filter inputs and the hardware policy. Test fixtures can load the
-  definition through the generic loader and startup gates.
-- **Where it is not visible:** the Engines workspace only renders engines that
-  expose a lifecycle record, and the model engine picker only offers engines
-  compatible with the model's artifact format. Strata has neither today, so it
-  does not appear as an installable or selectable engine.
-- **Model compatibility:** excluded from GGUF inference because the declared
-  artifact is a prepared Strata profile, not the raw shards.
+A registration without an install/launch path would appear in `GET /api/engines`
+and in the model engine picker while every action it advertises would fail. A
+full Strata model-preparation stack is out of scope for the single-operator
+hardening release, so the definition was retired rather than shipped inert
+(the generic native lifecycle it would use is implemented — see
+[engine onboarding](engine-onboarding.md)).
 
 ## What a supervised integration needs
 
@@ -57,8 +45,10 @@ profile as the artifact (`prepared_bundle`), not a raw GGUF file.
    --port <port>`, with the readiness `/health` contract, managed cache variables
    (`XDG_CACHE_HOME`, `CUDA_CACHE_PATH`) and the Studio model id mapped to
    Strata's served model name.
-4. Generic native lifecycle wiring (install/status/check-updates/cancel/remove)
-   over `/api/engines/{engine_id}` so no new legacy route prefix is needed.
+4. A definition with `native_host` and a `lifecycle` block (plus its `release`
+   recipe), which serves install/status/check-updates/cancel/build-settings/
+   remove on `/api/engines/{engine_id}`. `install-source` would require a
+   declared `source` recipe; nothing here needs a legacy route prefix.
 
 Until those land, install and run Strata with its own Terminal. Studio will not
 claim to manage what it cannot supervise.

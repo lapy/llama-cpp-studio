@@ -384,9 +384,13 @@ def test_startup_registers_the_new_definition_without_touching_shipped_engines(o
     assert entry["cpu_supported"] is True
     assert entry["gpu_archs"] == ["sm_90"]
 
-    # Startup added exactly the new id: every shipped engine already had its
-    # lifecycle registration, so none needed code work for the new definition.
-    assert onboarded.registered == [FIXTURE_ID]
+    # Startup added the new id exactly once. A YAML-only shipped engine with no
+    # compatibility router (e.g. ReVolta) may also be registered when nothing
+    # registered it earlier in this process, so assert membership/uniqueness
+    # rather than an order-dependent exact list: no shipped engine needed code
+    # work for the new definition either way.
+    assert onboarded.registered.count(FIXTURE_ID) == 1
+    assert set(onboarded.registered) <= set(onboarded.shipped_ids) | {FIXTURE_ID}
     assert onboarded.lifecycle.engine_id == FIXTURE_ID
     assert onboarded.lifecycle.update_source.package == "fixture-echo"
     # Install-settings defaults came from the declared settings_defaults block.

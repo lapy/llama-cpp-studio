@@ -96,10 +96,6 @@ def test_default_shadow_registry_untouched_by_reference_directory():
         # ReVolta is a release-first vLLM fork; its source/sync flows are the
         # shared editable-checkout vocabulary, and removal is venv-scoped.
         "revolta": {"release", "source", "sync", "remove", "remove_version"},
-        # Strata registers identity/artifact/hardware policy only: its Terminal
-        # owns installation and run-config preparation, so Studio deliberately
-        # ships no recipe (and no runtime profile) until a native host lands.
-        "strata": set(),
         # 1Cat-vLLM executes all four flows: the release wheel-URL install,
         # the venv-scoped removal, and the wheel-forge source/sync plans
         # (rust bootstrap + conditional flash-attention stay composite
