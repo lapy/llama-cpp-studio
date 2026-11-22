@@ -1,17 +1,30 @@
 <template>
   <div class="config-overview">
-    <ModelConfigSectionHeading
+    <PageSection
       title="Overview"
       description="Confirm what this model is, which engine runs it, and what to do next before editing parameters."
-    />
-
-    <section
-      class="config-card config-overview__identity"
-      aria-labelledby="config-overview-identity"
+      variant="plain"
     >
-      <div class="config-overview__identity-head">
+      <PageSection
+        id="config-overview-identity"
+        :title="modelLabel"
+        heading-tag="h3"
+        variant="compact"
+      >
+        <template #meta>
+          <Tag :value="format" severity="info" />
+          <Tag v-if="model.quantization" :value="model.quantization" severity="secondary" />
+          <span v-if="sizeLabel" class="config-overview__size">{{ sizeLabel }}</span>
+          <span v-else class="config-overview__size">Size not reported</span>
+          <Tag
+            :value="status.label"
+            :severity="status.severity"
+            aria-label="Configuration status"
+            data-overview-status
+          />
+        </template>
+
         <div class="config-overview__identity-copy">
-          <h3 id="config-overview-identity" class="config-overview__name">{{ modelLabel }}</h3>
           <a
             v-if="model.huggingface_id"
             :href="`https://huggingface.co/${model.huggingface_id}`"
@@ -24,180 +37,147 @@
           </a>
           <p v-else class="config-muted-hint">Repository not reported for this model.</p>
         </div>
-        <div class="config-overview__identity-tags">
-          <Tag :value="format" severity="info" />
-          <Tag v-if="model.quantization" :value="model.quantization" severity="secondary" />
-          <span v-if="sizeLabel" class="config-overview__size">{{ sizeLabel }}</span>
-          <span v-else class="config-overview__size">Size not reported</span>
-          <Tag
-            :value="status.label"
-            :severity="status.severity"
-            aria-label="Configuration status"
-            data-overview-status
-          />
-        </div>
-      </div>
 
-      <div class="config-overview__engine">
-        <div class="section-label section-label--inline">Engine</div>
-        <div
-          class="engine-selector"
-          role="radiogroup"
-          aria-label="Engine"
-          @keydown="onEngineKeydown"
-        >
-          <button
-            v-for="eng in engineOptions"
-            :key="eng.value"
-            type="button"
-            class="engine-option"
-            role="radio"
-            :class="{
-              selected: config.engine === eng.value,
-              disabled: eng.disabled,
-            }"
-            :aria-checked="config.engine === eng.value ? 'true' : 'false'"
-            :aria-disabled="eng.disabled ? 'true' : 'false'"
-            :disabled="eng.disabled"
-            :tabindex="engineTabIndex(eng)"
-            v-tooltip.bottom="
-              eng.disabledReason ||
-              (eng.runnable || !eng.descriptor
-                ? ''
-                : 'No active version. Activate one from Engines.')
-            "
-            @click="$emit('select-engine', eng.value)"
+        <div class="config-overview__engine">
+          <h3 class="page-subheading">Engine</h3>
+          <div
+            class="engine-selector"
+            role="radiogroup"
+            aria-label="Engine"
+            @keydown="onEngineKeydown"
           >
-            <div class="engine-option-label">
-              <template v-if="engineMark(eng.value)">
-                <span
-                  v-if="engineMark(eng.value).text"
-                  :class="['engine-mark', engineMark(eng.value).className]"
-                  aria-hidden="true"
-                  >{{ engineMark(eng.value).text }}</span
-                >
-                <i v-else :class="engineMark(eng.value).icon" aria-hidden="true" />
-              </template>
-              <span class="engine-name">{{ eng.label }}</span>
-            </div>
-            <small v-if="eng.disabledReason" class="engine-disabled-reason">
-              {{ eng.disabledReason }}
-            </small>
-          </button>
-        </div>
-        <p v-if="!engineOptions.length" class="config-muted-hint">
-          No installed engine is compatible with this model.
-          <Button
-            label="Open Engines"
-            icon="pi pi-arrow-right"
-            size="small"
-            link
-            @click="$emit('open-engines')"
-          />
-        </p>
-        <p v-else-if="unavailableSavedEngine" class="config-muted-hint">
-          {{ unavailableSavedEngine.label }} is saved for this model. It is hidden because it is not
-          installed or not compatible.
-        </p>
-        <div v-if="isSglangEngine" class="param-field sglang-runtime-selector">
-          <label for="sglang-runtime">SGLang runtime</label>
-          <Select
-            input-id="sglang-runtime"
-            :model-value="sglangRuntime"
-            :options="sglangRuntimeOptions"
-            option-label="label"
-            option-value="value"
-            @update:model-value="$emit('update:sglang-runtime', $event)"
-          />
-          <small class="config-muted-hint"
-            >Each runtime has its own CLI parameters. Saved values are kept when switching.</small
-          >
-        </div>
-      </div>
-    </section>
-
-    <section class="config-card config-overview__facts" aria-labelledby="config-overview-facts">
-      <h3 id="config-overview-facts" class="config-overview__section-title">At a glance</h3>
-      <dl class="config-overview__fact-grid">
-        <div v-for="fact in facts" :key="fact.key" class="config-overview__fact">
-          <dt>{{ fact.label }}</dt>
-          <dd>
-            <span class="config-overview__fact-value">{{ fact.value }}</span>
-            <small v-if="fact.hint" class="config-overview__fact-hint">{{ fact.hint }}</small>
-          </dd>
-        </div>
-      </dl>
-    </section>
-
-    <ModelConfigAutoFit
-      v-if="autoFit.supported"
-      :active="autoFit.active"
-      :overrides="autoFit.overrides"
-      :defaults="autoFit.defaults"
-      @restore="$emit('restore-auto-fit')"
-      @review="$emit('review-auto-fit')"
-    />
-
-    <section class="config-card config-overview__review" aria-labelledby="config-overview-review">
-      <div class="config-overview__review-head">
-        <h3 id="config-overview-review" class="config-overview__section-title">Review</h3>
-        <p class="config-overview__review-summary">{{ reviewSummary }}</p>
-      </div>
-      <ul v-if="reviewItems.length" class="config-overview__review-list">
-        <li
-          v-for="item in reviewItems"
-          :key="item.key"
-          :class="['config-overview__review-item', `config-overview__review-item--${item.tone}`]"
-        >
-          <i :class="item.icon" aria-hidden="true" />
-          <div class="config-overview__review-body">
-            <strong>{{ item.title }}</strong>
-            <p>{{ item.detail }}</p>
-            <div v-if="item.section || item.engines" class="config-overview__review-links">
-              <Button
-                v-if="item.section"
-                :label="item.sectionLabel"
-                size="small"
-                text
-                @click="$emit('go-to-section', item.section)"
-              />
-              <Button
-                v-if="item.engines"
-                label="Open Engines"
-                size="small"
-                text
-                @click="$emit('open-engines')"
-              />
-            </div>
+            <button
+              v-for="eng in engineOptions"
+              :key="eng.value"
+              type="button"
+              class="engine-option"
+              role="radio"
+              :class="{
+                selected: config.engine === eng.value,
+                disabled: eng.disabled,
+              }"
+              :aria-checked="config.engine === eng.value ? 'true' : 'false'"
+              :aria-disabled="eng.disabled ? 'true' : 'false'"
+              :disabled="eng.disabled"
+              :tabindex="engineTabIndex(eng)"
+              v-tooltip.bottom="
+                eng.disabledReason ||
+                (eng.runnable || !eng.descriptor
+                  ? ''
+                  : 'No active version. Activate one from Engines.')
+              "
+              @click="$emit('select-engine', eng.value)"
+            >
+              <div class="engine-option-label">
+                <template v-if="engineMark(eng.value)">
+                  <span
+                    v-if="engineMark(eng.value).text"
+                    :class="['engine-mark', engineMark(eng.value).className]"
+                    aria-hidden="true"
+                    >{{ engineMark(eng.value).text }}</span
+                  >
+                  <i v-else :class="engineMark(eng.value).icon" aria-hidden="true" />
+                </template>
+                <span class="engine-name">{{ eng.label }}</span>
+              </div>
+              <small v-if="eng.disabledReason" class="engine-disabled-reason">
+                {{ eng.disabledReason }}
+              </small>
+            </button>
           </div>
-        </li>
-      </ul>
-      <p v-else class="config-muted-hint">No configuration warnings.</p>
+          <p v-if="!engineOptions.length" class="config-muted-hint">
+            No installed engine is compatible with this model.
+            <Button
+              label="Open Engines"
+              icon="pi pi-arrow-right"
+              size="small"
+              link
+              @click="$emit('open-engines')"
+            />
+          </p>
+          <p v-else-if="unavailableSavedEngine" class="config-muted-hint">
+            {{ unavailableSavedEngine.label }} is saved for this model. It is hidden because it is
+            not installed or not compatible.
+          </p>
+          <div v-if="isSglangEngine" class="page-form__field sglang-runtime-selector">
+            <label class="page-form__label" for="sglang-runtime">SGLang runtime</label>
+            <Select
+              input-id="sglang-runtime"
+              :model-value="sglangRuntime"
+              :options="sglangRuntimeOptions"
+              option-label="label"
+              option-value="value"
+              @update:model-value="$emit('update:sglang-runtime', $event)"
+            />
+            <small class="page-form__hint"
+              >Each runtime has its own CLI parameters. Saved values are kept when switching.</small
+            >
+          </div>
+        </div>
+      </PageSection>
 
-      <div class="config-overview__review-actions">
-        <Button
-          v-if="running"
-          label="Open in library"
-          icon="pi pi-th-large"
-          severity="success"
-          @click="$emit('open-library')"
-        />
-        <span v-else class="config-overview__start-wrap" v-tooltip.top="startDisabledReason || ''">
-          <Button
-            label="Start model"
-            icon="pi pi-play"
-            :severity="canStart ? 'success' : 'secondary'"
-            :outlined="!canStart"
-            :loading="starting"
-            :disabled="!canStart"
-            @click="$emit('start')"
-          />
-        </span>
-        <small v-if="!running && startDisabledReason" class="config-overview__start-reason">
-          {{ startDisabledReason }}
-        </small>
-      </div>
-    </section>
+      <PageSection title="At a glance" heading-tag="h3" variant="compact">
+        <dl class="config-overview__fact-grid">
+          <div v-for="fact in facts" :key="fact.key" class="config-overview__fact">
+            <dt>{{ fact.label }}</dt>
+            <dd>
+              <span class="config-overview__fact-value">{{ fact.value }}</span>
+              <small v-if="fact.hint" class="config-overview__fact-hint">{{ fact.hint }}</small>
+            </dd>
+          </div>
+        </dl>
+      </PageSection>
+
+      <ModelConfigAutoFit
+        v-if="autoFit.supported"
+        :active="autoFit.active"
+        :overrides="autoFit.overrides"
+        :defaults="autoFit.defaults"
+        @restore="$emit('restore-auto-fit')"
+        @review="$emit('review-auto-fit')"
+      />
+
+      <PageSection title="Review" heading-tag="h3" variant="compact">
+        <template #meta>
+          <p class="config-overview__review-summary">{{ reviewSummary }}</p>
+        </template>
+        <ul v-if="reviewItems.length" class="config-overview__review-list">
+          <li
+            v-for="item in reviewItems"
+            :key="item.key"
+            :class="['config-overview__review-item', `config-overview__review-item--${item.tone}`]"
+          >
+            <i :class="item.icon" aria-hidden="true" />
+            <div class="config-overview__review-body">
+              <strong>{{ item.title }}</strong>
+              <p>{{ item.detail }}</p>
+              <div v-if="item.section || item.engines" class="config-overview__review-links">
+                <Button
+                  v-if="item.section"
+                  :label="item.sectionLabel"
+                  size="small"
+                  text
+                  @click="$emit('go-to-section', item.section)"
+                />
+                <Button
+                  v-if="item.engines"
+                  label="Open Engines"
+                  size="small"
+                  text
+                  @click="$emit('open-engines')"
+                />
+              </div>
+            </div>
+          </li>
+        </ul>
+        <p v-else class="config-muted-hint">No configuration warnings.</p>
+
+        <p class="config-overview__next-step">
+          Use the action bar above to save, apply, or start this model. It always shows the next
+          required step.
+        </p>
+      </PageSection>
+    </PageSection>
   </div>
 </template>
 
@@ -207,8 +187,8 @@ import Button from 'primevue/button'
 import Select from 'primevue/select'
 import Tag from 'primevue/tag'
 
-import ModelConfigSectionHeading from '@/components/models/ModelConfigSectionHeading.vue'
 import ModelConfigAutoFit from '@/components/models/ModelConfigAutoFit.vue'
+import PageSection from '@/components/common/PageSection.vue'
 import { ENGINE_DESCRIPTORS } from '@/engines/registry'
 import { formatLibraryBytes } from '@/utils/libraryPresentation'
 import { formatLabel } from '@/utils/modelPresentation'
@@ -238,8 +218,6 @@ const props = defineProps({
   modelRuntimeQuality: { type: String, default: '' },
   running: { type: Boolean, default: false },
   starting: { type: Boolean, default: false },
-  canStart: { type: Boolean, default: false },
-  startDisabledReason: { type: String, default: '' },
   autoFit: {
     type: Object,
     default: () => ({ supported: false, active: false, overrides: [], defaults: null }),
@@ -249,8 +227,6 @@ const props = defineProps({
 const emit = defineEmits([
   'select-engine',
   'update:sglang-runtime',
-  'start',
-  'open-library',
   'open-engines',
   'go-to-section',
   'restore-auto-fit',
@@ -579,14 +555,6 @@ const reviewSummary = computed(() => {
   gap: 0.75rem;
 }
 
-.config-overview__identity-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 0.5rem 1rem;
-}
-
 .config-overview__identity-copy {
   display: flex;
   flex-direction: column;
@@ -594,33 +562,18 @@ const reviewSummary = computed(() => {
   min-width: 0;
 }
 
-.config-overview__name {
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 650;
-  color: var(--text-primary);
-  overflow-wrap: anywhere;
-}
-
 .config-overview__repo {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
   font-size: var(--text-xs);
-  color: var(--accent-cyan);
+  color: var(--accent-primary);
   text-decoration: none;
   overflow-wrap: anywhere;
 }
 
 .config-overview__repo:hover {
   text-decoration: underline;
-}
-
-.config-overview__identity-tags {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.4rem;
 }
 
 .config-overview__size {
@@ -635,13 +588,6 @@ const reviewSummary = computed(() => {
   margin-top: 0.75rem;
   padding-top: 0.75rem;
   border-top: 1px solid var(--border-primary);
-}
-
-.config-overview__section-title {
-  margin: 0;
-  font-size: 0.9375rem;
-  font-weight: 650;
-  color: var(--text-primary);
 }
 
 .config-overview__fact-grid {
@@ -683,18 +629,20 @@ const reviewSummary = computed(() => {
   color: var(--text-secondary);
 }
 
-.config-overview__review-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 0.25rem 1rem;
-}
-
 .config-overview__review-summary {
   margin: 0;
   font-size: var(--text-xs);
   color: var(--text-secondary);
+  text-align: right;
+}
+
+.config-overview__next-step {
+  margin: 0.65rem 0 0;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border-primary);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1.45;
 }
 
 .config-overview__review-list {
@@ -779,26 +727,6 @@ const reviewSummary = computed(() => {
   flex-wrap: wrap;
   gap: 0.15rem 0.35rem;
   margin-top: 0.15rem;
-}
-
-.config-overview__review-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 0.75rem;
-  padding-top: 0.65rem;
-  border-top: 1px solid var(--border-primary);
-}
-
-.config-overview__start-wrap {
-  display: inline-flex;
-}
-
-.config-overview__start-reason {
-  font-size: var(--text-xs);
-  line-height: 1.4;
-  color: var(--text-secondary);
 }
 
 .config-overview .engine-selector {

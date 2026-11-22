@@ -35,6 +35,7 @@ vi.mock('vue-router', () => ({
   useRoute: () => route,
   useRouter: () => ({ push: routerPush }),
   onBeforeRouteLeave: () => {},
+  RouterLink: { props: ['to'], template: '<a><slot /></a>' },
 }))
 
 vi.mock('primevue/usetoast', () => ({ useToast: () => ({ add: vi.fn() }) }))
@@ -180,7 +181,15 @@ async function mountReady() {
     attachTo: document.body,
     global: {
       directives: { tooltip: () => {} },
-      stubs: { Button: buttonStub, ModelConfigActionBar: false },
+      stubs: {
+        Button: buttonStub,
+        ModelConfigActionBar: false,
+        ModelConfigNamesSummary: false,
+        PageSection: false,
+        PageToolbar: false,
+        SectionTabs: false,
+        StateBanner: false,
+      },
     },
   })
   await vi.waitFor(() => expect(wrapper.vm.loading).toBe(false))
@@ -189,9 +198,7 @@ async function mountReady() {
 }
 
 function tabByLabel(wrapper, label) {
-  return wrapper
-    .findAll('.config-section-tabs [role="tab"]')
-    .find((tab) => tab.text().includes(label))
+  return wrapper.findAll('.section-tabs [role="tab"]').find((tab) => tab.text().includes(label))
 }
 
 describe('ModelConfig deep-linkable sections', () => {
@@ -267,6 +274,43 @@ describe('ModelConfig deep-linkable sections', () => {
     expect(wrapper.vm.pageTab).toBe('launch')
     expect(routerPush).toHaveBeenCalledWith(
       expect.objectContaining({ path: '/models/model-1/config', hash: '#launch' }),
+    )
+  })
+
+  it('navigates the task sections through the shared tab strip with matching panel ids', async () => {
+    const wrapper = await mountReady()
+
+    const tabs = wrapper.findAll('.section-tabs [role="tab"]')
+    expect(tabs.map((tab) => tab.text())).toEqual(['Overview', 'Runtime', 'Names', 'Launch'])
+
+    const namesTab = wrapper.get('#config-tab-names')
+    expect(namesTab.attributes('aria-controls')).toBe('config-panel-names')
+    expect(namesTab.attributes('aria-selected')).toBe('false')
+    const namesPanel = wrapper.get('#config-panel-names')
+    expect(namesPanel.attributes('aria-labelledby')).toBe('config-tab-names')
+    expect(namesPanel.text()).toContain('Names & routing')
+    expect(namesPanel.text()).toContain('Catalog identity')
+
+    await namesTab.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.vm.pageTab).toBe('names')
+    expect(namesTab.attributes('aria-selected')).toBe('true')
+    expect(wrapper.get('#config-tab-names').attributes('tabindex')).toBe('0')
+    expect(routerPush).toHaveBeenCalledWith(
+      expect.objectContaining({ path: '/models/model-1/config', hash: '#names' }),
+    )
+  })
+
+  it('opens the names section from its deep link', async () => {
+    route.hash = '#names'
+    const wrapper = await mountReady()
+
+    await vi.waitFor(() => expect(wrapper.vm.pageTab).toBe('names'))
+    await vi.waitFor(() =>
+      expect(scrollCalls).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: 'config-panel-names' })]),
+      ),
     )
   })
 })

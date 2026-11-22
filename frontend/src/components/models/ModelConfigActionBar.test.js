@@ -240,7 +240,7 @@ describe('ModelConfigActionBar', () => {
     await buttonByLabel(wrapper, 'Review changes (2)').trigger('click')
     await buttonByLabel(wrapper, 'Templates').trigger('click')
     await buttonByLabel(wrapper, 'Import command').trigger('click')
-    await buttonByLabel(wrapper, 'Reset to Saved').trigger('click')
+    await buttonByLabel(wrapper, 'Reset to saved').trigger('click')
 
     expect(wrapper.emitted('review')).toHaveLength(1)
     expect(wrapper.emitted('templates')).toHaveLength(1)

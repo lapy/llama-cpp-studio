@@ -28,6 +28,7 @@ vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { id: 'audio-model-1' } }),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   onBeforeRouteLeave: () => {},
+  RouterLink: { props: ['to'], template: '<a><slot /></a>' },
 }))
 
 vi.mock('primevue/usetoast', () => ({
@@ -355,7 +356,7 @@ describe('ModelConfig audio profiles', () => {
     await settleView(wrapper)
 
     await wrapper
-      .findAll('.config-section-tabs [role="tab"]')
+      .findAll('.section-tabs [role="tab"]')
       .find((tab) => tab.text().includes('Runtime'))
       .trigger('click')
     await flushPromises()
@@ -372,6 +373,32 @@ describe('ModelConfig audio profiles', () => {
     const assets = wrapper.findAll('button').find((button) => button.text().includes('Assets'))
     await assets.trigger('click')
     expect(wrapper.find('#gpu-mode').exists()).toBe(false)
+  })
+
+  it('uses the audio-config panel ids for every section, including names', async () => {
+    setupAudioMocks()
+    const wrapper = mountView()
+    await settleView(wrapper)
+
+    const labels = wrapper.findAll('.section-tabs [role="tab"]').map((tab) => tab.text())
+    expect(labels).toEqual(['Overview', 'Runtime', 'Assets', 'Defaults', 'Names', 'Launch'])
+
+    expect(wrapper.get('#audio-config-tab-server').attributes('aria-controls')).toBe(
+      'audio-config-panel-server',
+    )
+    expect(wrapper.find('#audio-config-panel-server').exists()).toBe(true)
+    expect(wrapper.get('#audio-config-tab-names').attributes('aria-controls')).toBe(
+      'audio-config-panel-names',
+    )
+    expect(wrapper.get('#audio-config-panel-names').attributes('aria-labelledby')).toBe(
+      'audio-config-tab-names',
+    )
+    expect(wrapper.get('#audio-config-panel-names').text()).toContain('Names & routing')
+
+    await wrapper.get('#audio-config-tab-names').trigger('click')
+    await flushPromises()
+    expect(wrapper.vm.pageTab).toBe('names')
+    expect(wrapper.find('#audio-config-panel-names').isVisible()).toBe(true)
   })
 
   it('renders speech profile card for TTS models', async () => {
