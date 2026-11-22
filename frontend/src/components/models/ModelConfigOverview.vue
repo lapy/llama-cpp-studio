@@ -604,8 +604,6 @@ const reviewSummary = computed(() => {
 .config-overview__fact dt {
   font-size: var(--text-xs);
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
   color: var(--text-secondary);
 }
 

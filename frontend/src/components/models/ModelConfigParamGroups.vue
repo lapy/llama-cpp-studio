@@ -148,8 +148,9 @@
                       severity="secondary"
                       class="param-supported-tag"
                     />
-                    <i
+                    <span
                       class="pi pi-info-circle param-info"
+                      role="img"
                       tabindex="0"
                       :aria-label="`About ${param.label}`"
                       v-tooltip.top="paramDescriptionTooltip(param)"

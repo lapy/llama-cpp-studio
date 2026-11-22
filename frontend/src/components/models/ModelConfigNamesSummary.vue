@@ -348,6 +348,14 @@ const routableNames = computed(() => {
   text-decoration: underline;
 }
 
+@media (max-width: 640px), (pointer: coarse) {
+  .names-summary__link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+  }
+}
+
 @media (max-width: 640px) {
   .names-summary__row {
     grid-template-columns: minmax(0, 1fr);

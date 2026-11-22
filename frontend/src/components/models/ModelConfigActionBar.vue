@@ -201,7 +201,7 @@ function closeSecondaryActionsMenu(event) {
   padding: 0;
 }
 
-.config-action-bar .page-toolbar__summary {
+.config-action-bar :deep(.page-toolbar__summary) {
   flex: 1 1 22rem;
   gap: 0.4rem 0.75rem;
 }
@@ -326,7 +326,7 @@ function closeSecondaryActionsMenu(event) {
     row-gap: 0.45rem;
   }
 
-  .config-action-bar .page-toolbar__summary {
+  .config-action-bar :deep(.page-toolbar__summary) {
     grid-column: 1 / -1;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -344,14 +344,14 @@ function closeSecondaryActionsMenu(event) {
     min-width: 0;
   }
 
-  .config-action-bar .page-toolbar__actions {
+  .config-action-bar :deep(.page-toolbar__actions) {
     grid-column: 1 / -1;
     width: 100%;
     margin-left: 0;
     justify-content: flex-start;
   }
 
-  .config-action-bar .page-toolbar__actions .p-button {
+  .config-action-bar :deep(.page-toolbar__actions) .p-button {
     flex: 1 1 auto;
     justify-content: center;
   }

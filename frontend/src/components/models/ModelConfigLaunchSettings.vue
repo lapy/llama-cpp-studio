@@ -3,8 +3,9 @@
     <div v-if="showCompanionsCard" class="advanced-block">
       <h3 class="page-subheading">
         Companions
-        <i
+        <span
           class="pi pi-info-circle param-info"
+          role="img"
           tabindex="0"
           aria-label="About companions"
           v-tooltip.top="
@@ -153,8 +154,9 @@
       <div class="page-form__field">
         <label class="page-form__label" for="config-model-alias">
           {{ aliasLabel }}
-          <i
+          <span
             class="pi pi-info-circle param-info"
+            role="img"
             tabindex="0"
             aria-label="About API alias"
             v-tooltip.top="aliasTooltip"
@@ -185,8 +187,9 @@
     <div class="advanced-block">
       <h3 class="page-subheading">
         Custom arguments
-        <i
+        <span
           class="pi pi-info-circle param-info"
+          role="img"
           tabindex="0"
           aria-label="About custom arguments"
           v-tooltip.top="'Raw CLI flags appended to the server command.'"
@@ -215,8 +218,9 @@
     <div class="advanced-block">
       <h3 class="page-subheading">
         Environment
-        <i
+        <span
           class="pi pi-info-circle param-info"
+          role="img"
           tabindex="0"
           aria-label="About environment variables"
           v-tooltip.top="
