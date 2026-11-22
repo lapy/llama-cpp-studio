@@ -267,7 +267,7 @@ def test_each_engine_compiles_structured_argv(monkeypatch, tmp_path, engine):
             "out": ["text"],
             "context": 2048,
         }
-    elif engine in {"vllm", "1cat_vllm"}:
+    elif engine in {"vllm", "1cat_vllm", "revolta"}:
         assert compiled.proxy.capabilities == {"in": ["text"], "out": ["text"]}
     elif engine == "audio_cpp":
         assert compiled.proxy.capabilities == {"disableAuto": True}
