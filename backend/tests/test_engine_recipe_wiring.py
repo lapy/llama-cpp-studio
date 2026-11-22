@@ -24,11 +24,6 @@ def _plans():
     for engine_id, definition in _definitions():
         if definition is None:
             continue
-        if not getattr(definition, "recipes", None):
-            # Registration-only engines (Strata) declare identity, artifact and
-            # hardware policy without install flows; there is no wiring to
-            # check until a native host recipe lands.
-            continue
         recipe_names = [name for name, _steps in definition.recipes]
         for recipe in recipe_names:
             try:
