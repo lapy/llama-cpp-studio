@@ -151,7 +151,8 @@ that reason instead.
 
 `plan_id` is a digest of the category, keep count and each selected unit's id,
 byte count and modification identity. Plans live in memory for five minutes
-and are single-use; a restart drops them.
+and are single-use; a restart drops them. The confirmation phrase uses `DELETE`
+for the three directory categories and `PRUNE` for configuration history.
 
 ### `POST /api/storage/cleanup/apply`
 
@@ -223,9 +224,10 @@ System gains a fifth section, **Storage** (`/system#storage`), backed by the
 Pinia `storage` store. It shows the data root, measured bytes, free space and
 scan freshness, then one card per category with a share bar, unit count,
 reclaimable bytes, blocked reasons and manage links. A per-category disclosure
-lists every unit; a cleanup preview shows the plan, refusals and the
-confirmation phrase and requires the operator to check the confirmation box
-before the delete button enables. Results report freed bytes and list removed
+lists every unit. "Review cleanup" prepares the plan and opens a modal
+confirmation dialog that lists the selected units and refusals, shows the
+confirmation phrase, and keeps the delete button disabled until the operator
+checks the permanent-deletion box. Results report freed bytes and list removed
 and failed units. Status uses `role="status"`; failures use `role="alert"` and
 never expose scan paths.
 
