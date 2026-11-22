@@ -28,6 +28,7 @@ from backend.routes import (
     model_config_templates,
     models,
     llama_versions,
+    metrics,
     status,
     gpu_info,
     lmdeploy_versions,
@@ -298,6 +299,12 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.exception("Error stopping %s proxy: %s", proxy_backend, e)
 
+    # Audit records are best effort, but a graceful stop should not drop the
+    # last mutations it just observed.
+    from backend.observability.audit import flush_audit_log
+
+    await asyncio.to_thread(flush_audit_log, 2.0)
+
     # Blocking probes are not cancellable mid-call; wait for the ones still
     # running so no worker can touch the store after the drains above.
     from backend.concurrency import shutdown_blocking
@@ -424,6 +431,7 @@ if len(allow_origins) == 1 and allow_origins[0] == "*":
     allow_credentials_env = False
 
 from backend.access_policy import ManagementAccessMiddleware
+from backend.observability.audit import AuditMiddleware
 from backend.static_assets import HashedAssetFiles
 
 # Fsync queued YAML writes before the response starts. Inside access control so
@@ -432,6 +440,9 @@ app.add_middleware(StoreIoMiddleware)
 
 # Access control is inside CORS so browser clients still receive CORS headers on 401/403.
 app.add_middleware(ManagementAccessMiddleware)
+# Audit sits outside access control so a rejected mutation is still recorded
+# with the actor kind that was presented; it stays inside CORS.
+app.add_middleware(AuditMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allow_origins,
@@ -483,6 +494,7 @@ app.include_router(
 )
 app.include_router(llama_versions.router, prefix="/api/llama-versions", tags=["llama-versions"])
 app.include_router(status.router, prefix="/api", tags=["status"])
+app.include_router(metrics.router, prefix="/api", tags=["observability"])
 app.include_router(config_backup.router, prefix="/api", tags=["config-backup"])
 app.include_router(config_history.router, prefix="/api", tags=["config-history"])
 app.include_router(benchmarks.router, prefix="/api", tags=["benchmarks"])

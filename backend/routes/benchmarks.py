@@ -14,6 +14,10 @@ from backend.services.model_benchmark import (
 
 router = APIRouter()
 
+#: Per-run bounds keep a benchmark request from monopolizing a single model.
+MAX_BENCHMARK_WARMUP = 3
+MAX_BENCHMARK_REPEATS = 5
+
 
 class BenchmarkRunBody(BaseModel):
     model_id: str = Field(min_length=1, max_length=300)
@@ -21,6 +25,33 @@ class BenchmarkRunBody(BaseModel):
         default="Reply with a short description of the sky.", min_length=1, max_length=1000
     )
     max_tokens: int = Field(default=64, ge=1, le=512)
+    #: Discarded runs that settle caches/JIT before the measured runs.
+    warmup: int = Field(default=0, ge=0, le=MAX_BENCHMARK_WARMUP)
+    #: Measured runs; one run is the historical single-shot benchmark.
+    repeats: int = Field(default=1, ge=1, le=MAX_BENCHMARK_REPEATS)
+
+
+class BenchmarkRunResult(BaseModel):
+    """One measured run; extra stored detail is not part of the API promise."""
+
+    index: int
+    time_to_first_token_ms: float
+    total_seconds: float
+    completion_tokens: int | None = None
+    tokens_per_second: float | None = None
+
+
+class BenchmarkAggregateStats(BaseModel):
+    min: float | None = None
+    p50: float | None = None
+    p95: float | None = None
+    max: float | None = None
+
+
+class BenchmarkAggregate(BaseModel):
+    time_to_first_token_ms: BenchmarkAggregateStats
+    total_seconds: BenchmarkAggregateStats
+    tokens_per_second: BenchmarkAggregateStats
 
 
 class BenchmarkResponse(BaseModel):
@@ -50,6 +81,12 @@ class BenchmarkResponse(BaseModel):
     request_effective_tokens_per_second: float | None = None
     engine_tokens_per_second: float | None = None
     engine_metrics: dict[str, float] | None = None
+    # Additive warmup/repeat fields. Rows stored before these fields existed
+    # read back as a single run without aggregate detail.
+    warmup: int = 0
+    repeats: int = 1
+    runs: list[BenchmarkRunResult] = Field(default_factory=list)
+    aggregate: BenchmarkAggregate | None = None
 
 
 def _error(exc: BenchmarkError) -> JSONResponse:
@@ -67,6 +104,8 @@ async def run_benchmark(body: BenchmarkRunBody):
             body.model_id,
             prompt=body.prompt,
             max_tokens=body.max_tokens,
+            warmup=body.warmup,
+            repeats=body.repeats,
         )
     except BenchmarkError as exc:
         return _error(exc)
