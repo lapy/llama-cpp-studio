@@ -32,6 +32,7 @@ function mountSystem() {
         RouterLink: { template: '<a><slot /></a>' },
         ConfigBackupPanel: { template: '<div>Backup panel</div>' },
         ConfigHistoryPanel: { template: '<div>History panel</div>' },
+        StoragePanel: { template: '<div>Storage panel</div>' },
       },
     },
   })
@@ -61,6 +62,18 @@ it('separates diagnostics, backup and history and keeps persistence details reda
   await flushPromises()
   expect(wrapper.text()).toContain('History panel')
   expect(wrapper.text()).not.toContain('Backup panel')
+  wrapper.unmount()
+})
+
+it('renders the Storage section from the system tabs', async () => {
+  route.hash = '#storage'
+  const wrapper = mountSystem()
+  await flushPromises()
+
+  expect(wrapper.text()).toContain('Storage panel')
+  expect(wrapper.text()).not.toContain('Backup panel')
+  expect(wrapper.text()).not.toContain('History panel')
+  expect(wrapper.text()).not.toContain('Needs attention panel')
   wrapper.unmount()
 })
 

@@ -38,6 +38,7 @@ from backend.routes import (
     runtime,
     inference_keys,
     proxy_admin,
+    storage,
 )
 from backend.models.hub import set_huggingface_token
 from backend.logging_config import describe_error, get_logger, log_api_error, setup_logging
@@ -500,6 +501,7 @@ app.include_router(
     tags=["inference-access"],
 )
 app.include_router(proxy_admin.router, prefix="/api/proxy", tags=["proxy"])
+app.include_router(storage.router, prefix="/api", tags=["storage"])
 app.include_router(
     audio_openai_proxy.router,
     prefix="/v1/audio",
