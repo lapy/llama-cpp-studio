@@ -69,11 +69,15 @@ def test_revolta_release_plan_installs_the_revolta_distribution():
 
 def test_revolta_generic_lifecycle_surfaces(client, monkeypatch, tmp_path):
     from backend import data_store
+    from backend.routes.engine_versions import register_definition_lifecycles
 
     import backend.main  # noqa: F401 - production startup registrations
 
     store = data_store.DataStore(config_dir=str(tmp_path / "config"))
     monkeypatch.setattr(data_store, "_store", store)
+    # The app lifespan materializes YAML-only lifecycles; the test client does
+    # not run lifespan, so run the same startup gate here.
+    register_definition_lifecycles()
 
     listing = client.get("/api/engines")
     entry = next(engine for engine in listing.json()["engines"] if engine["id"] == "revolta")

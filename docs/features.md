@@ -1,4 +1,4 @@
-﻿# Studio feature guide
+# Studio feature guide
 
 Studio manages local inference engines, model files, model configuration, audio workflows, and client access through a browser interface. The application serves a Vue frontend and FastAPI management API, and runs a native inference proxy that owns engine subprocesses. Persistent state lives in the configured Studio data directory.
 
@@ -150,7 +150,7 @@ Custom arguments append raw CLI tokens to the engine command. Studio owns model 
 
 ### Import from command
 
-**More actions â†’ Import command** accepts a complete server command, raw flags, and `KEY=value` environment assignments. The preview separates recognized parameters, environment assignments, managed options, unsupported/deprecated entries, and unrecognized tokens. Users choose the entries to import and can put appropriate leftovers into Custom Arguments.
+**More actions → Import command** accepts a complete server command, raw flags, and `KEY=value` environment assignments. The preview separates recognized parameters, environment assignments, managed options, unsupported/deprecated entries, and unrecognized tokens. Users choose the entries to import and can put appropriate leftovers into Custom Arguments.
 
 Arity follows catalog metadata:
 
@@ -204,7 +204,7 @@ Studio normalizes primary and ordinary API names to safe lower-case names. Reque
 
 ### Request-parameter presets
 
-In **Model configuration â†’ Launch â†’ Request parameter aliases**, add a suffix and one or more overrides. Each override chooses **Request** or **Chat template** scope, a value type (text, number, on/off, or JSON), and its value. The chat-template scope prepends `chat_template_kwargs.` automatically, so adding `enable_thinking` produces `chat_template_kwargs.enable_thinking`. The **Add chat template** preset creates that common thinking override in one step.
+In **Model configuration → Launch → Request parameter aliases**, add a suffix and one or more overrides. Each override chooses **Request** or **Chat template** scope, a value type (text, number, on/off, or JSON), and its value. The chat-template scope prepends `chat_template_kwargs.` automatically, so adding `enable_thinking` produces `chat_template_kwargs.enable_thinking`. The **Add chat template** preset creates that common thinking override in one step.
 
 With primary API alias `assistant`, suffix `no-thinking` exposes `assistant:no-thinking`. The corresponding stored value is:
 
@@ -375,7 +375,7 @@ Packaged voices, model-associated references, and available community voice pres
 | Management origin `/v1/audio/voices` and discovered audio routes | Voice and supported engine audio operations.        |
 | Management origin `/v1/tasks/run`                                | Same-origin generic task transport.                 |
 | Inference origin `/audioapi/v1/tasks/run`                        | Generic task dispatch with upstream path rewriting. |
-| Inference origin `/upstream/{model}/â€¦`                           | Concrete engine-specific API passthrough.           |
+| Inference origin `/upstream/{model}/…`                           | Concrete engine-specific API passthrough.           |
 
 Speech output conversion and transcription input conversion follow the engine contract and requested format. `ffmpeg` supplies applicable WAV/audio conversions. Engine-specific alignments and transcription-detail transports use a concrete model target and retain explicit parameter-preset restrictions.
 
@@ -385,7 +385,7 @@ See [audio contract and discovery](audio-cpp-discovery.md) for the metadata and 
 
 ### Hardware
 
-**System â†’ Hardware** (`/system#hardware`) displays CPU utilization, used/total memory, disk usage, and discovered GPU memory. Refresh reads service and GPU probes. Unknown information is labeled unknown; a refresh failure retains the last available readings with an error message.
+**System → Hardware** (`/system#hardware`) displays CPU utilization, used/total memory, disk usage, and discovered GPU memory. Refresh reads service and GPU probes. Unknown information is labeled unknown; a refresh failure retains the last available readings with an error message.
 
 The CUDA card displays detected versions/path and provides installation, version selection, refresh, and uninstall actions. Install/remove work reports through background activity. CUDA installations live in the persistent data directory, with the managed active path supplied to relevant builds/runtimes. An installed toolkit and a working host GPU driver/container runtime are separate requirements.
 
@@ -411,7 +411,7 @@ Private snapshots live in `config/history/`. Redaction in the displayed diff doe
 
 ## Local model benchmarks
 
-The benchmark management API runs a bounded streaming benchmark against a running compatible text model. This feature is available through the benchmark endpoints; the workspace screens provide model control and connection workflows. Requests contain a prompt of 1â€“1,000 characters and an output limit of 1â€“512 tokens (default 64). Results contain the model/proxy name, saved configuration revision/fingerprint, creation time, prompt, output preview, first-token time, duration, completion tokens when reported, throughput when available, and peak observed GPU memory.
+The benchmark management API runs a bounded streaming benchmark against a running compatible text model. This feature is available through the benchmark endpoints; the workspace screens provide model control and connection workflows. Requests contain a prompt of 1–1,000 characters and an output limit of 1–512 tokens (default 64). Results contain the model/proxy name, saved configuration revision/fingerprint, creation time, prompt, output preview, first-token time, duration, completion tokens when reported, throughput when available, and peak observed GPU memory.
 
 The API stores results in `benchmarks.yaml`; listing defaults to 20 entries and supports up to 100. GPU memory is a sampled observation and can include other GPU activity. Results describe their recorded model/configuration and machine; they are not automatically normalized across hardware or engine builds.
 
