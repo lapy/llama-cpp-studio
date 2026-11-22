@@ -159,6 +159,29 @@ def request_is_authenticated(request: Request) -> bool:
     )
 
 
+def request_actor_kind(request: Request) -> str:
+    """How a management caller authenticated, for the mutation audit trail.
+
+    ``session`` and ``token`` are verified credentials; ``local`` is the
+    configured local trust (loopback, or a Compose bridge peer when Studio runs
+    in the container). Anything else is ``anonymous``: it is either about to be
+    rejected or carries only an inference credential on a ``/v1`` route.
+    """
+    if _session_csrf(request) is not None:
+        return "session"
+    bearer = _bearer_token(request)
+    if bearer:
+        expected = management_token()
+        if expected and secrets.compare_digest(bearer, expected):
+            return "token"
+    # Loopback is only an authorization fact in local mode; remote mode demands
+    # a credential even from a local client, so an unauthenticated mutation
+    # there is anonymous.
+    if access_mode() == "local" and is_trusted_local_client(request):
+        return "local"
+    return "anonymous"
+
+
 def establish_session(token: str) -> Optional[tuple[str, str]]:
     expected = management_token()
     if not expected or not secrets.compare_digest(token, expected):
