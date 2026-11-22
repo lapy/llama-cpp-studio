@@ -232,7 +232,7 @@ describe('EnginesView shared page structure', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    wrapper.vm.openEngineModal('llama_cpp')
+    wrapper.vm.openEngineModal(Object.keys(ENGINE_DESCRIPTORS)[0])
     await flushPromises()
 
     const header = wrapper.get('.eh-stub')

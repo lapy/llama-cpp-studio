@@ -9,7 +9,7 @@
 
 <script setup>
 /**
- * Inline engine guidance (V100/vLLM/upstream notes). The visual treatment is
+ * Inline engine guidance (V100/upstream notes). The visual treatment is
  * the shared StateBanner; this wrapper only fixes the engine severity scale
  * and keeps an actions slot.
  */

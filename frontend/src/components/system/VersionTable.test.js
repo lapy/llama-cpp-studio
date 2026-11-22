@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 
 import VersionTable from './VersionTable.vue'
+import { CMAKE_ENGINE_IDS } from '../../engines/registry.js'
+
+const CMAKE_ENGINE = [...CMAKE_ENGINE_IDS][0]
 
 function mountTable(versions, extraProps = {}) {
   return mount(VersionTable, {
@@ -35,7 +38,7 @@ describe('VersionTable table shell', () => {
   it('renders a labelled table with the shared shell and action column', () => {
     const wrapper = mountTable([
       {
-        id: 'llama_cpp:source-main',
+        id: `${CMAKE_ENGINE}:source-main`,
         version: 'source-main',
         type: 'source',
         install_type: 'source',
@@ -64,7 +67,7 @@ describe('VersionTable table shell', () => {
   it('gives every icon-only row action an accessible name', () => {
     const wrapper = mountTable([
       {
-        id: 'llama_cpp:source-main',
+        id: `${CMAKE_ENGINE}:source-main`,
         version: 'source-main',
         type: 'source',
         install_type: 'source',
@@ -121,7 +124,7 @@ describe('VersionTable fork labeling', () => {
     const buttons = wrapper.findAll('button')
     expect(buttons.length).toBe(3)
     await buttons[0].trigger('click')
-    expect(wrapper.emitted('sync')?.[0]).toEqual(['llama_cpp:source-main'])
+    expect(wrapper.emitted('sync')?.[0]).toEqual([`${CMAKE_ENGINE}:source-main`])
   })
 
   it('emits sync for local branch checkouts', async () => {
