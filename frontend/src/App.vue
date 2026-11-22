@@ -22,12 +22,23 @@
         <!-- Main Content -->
         <main id="main-content" class="layout-main" tabindex="-1">
           <LiveUpdatesBanner />
-          <section v-if="routeFailure" role="alert">
-            <h2>Unable to open this view</h2>
-            <p>The page could not be loaded. Check your connection and retry.</p>
-            <button type="button" @click="retryRoute">Retry navigation</button>
-            <button type="button" @click="reloadWorkspace">Reload Studio</button>
-          </section>
+          <EmptyState
+            v-if="routeFailure"
+            role="alert"
+            heading-tag="h1"
+            icon="pi pi-exclamation-circle"
+            title="Unable to open this view"
+            description="The page could not be loaded. Check your connection and retry."
+          >
+            <Button label="Retry navigation" icon="pi pi-refresh" @click="retryRoute" />
+            <Button
+              label="Reload Studio"
+              icon="pi pi-reload"
+              severity="secondary"
+              outlined
+              @click="reloadWorkspace"
+            />
+          </EmptyState>
           <router-view v-slot="{ Component, route }">
             <RouteErrorBoundary :key="route.path"><component :is="Component" /></RouteErrorBoundary>
           </router-view>
@@ -54,6 +65,7 @@ import RouteErrorBoundary from '@/components/common/RouteErrorBoundary.vue'
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 
 // PrimeVue
+import Button from 'primevue/button'
 import ConfirmDialog from 'primevue/confirmdialog'
 import Toast from 'primevue/toast'
 import { useToast } from 'primevue/usetoast'
@@ -69,6 +81,7 @@ import { useTheme } from '@/composables/useTheme'
 import AppHeader from '@/components/layout/AppHeader.vue'
 import AppNavigation from '@/components/layout/AppNavigation.vue'
 import AppFooter from '@/components/layout/AppFooter.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 import LiveUpdatesBanner from '@/components/common/LiveUpdatesBanner.vue'
 import TaskNotifications from '@/components/common/TaskNotifications.vue'
 import RemoteAccessGate from '@/components/common/RemoteAccessGate.vue'
